@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.airplay
 
 import android.util.Log
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
+import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -33,6 +34,7 @@ interface AirPlaySessionListener {
     fun onHostUiRequested(session: AirPlaySession) {}
     fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {}
     fun onDebugLog(message: String) {}
+    fun onConnectionTrace(stage: ConnectionTraceStage) {}
 }
 
 /** Stream transport seam; media decode/render is supplied by a later layer. */
@@ -77,6 +79,7 @@ class AirPlaySession(
     private var eventCseq = 0
     private var pendingNightMode: Boolean? = null
     private val firstTouchSendLogged = AtomicBoolean(false)
+    private val firstVideoFrameRendered = AtomicBoolean(false)
     private val touchSendFailureLogged = AtomicBoolean(false)
     private val ntp = NtpClock()
     private var keepAliveSocket: DatagramSocket? = null
@@ -97,7 +100,12 @@ class AirPlaySession(
     internal fun logDebug(message: String) = debugLog(message)
 
     internal fun videoFrameRendered() {
-        if (!closed.get()) listener.onVideoFrameRendered(this)
+        if (!closed.get()) {
+            if (firstVideoFrameRendered.compareAndSet(false, true)) {
+                runCatching { listener.onConnectionTrace(ConnectionTraceStage.FIRST_FRAME_RENDERED) }
+            }
+            listener.onVideoFrameRendered(this)
+        }
     }
 
     internal fun logTrace(message: String) = trace(message)
@@ -333,6 +341,7 @@ class AirPlaySession(
         when (request.method) {
             "SETUP" -> return handleSetup(request)
             "RECORD" -> {
+                runCatching { listener.onConnectionTrace(ConnectionTraceStage.AIRPLAY_SESSION_ACTIVE) }
                 listener.onSessionActive(this)
                 return RtspMessage.Response(status = 200)
             }
@@ -476,6 +485,7 @@ class AirPlaySession(
                     val port = media.onScreen(this, type, stream)
                     debugLog("airplay screen stream type=$type dataPort=${port ?: "rejected"}")
                     if (port != null) {
+                        runCatching { listener.onConnectionTrace(ConnectionTraceStage.SCREEN_STREAM_OPENED) }
                         activeStreams.add(type)
                         result.add(linkedMapOf("type" to type, "dataPort" to port))
                     }

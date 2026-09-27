@@ -65,6 +65,8 @@
     <string name="ui_wireless_help">Wireless connection help</string>
     <string name="ui_about_diagnostics">About and diagnostics</string>
     <string name="ui_about_diplay">About DiPlay</string>
+    <string name="ui_debug_mode">Debug mode</string>
+    <string name="ui_debug_mode_description">Record detailed connection traces starting with the next connection attempt. The current connection will not be interrupted.</string>
     <string name="ui_save_report">Save diagnostic report</string>
     <string name="ui_saving_report">Saving report…</string>
     <string name="ui_reports_saved_downloads">Reports save to Downloads/DiPlay.</string>

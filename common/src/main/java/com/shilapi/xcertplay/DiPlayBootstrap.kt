@@ -39,7 +39,6 @@ internal object DiPlayBootstrap {
         }
         LocalMfiAuthenticationClient.load(target)
         AirPlayPersistence.saveMfiTarget(context, MfiTarget.LOCAL)
-        AirPlayPersistence.saveDebugLogsEnabled(context, false)
         ready = true
     }
 

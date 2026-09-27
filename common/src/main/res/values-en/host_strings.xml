@@ -37,7 +37,6 @@
     <string name="host_hevc_software_decoder">HEVC software decoder</string>
     <string name="host_accessibility_hevc_software_decoder">Use software HEVC decoder</string>
     <string name="host_section_window">Window</string>
-    <string name="host_section_diagnostics">Diagnostics</string>
     <string name="host_android_9_compatibility">Android 9 compatibility</string>
     <string name="host_android_9_explanation">The following settings are unavailable and hidden on Android 9 (API 28):\n• Wi-Fi P2P (5 GHz) is replaced by LocalOnlyHotspot.\n• Hardware decoding is used instead of the HEVC software decoder.</string>
     <string name="host_save_reconnect">Save and reconnect</string>
@@ -66,8 +65,6 @@
     <string name="host_report_location">Report location to iPhone</string>
     <string name="host_accessibility_report_location">Report Android location to the iPhone</string>
     <string name="host_report_location_description">Sends precise Android location as CarPlay GPS data when the iPhone requests it.</string>
-    <string name="host_debug_logs">Debug logs</string>
-    <string name="host_debug_logs_description">Show on-screen debug logs</string>
     <string name="host_airplay_icon">AirPlay icon</string>
     <string name="host_choose_image">Choose image</string>
     <string name="host_default_icon">Default icon</string>

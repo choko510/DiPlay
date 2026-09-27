@@ -65,6 +65,8 @@
     <string name="ui_wireless_help">ワイヤレス接続のヘルプ</string>
     <string name="ui_about_diagnostics">DiPlayについて・診断</string>
     <string name="ui_about_diplay">DiPlayについて</string>
+    <string name="ui_debug_mode">デバッグモード</string>
+    <string name="ui_debug_mode_description">次回の接続試行から詳細な接続ログを記録します。現在の接続は切断されません。</string>
     <string name="ui_save_report">診断レポートを保存</string>
     <string name="ui_saving_report">レポートを保存中…</string>
     <string name="ui_reports_saved_downloads">レポートはDownloads/DiPlayに保存されます。</string>

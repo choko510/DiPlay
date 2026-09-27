@@ -245,6 +245,12 @@ class DiPlayActivity : ComponentActivity() {
         }
         section(content, getString(R.string.ui_about_diagnostics)) { card ->
             card.addView(button(getString(R.string.ui_about_diplay), false) { page = "about"; render() }, matchButton(0, 60))
+            toggle(
+                card,
+                getString(R.string.ui_debug_mode),
+                getString(R.string.ui_debug_mode_description),
+                AirPlayPersistence.loadDebugLogsEnabled(this),
+            ) { AirPlayPersistence.saveDebugLogsEnabled(this, it) }
             exportButton = button(getString(if (exportInProgress) R.string.ui_saving_report else R.string.ui_save_report), false) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) exportDiagnostics()
                 else chooseReportDestination()
@@ -600,6 +606,7 @@ class DiPlayActivity : ComponentActivity() {
                     appendLine("--- Last display negotiation (timestamps distinguish it from current settings) ---")
                     appendLine(DisplayDiagnosticSnapshot.report(appContext))
                     appendLine()
+                    appendLine(ConnectionTraceStore.shared(appContext).reportSection())
                     for (name in SessionLogFile.REPORT_NAMES) {
                         val file = File(appContext.filesDir, "logs/$name")
                         if (file.isFile) {

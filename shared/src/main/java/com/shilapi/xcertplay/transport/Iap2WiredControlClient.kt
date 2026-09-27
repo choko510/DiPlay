@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.iap2.message.Iap2ControlMessages
 import com.shilapi.xcertplay.iap2.session.Iap2Session
 import com.shilapi.xcertplay.iap2.wire.Iap2Frame
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
+import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import java.net.Inet6Address
 import java.net.InetAddress
 import kotlin.math.min
@@ -29,6 +30,7 @@ class Iap2WiredControlClient(
         locationProvider: Iap2LocationProvider? = null,
         onIncoming: (Iap2Frame) -> Unit = {},
         onProgress: (String) -> Unit = {},
+        onTraceStage: (ConnectionTraceStage) -> Unit = {},
     ): Iap2WiredControlResult {
         require(availableCurrentMilliAmps in 0..0xffff) {
             "availableCurrentMilliAmps must be in 0..65535"
@@ -39,9 +41,11 @@ class Iap2WiredControlClient(
 
         val deadlineNanos = Iap2ControlDeadline(timeoutMillis)
         Iap2IdentificationClient(session).identify(identification, requireRemaining(deadlineNanos))
+        onTraceStage(ConnectionTraceStage.IAP2_IDENTIFICATION_ACCEPTED)
         onProgress("iap2 identification accepted")
         var stage = Iap2WiredControlStage.IDENTIFIED
         mfi.run(session, requireRemaining(deadlineNanos), onProgress)
+        onTraceStage(ConnectionTraceStage.MFI_AUTHENTICATED)
         stage = Iap2WiredControlStage.AUTHENTICATED
         onProgress("iap2 authentication accepted")
         deadlineNanos.authenticated()
@@ -100,6 +104,7 @@ class Iap2WiredControlClient(
                         send(carPlayStartSession(endpoint), deadlineNanos)
                         stage = Iap2WiredControlStage.CARPLAY_START_SENT
                         carPlayStartSessions++
+                        onTraceStage(ConnectionTraceStage.CARPLAY_START_SENT)
                         onProgress("iap2 tx=0x4301 carplay-start-session")
                     }
 

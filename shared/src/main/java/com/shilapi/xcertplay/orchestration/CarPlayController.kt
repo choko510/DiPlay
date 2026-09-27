@@ -83,6 +83,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 sealed class CarPlayStatus {
@@ -143,6 +144,8 @@ class CarPlayController(
     private val savePairRecord: (LockdownPairRecord) -> Unit = {},
     private val clearPairRecord: () -> Unit = {},
     private val locationProvider: Iap2LocationProvider? = null,
+    private val connectionTraceEnabled: Boolean = false,
+    private val onConnectionTrace: (ConnectionTraceEvent) -> Unit = {},
 ) : Closeable {
     init {
         require(!config.locationReportingEnabled || locationProvider != null) {
@@ -203,6 +206,11 @@ class CarPlayController(
     private val wirelessActiveReported = AtomicBoolean(false)
     private val wirelessGeneration = AtomicInteger(0)
     private val wirelessConnectionProof = WirelessConnectionProof<AirPlaySession>()
+    private val connectionTraceStartedAtNanos = AtomicLong(0L)
+    private val connectionTraceAttemptStarted = AtomicBoolean(false)
+    private val lastConnectionTraceElapsedMs = AtomicLong(0L)
+    private val connectionTraceErrorReported = AtomicBoolean(false)
+    private val connectionTraceLock = Any()
 
     private var permissionCloseable: Closeable? = null
     private var attachCloseable: Closeable? = null
@@ -223,6 +231,10 @@ class CarPlayController(
     }
 
     private val sessionListener = object : AirPlaySessionListener {
+        override fun onConnectionTrace(stage: ConnectionTraceStage) {
+            traceConnection(stage)
+        }
+
         override fun onSessionActive(session: AirPlaySession) {
             if (activeSession !== session) BydNavigationOutputs.start(appContext)
             activeSession = session
@@ -243,6 +255,9 @@ class CarPlayController(
         }
 
         override fun onTransportError(message: String) {
+            if (connectionTraceErrorReported.compareAndSet(false, true)) {
+                traceConnection(ConnectionTraceStage.ERROR, connectionTraceError(message))
+            }
             debugLog("AirPlay transport error: $message")
             uiListener?.onTransportError(message)
         }
@@ -315,6 +330,7 @@ class CarPlayController(
         synchronized(this) {
             if (closed) return
         }
+        beginConnectionTraceAttempt()
         if (config.transport == CarPlayTransport.WIRED) {
             permissionCloseable = iphoneHost.registerPermissionReceiver(::onIphonePermission)
             attachCloseable = iphoneHost.registerAttachReceiver(::onIphoneAttached)
@@ -325,6 +341,7 @@ class CarPlayController(
     /** Reopens the CH341/MFi path without restarting the app. */
     fun reconnectMfi() = synchronized(lifecycleLock) {
         if (closed) return
+        traceConnection(ConnectionTraceStage.RETRY)
         closeMfiSession()
         startMfi()
     }
@@ -332,6 +349,7 @@ class CarPlayController(
     /** Re-runs iPhone discovery/bring-up using the already-open MFi session. */
     fun reconnectIphone() = synchronized(lifecycleLock) {
         if (closed) return
+        traceConnection(ConnectionTraceStage.RETRY)
         if (mfiSession == null) {
             startMfi()
         } else if (config.transport == CarPlayTransport.WIRELESS) {
@@ -355,6 +373,7 @@ class CarPlayController(
     override fun close() {
         synchronized(this) {
             if (closed) return
+            traceConnection(ConnectionTraceStage.CANCELLED)
             closed = true
         }
         BydNavigationOutputs.endNow()
@@ -1199,6 +1218,7 @@ class CarPlayController(
             onStatus(CarPlayStatus.WaitingForIphone)
             scheduleAvailabilityPoll(Phase.IPHONE, ::checkIphoneAvailability)
         } else {
+            traceConnection(ConnectionTraceStage.USB_DISCOVERED)
             debugLog(
                 "wired iPhone discovered vid=0x${device.vendorId.toString(16)} " +
                     "pid=0x${device.productId.toString(16)}",
@@ -1238,6 +1258,7 @@ class CarPlayController(
             is IphoneUsbHost.PermissionResult.Granted -> {
                 // The system broadcast and the polling fallback can both observe the grant.
                 if (!permissionGrant.compareAndSet(false, true)) return
+                traceConnection(ConnectionTraceStage.USB_PERMISSION_GRANTED)
                 debugLog("wired iPhone USB permission granted")
                 permissionPollGeneration++
                 when (phase) {
@@ -1294,11 +1315,13 @@ class CarPlayController(
     private fun beginReenumeration(device: UsbDevice) {
         phase = Phase.REENUMERATION
         reenumerationAttempts += 1
+        traceConnection(ConnectionTraceStage.RETRY)
         onStatus(CarPlayStatus.SelectingConfiguration)
         iphoneHost.requestCarPlayReenumerationAsync(device, executor) { transition ->
             when (transition) {
-                IphoneUsbHost.TransitionResult.ReenumerationRequested ->
+                IphoneUsbHost.TransitionResult.ReenumerationRequested -> {
                     onStatus(CarPlayStatus.WaitingForReenumeration)
+                }
                 is IphoneUsbHost.TransitionResult.Failed -> fail(transition.error)
             }
         }
@@ -1307,6 +1330,9 @@ class CarPlayController(
     private fun onIphoneAttached(device: UsbDevice) {
         when (phase) {
             Phase.REENUMERATION, Phase.IPHONE -> {
+                if (phase == Phase.REENUMERATION) {
+                    traceConnection(ConnectionTraceStage.USB_REENUMERATED)
+                }
                 availabilityPollGeneration.incrementAndGet()
                 requestIphonePermission(device)
             }
@@ -1339,6 +1365,7 @@ class CarPlayController(
             when (result) {
                 is IphoneUsbHost.Iap2SessionResult.Connected -> {
                     try {
+                        traceConnection(ConnectionTraceStage.USB_IAP2_SESSION_OPENED)
                         val ncm = openNcm(device)
                         runStack(result.session, ncm)
                     } catch (error: Throwable) {
@@ -1376,11 +1403,13 @@ class CarPlayController(
             if (closed) return
             val mux = Iap2UsbMuxHost.open(usbSession)
             this.mux = mux
+            traceConnection(ConnectionTraceStage.USBMUX_READY)
             debugLog("wired USBMUX host opened")
             onStatus(CarPlayStatus.Pairing)
             val pairingClient = LockdownPairingClient(mux)
             val savedPairRecord = loadPairRecord()
             var pairRecord = savedPairRecord ?: pairNewRecord(pairingClient)
+            traceConnection(ConnectionTraceStage.PAIRING_READY)
             debugLog(
                 if (savedPairRecord != null) {
                     "wired using saved Lockdown pair record"
@@ -1432,6 +1461,7 @@ class CarPlayController(
                 carKitClient.open(pairRecord, config.label)
             }
             debugLog("wired com.apple.carkit.service stream opened")
+            traceConnection(ConnectionTraceStage.CARKIT_SERVICE_OPENED)
             // Lab transport diagnostics: packet headers only, never certificate or challenge data.
             fun wireSummary(bytes: ByteArray): String {
                 if (bytes.size < 9 || bytes[0].toInt() and 0xff != 0xff ||
@@ -1470,6 +1500,7 @@ class CarPlayController(
             }
             ncmOwnedLocally = false
             debugLog("wired NCM/VPN AirPlay transport attached")
+            traceConnection(ConnectionTraceStage.NCM_ATTACHED)
             if (closed) {
                 vpnService?.detach()
                 return
@@ -1494,6 +1525,7 @@ class CarPlayController(
                 locationProvider = locationProvider,
                 onIncoming = ::onRouteFrame,
                 onProgress = { message -> debugLog("wired $message") },
+                onTraceStage = ::traceConnection,
             )
             onStatus(
                 when (result.terminal) {
@@ -1896,6 +1928,9 @@ class CarPlayController(
 
     private fun fail(error: Throwable) {
         if (closed) return
+        if (connectionTraceErrorReported.compareAndSet(false, true)) {
+            traceConnection(ConnectionTraceStage.ERROR, connectionTraceError(error))
+        }
         onStatus(CarPlayStatus.Failed(error.message ?: error.javaClass.simpleName,
             generateSequence(error) { it.cause }.any { it is com.shilapi.xcertplay.network.P2pResetRequiredException }))
     }
@@ -1921,6 +1956,11 @@ class CarPlayController(
     }
 
     private fun onStatus(status: CarPlayStatus) {
+        if (status == CarPlayStatus.MfiReady) traceConnection(ConnectionTraceStage.MFI_READY)
+        if (status is CarPlayStatus.Failed && connectionTraceErrorReported.compareAndSet(false, true)) {
+            val category = connectionTraceError(status.message)
+            traceConnection(ConnectionTraceStage.ERROR, category)
+        }
         if (closed) return
         mainHandler.post {
             if (!closed && status != lastReportedStatus) {
@@ -1928,6 +1968,54 @@ class CarPlayController(
                 uiListener?.onDebugLog(status.debugLogMessage())
                 uiStatusReporter?.invoke(status)
             }
+        }
+    }
+
+    private fun beginConnectionTraceAttempt() {
+        if (!connectionTraceEnabled) return
+        connectionTraceStartedAtNanos.set(System.nanoTime())
+        connectionTraceAttemptStarted.set(true)
+        lastConnectionTraceElapsedMs.set(0L)
+        connectionTraceErrorReported.set(false)
+        traceConnection(ConnectionTraceStage.ATTEMPT_STARTED)
+    }
+
+    private fun traceConnection(
+        stage: ConnectionTraceStage,
+        error: ConnectionTraceError? = null,
+    ) {
+        if (!connectionTraceEnabled) return
+        if (!connectionTraceAttemptStarted.get()) return
+        val startedAtNanos = connectionTraceStartedAtNanos.get()
+        synchronized(connectionTraceLock) {
+            val elapsedMs = maxOf(
+                lastConnectionTraceElapsedMs.get(),
+                connectionTraceElapsedMs(startedAtNanos, System.nanoTime()),
+            )
+            lastConnectionTraceElapsedMs.set(elapsedMs)
+            try {
+                onConnectionTrace(ConnectionTraceEvent(stage, elapsedMs, error))
+            } catch (_: Throwable) {
+                // Diagnostics must not interrupt the connection lifecycle.
+            }
+        }
+    }
+
+    private fun connectionTraceError(error: Throwable): ConnectionTraceError =
+        classifyConnectionTraceError(error)
+
+    private fun connectionTraceError(message: String): ConnectionTraceError {
+        val safeCategoryText = message.lowercase(Locale.US)
+        return when {
+            "decoder" in safeCategoryText || "codec" in safeCategoryText -> ConnectionTraceError.DECODER
+            "permission" in safeCategoryText -> ConnectionTraceError.PERMISSION
+            "pair" in safeCategoryText || "lockdown" in safeCategoryText -> ConnectionTraceError.PAIRING
+            "mfi" in safeCategoryText || "auth" in safeCategoryText -> ConnectionTraceError.MFI
+            "usb" in safeCategoryText || "iphone" in safeCategoryText || "ncm" in safeCategoryText -> ConnectionTraceError.USB
+            "airplay" in safeCategoryText || "rtsp" in safeCategoryText -> ConnectionTraceError.AIRPLAY
+            "network" in safeCategoryText || "vpn" in safeCategoryText || "hotspot" in safeCategoryText -> ConnectionTraceError.NETWORK
+            "iap2" in safeCategoryText || "control" in safeCategoryText -> ConnectionTraceError.CONTROL
+            else -> ConnectionTraceError.UNKNOWN
         }
     }
 

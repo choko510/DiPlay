@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,9 +22,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.mfi.MfiProtocolMajorResult
 import com.shilapi.xcertplay.mfi.MfiSelfCheck
 import com.shilapi.xcertplay.mfi.MfiSelfCheckResult
+import com.shilapi.xcertplay.shared.AppLanguage
 import com.shilapi.xcertplay.transport.LinuxI2cTransport
 import com.shilapi.xcertplay.ui.theme.XcertplayTheme
 import java.util.concurrent.ExecutorService
@@ -32,6 +35,10 @@ import java.util.concurrent.Executors
 class MainActivity : ComponentActivity() {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private var status by mutableStateOf<DiagnosticStatus>(DiagnosticStatus.Idle)
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(AppLanguage.localizedContext(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,12 +51,12 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(padding).padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text("Board I2C diagnostic")
+                        Text(getString(R.string.main_diagnostic_title))
                         OutlinedTextField(
                             value = devicePath,
                             onValueChange = { devicePath = it },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Linux I2C device") },
+                            label = { Text(getString(R.string.main_i2c_device)) },
                             singleLine = true,
                             enabled = status !is DiagnosticStatus.Running,
                         )
@@ -57,11 +64,11 @@ class MainActivity : ComponentActivity() {
                             onClick = { runSelfCheck(devicePath) },
                             enabled = status !is DiagnosticStatus.Running,
                         ) {
-                            Text("Run MFi self-check")
+                            Text(getString(R.string.main_run_mfi_self_check))
                         }
                         Spacer(Modifier.height(4.dp))
-                        Text(status.message())
-                        Text("CH341 requires deployment-specific VID/PID configuration.")
+                        Text(status.message(this@MainActivity))
+                        Text(getString(R.string.main_ch341_configuration_notice))
                     }
                 }
             }
@@ -80,7 +87,7 @@ class MainActivity : ComponentActivity() {
                 LinuxI2cTransport.open(devicePath).use { MfiSelfCheck(it).run() }
                     .let { DiagnosticStatus.Result(it) }
             } catch (error: LinkageError) {
-                DiagnosticStatus.Failure(error.message ?: "I2C native library is unavailable")
+                DiagnosticStatus.Failure(error.message ?: getString(R.string.main_i2c_native_library_unavailable))
             } catch (error: Exception) {
                 DiagnosticStatus.Failure(error.message ?: error.javaClass.simpleName)
             }
@@ -97,22 +104,23 @@ private sealed class DiagnosticStatus {
     data class Result(val selfCheck: MfiSelfCheckResult) : DiagnosticStatus()
     data class Failure(val message: String) : DiagnosticStatus()
 
-    fun message(): String = when (this) {
-        Idle -> "Idle"
-        Running -> "Running…"
-        is Failure -> "Failed: $message"
+    fun message(context: Context): String = when (this) {
+        Idle -> context.getString(R.string.main_status_idle)
+        Running -> context.getString(R.string.main_status_running)
+        is Failure -> context.getString(R.string.main_status_failed, message)
         is Result -> {
             val chip = selfCheck.chip ?: return if (selfCheck.discovery.interrupted) {
-                "MFi scan interrupted"
+                context.getString(R.string.main_status_mfi_scan_interrupted)
             } else {
-                "Found: none"
+                context.getString(R.string.main_status_found_none)
             }
             val major = when (val result = chip.protocolMajor) {
                 is MfiProtocolMajorResult.Value -> "%d".format(result.major)
                 is MfiProtocolMajorResult.MfiFailure -> result.error.message ?: result.error.javaClass.simpleName
                 is MfiProtocolMajorResult.TransportFailure -> result.error.message ?: result.error.javaClass.simpleName
             }
-            "Found: 0x%02X; device version: 0x%02X; protocol major (raw): %s".format(
+            context.getString(
+                R.string.main_status_found_device,
                 chip.address7Bit,
                 chip.deviceVersion,
                 major,

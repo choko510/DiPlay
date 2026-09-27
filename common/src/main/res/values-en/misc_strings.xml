@@ -1,0 +1,26 @@
+<resources>
+    <string name="main_diagnostic_title">Board I2C diagnostic</string>
+    <string name="main_i2c_device">Linux I2C device</string>
+    <string name="main_run_mfi_self_check">Run MFi self-check</string>
+    <string name="main_ch341_configuration_notice">CH341 requires deployment-specific VID/PID configuration.</string>
+    <string name="main_i2c_native_library_unavailable">I2C native library is unavailable</string>
+    <string name="main_status_idle">Idle</string>
+    <string name="main_status_running">Running…</string>
+    <string name="main_status_failed">Failed: %1$s</string>
+    <string name="main_status_mfi_scan_interrupted">MFi scan interrupted</string>
+    <string name="main_status_found_none">Found: none</string>
+    <string name="main_status_found_device">Found: 0x%1$02X; device version: 0x%2$02X; protocol major (raw): %3$s</string>
+
+    <string name="crop_status_loading_image">Loading image</string>
+    <string name="crop_cancel">Cancel</string>
+    <string name="crop_save_square">Save 1:1</string>
+    <string name="crop_status_decode_failed">Could not decode image</string>
+    <string name="crop_status_gestures">Drag to move, pinch to zoom</string>
+    <string name="crop_status_image_not_ready">Image is not ready</string>
+    <string name="crop_status_encode_failed">Could not encode image</string>
+    <string name="crop_status_save_failed">Could not save image</string>
+
+    <string name="notification_channel_carplay_connection">CarPlay connection</string>
+    <string name="notification_carplay_connection_running">CarPlay connection running</string>
+    <string name="notification_disconnect">Disconnect</string>
+</resources>

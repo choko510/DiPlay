@@ -2,7 +2,7 @@
 # Drop this .codex directory at the repository root.
 
 # Sol is the root coordinator: planning, architecture, diagnosis, review, integration.
-model = "gpt-5.6-sol"
+model = "gpt-6-sol"
 model_reasoning_effort = "xhigh"
 plan_mode_reasoning_effort = "xhigh"
 
@@ -27,7 +27,7 @@ enabled = true
 
 # Any generic spawned worker defaults to Luna Max.
 # This is intentional: Luna is cheap enough to spend reasoning on bounded coding work.
-default_subagent_model = "gpt-5.6-luna"
+default_subagent_model = "gpt-6-luna"
 default_subagent_reasoning_effort = "max"
 
 # Up to six spawned workers in addition to the primary thread on the global agents path.

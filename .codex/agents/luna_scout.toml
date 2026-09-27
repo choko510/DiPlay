@@ -1,6 +1,6 @@
 name = "luna_scout"
 description = "Read-only Luna scout for repository structure, call sites, tests, patterns, and concrete evidence."
-model = "gpt-5.6-luna"
+model = "gpt-6-luna"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
 

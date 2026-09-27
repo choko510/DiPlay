@@ -1,6 +1,6 @@
 name = "sol_reviewer"
 description = "Independent senior reviewer for plans and completed implementation diffs. Read-only."
-model = "gpt-5.6-sol"
+model = "gpt-6-sol"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
 

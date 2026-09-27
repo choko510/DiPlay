@@ -4,8 +4,8 @@ This bundle is designed to be extracted directly into the root of an existing re
 
 ## What it does
 
-- Root coordinator: `gpt-5.6-sol` at `xhigh`
-- Generic subagents: `gpt-5.6-luna` at `max`
+- Root coordinator: `gpt-6-sol` at `xhigh`
+- Generic subagents: `gpt-6-luna` at `max`
 - Planning / architecture / hard diagnosis / final review: Sol
 - Implementation: Luna Max
 - Repository scouting and verification: Luna xhigh

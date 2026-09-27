@@ -4,8 +4,8 @@
 
 This repository uses a deliberate split between high-level reasoning and implementation.
 
-- **GPT-5.6 Sol** is the coordinator and decision-maker.
-- **GPT-5.6 Luna** is the default execution model for subagents.
+- **GPT-6 Sol** is the coordinator and decision-maker.
+- **GPT-6 Luna** is the default execution model for subagents.
 - Sol owns planning, architecture, difficult diagnosis, tradeoffs, review, integration decisions, and the final correctness claim.
 - Luna owns bounded implementation, repository exploration, test execution, repetitive edits, and clearly specified fixes.
 

@@ -1,6 +1,6 @@
 name = "sol_architect"
 description = "Senior architecture and plan-design agent. Produces implementation-ready contracts and does not edit files."
-model = "gpt-5.6-sol"
+model = "gpt-6-sol"
 model_reasoning_effort = "xhigh"
 sandbox_mode = "read-only"
 

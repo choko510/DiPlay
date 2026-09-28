@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.transport
 import android.util.Log
 import java.io.Closeable
 import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * USBMUX version-2 host over an already claimed iPhone bulk pipe.
@@ -24,14 +25,10 @@ class Iap2UsbMuxHost private constructor(
     private var nextMuxAcknowledgement = 0
     private var nextSourcePort = FIRST_SOURCE_PORT
     private lateinit var readerThread: Thread
-    private var receiveBuffer = ByteArray(0)
-
-    private data class MuxFrame(
-        val protocol: Int,
-        val length: Int,
-        val word8: Int,
-        val payload: ByteArray,
-    )
+    private val frameDecoder = UsbMuxFrameDecoder()
+    private var framingFailures = 0L
+    private val receivedFrames = AtomicLong()
+    private val sentTcpPackets = AtomicLong()
 
     /** Opens a TCP byte stream to the iPhone service on [destinationPort]. */
     fun connect(
@@ -86,7 +83,14 @@ class Iap2UsbMuxHost private constructor(
         flags: Int,
         payload: ByteArray,
     ) {
-        if (payload.size > 512) Log.i("xcertplay-usb", "usbmux TX source=$sourcePort destination=$destinationPort bytes=${payload.size} seq=$sequence ack=$acknowledgement")
+        val packetNumber = sentTcpPackets.incrementAndGet()
+        if (payload.size > 512 && shouldLogPacket(packetNumber)) {
+            Log.i(
+                "xcertplay-usb",
+                "usbmux TX packet=$packetNumber source=$sourcePort destination=$destinationPort " +
+                    "bytes=${payload.size} seq=$sequence ack=$acknowledgement",
+            )
+        }
         val tcp = ByteArray(TCP_HEADER_BYTES + payload.size)
         putU16(tcp, 0, sourcePort)
         putU16(tcp, 2, destinationPort)
@@ -117,7 +121,7 @@ class Iap2UsbMuxHost private constructor(
         // a distinct "version reply" here; waiting for it discards the valid reply and times out.
         val deadline = System.nanoTime() + HANDSHAKE_TIMEOUT_MILLIS * NANOS_PER_MILLISECOND
         var staleFrames = 0
-        var reply: MuxFrame
+        var reply: UsbMuxFrame
         while (true) {
             val remainingNanos = deadline - System.nanoTime()
             if (remainingNanos <= 0) {
@@ -129,7 +133,7 @@ class Iap2UsbMuxHost private constructor(
             if (
                 reply.protocol == PROTOCOL_VERSION &&
                 reply.length == VERSION_MESSAGE_BYTES &&
-                reply.word8 == USBMUX_VERSION
+                reply.word8 == USBMUX_VERSION.toLong()
             ) {
                 break
             }
@@ -153,39 +157,38 @@ class Iap2UsbMuxHost private constructor(
     }
 
     /** Reads one complete USBMUX frame, keeping partial data buffered across reads. */
-    private fun takeFrame(timeoutMillis: Long): MuxFrame? {
+    private fun takeFrame(timeoutMillis: Long): UsbMuxFrame? {
         val deadline = System.nanoTime() + timeoutMillis * NANOS_PER_MILLISECOND
         while (true) {
-            synchronized(stateLock) {
+            val bufferedFrame = synchronized(stateLock) {
                 if (closed) throw IphoneUsbException.DeviceUnavailable("USBMUX host is closed")
-                if (receiveBuffer.size >= MUX_HEADER_BYTES) {
-                    val length = readU32(receiveBuffer, 4)
-                    if (length < MUX_HEADER_BYTES || length > MAX_FRAME_BYTES) {
-                        throw IphoneUsbException.Protocol("Invalid USBMUX frame length $length")
-                    }
-                    if (receiveBuffer.size >= length) {
-                        // LIVI only trusts the length field on receive: iPhone replies do not
-                        // carry the 0xFEEDFACE word in the header's fourth field.
-                        Log.i(
-                            "xcertplay-usb",
-                            "usbmux rx proto=${readU32(receiveBuffer, 0)} length=$length word8=0x" +
-                                readU32(receiveBuffer, 8).toUInt().toString(16),
-                        )
-                        val protocol = readU32(receiveBuffer, 0)
-                        val word8 = readU32(receiveBuffer, 8)
-                        nextMuxAcknowledgement = readU16(receiveBuffer, 12)
-                        val payload = receiveBuffer.copyOfRange(MUX_HEADER_BYTES, length)
-                        receiveBuffer = receiveBuffer.copyOfRange(length, receiveBuffer.size)
-                        return MuxFrame(protocol, length, word8, payload)
-                    }
+                try {
+                    frameDecoder.takeFrame()?.also { nextMuxAcknowledgement = it.sequence }
+                } catch (error: IphoneUsbException.Protocol) {
+                    framingFailures++
+                    throw error
                 }
             }
+            if (bufferedFrame != null) {
+                val frameNumber = receivedFrames.incrementAndGet()
+                if (shouldLogPacket(frameNumber)) {
+                    // Framing exceptions include a bounded header; no payload bytes are logged.
+                    Log.i(
+                        "xcertplay-usb",
+                        "usbmux rx frame=$frameNumber proto=${bufferedFrame.protocol} " +
+                            "length=${bufferedFrame.length} word8=0x${bufferedFrame.word8.toString(16)}",
+                    )
+                }
+                return bufferedFrame
+            }
+
             val remainingNanos = deadline - System.nanoTime()
             if (remainingNanos <= 0) return null
             val remainingMillis = (remainingNanos + NANOS_PER_MILLISECOND - 1) / NANOS_PER_MILLISECOND
             val bytes = pipe.read(remainingMillis) ?: continue
             synchronized(stateLock) {
-                receiveBuffer += bytes
+                if (closed) throw IphoneUsbException.DeviceUnavailable("USBMUX host is closed")
+                frameDecoder.append(bytes)
             }
         }
     }
@@ -220,7 +223,14 @@ class Iap2UsbMuxHost private constructor(
                     if (closed) return
                 }
                 val frame = takeFrame(readTimeoutMillis) ?: continue
-                if (frame.protocol == PROTOCOL_TCP) dispatchTcp(frame.payload)
+                if (frame.protocol == PROTOCOL_TCP) {
+                    try {
+                        dispatchTcp(frame.payload)
+                    } catch (error: IphoneUsbException.Protocol) {
+                        synchronized(stateLock) { framingFailures++ }
+                        throw error
+                    }
+                }
             }
         } catch (error: IphoneUsbException) {
             fail(error)
@@ -240,7 +250,13 @@ class Iap2UsbMuxHost private constructor(
             throw IphoneUsbException.Protocol("Invalid USBMUX TCP header length")
         }
         val destinationPort = readU16(frame, offset + 2)
-        if (length == tcpHeaderBytes) Log.i("xcertplay-usb", "usbmux TCP control destination=$destinationPort flags=${frame[13].toInt() and 0xff} ack=${readU32(frame, 8)} window=${readU16(frame, 14)}")
+        if (length == tcpHeaderBytes && shouldLogPacket(receivedFrames.get())) {
+            Log.i(
+                "xcertplay-usb",
+                "usbmux TCP control destination=$destinationPort flags=${frame[13].toInt() and 0xff} " +
+                    "ack=${readU32(frame, 8)} window=${readU16(frame, 14)}",
+            )
+        }
         val connection = synchronized(stateLock) { connections[destinationPort] } ?: return
         connection.onPacket(
             flags = frame[offset + 13].toInt() and 0xff,
@@ -250,13 +266,23 @@ class Iap2UsbMuxHost private constructor(
     }
 
     private fun fail(error: IphoneUsbException) {
-        val activeConnections = synchronized(stateLock) {
+        val result = synchronized(stateLock) {
             if (closed) return
             failure = failure ?: error
             closed = true
-            connections.values.toList().also { connections.clear() }
+            Triple(
+                connections.values.toList().also { connections.clear() },
+                framingFailures,
+                failure ?: error,
+            )
         }
-        activeConnections.forEach { it.closeFromHost(error) }
+        Log.e(
+            "xcertplay-usb",
+            "USBMUX transport failed: ${result.third.message}; framingFailures=${result.second}; " +
+                "receivedFrames=${receivedFrames.get()}; ${pipe.diagnosticSummary()}",
+            result.third,
+        )
+        result.first.forEach { it.closeFromHost(result.third) }
         pipe.close()
     }
 
@@ -269,6 +295,9 @@ class Iap2UsbMuxHost private constructor(
         throw IphoneUsbException.DeviceUnavailable("USBMUX has no free TCP source ports")
     }
 
+    private fun shouldLogPacket(packetNumber: Long): Boolean =
+        packetNumber in 1L..8L || packetNumber % PACKET_LOG_INTERVAL == 0L
+
     private fun checkOpenLocked() {
         failure?.let { throw it }
         if (closed) throw IphoneUsbException.DeviceUnavailable("USBMUX host is closed")
@@ -277,6 +306,7 @@ class Iap2UsbMuxHost private constructor(
     companion object {
         const val LOCKDOWN_PORT = 62078
 
+        private const val PACKET_LOG_INTERVAL = 256L
         private const val PROTOCOL_VERSION = 0
         private const val PROTOCOL_SETUP = 2
         private const val PROTOCOL_TCP = 6
@@ -288,7 +318,6 @@ class Iap2UsbMuxHost private constructor(
         private const val MUX_HEADER_BYTES = 16
         private const val TCP_HEADER_BYTES = 20
         private const val TCP_WINDOW_FIELD = 512
-        private const val MAX_FRAME_BYTES = 65_536
         private const val FIRST_SOURCE_PORT = 1
         private const val HANDSHAKE_TIMEOUT_MILLIS = 60_000L
         private const val MAX_STALE_HANDSHAKE_FRAMES = 32
@@ -306,6 +335,12 @@ class Iap2UsbMuxHost private constructor(
                 try {
                     it.begin()
                 } catch (error: Throwable) {
+                    Log.e(
+                        "xcertplay-usb",
+                        "USBMUX open failed: ${error.message}; framingFailures=${it.framingFailures}; " +
+                            pipe.diagnosticSummary(),
+                        error,
+                    )
                     it.close()
                     throw error
                 }

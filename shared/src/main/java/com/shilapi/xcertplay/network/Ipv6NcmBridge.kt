@@ -54,10 +54,16 @@ class Ipv6NcmBridge(
 
     override fun close() {
         if (!running.compareAndSet(true, false)) return
-        ncm.close()
-        tun.close()
-        join(ncmToTunThread)
-        join(tunToNcmThread)
+        try {
+            ncm.close()
+        } finally {
+            try {
+                tun.close()
+            } finally {
+                join(ncmToTunThread)
+                join(tunToNcmThread)
+            }
+        }
     }
 
     private fun runNcmToTun() {

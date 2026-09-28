@@ -37,6 +37,11 @@
     <string name="ui_start_with_car_description">Availability depends on your head unit’s startup settings.</string>
     <string name="ui_choose_iphone_named">Choose iPhone · %1$s</string>
     <string name="ui_wireless_connection">Wireless connection</string>
+    <string name="ui_carplay_identity">CarPlay identity</string>
+    <string name="ui_carplay_name">CarPlay vehicle name</string>
+    <string name="ui_carplay_name_value">Vehicle name · %1$s</string>
+    <string name="ui_carplay_name_note">Shown as the car name on your iPhone. Changes apply after reconnecting CarPlay.</string>
+    <string name="ui_carplay_name_too_long">Use at most 63 UTF-8 bytes.</string>
     <string name="ui_display_performance">Display and performance</string>
     <string name="ui_resolution">Resolution</string>
     <string name="ui_resolution_native">Native</string>

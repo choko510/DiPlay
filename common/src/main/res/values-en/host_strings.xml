@@ -59,7 +59,9 @@
     <string name="host_error_remote_server_nul">Remote server address must not contain U+0000</string>
     <string name="host_error_remote_token_nul">Remote token must not contain U+0000</string>
     <string name="host_manufacturer">Manufacturer</string>
+    <string name="host_carplay_name">CarPlay vehicle name</string>
     <string name="host_model">Model</string>
+    <string name="host_error_carplay_name_length">Use at most 63 UTF-8 bytes.</string>
     <string name="host_oem_label">OEM label</string>
 
     <string name="host_report_location">Report location to iPhone</string>
@@ -129,6 +131,7 @@
     <string name="host_resolution_waiting">Handshake resolution: waiting for display</string>
     <string name="host_resolution_format">Handshake resolution: %1$d × %2$d → %3$d × %4$d</string>
     <string name="host_preview_identity">Identity: %1$s / %2$s</string>
+    <string name="host_preview_carplay_name">CarPlay name: %1$s</string>
     <string name="host_preview_oem_label">OEM label: %1$s</string>
     <string name="host_empty_value">(empty)</string>
     <string name="host_preview_frame_rate">Frame rate: %1$d fps</string>

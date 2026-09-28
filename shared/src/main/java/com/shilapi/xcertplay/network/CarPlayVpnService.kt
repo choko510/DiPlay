@@ -271,12 +271,21 @@ class CarPlayVpnService : VpnService() {
         attachGeneration += 1
         active.set(false)
         attachment = null
-        serverSocket?.close()
+        serverSocket?.let { server ->
+            runCatching { server.close() }
+                .onFailure { Log.w(TAG, "AirPlay server teardown failed", it) }
+        }
         serverSocket = null
         closeSessionsLocked()
-        bridge?.close()
+        bridge?.let { activeBridge ->
+            runCatching { activeBridge.close() }
+                .onFailure { Log.w(TAG, "NCM/VPN bridge teardown failed", it) }
+        }
         bridge = null
-        tun?.close()
+        tun?.let { activeTun ->
+            runCatching { activeTun.close() }
+                .onFailure { Log.w(TAG, "VPN descriptor teardown failed", it) }
+        }
         tun = null
     }
 

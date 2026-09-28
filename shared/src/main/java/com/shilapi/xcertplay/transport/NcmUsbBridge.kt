@@ -24,7 +24,6 @@ class NcmUsbBridge internal constructor(
     private val outEndpoint: UsbEndpoint,
     private val inEndpoint: UsbEndpoint,
     private val statusEndpoint: UsbEndpoint?,
-    private val claimedInterfaces: List<UsbInterface>,
     descriptorHostMac: ByteArray?,
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
@@ -127,14 +126,10 @@ class NcmUsbBridge internal constructor(
                 Thread.currentThread().interrupt()
             }
         }
-        for (usbInterface in claimedInterfaces.asReversed()) {
-            try {
-                connection.releaseInterface(usbInterface)
-            } catch (_: RuntimeException) {
-                // Best-effort release; the connection close below is authoritative.
-            }
-        }
-        connection.close()
+        // Closing the connection wakes requestWait(); wait for recv() to leave before closing the
+        // persistent request. UsbDeviceConnection.close() also releases its claimed interfaces.
+        runCatching { connection.close() }
+        synchronized(readLock) { }
         runCatching { requestToClose?.close() }
     }
 
@@ -355,7 +350,6 @@ class NcmUsbBridge internal constructor(
                     function.bulkOut,
                     function.bulkIn,
                     function.statusIn,
-                    claimed,
                     descriptorHostMac,
                 )
             } catch (error: Throwable) {

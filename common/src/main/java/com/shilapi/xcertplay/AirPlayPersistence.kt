@@ -46,6 +46,7 @@ object AirPlayPersistence {
     private const val KEY_MANUAL_HOTSPOT_CHANNEL = "manual_hotspot_channel"
     private const val KEY_MANUAL_HOTSPOT_SECURITY = "manual_hotspot_security"
     private const val KEY_DEBUG_LOGS_ENABLED = "debug_logs_enabled"
+    private const val KEY_CARPLAY_NAME = "carplay_name"
     private const val KEY_MANUFACTURER = "manufacturer"
     private const val KEY_MODEL = "model"
     private const val KEY_OEM_LABEL = "oem_label"
@@ -70,6 +71,8 @@ object AirPlayPersistence {
 
     const val DEFAULT_MANUFACTURER = "DiPlay"
     const val DEFAULT_MODEL = "DiPlay"
+    const val DEFAULT_CARPLAY_NAME = "DiPlay"
+    const val MAX_CARPLAY_NAME_UTF8_BYTES = 63
     const val DEFAULT_OEM_LABEL = "BYD"
     const val DEFAULT_MFI_I2C_PATH = "/dev/i2c-1"
 
@@ -293,6 +296,28 @@ object AirPlayPersistence {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_LOCATION_REPORTING_ENABLED, enabled)
             .apply()
+    }
+
+    fun normalizeCarPlayName(name: String): String =
+        name.replace('\u0000', ' ').trim().ifBlank { DEFAULT_CARPLAY_NAME }
+
+    fun isCarPlayNameValid(name: String): Boolean =
+        normalizeCarPlayName(name).toByteArray(Charsets.UTF_8).size <= MAX_CARPLAY_NAME_UTF8_BYTES
+
+    fun loadCarPlayName(context: Context): String {
+        val stored = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_CARPLAY_NAME, DEFAULT_CARPLAY_NAME)
+        val normalized = normalizeCarPlayName(stored ?: DEFAULT_CARPLAY_NAME)
+        return normalized.takeIf(::isCarPlayNameValid) ?: DEFAULT_CARPLAY_NAME
+    }
+
+    fun saveCarPlayName(context: Context, name: String): Boolean {
+        val normalized = normalizeCarPlayName(name)
+        if (!isCarPlayNameValid(normalized)) return false
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_CARPLAY_NAME, normalized)
+            .apply()
+        return true
     }
 
     fun loadManufacturer(context: Context): String =

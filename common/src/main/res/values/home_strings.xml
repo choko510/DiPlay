@@ -37,6 +37,11 @@
     <string name="ui_start_with_car_description">利用できるかどうかは、車載機の起動設定によります。</string>
     <string name="ui_choose_iphone_named">iPhoneを選択 · %1$s</string>
     <string name="ui_wireless_connection">ワイヤレス接続</string>
+    <string name="ui_carplay_identity">CarPlayの識別情報</string>
+    <string name="ui_carplay_name">CarPlayの車載名</string>
+    <string name="ui_carplay_name_value">車載名 · %1$s</string>
+    <string name="ui_carplay_name_note">iPhoneに表示される車載名です。変更はCarPlayの再接続後に反映されます。</string>
+    <string name="ui_carplay_name_too_long">UTF-8で63バイト以内の名前を入力してください。</string>
     <string name="ui_display_performance">画面とパフォーマンス</string>
     <string name="ui_resolution">解像度</string>
     <string name="ui_resolution_native">標準</string>

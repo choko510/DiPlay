@@ -129,7 +129,7 @@ class CarPlayHostActivity : ComponentActivity() {
         remoteMfiServer = remoteMfiServer.trim().takeIf { it.isNotEmpty() },
         remoteMfiToken = remoteMfiToken.takeIf { it.isNotEmpty() },
         identification = Iap2IdentificationConfig(
-            name = "DiPlay",
+            name = normalizedCarPlayName(),
             modelIdentifier = normalizedModel(),
             manufacturer = normalizedManufacturer(),
             serialNumber = "DIPLAY-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", ""),
@@ -243,6 +243,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var mfiI2cPathInput: EditText? = null
     private var remoteMfiServerInput: EditText? = null
     private var remoteMfiTokenInput: EditText? = null
+    private var carPlayNameInput: EditText? = null
     private var settingsBaseline: SettingsBaseline? = null
     private var locationReportingSwitch: Switch? = null
     private var statusView: TextView? = null
@@ -275,6 +276,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var advancedAudioChannelMappingSupported = false
     private var advancedAudioChannelMapping = false
     private var autoStartOnBoot = false
+    private var carPlayName = AirPlayPersistence.DEFAULT_CARPLAY_NAME
     private var manufacturer = AirPlayPersistence.DEFAULT_MANUFACTURER
     private var model = AirPlayPersistence.DEFAULT_MODEL
     private var oemLabel = AirPlayPersistence.DEFAULT_OEM_LABEL
@@ -436,6 +438,7 @@ class CarPlayHostActivity : ComponentActivity() {
             advancedAudioChannelMappingSupported &&
                 AirPlayPersistence.loadAdvancedAudioChannelMapping(this)
         autoStartOnBoot = AirPlayPersistence.loadAutoStartOnBoot(this)
+        carPlayName = AirPlayPersistence.loadCarPlayName(this)
         manufacturer = AirPlayPersistence.loadManufacturer(this)
         model = AirPlayPersistence.loadModel(this)
         oemLabel = AirPlayPersistence.loadOemLabel(this)
@@ -559,6 +562,10 @@ class CarPlayHostActivity : ComponentActivity() {
             // replacement activity adopts it in onCreate via adoptBackgroundSession().
             recreate()
             return
+        }
+        if (!menuOpen) {
+            carPlayName = AirPlayPersistence.loadCarPlayName(this)
+            carPlayNameInput?.takeIf { it.text.toString() != carPlayName }?.setText(carPlayName)
         }
         locationPermissionAvailable = hasFineLocationPermission()
         if (locationReportingEnabled && !locationPermissionAvailable && !menuOpen) {
@@ -1263,7 +1270,13 @@ class CarPlayHostActivity : ComponentActivity() {
         return overlay
     }
 
-    private fun persistMenuSettings() {
+    private fun persistMenuSettings(): Boolean {
+        carPlayName = AirPlayPersistence.normalizeCarPlayName(carPlayName)
+        if (!AirPlayPersistence.saveCarPlayName(this, carPlayName)) {
+            carPlayNameInput?.error = getString(R.string.host_error_carplay_name_length)
+            carPlayNameInput?.requestFocus()
+            return false
+        }
         AirPlayPersistence.saveWirelessEnabled(this, wirelessEnabled)
         AirPlayPersistence.saveMfiTarget(this, mfiTarget)
         AirPlayPersistence.saveMfiI2cPath(this, mfiI2cPath)
@@ -1291,6 +1304,7 @@ class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveHideTopBar(this, hideTopBar)
         AirPlayPersistence.saveHideBottomBar(this, hideBottomBar)
         AirPlayPersistence.saveSafeAreaDrawOutside(this, safeAreaDrawOutside)
+        return true
     }
 
     private fun captureSettingsBaseline(): SettingsBaseline {
@@ -1313,6 +1327,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun restoreSettingsBaseline() {
         val baseline = settingsBaseline ?: return
         loadPersistedSettings()
+        carPlayNameInput?.setText(carPlayName)
         baseline.safeAreaSize?.let { size ->
             baseline.safeAreaRect?.let { rect ->
                 AirPlayPersistence.saveSafeAreaRect(
@@ -1512,6 +1527,21 @@ class CarPlayHostActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
         }
         section.addView(
+            settingsInputRow(
+                getString(R.string.host_carplay_name),
+                carPlayName,
+                onInputCreated = { carPlayNameInput = it },
+            ) { value ->
+                carPlayName = value
+                carPlayNameInput?.error = null
+                updateResolutionMenu()
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
+        )
+        section.addView(
             settingsInputRow(getString(R.string.host_manufacturer), manufacturer) { value ->
                 manufacturer = value
                 updateResolutionMenu()
@@ -1519,7 +1549,7 @@ class CarPlayHostActivity : ComponentActivity() {
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-            ),
+            ).apply { topMargin = dp(10) },
         )
         section.addView(
             settingsInputRow(getString(R.string.host_model), model) { value ->
@@ -2486,6 +2516,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         resolutionPreviewView?.text = buildString {
             append(resolution).append('\n')
+            append(getString(R.string.host_preview_carplay_name, normalizedCarPlayName())).append('\n')
             append(
                 getString(
                     R.string.host_preview_identity,
@@ -2654,7 +2685,7 @@ class CarPlayHostActivity : ComponentActivity() {
         appendLog(support.details)
         appendLog(effectiveSummary)
         return AirPlayConfig(
-            deviceName = "DiPlay",
+            deviceName = normalizedCarPlayName(),
             deviceId = DiPlayBootstrap.deviceId(airPlayIdentity),
             btMac = DiPlayBluetooth.localAddress(this) ?: DiPlayBootstrap.deviceId(airPlayIdentity),
             sourceVersion = "950.7.1",
@@ -2825,6 +2856,9 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun normalizedModel(): String =
         model.trim().ifBlank { AirPlayPersistence.DEFAULT_MODEL }
+
+    private fun normalizedCarPlayName(): String =
+        AirPlayPersistence.normalizeCarPlayName(carPlayName)
 
     private fun createMediaSink(
         videoWidth: Int,
@@ -3222,7 +3256,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (!menuOpen) return
         if (!validateMfiSettings()) return
         if (!validateManualHotspotSettings()) return
-        persistMenuSettings()
+        if (!persistMenuSettings()) return
         settingsBaseline = null
         finishSettingsMenu("Settings saved")
     }

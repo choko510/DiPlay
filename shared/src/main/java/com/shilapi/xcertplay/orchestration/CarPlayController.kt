@@ -199,6 +199,7 @@ class CarPlayController(
     @Volatile private var mux: Iap2UsbMuxHost? = null
     @Volatile private var csm: Iap2Session? = null
     @Volatile private var activeSession: AirPlaySession? = null
+    @Volatile private var activeWiredSessionAttempt = 0
     @Volatile private var hotspot: WirelessHotspotManager? = null
     @Volatile private var bonjour: CarPlayBonjour? = null
     @Volatile private var bluetoothSocket: BluetoothSocket? = null
@@ -221,7 +222,7 @@ class CarPlayController(
     private val wiredTeardownAttempt = AtomicInteger(0)
     private val wiredStartupRetryPolicy = WiredStartupRetryPolicy()
     private val wiredReconnectRequested = AtomicBoolean(false)
-    private val wiredAirPlayStarted = AtomicBoolean(false)
+    private val wiredStartupComplete = AtomicBoolean(false)
     private val wiredTeardownLock = Any()
     private val connectionTraceStartedAtNanos = AtomicLong(0L)
     private val connectionTraceAttemptStarted = AtomicBoolean(false)
@@ -255,8 +256,12 @@ class CarPlayController(
         }
 
         override fun onSessionActive(session: AirPlaySession) {
-            if (activeSession !== session) BydNavigationOutputs.start(appContext)
-            activeSession = session
+            synchronized(wiredTeardownLock) {
+                val changed = activeSession !== session
+                activeSession = session
+                activeWiredSessionAttempt = 0
+                if (changed) BydNavigationOutputs.start(appContext)
+            }
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
                     "peer=${session.host}",
@@ -265,9 +270,16 @@ class CarPlayController(
         }
 
         override fun onSessionEnded(session: AirPlaySession) {
-            if (activeSession !== session) return
-            activeSession = null
-            BydNavigationOutputs.endNow()
+            val ended = synchronized(wiredTeardownLock) {
+                if (activeSession !== session || activeWiredSessionAttempt != 0) {
+                    false
+                } else {
+                    activeSession = null
+                    BydNavigationOutputs.endNow()
+                    true
+                }
+            }
+            if (!ended) return
             debugLog("AirPlay session ended peer=${session.host}")
             uiListener?.onSessionEnded(session)
         }
@@ -1447,7 +1459,7 @@ class CarPlayController(
             wiredStartupTimeoutAttempt.set(0)
             wiredTransportFailureAttempt.set(0)
             wiredTeardownAttempt.set(0)
-            wiredAirPlayStarted.set(false)
+            wiredStartupComplete.set(false)
         }
         phase = Phase.CONTROL
         var ncmOwnedLocally = true
@@ -1618,7 +1630,7 @@ class CarPlayController(
             }
             ncmOwnedLocally = false
             if (closed || wiredReconnectRequested.get()) {
-                teardownWiredTransport()
+                teardownWiredTransport(expectedAttempt = startupAttempt)
                 return
             }
             debugLog("wired NCM/VPN AirPlay transport attached")
@@ -1650,7 +1662,7 @@ class CarPlayController(
                     }
                 },
             )
-            teardownWiredTransport()
+            teardownWiredTransport(expectedAttempt = startupAttempt)
             if (
                 wiredStartupTimeoutAttempt.get() != startupAttempt &&
                 wiredTransportFailureAttempt.get() != startupAttempt
@@ -1668,7 +1680,7 @@ class CarPlayController(
             if (isUsbMuxTransportFailure(error)) {
                 markWiredTransportFailure(startupAttempt)
             }
-            teardownWiredTransport()
+            teardownWiredTransport(expectedAttempt = startupAttempt)
             if (
                 !closed &&
                 wiredStartupTimeoutAttempt.get() != startupAttempt &&
@@ -1730,7 +1742,7 @@ class CarPlayController(
         val token = synchronized(wiredTeardownLock) {
             if (
                 closed || activeWiredStartupAttempt.get() != attempt ||
-                wiredAirPlayStarted.get() || wiredTeardownAttempt.get() == attempt ||
+                wiredStartupComplete.get() || wiredTeardownAttempt.get() == attempt ||
                 wiredTransportFailureAttempt.get() == attempt || wiredReconnectRequested.get()
             ) {
                 null
@@ -1743,7 +1755,7 @@ class CarPlayController(
                 val timeoutClaimed = synchronized(wiredTeardownLock) {
                     if (
                         closed || activeWiredStartupAttempt.get() != attempt ||
-                        wiredAirPlayStarted.get() || wiredTeardownAttempt.get() == attempt ||
+                        wiredStartupComplete.get() || wiredTeardownAttempt.get() == attempt ||
                         wiredTransportFailureAttempt.get() == attempt || wiredReconnectRequested.get() ||
                         wiredStartupTimeoutAttempt.get() != 0
                     ) {
@@ -1805,10 +1817,14 @@ class CarPlayController(
         }
     }
 
-    private fun teardownWiredTransport(service: CarPlayVpnService? = vpnService) {
+    private fun teardownWiredTransport(
+        service: CarPlayVpnService? = vpnService,
+        expectedAttempt: Int? = null,
+    ) {
         if (config.transport != CarPlayTransport.WIRED) return
         synchronized(wiredTeardownLock) {
             val attempt = activeWiredStartupAttempt.get()
+            if (expectedAttempt != null && attempt != expectedAttempt) return@synchronized
             if (attempt != 0) wiredTeardownAttempt.compareAndSet(0, attempt)
             wiredStartupWatchdog.cancel()
             val activeCsm = csm
@@ -2152,16 +2168,19 @@ class CarPlayController(
         object : AirPlaySessionListener by sessionListener {
             override fun onConnectionTrace(stage: ConnectionTraceStage) {
                 if (!isCurrentWiredAttempt(attempt)) return
-                if (stage.isAirPlayStartupComplete() && !markWiredAirPlayStarted(attempt)) return
+                if (
+                    stage.isWiredStartupWatchdogComplete() &&
+                    !markWiredStartupComplete(attempt)
+                ) return
                 sessionListener.onConnectionTrace(stage)
             }
 
             override fun onSessionActive(session: AirPlaySession) {
-                if (isCurrentWiredAttempt(attempt)) sessionListener.onSessionActive(session)
+                activateWiredSession(attempt, session)
             }
 
             override fun onSessionEnded(session: AirPlaySession) {
-                sessionListener.onSessionEnded(session)
+                endWiredSession(attempt, session)
             }
 
             override fun onTransportError(message: String) {
@@ -2185,21 +2204,58 @@ class CarPlayController(
             }
         }
 
-    private fun isCurrentWiredAttempt(attempt: Int): Boolean = synchronized(wiredTeardownLock) {
-        !closed && activeWiredStartupAttempt.get() == attempt && wiredTeardownAttempt.get() != attempt
+    private fun activateWiredSession(attempt: Int, session: AirPlaySession) {
+        val accepted = synchronized(wiredTeardownLock) {
+            if (!isActiveWiredAttemptLocked(attempt)) {
+                false
+            } else {
+                val changed = activeSession !== session
+                activeSession = session
+                activeWiredSessionAttempt = attempt
+                if (changed) BydNavigationOutputs.start(appContext)
+                true
+            }
+        }
+        if (!accepted) return
+        debugLog(
+            "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
+                "peer=${session.host}",
+        )
+        uiListener?.onSessionActive(session)
     }
 
-    private fun markWiredAirPlayStarted(attempt: Int): Boolean = synchronized(wiredTeardownLock) {
-        if (
-            closed || activeWiredStartupAttempt.get() != attempt ||
-            wiredStartupTimeoutAttempt.get() == attempt ||
-            wiredTransportFailureAttempt.get() == attempt ||
-            wiredTeardownAttempt.get() == attempt || wiredReconnectRequested.get()
-        ) {
+    private fun endWiredSession(attempt: Int, session: AirPlaySession) {
+        val ended = synchronized(wiredTeardownLock) {
+            if (activeSession !== session || activeWiredSessionAttempt != attempt) {
+                false
+            } else {
+                activeSession = null
+                activeWiredSessionAttempt = 0
+                BydNavigationOutputs.endNow()
+                true
+            }
+        }
+        if (!ended) return
+        debugLog("AirPlay session ended peer=${session.host}")
+        uiListener?.onSessionEnded(session)
+    }
+
+    private fun isActiveWiredAttemptLocked(attempt: Int): Boolean =
+        !closed && activeWiredStartupAttempt.get() == attempt &&
+            wiredStartupTimeoutAttempt.get() != attempt &&
+            wiredTransportFailureAttempt.get() != attempt &&
+            wiredTeardownAttempt.get() != attempt && !wiredReconnectRequested.get()
+
+    private fun isCurrentWiredAttempt(attempt: Int): Boolean = synchronized(wiredTeardownLock) {
+        isActiveWiredAttemptLocked(attempt)
+    }
+
+    private fun markWiredStartupComplete(attempt: Int): Boolean = synchronized(wiredTeardownLock) {
+        if (!isActiveWiredAttemptLocked(attempt)) {
             return@synchronized false
         }
-        if (!wiredAirPlayStarted.get()) {
-            wiredAirPlayStarted.set(true)
+        if (!wiredStartupComplete.get()) {
+            wiredStartupComplete.set(true)
             wiredStartupRetryPolicy.reset()
             wiredStartupWatchdog.cancel(attempt)
         }
@@ -2230,7 +2286,7 @@ class CarPlayController(
                     wiredTransportFailureAttempt.get() == attempt &&
                     wiredTeardownAttempt.get() != attempt && !wiredReconnectRequested.get()
             }
-            if (shouldTeardown) teardownWiredTransport()
+            if (shouldTeardown) teardownWiredTransport(expectedAttempt = attempt)
         }
         try {
             tunnelExecutor.execute(teardown)
@@ -2255,7 +2311,7 @@ class CarPlayController(
             traceConnection(ConnectionTraceStage.ERROR, ConnectionTraceError.AIRPLAY)
         }
         debugLog("wired startup watchdog expired after $WIRED_STARTUP_TIMEOUT_MILLIS ms")
-        teardownWiredTransport()
+        teardownWiredTransport(expectedAttempt = attempt)
     }
 
     private fun ByteArray.macString(): String =
@@ -2418,9 +2474,8 @@ class CarPlayController(
         }
     }
 
-    private fun ConnectionTraceStage.isAirPlayStartupComplete(): Boolean =
-        this == ConnectionTraceStage.AIRPLAY_SESSION_ACTIVE ||
-            this == ConnectionTraceStage.SCREEN_STREAM_OPENED
+    private fun ConnectionTraceStage.isWiredStartupWatchdogComplete(): Boolean =
+        this == ConnectionTraceStage.SCREEN_STREAM_OPENED
 
     private fun CarPlayStatus.debugLogMessage(): String = when (this) {
         CarPlayStatus.DiscoveringMfi ->

@@ -138,7 +138,7 @@ class CarPlayHostActivity : ComponentActivity() {
             carPlayUsbInterfaceNumber = 3,
             locationInformationEnabled = locationReportingEnabled,
         ),
-        label = normalizedCarPlayName(),
+        label = "DiPlay",
         hostName = "diplay-" + DiPlayBootstrap.deviceId(airPlayIdentity).replace(":", "").lowercase(),
         hostMac = DiPlayBootstrap.deviceId(airPlayIdentity).split(":").map { it.toInt(16).toByte() }.toByteArray(),
         wirelessBluetoothDeviceAddress = DiPlayPreferences.phoneAddress(this),

@@ -23,3 +23,7 @@ Use the existing debug-log preference for syslog relay capture and small CarKit 
 ## Preserve observed USBMUX receive compatibility
 
 Keep the received TCP `word8` field diagnostic-only because observed iPhone replies omit the host's `0xfeedface` value. The version handshake still validates its response version; do not reject TCP frames on an unconfirmed magic-field rule.
+
+## Separate navigation output offers from voice and media
+
+Advertise only the configured 44.1/48 kHz PCM bits for `default`, `alert`, and `compatibility` outputs. Keep low-rate formats in the media and voice paths where they remain compatible, and do not change microphone input offers. The negotiation must remove bad output candidates before the phone selects a format; resampling afterward cannot restore lost bandwidth.

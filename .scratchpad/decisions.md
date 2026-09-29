@@ -26,4 +26,6 @@ Keep the received TCP `word8` field diagnostic-only because observed iPhone repl
 
 ## Separate navigation output offers from voice and media
 
-Advertise only the configured 44.1/48 kHz PCM bits for `default`, `alert`, and `compatibility` outputs. Keep low-rate formats in the media and voice paths where they remain compatible, and do not change microphone input offers. The negotiation must remove bad output candidates before the phone selects a format; resampling afterward cannot restore lost bandwidth.
+Restrict the high-rate-only negotiation fix to stream type 101 (AltAudio). Wired type 101/default and compatibility advertise configured 44.1/48 kHz PCM; wireless type 101/default also advertises Opus, while compatibility stays PCM-only. Keep type 100 MainAudio PCM capabilities broad, and make its Opus and microphone input offers transport-specific. Keep type 102 media unchanged.
+
+Keep the transport flag false by default and set it only when creating the wireless AirPlay session config. This preserves wired callers while making /info capabilities match the active transport.

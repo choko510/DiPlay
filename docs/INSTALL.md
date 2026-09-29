@@ -1,6 +1,6 @@
 # Install and connect
 
-1. Park the car. Download `DiPlay-0.2.0.apk` from the official GitHub release linked on the website.
+1. Park the car. Download `DiPlay-0.2.0.apk` from the [official GitHub release](https://github.com/shihabal3amri/DiPlay/releases/tag/v0.2.0).
 2. Install on the Android head unit using its supported APK installation method. Do not install on the iPhone. Update over an existing DiPlay beta to retain settings and pairing records; the signing key is unchanged.
 3. Open DiPlay. Grant the permissions requested for the features you use: Bluetooth/Nearby devices, Wi-Fi/Location on older Android, and microphone for Siri/calls. Allow notifications for connection controls.
 4. Close other phone-projection apps before connecting.

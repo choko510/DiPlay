@@ -2,7 +2,7 @@
 
 为兼容安卓车机提供有线及无线 CarPlay，采用 DiAuto 风格界面。
 
-[下载与中文网站](https://shihabal3amri.github.io/DiPlay/zh-Hans/) · [完整说明](README.md) · [报告问题](https://github.com/shihabal3amri/DiPlay/issues/new/choose)
+[下载 APK](https://github.com/shihabal3amri/DiPlay/releases/download/v0.2.0/DiPlay-0.2.0.apk) · [完整说明](README.md) · [报告问题](https://github.com/shihabal3amri/DiPlay/issues/new/choose)
 
 0.1.0 为公开预览版，未经 Apple 认证。请安装在车机上，而非 iPhone。无需越狱、转接盒或认证服务器。无线连接需要 Android 10 或更高版本及可用的 Wi-Fi Direct。
 

@@ -7,5 +7,3 @@ The head unit stores app preferences, paired-device selections, pairing data and
 Diagnostic export is initiated by you. Reports include app/device versions, display settings and negotiation, connection transitions, Wi-Fi band/channel and state, and decoder recovery events. The exporter filters protocol payloads, credential-bearing lines and common identifiers. Redaction cannot promise to recognize every vendor-specific string: review reports before posting them publicly. A GitHub issue is public.
 
 Microphone access supports Siri and calls. Bluetooth/Nearby devices and Wi-Fi/Location permissions support discovery and transport. The optional local VPN permission supports the USB link; it does not provide a remote internet VPN.
-
-The static website has no analytics script or account. GitHub Pages, GitHub and Telegram apply their own policies when you use those services.

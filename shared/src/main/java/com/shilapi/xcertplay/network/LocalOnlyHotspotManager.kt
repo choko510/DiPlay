@@ -66,7 +66,8 @@ class LocalOnlyHotspotManager(context: Context) : WirelessHotspotManager {
         attempt.thread = thread
         var acquiredMulticastLock: WifiManager.MulticastLock? = null
         val deadlineNanos = deadlineAfter(timeoutMillis)
-        val preStartInterfaces = networkInterfaceNames()
+        val previousAddresses = activeInterfaces().flatMap { it.siteLocalIpv4Addresses() }.toSet()
+        val previousUpstreams = upstreamInterfaceNames()
 
         try {
             ensureStartActive(attempt)
@@ -80,7 +81,8 @@ class LocalOnlyHotspotManager(context: Context) : WirelessHotspotManager {
             val configuration = readConfiguration(activeReservation)
             val apInterface = awaitApInterface(
                 bssid = configuration.bssidBytes,
-                preStartInterfaces = preStartInterfaces,
+                previousAddresses = previousAddresses,
+                previousUpstreams = previousUpstreams,
                 attempt = attempt,
                 deadlineNanos = deadlineNanos,
             )
@@ -101,9 +103,9 @@ class LocalOnlyHotspotManager(context: Context) : WirelessHotspotManager {
                 security = configuration.security,
                 channel = configuration.channel,
                 frequencyMHz = null,
-                bssid = apInterface?.bssid ?: configuration.bssid,
-                interfaceName = apInterface?.name,
-                hostAddress = apInterface?.hostAddress,
+                bssid = apInterface.bssid ?: configuration.bssid,
+                interfaceName = apInterface.name,
+                hostAddress = apInterface.hostAddress,
                 bandLabel = configuration.bandLabel,
                 backend = WirelessHotspotBackend.LOCAL_ONLY_HOTSPOT,
             )
@@ -361,19 +363,17 @@ class LocalOnlyHotspotManager(context: Context) : WirelessHotspotManager {
 
     private fun awaitApInterface(
         bssid: ByteArray?,
-        preStartInterfaces: Set<String>,
+        previousAddresses: Set<String>,
+        previousUpstreams: Set<String>,
         attempt: StartAttempt,
         deadlineNanos: Long,
-    ): ApInterface? {
-        var matchedInterfaceName: String? = null
+    ): ApInterface {
         while (true) {
             ensureStartActive(attempt)
-            val networkInterface = findInterface(bssid, preStartInterfaces)
+            val networkInterface = findInterface(bssid, previousAddresses, previousUpstreams)
             if (networkInterface != null) {
-                matchedInterfaceName = networkInterface.name
                 networkInterface.hotspotAddress()?.let { hostAddress ->
-                    val interfaceBssid = networkInterface.hardwareAddress?.toMacAddressString()
-                        ?: (hostAddress as? Inet6Address)?.toEui64MacAddress()
+                    val interfaceBssid = networkInterface.interfaceBssid()
                     if (bssid == null && interfaceBssid == null) {
                         return@let
                     }
@@ -387,9 +387,7 @@ class LocalOnlyHotspotManager(context: Context) : WirelessHotspotManager {
 
             val remainingNanos = deadlineNanos - System.nanoTime()
             if (remainingNanos <= 0) {
-                return matchedInterfaceName?.let {
-                    ApInterface(it, null, null)
-                }
+                throw IOException("LocalOnlyHotspot started but its AP interface/address could not be identified")
             }
             try {
                 TimeUnit.NANOSECONDS.sleep(minOf(remainingNanos, INTERFACE_POLL_NANOS))
@@ -402,64 +400,47 @@ class LocalOnlyHotspotManager(context: Context) : WirelessHotspotManager {
 
     private fun findInterface(
         bssid: ByteArray?,
-        preStartInterfaces: Set<String>,
+        previousAddresses: Set<String>,
+        previousUpstreams: Set<String>,
     ): NetworkInterface? {
-        val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
-        val candidates = Collections.list(interfaces).filter { networkInterface ->
+        val interfaces = activeInterfaces()
+        val candidates = interfaces.map { networkInterface ->
+            LocalOnlyHotspotInterfacePolicy.Candidate(
+                name = networkInterface.name,
+                ipv4 = networkInterface.siteLocalIpv4Addresses(),
+                bssid = networkInterface.interfaceBssid(),
+            )
+        }
+        val selected = LocalOnlyHotspotInterfacePolicy.select(
+            candidates = candidates,
+            previousAddresses = previousAddresses,
+            upstreamInterfaces = previousUpstreams + upstreamInterfaceNames(),
+            configuredBssid = bssid?.toMacAddressString(),
+        ) ?: return null
+        return interfaces.singleOrNull { it.name == selected.name }
+    }
+
+    private fun activeInterfaces(): List<NetworkInterface> =
+        NetworkInterface.getNetworkInterfaces()?.let { Collections.list(it) }.orEmpty().filter { networkInterface ->
             try {
                 networkInterface.isUp && !networkInterface.isLoopback
             } catch (_: SocketException) {
                 false
             }
         }
-        if (bssid != null) {
-            return candidates.firstOrNull {
-                try {
-                    it.hardwareAddress?.contentEquals(bssid) == true
-                } catch (_: SocketException) {
-                    false
-                }
-            }
-        }
-        candidates.firstOrNull { it.name !in preStartInterfaces && it.hotspotAddress() != null }
-            ?.let { return it }
 
-        val primaryInterface = connectivityManager?.activeNetwork
-            ?.let { connectivityManager.getLinkProperties(it)?.interfaceName }
-        val nonPrimary = candidates.filter { it.name != primaryInterface }
-        return nonPrimary.firstOrNull { it.hasPrivate192Address() }
-            ?: nonPrimary.firstOrNull { it.hasSiteLocalAddress() }
-            ?: nonPrimary.firstOrNull { it.hasLinkLocalAddress() }
-            ?: nonPrimary.firstOrNull { it.hotspotAddress() != null }
-    }
+    @Suppress("DEPRECATION")
+    private fun upstreamInterfaceNames(): Set<String> = connectivityManager?.allNetworks.orEmpty()
+        .mapNotNull { connectivityManager?.getLinkProperties(it)?.interfaceName }.toSet()
 
-    private fun networkInterfaceNames(): Set<String> =
-        NetworkInterface.getNetworkInterfaces()
-            ?.let {
-                Collections.list(it)
-                    .filter { networkInterface ->
-                        try {
-                            networkInterface.isUp
-                        } catch (_: SocketException) {
-                            false
-                        }
-                    }
-                    .mapTo(linkedSetOf()) { n -> n.name }
-            }
-            .orEmpty()
+    private fun NetworkInterface.siteLocalIpv4Addresses(): Set<String> =
+        Collections.list(inetAddresses).filterIsInstance<Inet4Address>()
+            .filter { it.isSiteLocalAddress }.mapNotNull { it.hostAddress }.toSet()
 
-    private fun NetworkInterface.hasPrivate192Address(): Boolean =
-        Collections.list(inetAddresses).any {
-            it is Inet4Address && it.address.size == 4 &&
-                (it.address[0].toInt() and 0xff) == 192 &&
-                (it.address[1].toInt() and 0xff) == 168
-        }
-
-    private fun NetworkInterface.hasSiteLocalAddress(): Boolean =
-        Collections.list(inetAddresses).any { it is Inet4Address && it.isSiteLocalAddress }
-
-    private fun NetworkInterface.hasLinkLocalAddress(): Boolean =
-        Collections.list(inetAddresses).any { it is Inet6Address && it.isLinkLocalAddress }
+    private fun NetworkInterface.interfaceBssid(): String? =
+        runCatching { hardwareAddress?.toMacAddressString() }.getOrNull()
+            ?.takeUnless { it == "02:00:00:00:00:00" || it == "00:00:00:00:00:00" }
+            ?: HotspotInterfaceBssid.read(name)
 
     private fun NetworkInterface.hotspotAddress(): InetAddress? {
         var ipv4: InetAddress? = null

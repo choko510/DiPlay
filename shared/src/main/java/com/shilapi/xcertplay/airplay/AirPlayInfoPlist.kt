@@ -24,6 +24,22 @@ object AirPlayInfoPlist {
     private const val PRIORITY_NICE_TO_HAVE = 100
     private const val CONSTRAINT_ANYTIME = 100
 
+    private const val PCM_8_KHZ_MONO = 0x4
+    private const val PCM_8_KHZ_STEREO = 0x8
+    private const val PCM_16_KHZ_MONO = 0x10
+    private const val PCM_16_KHZ_STEREO = 0x20
+    private const val PCM_24_KHZ_MONO = 0x40
+    private const val PCM_24_KHZ_STEREO = 0x80
+    private const val PCM_32_KHZ_MONO = 0x100
+    private const val PCM_32_KHZ_STEREO = 0x200
+    private const val PCM_44_1_KHZ_MONO = 0x400
+    private const val PCM_44_1_KHZ_STEREO = 0x800
+    private const val PCM_48_KHZ_MONO = 0x4000
+    private const val PCM_48_KHZ_STEREO = 0x8000
+    private const val OPUS_FORMATS = 0x70000000
+    private const val AAC_LC_44_1_KHZ_STEREO = 0x400000
+    private const val AAC_LC_48_KHZ_STEREO = 0x800000
+
     fun build(config: AirPlayConfig): Map<String, Any?> {
         val displays = arrayListOf<Any?>(
             displayEntry(config.main, STREAM_TYPE_MAIN_SCREEN, MAIN_UUID),
@@ -122,23 +138,34 @@ object AirPlayInfoPlist {
         }
 
         val is48 = entertainmentRate == 48000
-        val pcmVoice = 0x3fc
-        val pcm = pcmVoice or (if (is48) 0xc000 else 0xc00)
-        val pcmMono = 0x154 or (if (is48) 0x4000 else 0x400)
-        val opus = 0x70000000
-        val aacLc = if (is48) 0x800000 else 0x400000
+        val lowRatePcmFormats = PCM_8_KHZ_MONO or PCM_8_KHZ_STEREO or
+            PCM_16_KHZ_MONO or PCM_16_KHZ_STEREO or
+            PCM_24_KHZ_MONO or PCM_24_KHZ_STEREO or
+            PCM_32_KHZ_MONO or PCM_32_KHZ_STEREO
+        val highRatePcm = if (is48) {
+            PCM_48_KHZ_MONO or PCM_48_KHZ_STEREO
+        } else {
+            PCM_44_1_KHZ_MONO or PCM_44_1_KHZ_STEREO
+        }
+        val navigationOutputFormats = highRatePcm
+        val mediaPcmFormats = lowRatePcmFormats or highRatePcm
+        val pcmMono = PCM_8_KHZ_MONO or PCM_16_KHZ_MONO or
+            PCM_24_KHZ_MONO or PCM_32_KHZ_MONO or
+            (if (is48) PCM_48_KHZ_MONO else PCM_44_1_KHZ_MONO)
+        val voiceOutputFormats = pcmMono or OPUS_FORMATS
+        val aacLc = if (is48) AAC_LC_48_KHZ_STEREO else AAC_LC_44_1_KHZ_STEREO
         val pcmInput = if (microphone) pcmMono else null
-        val wirelessInput = if (microphone) pcmMono or opus else null
+        val wirelessInput = if (microphone) pcmMono or OPUS_FORMATS else null
 
         return listOf(
-            format(100, "compatibility", pcm, pcmInput),
-            format(101, "compatibility", pcm),
-            format(100, "default", pcm or opus, wirelessInput),
-            format(100, "alert", pcm or opus),
-            format(100, "media", pcm),
-            format(100, "telephony", pcmMono or opus, wirelessInput),
-            format(100, "speechRecognition", pcmMono or opus, wirelessInput),
-            format(101, "default", pcm or opus),
+            format(100, "compatibility", navigationOutputFormats, pcmInput),
+            format(101, "compatibility", navigationOutputFormats),
+            format(100, "default", navigationOutputFormats, wirelessInput),
+            format(100, "alert", navigationOutputFormats),
+            format(100, "media", mediaPcmFormats),
+            format(100, "telephony", voiceOutputFormats, wirelessInput),
+            format(100, "speechRecognition", voiceOutputFormats, wirelessInput),
+            format(101, "default", navigationOutputFormats),
             format(102, "media", aacLc),
         )
     }

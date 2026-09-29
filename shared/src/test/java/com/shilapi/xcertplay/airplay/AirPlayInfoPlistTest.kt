@@ -214,6 +214,53 @@ class AirPlayInfoPlistTest {
     }
 
     @Test
+    fun navigationOutputsAdvertiseOnlyConfiguredHighRatePcm() {
+        val lowRatePcmFormats = 0x3fc
+        val navigationTypes = listOf(
+            100 to "compatibility",
+            101 to "compatibility",
+            100 to "default",
+            100 to "alert",
+            101 to "default",
+        )
+
+        listOf(48000 to 0xc000, 44100 to 0xc00).forEach { (sampleRate, highRatePcm) ->
+            val info = audioInfo(sampleRate)
+            navigationTypes.forEach { (type, audioType) ->
+                val outputFormats = audioCapability(info, type, audioType)["audioOutputFormats"] as Number
+                assertEquals("$sampleRate Hz type=$type audioType=$audioType", highRatePcm, outputFormats.toInt())
+                assertEquals(
+                    "$sampleRate Hz type=$type audioType=$audioType low-rate PCM",
+                    0,
+                    outputFormats.toInt() and lowRatePcmFormats,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun mediaAndVoiceCapabilitiesKeepTheirExistingFormats() {
+        listOf(48000 to 0xc000, 44100 to 0xc00).forEach { (sampleRate, highRatePcm) ->
+            val info = audioInfo(sampleRate, microphone = true)
+            val mediaPcmFormats = 0x3fc or highRatePcm
+            val voicePcmFormats = 0x154 or (if (sampleRate == 48000) 0x4000 else 0x400)
+            val voiceFormats = voicePcmFormats or 0x70000000
+
+            assertEquals(mediaPcmFormats, audioCapability(info, 100, "media")["audioOutputFormats"])
+            assertEquals(
+                if (sampleRate == 48000) 0x800000 else 0x400000,
+                audioCapability(info, 102, "media")["audioOutputFormats"],
+            )
+            listOf("telephony", "speechRecognition").forEach { audioType ->
+                val capability = audioCapability(info, 100, audioType)
+                assertEquals(voiceFormats, capability["audioOutputFormats"])
+                assertEquals(voiceFormats, capability["audioInputFormats"])
+            }
+            assertEquals(voiceFormats, audioCapability(info, 100, "default")["audioInputFormats"])
+        }
+    }
+
+    @Test
     fun mainAltAndHighAudioStreamsAreDeclared() {
         val info = AirPlayInfoPlist.build(
             AirPlayConfig(
@@ -230,4 +277,22 @@ class AirPlayInfoPlistTest {
             .toSet()
         assertEquals(setOf(100, 101, 102), types)
     }
+
+    private fun audioInfo(sampleRate: Int, microphone: Boolean = false): Map<String, Any?> =
+        AirPlayInfoPlist.build(
+            AirPlayConfig(
+                deviceName = "test",
+                deviceId = "02:00:00:00:00:02",
+                btMac = "02:00:00:00:00:02",
+                sourceVersion = "366.0",
+                main = AirPlayDisplayConfig(widthPixels = 1280, heightPixels = 720),
+                entertainmentSampleRate = sampleRate,
+                microphone = microphone,
+            ),
+        )
+
+    private fun audioCapability(info: Map<String, Any?>, type: Int, audioType: String): Map<*, *> =
+        (info["audioFormats"] as List<*>)
+            .map { it as Map<*, *> }
+            .single { it["type"] == type && it["audioType"] == audioType }
 }

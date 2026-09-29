@@ -2913,9 +2913,14 @@ class CarPlayHostActivity : ComponentActivity() {
                         return@runOnUiThread
                     }
                     activeScreenStreamTypes.clear()
-                    setConnectionStage("CarPlay session ended; reconnecting")
-                    appendLog("AirPlay session ended; reconnecting from scratch")
-                    reconnectAfterLoss("AirPlay session ended")
+                    if (controller?.isWiredRecoveryManagedByController() == true) {
+                        setConnectionStage("Wired recovery in progress")
+                        appendLog("AirPlay session ended; wired recovery is controlled by the connection attempt")
+                    } else {
+                        setConnectionStage("CarPlay session ended; reconnecting")
+                        appendLog("AirPlay session ended; reconnecting from scratch")
+                        reconnectAfterLoss("AirPlay session ended")
+                    }
                 }
             }
 
@@ -2978,7 +2983,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     wifiRecoveryButton?.visibility = View.VISIBLE
                 } else {
                     wifiRecoveryButton?.visibility = View.GONE
-                    reconnectAfterLoss(description)
+                    if (!status.wiredRecoveryManaged) reconnectAfterLoss(description)
                 }
                 else -> Unit
             }

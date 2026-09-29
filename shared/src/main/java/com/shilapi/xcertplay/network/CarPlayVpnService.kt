@@ -14,6 +14,7 @@ import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
+import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import java.io.IOException
 import java.net.Inet6Address
@@ -97,9 +98,16 @@ class CarPlayVpnService : VpnService() {
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
 
-            val ipv6Bridge = Ipv6NcmBridge(ncm, tunFd, hostMac) { error ->
-                onTransportError(generation, listener, error)
-            }
+            val ipv6Bridge = Ipv6NcmBridge(
+                ncm = ncm,
+                tun = tunFd,
+                hostMac = hostMac,
+                onError = { error -> onTransportError(generation, listener, error) },
+                onBridgeStarted = {
+                    // This marks worker startup, not a live NCM link.
+                    listener.onConnectionTrace(ConnectionTraceStage.NCM_BRIDGE_STARTED)
+                },
+            )
             ipv6Bridge.start()
             bridge = ipv6Bridge
 
@@ -197,6 +205,7 @@ class CarPlayVpnService : VpnService() {
                         socket.close()
                         return
                     }
+                    current.listener.onConnectionTrace(ConnectionTraceStage.AIRPLAY_CONTROL_ACCEPTED)
                     AirPlaySession(
                         socket = socket,
                         config = current.config,
@@ -252,6 +261,9 @@ class CarPlayVpnService : VpnService() {
         Log.e(TAG, "CarPlay transport stopped: $message", error)
         Thread(
             {
+                val current = synchronized(this) { generation == attachGeneration }
+                if (!current) return@Thread
+                runCatching { listener.onTransportStopping(message) }
                 synchronized(this) {
                     if (generation != attachGeneration) return@Thread
                     releaseLocked()

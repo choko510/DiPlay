@@ -105,8 +105,82 @@ class IphoneUsbHost(
         data class Failed(val error: IphoneUsbException) : Iap2SessionResult()
     }
 
+    data class AppleUsbModeDiagnostics(
+        val guessedMode: Int?,
+        val configurationCount: Int,
+        val configurationIds: List<Int>,
+        val getModeResponse: String,
+    ) {
+        fun summary(): String =
+            "appleModeGuessed=${guessedMode ?: "unknown"} configurationCount=$configurationCount " +
+                "configurationIds=${configurationIds.joinToString(",")} getModeResponse=$getModeResponse"
+    }
+
     fun discover(): List<UsbDevice> =
         usbManager.deviceList.values.filter { matcher.matches(it.vendorId, it.productId) }
+
+    /** Reads usbmuxd's diagnostic mode request without changing the device's current mode. */
+    fun queryAppleUsbMode(
+        device: UsbDevice,
+        connection: UsbDeviceConnection,
+        queryDevice: Boolean,
+    ): AppleUsbModeDiagnostics {
+        requireConfiguredDevice(device)
+        val configurations = (0 until device.configurationCount).map(device::getConfiguration)
+        val response = if (!queryDevice) {
+            "not-queried"
+        } else {
+            val bytes = ByteArray(APPLE_GET_MODE_RESPONSE_LENGTH)
+            val transferred = runCatching {
+                connection.controlTransfer(
+                    USB_VENDOR_DEVICE_IN,
+                    APPLE_GET_MODE_REQUEST,
+                    0,
+                    0,
+                    bytes,
+                    bytes.size,
+                    APPLE_GET_MODE_TIMEOUT_MILLIS,
+                )
+            }.getOrDefault(-1)
+            if (transferred == bytes.size) {
+                bytes.joinToString(":") { "%02x".format(it.toInt() and 0xff) }
+            } else {
+                "unavailable($transferred/${bytes.size})"
+            }
+        }
+        return AppleUsbModeDiagnostics(
+            guessedMode = guessAppleUsbMode(configurations),
+            configurationCount = device.configurationCount,
+            configurationIds = configurations.map(UsbConfiguration::getId),
+            getModeResponse = response,
+        )
+    }
+
+    private fun guessAppleUsbMode(configurations: List<UsbConfiguration>): Int? = when {
+        configurations.size == 1 -> 5
+        configurations.size <= 4 -> 1
+        configurations.size == 6 -> 4
+        configurations.size != 5 -> null
+        else -> {
+            val fifth = configurations.firstOrNull { it.id == 5 } ?: return null
+            val interfaces = (0 until fifth.interfaceCount).map(fifth::getInterface)
+            val hasValeria = interfaces.any {
+                it.interfaceClass == 0xff && it.interfaceSubclass == 42 && it.interfaceProtocol == 255
+            }
+            val hasNcm = interfaces.any {
+                it.interfaceClass == NCM_CONTROL_CLASS && it.interfaceSubclass == NCM_CONTROL_SUBCLASS
+            }
+            val hasUsbMux = interfaces.any {
+                it.interfaceClass == USBMUX_CLASS && it.interfaceSubclass == USBMUX_SUBCLASS &&
+                    it.interfaceProtocol == USBMUX_PROTOCOL
+            }
+            when {
+                hasValeria && hasUsbMux -> 2
+                hasNcm && hasUsbMux -> 3
+                else -> null
+            }
+        }
+    }
 
     @Throws(IphoneUsbException::class)
     fun requestPermission(device: UsbDevice): PermissionRequest {
@@ -340,6 +414,14 @@ class IphoneUsbHost(
         private const val CARPLAY_CONFIGURATION_INDEX = 0x0004
         private const val VENDOR_RESPONSE_LENGTH = 1
         private const val CONTROL_TRANSFER_TIMEOUT_MILLIS = 1_000
+        private const val APPLE_GET_MODE_REQUEST = 0x45
+        private const val APPLE_GET_MODE_RESPONSE_LENGTH = 4
+        private const val APPLE_GET_MODE_TIMEOUT_MILLIS = 250
+        private const val USBMUX_CLASS = 0xff
+        private const val USBMUX_SUBCLASS = 0xfe
+        private const val USBMUX_PROTOCOL = 0x02
+        private const val NCM_CONTROL_CLASS = 0x02
+        private const val NCM_CONTROL_SUBCLASS = 0x0d
     }
 
 }

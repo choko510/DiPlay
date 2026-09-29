@@ -45,6 +45,7 @@ internal class ConnectionTraceStore(private val directory: File) {
 
     fun reportSection(): String = buildString {
         appendLine("--- Connection trace history (captured while debug mode was enabled) ---")
+        appendLine("NCM_ATTACHED marks VPN/TUN, packet bridge, and AirPlay listener setup; NCM_FIRST_* marks observed link traffic.")
         append(snapshot())
     }
 
@@ -87,11 +88,16 @@ internal class ConnectionTraceStore(private val directory: File) {
         append(" delta_ms=").append(deltaMs)
         append(" stage=").append(event.stage.name)
         event.error?.let { append(" error=").append(it.name) }
+        event.detail?.let {
+            val safeDetail = it.replace(Regex("[\\r\\n]+"), " ").take(MAX_DETAIL_CHARS)
+            append(" detail=").append(safeDetail)
+        }
     }
 
     companion object {
         private const val CURRENT_FILE = "connection-trace.log"
         private const val MAX_BYTES = 128 * 1024L
+        private const val MAX_DETAIL_CHARS = 4_096
         private const val MAX_TRACKED_ATTEMPTS = 256
         private val ATTEMPT_ID = Regex("attempt-[a-z0-9-]{1,40}")
         private val ARCHIVE_FILES = listOf("connection-trace-1.log", "connection-trace-2.log", "connection-trace-3.log")

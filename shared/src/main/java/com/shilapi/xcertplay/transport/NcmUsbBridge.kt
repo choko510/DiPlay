@@ -11,6 +11,89 @@ import java.nio.ByteBuffer
 import java.util.ArrayDeque
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+
+enum class NcmDiagnosticEvent {
+    READ_QUEUED,
+    FIRST_USB_COMPLETION,
+    FIRST_ETHERNET_RX,
+    FIRST_IPV6_RX,
+    PEER_MAC_LEARNED,
+    FIRST_IPV6_TX_ATTEMPT,
+    FIRST_IPV6_TX_SUCCESS,
+    TX_NOT_READY,
+}
+
+sealed interface NcmSendResult {
+    data object Sent : NcmSendResult
+    data object NotReady : NcmSendResult
+    data class Failed(val error: Throwable) : NcmSendResult
+}
+
+internal data class NcmDiagnosticsSnapshot(
+    val selection: String,
+    val readState: PersistentUsbReadRequestState.State,
+    val statusPollingEnabled: Boolean,
+    val peerMacLearned: Boolean,
+    val failure: String?,
+    val readQueues: Long,
+    val readCompletions: Long,
+    val readTimeouts: Long,
+    val readNullErrors: Long,
+    val readQueueFailures: Long,
+    val readUnexpectedCompletions: Long,
+    val readBytes: Long,
+    val readCancels: Long,
+    val ethernetRxFrames: Long,
+    val writeAttempts: Long,
+    val writeSuccesses: Long,
+    val writeNotReady: Long,
+    val writePartialFailures: Long,
+    val writeBytes: Long,
+    val ipv6RxPackets: Long,
+    val ipv6TxAttempts: Long,
+    val ipv6TxSuccesses: Long,
+    val ndpRxPackets: Long,
+    val ndpTxAttempts: Long,
+    val ndpTxSuccesses: Long,
+    val statusPollAttempts: Long,
+    val statusPollFailures: Long,
+) {
+    fun report(): String =
+        "selected={$selection} readState=$readState statusPolling=$statusPollingEnabled " +
+            "peerMacLearned=$peerMacLearned failure=${failure ?: "none"} " +
+            "readQueues=$readQueues readCompletions=$readCompletions readTimeouts=$readTimeouts " +
+            "readNullErrors=$readNullErrors readQueueFailures=$readQueueFailures " +
+            "readUnexpectedCompletions=$readUnexpectedCompletions readBytes=$readBytes " +
+            "readCancels=$readCancels ethernetRxFrames=$ethernetRxFrames " +
+            "writeAttempts=$writeAttempts writeSuccesses=$writeSuccesses " +
+            "writeNotReady=$writeNotReady writePartialFailures=$writePartialFailures writeBytes=$writeBytes " +
+            "ipv6RxPackets=$ipv6RxPackets ipv6TxAttempts=$ipv6TxAttempts " +
+            "ipv6TxSuccesses=$ipv6TxSuccesses ndpRxPackets=$ndpRxPackets " +
+            "ndpTxAttempts=$ndpTxAttempts ndpTxSuccesses=$ndpTxSuccesses " +
+            "statusPollAttempts=$statusPollAttempts statusPollFailures=$statusPollFailures"
+}
+
+internal data class NcmNtbParameters(
+    val supportedFormats: Int,
+    val ntbInMaxSize: Long,
+    val ndpInDivisor: Int,
+    val ndpInRemainder: Int,
+    val ndpInAlignment: Int,
+    val ntbOutMaxSize: Long,
+    val ndpOutDivisor: Int,
+    val ndpOutRemainder: Int,
+    val ndpOutAlignment: Int,
+    val ntbOutMaxDatagrams: Int,
+) {
+    fun summary(): String =
+        "formats=0x${supportedFormats.toString(16)} ntb16Supported=${supportedFormats and 1 != 0} " +
+            "ntbInMaxSize=$ntbInMaxSize ndpInDivisor=$ndpInDivisor " +
+            "ndpInRemainder=$ndpInRemainder ndpInAlignment=$ndpInAlignment " +
+            "ntbOutMaxSize=$ntbOutMaxSize ndpOutDivisor=$ndpOutDivisor " +
+            "ndpOutRemainder=$ndpOutRemainder ndpOutAlignment=$ndpOutAlignment " +
+            "ntbOutMaxDatagrams=$ntbOutMaxDatagrams readChunkBytes=${NcmUsbBridge.readChunkBytesForDiagnostics()}"
+}
 
 /**
  * A blocking NCM data pipe that moves Ethernet frames as NTB16 blocks over bulk endpoints.
@@ -25,6 +108,9 @@ class NcmUsbBridge internal constructor(
     private val inEndpoint: UsbEndpoint,
     private val statusEndpoint: UsbEndpoint?,
     descriptorHostMac: ByteArray?,
+    private val selectionDiagnostics: String,
+    onDiagnosticEvent: (NcmDiagnosticEvent) -> Unit,
+    private val statusPollingEnabled: Boolean,
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
     val hostMac: ByteArray? get() = descriptorMac?.copyOf()
@@ -33,8 +119,8 @@ class NcmUsbBridge internal constructor(
     private val writeLock = Any()
     private var closed = false
     private var failure: IphoneUsbException? = null
+    private val readLifecycle = PersistentUsbReadRequestState<UsbRequest>()
     private var sequence = 0
-    private var loggedWriteTimeout = false
     private val frames = ArrayDeque<ByteArray>()
     private var queuedBytes = 0
     private var buffered = ByteArray(0)
@@ -45,10 +131,34 @@ class NcmUsbBridge internal constructor(
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no
     // data is lost between calls. This is the only requestWait() user on this connection.
     private val directReadBuffer = ByteBuffer.allocateDirect(READ_CHUNK_BYTES)
-    private var readRequest: UsbRequest? = null
-    private var readQueued = false
-    private val statusRunning = AtomicBoolean(statusEndpoint != null)
-    private val statusThread = statusEndpoint?.let { endpoint ->
+    private val statusRunning = AtomicBoolean(statusPollingEnabled && statusEndpoint != null)
+    @Volatile
+    private var diagnosticEventListener: (NcmDiagnosticEvent) -> Unit = onDiagnosticEvent
+    private val firstEvents = mutableSetOf<NcmDiagnosticEvent>()
+    private val peerMacLearned = AtomicBoolean(false)
+    private val readQueues = AtomicLong()
+    private val readCompletions = AtomicLong()
+    private val readTimeouts = AtomicLong()
+    private val readNullErrors = AtomicLong()
+    private val readQueueFailures = AtomicLong()
+    private val readUnexpectedCompletions = AtomicLong()
+    private val readBytes = AtomicLong()
+    private val readCancels = AtomicLong()
+    private val ethernetRxFrames = AtomicLong()
+    private val writeAttempts = AtomicLong()
+    private val writeSuccesses = AtomicLong()
+    private val writeNotReady = AtomicLong()
+    private val writePartialFailures = AtomicLong()
+    private val writeBytes = AtomicLong()
+    private val ipv6RxPackets = AtomicLong()
+    private val ipv6TxAttempts = AtomicLong()
+    private val ipv6TxSuccesses = AtomicLong()
+    private val ndpRxPackets = AtomicLong()
+    private val ndpTxAttempts = AtomicLong()
+    private val ndpTxSuccesses = AtomicLong()
+    private val statusPollAttempts = AtomicLong()
+    private val statusPollFailures = AtomicLong()
+    private val statusThread = statusEndpoint?.takeIf { statusPollingEnabled }?.let { endpoint ->
         Thread({ drainStatus(endpoint) }, "ncm-status-in").apply {
             isDaemon = true
             start()
@@ -56,33 +166,103 @@ class NcmUsbBridge internal constructor(
     }
 
     /** Wraps one Ethernet frame in one NTB16 block and writes it to bulk OUT. */
-    fun send(frame: ByteArray, timeoutMillis: Int) = synchronized(writeLock) {
-        checkOpen()
+    fun send(frame: ByteArray, timeoutMillis: Int): NcmSendResult = synchronized(writeLock) {
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
-        val sequence = synchronized(stateLock) {
-            checkOpenLocked()
-            this.sequence.also { this.sequence = (this.sequence + 1) and 0xffff }
+        val ipv6 = EthernetIpv6Codec.parseIpv6View(frame)
+        val ndp = ipv6?.let {
+            EthernetIpv6Codec.isNeighborDiscovery(frame, it.payloadOffset, it.payloadLength)
+        } == true
+        writeAttempts.incrementAndGet()
+        if (ipv6 != null) {
+            ipv6TxAttempts.incrementAndGet()
+            if (ndp) ndpTxAttempts.incrementAndGet()
+            emitFirst(NcmDiagnosticEvent.FIRST_IPV6_TX_ATTEMPT)
         }
-        val block = Ntb16Codec.build(frame, sequence)
-        val transferred = connection.bulkTransfer(outEndpoint, block, block.size, timeoutMillis)
-        // Before StartCarPlaySession the phone keeps the NCM data path NAKed. Android reports the
-        // resulting timeout as -1; it is not a detach and later packets must be allowed to retry.
-        if (transferred <= 0) {
-            if (!loggedWriteTimeout) {
-                loggedWriteTimeout = true
-                Log.i(IphoneCarPlayConfiguration.TAG, "ncm bulk-out not ready; retaining bridge for retry")
+        val sequence = try {
+            synchronized(stateLock) {
+                checkOpenLocked()
+                this.sequence.also { this.sequence = (this.sequence + 1) and 0xffff }
             }
-            return@synchronized
+        } catch (error: Exception) {
+            return@synchronized NcmSendResult.Failed(error)
         }
-        if (transferred != block.size) {
-            throw IphoneUsbException.DeviceUnavailable(
-                "NCM write transferred $transferred of ${block.size} bytes",
+        val block = try {
+            Ntb16Codec.build(frame, sequence)
+        } catch (error: Exception) {
+            return@synchronized NcmSendResult.Failed(error)
+        }
+        val transferred = try {
+            connection.bulkTransfer(outEndpoint, block, block.size, timeoutMillis)
+        } catch (error: RuntimeException) {
+            writePartialFailures.incrementAndGet()
+            return@synchronized NcmSendResult.Failed(
+                failSession("NCM_WRITE_ERROR: NCM bulk OUT failed", error),
             )
         }
-        if (loggedWriteTimeout) {
-            loggedWriteTimeout = false
-            Log.i(IphoneCarPlayConfiguration.TAG, "ncm bulk-out became ready")
+        if (transferred <= 0) {
+            writeNotReady.incrementAndGet()
+            emitFirst(NcmDiagnosticEvent.TX_NOT_READY)
+            return@synchronized NcmSendResult.NotReady
         }
+        if (transferred != block.size) {
+            writePartialFailures.incrementAndGet()
+            return@synchronized NcmSendResult.Failed(
+                failSession("NCM_WRITE_ERROR: NCM write transferred $transferred of ${block.size} bytes"),
+            )
+        }
+        writeSuccesses.incrementAndGet()
+        writeBytes.addAndGet(transferred.toLong())
+        if (ipv6 != null) {
+            ipv6TxSuccesses.incrementAndGet()
+            if (ndp) ndpTxSuccesses.incrementAndGet()
+            emitFirst(NcmDiagnosticEvent.FIRST_IPV6_TX_SUCCESS)
+        }
+        NcmSendResult.Sent
+    }
+
+    internal fun diagnosticSnapshot(): NcmDiagnosticsSnapshot = NcmDiagnosticsSnapshot(
+        selection = selectionDiagnostics,
+        readState = readLifecycle.state(),
+        statusPollingEnabled = statusPollingEnabled,
+        peerMacLearned = peerMacLearned.get(),
+        failure = synchronized(stateLock) { failure?.message?.take(200) },
+        readQueues = readQueues.get(),
+        readCompletions = readCompletions.get(),
+        readTimeouts = readTimeouts.get(),
+        readNullErrors = readNullErrors.get(),
+        readQueueFailures = readQueueFailures.get(),
+        readUnexpectedCompletions = readUnexpectedCompletions.get(),
+        readBytes = readBytes.get(),
+        readCancels = readCancels.get(),
+        ethernetRxFrames = ethernetRxFrames.get(),
+        writeAttempts = writeAttempts.get(),
+        writeSuccesses = writeSuccesses.get(),
+        writeNotReady = writeNotReady.get(),
+        writePartialFailures = writePartialFailures.get(),
+        writeBytes = writeBytes.get(),
+        ipv6RxPackets = ipv6RxPackets.get(),
+        ipv6TxAttempts = ipv6TxAttempts.get(),
+        ipv6TxSuccesses = ipv6TxSuccesses.get(),
+        ndpRxPackets = ndpRxPackets.get(),
+        ndpTxAttempts = ndpTxAttempts.get(),
+        ndpTxSuccesses = ndpTxSuccesses.get(),
+        statusPollAttempts = statusPollAttempts.get(),
+        statusPollFailures = statusPollFailures.get(),
+    )
+
+    internal fun recordPeerMacLearned() {
+        if (peerMacLearned.compareAndSet(false, true)) emitFirst(NcmDiagnosticEvent.PEER_MAC_LEARNED)
+    }
+
+    internal fun setDiagnosticEventListener(listener: (NcmDiagnosticEvent) -> Unit) {
+        diagnosticEventListener = listener
+    }
+
+    internal fun hasSuccessfulWrite(): Boolean = writeSuccesses.get() > 0
+
+    private fun emitFirst(event: NcmDiagnosticEvent) {
+        val first = synchronized(firstEvents) { firstEvents.add(event) }
+        if (first) runCatching { diagnosticEventListener(event) }
     }
 
     /**
@@ -101,9 +281,13 @@ class NcmUsbBridge internal constructor(
                 if (frames.isNotEmpty()) return pollFrame()
                 val remainingNanos = deadline - System.nanoTime()
                 if (remainingNanos <= 0) return null
-                val chunkLength =
-                    readChunk((remainingNanos + NANOS_PER_MILLISECOND - 1) / NANOS_PER_MILLISECOND)
-                        ?: continue
+                val chunkLength = readChunk(
+                    (remainingNanos + NANOS_PER_MILLISECOND - 1) / NANOS_PER_MILLISECOND,
+                )
+                if (chunkLength == null) {
+                    if (readLifecycle.isClosing()) return null
+                    continue
+                }
                 appendBuffered(readBuffer, chunkLength)
             }
         }
@@ -111,13 +295,13 @@ class NcmUsbBridge internal constructor(
 
     override fun close() {
         statusRunning.set(false)
-        val requestToClose = synchronized(stateLock) {
+        val closePlan = synchronized(stateLock) {
             if (closed) return
             closed = true
-            readRequest
+            readLifecycle.beginClose().also { if (it.cancelQueuedRequest) readCancels.incrementAndGet() }
         }
         // Wakes a reader blocked in requestWait(); it then observes the closed state.
-        runCatching { requestToClose?.cancel() }
+        if (closePlan.cancelQueuedRequest) runCatching { closePlan.request?.cancel() }
         statusThread?.let { thread ->
             thread.interrupt()
             try {
@@ -130,18 +314,18 @@ class NcmUsbBridge internal constructor(
         // persistent request. UsbDeviceConnection.close() also releases its claimed interfaces.
         runCatching { connection.close() }
         synchronized(readLock) { }
+        val requestToClose = synchronized(stateLock) { readLifecycle.takeForClose() }
         runCatching { requestToClose?.close() }
     }
 
     private fun drainStatus(endpoint: UsbEndpoint) {
         val buffer = ByteArray(endpoint.maxPacketSize.coerceAtLeast(64))
-        var loggedFirst = false
         while (statusRunning.get()) {
-            // Short synchronous polls keep this thread out of JNI critical sections most of the time;
-            // notifications are rare, small interrupt packets that are only logged.
+            statusPollAttempts.incrementAndGet()
             val transferred = try {
                 connection.bulkTransfer(endpoint, buffer, buffer.size, STATUS_POLL_TIMEOUT_MILLIS)
             } catch (_: RuntimeException) {
+                statusPollFailures.incrementAndGet()
                 return
             }
             if (transferred <= 0) {
@@ -152,18 +336,8 @@ class NcmUsbBridge internal constructor(
                 }
                 continue
             }
-            if (!loggedFirst) {
-                loggedFirst = true
-                Log.i(
-                    IphoneCarPlayConfiguration.TAG,
-                    "ncm status notification bytes=$transferred data=${buffer.copyOf(transferred).hex(32)}",
-                )
-            }
         }
     }
-
-    private fun ByteArray.hex(limit: Int): String =
-        take(limit).joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     private fun drainFrames() {
         while (true) {
@@ -202,6 +376,16 @@ class NcmUsbBridge internal constructor(
         if (frames.size >= MAX_QUEUED_FRAMES || queuedBytes + frame.size > MAX_QUEUED_BYTES) {
             throw failSession("NCM frame queue exceeded its bounds")
         }
+        ethernetRxFrames.incrementAndGet()
+        emitFirst(NcmDiagnosticEvent.FIRST_ETHERNET_RX)
+        val ipv6 = EthernetIpv6Codec.parseIpv6View(frame)
+        if (ipv6 != null) {
+            ipv6RxPackets.incrementAndGet()
+            emitFirst(NcmDiagnosticEvent.FIRST_IPV6_RX)
+            if (EthernetIpv6Codec.isNeighborDiscovery(frame, ipv6.payloadOffset, ipv6.payloadLength)) {
+                ndpRxPackets.incrementAndGet()
+            }
+        }
         frames.addLast(frame)
         queuedBytes += frame.size
     }
@@ -213,39 +397,78 @@ class NcmUsbBridge internal constructor(
     }
 
     private fun readChunk(timeoutMillis: Long): Int? {
-        checkOpen()
+        var newlyQueued = false
         val request = try {
-            // Publish and queue atomically with close(), so detach cannot miss a new request.
             synchronized(stateLock) {
                 checkOpenLocked()
-                val current = readRequest ?: UsbRequest().also {
-                    if (!it.initialize(connection, inEndpoint)) {
-                        it.close()
-                        throw failSession("Android could not initialize the NCM read request")
+                val current = readLifecycle.requestOrCreate {
+                    UsbRequest().also { created ->
+                        val initialized = try {
+                            created.initialize(connection, inEndpoint)
+                        } catch (error: RuntimeException) {
+                            runCatching { created.close() }
+                            throw error
+                        }
+                        if (!initialized) {
+                            runCatching { created.close() }
+                            throw failSession("NCM_READ_ERROR: Android could not initialize the read request")
+                        }
                     }
-                    readRequest = it
                 }
-                if (!readQueued) {
+                if (readLifecycle.needsQueue()) {
                     directReadBuffer.clear()
-                    if (!current.queue(directReadBuffer)) throw failSession("Android could not queue the NCM read request")
-                    readQueued = true
+                    val queued = try {
+                        current.queue(directReadBuffer)
+                    } catch (error: RuntimeException) {
+                        readQueueFailures.incrementAndGet()
+                        readLifecycle.markQueueFailure()
+                        throw failSession("NCM_QUEUE_ERROR: Android failed to queue the read request", error)
+                    }
+                    if (!queued) {
+                        readQueueFailures.incrementAndGet()
+                        readLifecycle.markQueueFailure()
+                        throw failSession("NCM_QUEUE_ERROR: Android could not queue the read request")
+                    }
+                    readLifecycle.markQueued()
+                    readQueues.incrementAndGet()
+                    newlyQueued = true
                 }
                 current
             }
         } catch (error: RuntimeException) {
-            throw failSession("NCM read failed", error)
+            if (readLifecycle.isClosing()) return null
+            throw failSession("NCM_READ_ERROR: NCM read request setup failed", error)
         }
+        if (newlyQueued) emitFirst(NcmDiagnosticEvent.READ_QUEUED)
         try {
             val completed = try {
                 connection.requestWait(timeoutMillis.coerceAtLeast(1))
             } catch (_: TimeoutException) {
-                // Nothing arrived yet; the request stays queued for the next call. USBMUX owns
-                // authoritative detach/failure detection for the same phone.
+                synchronized(stateLock) {
+                    if (readLifecycle.isClosing()) return null
+                    readLifecycle.onTimeout()
+                    readTimeouts.incrementAndGet()
+                }
                 return null
-            } ?: throw failSession("Android returned no NCM read request")
-            if (completed !== request) throw failSession("Android completed an unexpected NCM request")
-            readQueued = false
-            val transferred = directReadBuffer.position()
+            }
+            if (completed == null) {
+                synchronized(stateLock) {
+                    if (!readLifecycle.onNullResult()) return null
+                    readNullErrors.incrementAndGet()
+                }
+                throw failSession("NCM_REQUEST_WAIT_ERROR: Android returned no NCM read request")
+            }
+            var firstCompletion = false
+            val transferred = synchronized(stateLock) {
+                if (readLifecycle.isClosing()) return null
+                if (!readLifecycle.onCompletion(completed)) {
+                    readUnexpectedCompletions.incrementAndGet()
+                    throw failSession("NCM_REQUEST_WAIT_ERROR: Android completed an unexpected NCM request")
+                }
+                firstCompletion = readCompletions.incrementAndGet() == 1L
+                directReadBuffer.position().also { readBytes.addAndGet(it.toLong()) }
+            }
+            if (firstCompletion) emitFirst(NcmDiagnosticEvent.FIRST_USB_COMPLETION)
             if (transferred <= 0) return null
             directReadBuffer.flip()
             directReadBuffer.get(readBuffer, 0, transferred)
@@ -253,14 +476,18 @@ class NcmUsbBridge internal constructor(
         } catch (error: IphoneUsbException) {
             throw error
         } catch (error: RuntimeException) {
-            throw failSession("NCM read failed", error)
+            if (readLifecycle.isClosing()) return null
+            throw failSession("NCM_REQUEST_WAIT_ERROR: NCM read failed", error)
         }
     }
 
     private fun failSession(message: String, cause: Throwable? = null): IphoneUsbException.DeviceUnavailable {
         val error = IphoneUsbException.DeviceUnavailable(message, cause)
         synchronized(stateLock) {
-            if (failure == null) failure = error
+            if (failure == null) {
+                failure = error
+                readLifecycle.markFailure()
+            }
         }
         return error
     }
@@ -291,9 +518,27 @@ class NcmUsbBridge internal constructor(
         private const val MAX_QUEUED_FRAMES = 256
         private const val MAX_QUEUED_BYTES = 1 shl 20
         private const val NANOS_PER_MILLISECOND = 1_000_000L
+        private const val USB_CONTROL_DIAGNOSTIC_TIMEOUT_MILLIS = 250
+        private const val GET_NTB_PARAMETERS_REQUEST = 0x80
+        private const val NTB_PARAMETERS_BYTES = 28
+        private const val USB_TYPE_CLASS = 0x20
+        private const val USB_RECIPIENT_INTERFACE = 0x01
+
+        internal fun readChunkBytesForDiagnostics(): Int = READ_CHUNK_BYTES
+
+        @Volatile
+        internal var statusPollingEnabledForDiagnostics = false
 
         /** Claims and activates the NCM control/data interfaces; owns the connection on success. */
-        fun open(connection: UsbDeviceConnection, function: NcmFunctionDiscovery.NcmFunction): NcmUsbBridge {
+        fun open(
+            connection: UsbDeviceConnection,
+            function: NcmFunctionDiscovery.NcmFunction,
+            selectionDiagnostics: String =
+                "control=${function.control.id}/${function.control.alternateSetting} " +
+                    "data=${function.data.id}/${function.data.alternateSetting}",
+            onDiagnosticEvent: (NcmDiagnosticEvent) -> Unit = {},
+            queryNtbParameters: Boolean = false,
+        ): NcmUsbBridge {
             val claimed = ArrayList<UsbInterface>(2)
             try {
                 val descriptorHostMac = readNcmHostMac(connection, function.control.id)
@@ -317,6 +562,16 @@ class NcmUsbBridge internal constructor(
                     )
                 }
                 claimed.add(first)
+                val ntbParameters = if (queryNtbParameters) {
+                    readNtbParameters(connection, function.control.id)
+                } else {
+                    null
+                }
+                val ntbParametersSummary = when {
+                    !queryNtbParameters -> "not-queried"
+                    ntbParameters == null -> "unavailable"
+                    else -> ntbParameters.summary()
+                }
                 if (!sameInterface) {
                     val dataClaimed = connection.claimInterface(function.data, true)
                     Log.i(
@@ -345,12 +600,19 @@ class NcmUsbBridge internal constructor(
                     IphoneCarPlayConfiguration.TAG,
                     "ncm status endpoint=${function.statusIn?.address?.let { "0x${it.toString(16)}" } ?: "none"}",
                 )
+                Log.i(
+                    IphoneCarPlayConfiguration.TAG,
+                    "ncm status polling=${statusPollingEnabledForDiagnostics}",
+                )
                 return NcmUsbBridge(
                     connection,
                     function.bulkOut,
                     function.bulkIn,
                     function.statusIn,
                     descriptorHostMac,
+                    "$selectionDiagnostics ntbParameters=$ntbParametersSummary",
+                    onDiagnosticEvent,
+                    statusPollingEnabledForDiagnostics,
                 )
             } catch (error: Throwable) {
                 for (usbInterface in claimed.asReversed()) {
@@ -365,6 +627,51 @@ class NcmUsbBridge internal constructor(
                 throw IphoneUsbException.DeviceUnavailable("Android NCM open failed", error)
             }
         }
+
+        internal fun parseNtbParameters(buffer: ByteArray, length: Int = buffer.size): NcmNtbParameters? {
+            if (length < NTB_PARAMETERS_BYTES || buffer.size < NTB_PARAMETERS_BYTES) return null
+            if (readU16(buffer, 0) < NTB_PARAMETERS_BYTES) return null
+            return NcmNtbParameters(
+                supportedFormats = readU16(buffer, 2),
+                ntbInMaxSize = readU32(buffer, 4),
+                ndpInDivisor = readU16(buffer, 8),
+                ndpInRemainder = readU16(buffer, 10),
+                ndpInAlignment = readU16(buffer, 12),
+                ntbOutMaxSize = readU32(buffer, 16),
+                ndpOutDivisor = readU16(buffer, 20),
+                ndpOutRemainder = readU16(buffer, 22),
+                ndpOutAlignment = readU16(buffer, 24),
+                ntbOutMaxDatagrams = readU16(buffer, 26),
+            )
+        }
+
+        private fun readNtbParameters(
+            connection: UsbDeviceConnection,
+            controlInterfaceId: Int,
+        ): NcmNtbParameters? {
+            val buffer = ByteArray(NTB_PARAMETERS_BYTES)
+            val transferred = runCatching {
+                connection.controlTransfer(
+                    UsbConstants.USB_DIR_IN or USB_TYPE_CLASS or USB_RECIPIENT_INTERFACE,
+                    GET_NTB_PARAMETERS_REQUEST,
+                    0,
+                    controlInterfaceId,
+                    buffer,
+                    buffer.size,
+                    USB_CONTROL_DIAGNOSTIC_TIMEOUT_MILLIS,
+                )
+            }.getOrDefault(-1)
+            return parseNtbParameters(buffer, transferred)
+        }
+
+        private fun readU16(source: ByteArray, offset: Int): Int =
+            (source[offset].toInt() and 0xff) or ((source[offset + 1].toInt() and 0xff) shl 8)
+
+        private fun readU32(source: ByteArray, offset: Int): Long =
+            (source[offset].toLong() and 0xff) or
+                ((source[offset + 1].toLong() and 0xff) shl 8) or
+                ((source[offset + 2].toLong() and 0xff) shl 16) or
+                ((source[offset + 3].toLong() and 0xff) shl 24)
 
         private fun readNcmHostMac(connection: UsbDeviceConnection, controlInterfaceId: Int): ByteArray? {
             val index = ethernetMacStringIndex(connection.rawDescriptors, controlInterfaceId) ?: return null

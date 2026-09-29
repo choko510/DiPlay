@@ -29,6 +29,7 @@ interface AirPlaySessionListener {
     fun onSessionActive(session: AirPlaySession) {}
     fun onSessionEnded(session: AirPlaySession) {}
     fun onVideoFrameRendered(session: AirPlaySession) {}
+    fun onTransportStopping(message: String) {}
     fun onTransportError(message: String) {}
     fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {}
     fun onHostUiRequested(session: AirPlaySession) {}
@@ -81,6 +82,7 @@ class AirPlaySession(
     private val firstTouchSendLogged = AtomicBoolean(false)
     private val firstVideoFrameRendered = AtomicBoolean(false)
     private val touchSendFailureLogged = AtomicBoolean(false)
+    private val controlEncryptionObserved = AtomicBoolean(false)
     private val ntp = NtpClock()
     private var keepAliveSocket: DatagramSocket? = null
     private var keepAliveThread: Thread? = null
@@ -283,6 +285,9 @@ class AirPlaySession(
                         Log.e(TAG, "airplay $closeReason encrypted=${encBuf.size}", error)
                         break
                     }
+                    if (controlEncryptionObserved.compareAndSet(false, true)) {
+                        runCatching { listener.onConnectionTrace(ConnectionTraceStage.AIRPLAY_CONTROL_ENCRYPTED) }
+                    }
                     encBuf = decrypted.rest
                     plaintext = decrypted.data
                 }
@@ -323,6 +328,9 @@ class AirPlaySession(
                     if (cipher == null && pairVerify.controlKeys != null) {
                         val keys = pairVerify.controlKeys!!
                         cipher = ControlCipher(keys.readKey, keys.writeKey)
+                        runCatching {
+                            listener.onConnectionTrace(ConnectionTraceStage.AIRPLAY_CONTROL_ENCRYPTION_STARTED)
+                        }
                         debugLog("airplay control encryption enabled")
                     }
                 }
@@ -632,6 +640,7 @@ class AirPlaySession(
             val socket = server.accept()
             socket.setSoLinger(true, 0)
             debugLog("airplay event connection accepted from ${socket.remoteSocketAddress}")
+            runCatching { listener.onConnectionTrace(ConnectionTraceStage.AIRPLAY_EVENT_ACCEPTED) }
             eventSocket = socket
             val shared = pairVerify.shared
             if (shared == null) {

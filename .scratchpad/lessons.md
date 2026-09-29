@@ -32,3 +32,19 @@ Treat About as a child of Settings: Back returns to Settings, while Back from th
 ## Compare advertised and negotiated audio formats
 
 The `/info` output mask and the SETUP `audioFormat` bit are the two sides of format negotiation. Log both with stream type and audioType so a real-device report can show which advertised candidate was selected; keep receiver decode support separate from the formats offered for output. Apply a negotiation change to the specific AirPlay stream type under investigation so it does not narrow MainAudio by assumption.
+
+## Distinguish USB request timeout from error
+
+For `UsbDeviceConnection.requestWait(timeout)`, `TimeoutException` means no request completed before the deadline and leaves the request pending. A null return means an error. Keep these paths separate in both lifecycle state and diagnostics.
+
+## Keep link-layer retries narrower than network retransmission
+
+NCM bulk OUT may be not-ready before CarPlayStartSession. Retry only Neighbor Solicitation/Advertisement frames during startup, with a strict attempt and delay bound; do not retry TCP or UDP frames after an ambiguous USB result.
+
+## Infer Apple mode from configurations, not GET_MODE bytes
+
+The usbmuxd GET_MODE reply is diagnostic input; the mode guess comes from the advertised configuration set. Do not infer that setting mode 1 and then mode 4 creates a safe reset.
+
+## Recheck asynchronous USB opens before publishing
+
+USB session creation can finish after a manual reconnect or shutdown. Bind each open to a generation and close any session/bridge returned for a stale generation before reporting success or failure.

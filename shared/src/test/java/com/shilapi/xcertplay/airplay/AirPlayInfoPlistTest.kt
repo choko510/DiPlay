@@ -203,60 +203,75 @@ class AirPlayInfoPlistTest {
             telephony(AirPlayInfoPlist.build(base.copy(microphone = true)))
                 .containsKey("audioInputFormats"),
         )
-        assertEquals(
-            0x70004154,
-            defaultAudio(AirPlayInfoPlist.build(base.copy(microphone = true)))["audioInputFormats"],
-        )
-        assertEquals(
-            0x70004154,
-            telephony(AirPlayInfoPlist.build(base.copy(microphone = true)))["audioInputFormats"],
-        )
+        val wired = AirPlayInfoPlist.build(base.copy(microphone = true))
+        val wireless = AirPlayInfoPlist.build(base.copy(microphone = true, wirelessAudio = true))
+        assertEquals(0x4154, defaultAudio(wired)["audioInputFormats"])
+        assertEquals(0x4154, telephony(wired)["audioInputFormats"])
+        assertEquals(0x70004154, defaultAudio(wireless)["audioInputFormats"])
+        assertEquals(0x70004154, telephony(wireless)["audioInputFormats"])
+        assertEquals(0x70004154, audioCapability(wireless, 100, "speechRecognition")["audioInputFormats"])
     }
 
     @Test
-    fun navigationOutputsAdvertiseOnlyConfiguredHighRatePcm() {
+    fun altAudioOutputsRespectTransportCapabilities() {
         val lowRatePcmFormats = 0x3fc
-        val navigationTypes = listOf(
-            100 to "compatibility",
-            101 to "compatibility",
-            100 to "default",
-            100 to "alert",
-            101 to "default",
-        )
+        val opusFormats = 0x70000000
 
         listOf(48000 to 0xc000, 44100 to 0xc00).forEach { (sampleRate, highRatePcm) ->
-            val info = audioInfo(sampleRate)
-            navigationTypes.forEach { (type, audioType) ->
-                val outputFormats = audioCapability(info, type, audioType)["audioOutputFormats"] as Number
-                assertEquals("$sampleRate Hz type=$type audioType=$audioType", highRatePcm, outputFormats.toInt())
+            val wired = audioInfo(sampleRate)
+            val wireless = audioInfo(sampleRate, wirelessAudio = true)
+            listOf("compatibility", "default").forEach { audioType ->
+                val wiredFormats = audioCapability(wired, 101, audioType)["audioOutputFormats"] as Number
+                assertEquals("$sampleRate Hz wired type=101 audioType=$audioType", highRatePcm, wiredFormats.toInt())
                 assertEquals(
-                    "$sampleRate Hz type=$type audioType=$audioType low-rate PCM",
+                    "$sampleRate Hz wired type=101 audioType=$audioType low-rate PCM",
                     0,
-                    outputFormats.toInt() and lowRatePcmFormats,
+                    wiredFormats.toInt() and lowRatePcmFormats,
                 )
+                assertEquals(0, wiredFormats.toInt() and opusFormats)
             }
+
+            val wirelessCompatibility =
+                audioCapability(wireless, 101, "compatibility")["audioOutputFormats"] as Number
+            val wirelessDefault = audioCapability(wireless, 101, "default")["audioOutputFormats"] as Number
+            assertEquals(highRatePcm, wirelessCompatibility.toInt())
+            assertEquals(highRatePcm or opusFormats, wirelessDefault.toInt())
+            assertEquals(0, wirelessDefault.toInt() and lowRatePcmFormats)
         }
     }
 
     @Test
-    fun mediaAndVoiceCapabilitiesKeepTheirExistingFormats() {
+    fun mainAudioMediaAndVoiceCapabilitiesRemainTransportAppropriate() {
+        val lowRatePcmFormats = 0x3fc
+        val opusFormats = 0x70000000
         listOf(48000 to 0xc000, 44100 to 0xc00).forEach { (sampleRate, highRatePcm) ->
-            val info = audioInfo(sampleRate, microphone = true)
-            val mediaPcmFormats = 0x3fc or highRatePcm
-            val voicePcmFormats = 0x154 or (if (sampleRate == 48000) 0x4000 else 0x400)
-            val voiceFormats = voicePcmFormats or 0x70000000
+            val wired = audioInfo(sampleRate, microphone = true)
+            val wireless = audioInfo(sampleRate, microphone = true, wirelessAudio = true)
+            val pcm = lowRatePcmFormats or highRatePcm
+            val monoPcm = 0x154 or (if (sampleRate == 48000) 0x4000 else 0x400)
 
-            assertEquals(mediaPcmFormats, audioCapability(info, 100, "media")["audioOutputFormats"])
-            assertEquals(
-                if (sampleRate == 48000) 0x800000 else 0x400000,
-                audioCapability(info, 102, "media")["audioOutputFormats"],
-            )
-            listOf("telephony", "speechRecognition").forEach { audioType ->
-                val capability = audioCapability(info, 100, audioType)
-                assertEquals(voiceFormats, capability["audioOutputFormats"])
-                assertEquals(voiceFormats, capability["audioInputFormats"])
+            listOf("compatibility", "media").forEach { audioType ->
+                assertEquals(pcm, audioCapability(wired, 100, audioType)["audioOutputFormats"])
+                assertEquals(pcm, audioCapability(wireless, 100, audioType)["audioOutputFormats"])
             }
-            assertEquals(voiceFormats, audioCapability(info, 100, "default")["audioInputFormats"])
+            assertEquals(pcm, audioCapability(wired, 100, "default")["audioOutputFormats"])
+            assertEquals(pcm, audioCapability(wired, 100, "alert")["audioOutputFormats"])
+            assertEquals(pcm or opusFormats, audioCapability(wireless, 100, "default")["audioOutputFormats"])
+            assertEquals(pcm or opusFormats, audioCapability(wireless, 100, "alert")["audioOutputFormats"])
+            val aacFormats = if (sampleRate == 48000) 0x800000 else 0x400000
+            assertEquals(aacFormats, audioCapability(wired, 102, "media")["audioOutputFormats"])
+            assertEquals(aacFormats, audioCapability(wireless, 102, "media")["audioOutputFormats"])
+            listOf("telephony", "speechRecognition").forEach { audioType ->
+                val wiredCapability = audioCapability(wired, 100, audioType)
+                val wirelessCapability = audioCapability(wireless, 100, audioType)
+                assertEquals(monoPcm, wiredCapability["audioOutputFormats"])
+                assertEquals(monoPcm or opusFormats, wirelessCapability["audioOutputFormats"])
+                assertEquals(monoPcm, wiredCapability["audioInputFormats"])
+                assertEquals(monoPcm or opusFormats, wirelessCapability["audioInputFormats"])
+            }
+            assertEquals(monoPcm, audioCapability(wired, 100, "compatibility")["audioInputFormats"])
+            assertEquals(monoPcm, audioCapability(wired, 100, "default")["audioInputFormats"])
+            assertEquals(monoPcm or opusFormats, audioCapability(wireless, 100, "default")["audioInputFormats"])
         }
     }
 
@@ -278,7 +293,11 @@ class AirPlayInfoPlistTest {
         assertEquals(setOf(100, 101, 102), types)
     }
 
-    private fun audioInfo(sampleRate: Int, microphone: Boolean = false): Map<String, Any?> =
+    private fun audioInfo(
+        sampleRate: Int,
+        microphone: Boolean = false,
+        wirelessAudio: Boolean = false,
+    ): Map<String, Any?> =
         AirPlayInfoPlist.build(
             AirPlayConfig(
                 deviceName = "test",
@@ -288,6 +307,7 @@ class AirPlayInfoPlistTest {
                 main = AirPlayDisplayConfig(widthPixels = 1280, heightPixels = 720),
                 entertainmentSampleRate = sampleRate,
                 microphone = microphone,
+                wirelessAudio = wirelessAudio,
             ),
         )
 

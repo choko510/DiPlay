@@ -62,7 +62,11 @@ object AirPlayInfoPlist {
         )
         if (!config.disableAudioOutput) {
             info["audioLatencies"] = audioLatencies()
-            info["audioFormats"] = audioFormats(config.entertainmentSampleRate, config.microphone)
+            info["audioFormats"] = audioFormats(
+                config.entertainmentSampleRate,
+                config.microphone,
+                config.wirelessAudio,
+            )
         }
         info["extendedFeatures"] = listOf("vocoderInfo", "enhancedRequestCarUI")
         info["displays"] = displays
@@ -126,6 +130,7 @@ object AirPlayInfoPlist {
     private fun audioFormats(
         entertainmentRate: Int,
         microphone: Boolean,
+        wirelessAudio: Boolean,
     ): List<Map<String, Any?>> {
         fun format(type: Int, audioType: String, outputFormats: Int, inputFormats: Int? = null): Map<String, Any?> {
             val entry = linkedMapOf<String, Any?>(
@@ -147,25 +152,27 @@ object AirPlayInfoPlist {
         } else {
             PCM_44_1_KHZ_MONO or PCM_44_1_KHZ_STEREO
         }
+        val pcm = lowRatePcmFormats or highRatePcm
+        // Wired low-latency streams use PCM; wireless sessions also support Opus.
+        val opus = if (wirelessAudio) OPUS_FORMATS else 0
         val navigationOutputFormats = highRatePcm
-        val mediaPcmFormats = lowRatePcmFormats or highRatePcm
         val pcmMono = PCM_8_KHZ_MONO or PCM_16_KHZ_MONO or
             PCM_24_KHZ_MONO or PCM_32_KHZ_MONO or
             (if (is48) PCM_48_KHZ_MONO else PCM_44_1_KHZ_MONO)
-        val voiceOutputFormats = pcmMono or OPUS_FORMATS
+        val voiceOutputFormats = pcmMono or opus
         val aacLc = if (is48) AAC_LC_48_KHZ_STEREO else AAC_LC_44_1_KHZ_STEREO
         val pcmInput = if (microphone) pcmMono else null
-        val wirelessInput = if (microphone) pcmMono or OPUS_FORMATS else null
+        val inputFormats = if (microphone) pcmMono or opus else null
 
         return listOf(
-            format(100, "compatibility", navigationOutputFormats, pcmInput),
+            format(100, "compatibility", pcm, pcmInput),
             format(101, "compatibility", navigationOutputFormats),
-            format(100, "default", navigationOutputFormats, wirelessInput),
-            format(100, "alert", navigationOutputFormats),
-            format(100, "media", mediaPcmFormats),
-            format(100, "telephony", voiceOutputFormats, wirelessInput),
-            format(100, "speechRecognition", voiceOutputFormats, wirelessInput),
-            format(101, "default", navigationOutputFormats),
+            format(100, "default", pcm or opus, inputFormats),
+            format(100, "alert", pcm or opus),
+            format(100, "media", pcm),
+            format(100, "telephony", voiceOutputFormats, inputFormats),
+            format(100, "speechRecognition", voiceOutputFormats, inputFormats),
+            format(101, "default", navigationOutputFormats or opus),
             format(102, "media", aacLc),
         )
     }

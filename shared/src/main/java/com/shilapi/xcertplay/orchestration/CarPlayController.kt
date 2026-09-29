@@ -893,6 +893,7 @@ class CarPlayController(
             val wirelessAirPlayConfig = airPlayConfig.copy(
                 deviceId = deviceIdentifier,
                 btMac = hostBluetoothMac,
+                wirelessAudio = true,
             )
 
             onStatus(CarPlayStatus.AttachingNetwork)

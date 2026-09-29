@@ -66,7 +66,7 @@ class LocalOnlyHotspotManager(context: Context) : WirelessHotspotManager {
         attempt.thread = thread
         var acquiredMulticastLock: WifiManager.MulticastLock? = null
         val deadlineNanos = deadlineAfter(timeoutMillis)
-        val previousAddresses = activeInterfaces().flatMap { it.siteLocalIpv4Addresses() }.toSet()
+        val previousAddresses = activeInterfaces().flatMap { it.hotspotAddresses() }.toSet()
         val previousUpstreams = upstreamInterfaceNames()
 
         try {
@@ -409,6 +409,7 @@ class LocalOnlyHotspotManager(context: Context) : WirelessHotspotManager {
                 name = networkInterface.name,
                 ipv4 = networkInterface.siteLocalIpv4Addresses(),
                 bssid = networkInterface.interfaceBssid(),
+                ipv6LinkLocal = networkInterface.linkLocalIpv6Addresses(),
             )
         }
         val selected = LocalOnlyHotspotInterfacePolicy.select(
@@ -436,6 +437,13 @@ class LocalOnlyHotspotManager(context: Context) : WirelessHotspotManager {
     private fun NetworkInterface.siteLocalIpv4Addresses(): Set<String> =
         Collections.list(inetAddresses).filterIsInstance<Inet4Address>()
             .filter { it.isSiteLocalAddress }.mapNotNull { it.hostAddress }.toSet()
+
+    private fun NetworkInterface.linkLocalIpv6Addresses(): Set<String> =
+        Collections.list(inetAddresses).filterIsInstance<Inet6Address>()
+            .filter { it.isLinkLocalAddress }.mapNotNull { it.hostAddress }.toSet()
+
+    private fun NetworkInterface.hotspotAddresses(): Set<String> =
+        siteLocalIpv4Addresses() + linkLocalIpv6Addresses()
 
     private fun NetworkInterface.interfaceBssid(): String? =
         runCatching { hardwareAddress?.toMacAddressString() }.getOrNull()

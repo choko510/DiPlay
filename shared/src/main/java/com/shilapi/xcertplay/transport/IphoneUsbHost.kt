@@ -79,8 +79,18 @@ class IphoneUsbHost(
     }
 
     sealed class PermissionResult {
-        data class Granted(val device: UsbDevice, val requestId: Int) : PermissionResult()
-        data class Denied(val device: UsbDevice, val requestId: Int) : PermissionResult()
+        abstract val device: UsbDevice
+        abstract val requestId: Int
+
+        data class Granted(
+            override val device: UsbDevice,
+            override val requestId: Int,
+        ) : PermissionResult()
+
+        data class Denied(
+            override val device: UsbDevice,
+            override val requestId: Int,
+        ) : PermissionResult()
     }
 
     sealed class TransitionResult {

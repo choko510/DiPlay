@@ -81,3 +81,11 @@ Keep one application-scoped GeckoRuntime and create/close Activity-scoped GeckoS
 ## Split CarPlay and YouTube inside the existing host
 
 Keep CarPlayController, AndroidMediaSink, and CarPlayBackgroundSession in CarPlayHostActivity. Put the CarPlay TextureView, touch layer, and connection panel in the same left pane; let GeckoView own the right pane. Defer CarPlay restarts until the latest pane size has settled, and use ABI-specific APKs to preserve all supported architectures without shipping every GeckoView native library to every device.
+
+## Keep restart ownership pending until a new controller is stored
+
+A resize restart remains claimable across Activity destruction until the replacement CarPlay controller is stored. A claimed but not-yet-started Activity releases the claim on destruction; an ownerless handoff can be cancelled by Disconnect and suppresses automatic startup until a fresh host launch. Transfer the stop callback when a new host claims ownership so Disconnect never targets a destroyed Activity.
+
+## Bound Google popups to one same-context GeckoSession
+
+HTTPS new-window requests and `about:blank` can create one temporary GeckoSession using the same iPhone context ID. Return to the primary session on popup close; deny HTTP and external schemes, do not log or persist popup URLs, and restore the primary session's most recent load state.

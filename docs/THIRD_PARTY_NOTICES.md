@@ -20,7 +20,7 @@ CarPlay and the CarPlay icon are Apple Inc. marks/assets. This asset is not cove
 
 ## Runtime dependencies
 
-- GeckoView 156.0.20260921121718 — Mozilla; Mozilla Public License 2.0. Full text: `docs/licenses/dependencies/MPL-2.0.txt`.
+- GeckoView 156.0.20260921121718 — Mozilla; Mozilla Public License 2.0. The matching source revision identified by the resolved AAR metadata is [mozilla-release revision `6f2c158dfc7e9693f880fad2510ceb51a158c069`](https://hg.mozilla.org/releases/mozilla-release/rev/6f2c158dfc7e9693f880fad2510ceb51a158c069). Full text: `docs/licenses/dependencies/MPL-2.0.txt`.
 - AndroidX, Jetpack Compose and AndroidX Media3 1.11.0 — Android Open Source Project; Apache License 2.0.
 - Kotlin standard library — JetBrains; Apache License 2.0.
 - Google Play services FIDO 21.3.1 and its Play services runtime dependencies — Android Software Development Kit License; [terms](https://developer.android.com/studio/terms.html).

@@ -82,3 +82,11 @@ GeckoView 156.0.20260921121718 resolves from Mozilla Maven, requires compile SDK
 ## Preserve all native ABIs while controlling GeckoView package size
 
 The GeckoView AAR includes arm64-v8a, armeabi-v7a and x86_64 native libraries. A universal APK exceeds 570 MB in this build; ABI-specific outputs preserve the existing support while avoiding unrelated libraries in each download.
+
+## Treat a restart handoff claim as provisional until publication
+
+An Activity may claim a resize restart and then wait on permission or transport readiness. Keep the handoff pending until `CarPlayBackgroundSession.store()` publishes the replacement controller; if the Activity is destroyed first, return ownership to the next host. Transfer its stop callback at claim time.
+
+## Treat Gecko's new-session URI as policy input, not a load command
+
+`NavigationDelegate.onNewSession` provides a URI for information and expects a newly created session; Gecko loads it after the app returns that session. Validate the callback URI even when no preceding load-request callback was observed. Keep only a pending boolean rather than retaining the full URI, and track load state for hidden primary sessions so popup close does not restore stale status.

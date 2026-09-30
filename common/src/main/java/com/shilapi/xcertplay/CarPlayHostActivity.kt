@@ -82,6 +82,7 @@ import com.shilapi.xcertplay.shared.AppLanguage
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import com.shilapi.xcertplay.transport.Iap2LocationProvider
 import com.shilapi.xcertplay.transport.UsbDeviceId
+import com.shilapi.xcertplay.youtube.CarPlayRestartHandoff
 import com.shilapi.xcertplay.youtube.DisplayResizeCoordinator
 import com.shilapi.xcertplay.youtube.DisplaySize
 import com.shilapi.xcertplay.youtube.HostLayoutMode
@@ -91,6 +92,7 @@ import com.shilapi.xcertplay.youtube.SplitLayoutConfig
 import com.shilapi.xcertplay.youtube.YoutubeBrowserController
 import com.shilapi.xcertplay.youtube.YoutubeDeviceProfile
 import com.shilapi.xcertplay.youtube.YoutubeDeviceProfileManager
+import com.shilapi.xcertplay.youtube.YoutubeGeckoRuntimeProvider
 import com.shilapi.xcertplay.youtube.YoutubeLoadState
 import java.io.File
 import java.text.SimpleDateFormat
@@ -286,6 +288,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private var activityVisible = false
     private var profileResolutionStartedElapsed = 0L
     private var profileResolutionTimedOut = false
+    private var splitCarPlayReadyForYoutube = false
+    private var restartHandoffToken: Long? = null
+    private var restartHandoffRetryScheduled = false
     private var deviceInfoSession: AirPlaySession? = null
     private var connectedDeviceInfo: AirPlayDeviceInfo? = null
     private var settingsMenu: View? = null
@@ -389,6 +394,17 @@ class CarPlayHostActivity : ComponentActivity() {
     private val finishRestartAfterResize = Runnable {
         restartFallbackSize?.let(::finishRestartAtLatestSize)
     }
+    private val finishSplitYoutubeStartup = Runnable {
+        if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT ||
+            pendingDisplaySize != null || handshakeResetInProgress || restartReadyToStart ||
+            controller == null || shuttingDown.get() || isFinishing || isDestroyed
+        ) {
+            return@Runnable
+        }
+        splitCarPlayReadyForYoutube = true
+        resolveYoutubeProfile()
+        youtubeProfile?.let(::attachYoutubeBrowser)
+    }
     private val retryYoutubeProfileResolution = object : Runnable {
         override fun run() {
             if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) return
@@ -450,6 +466,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null) CarPlayBackgroundSession.clearRestartSuppression()
         val initialAction = intent.action
         hostLayoutState = HostLayoutState(
             mode = if (savedInstanceState?.getBoolean(STATE_YOUTUBE_SPLIT) == true) {
@@ -517,6 +534,7 @@ class CarPlayHostActivity : ComponentActivity() {
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
         }
         if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
+            YoutubeGeckoRuntimeProvider.warmUp(applicationContext)
             startYoutubeProfileResolution(resetTimeout = true)
         }
     }
@@ -649,6 +667,7 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        CarPlayBackgroundSession.clearRestartSuppression()
         if (intent.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED" && wirelessEnabled) {
             shutdown(false, "switching to USB") {
                 AirPlayPersistence.saveWirelessEnabled(this, false)
@@ -711,6 +730,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        YoutubeGeckoRuntimeProvider.configurationChanged(newConfig)
         val nextDarkMode = isDarkMode(newConfig.uiMode)
         if (nextDarkMode != darkMode) {
             darkMode = nextDarkMode
@@ -726,9 +746,15 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        if (!handshakeResetInProgress) mainHandler.removeCallbacks(applyDisplaySize)
+        mainHandler.removeCallbacks(applyDisplaySize)
+        mainHandler.removeCallbacks(finishRestartAfterResize)
+        mainHandler.removeCallbacks(finishSplitYoutubeStartup)
         mainHandler.removeCallbacks(retryYoutubeProfileResolution)
         mainHandler.removeCallbacks(expireOldLogLines)
+        if (restartHandoffToken != null || CarPlayBackgroundSession.isClaimedRestartOwner(this)) {
+            CarPlayBackgroundSession.releaseRestartOwner(this)
+            restartHandoffToken = null
+        }
         youtubeBrowser?.let { browser ->
             (browser.view.parent as? ViewGroup)?.removeView(browser.view)
             browser.destroy()
@@ -911,9 +937,11 @@ class CarPlayHostActivity : ComponentActivity() {
             return
         }
         hostLayoutState = hostLayoutState.enterYoutubeSplit()
+        splitCarPlayReadyForYoutube = false
         youtubeFullscreen = false
         updateHostLayout()
         Log.i(TAG, "YouTube split requested")
+        YoutubeGeckoRuntimeProvider.warmUp(applicationContext)
         startYoutubeProfileResolution(resetTimeout = true)
         videoView?.post {
             val view = videoView ?: return@post
@@ -923,6 +951,8 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun exitYoutubeSplit() {
         val wasSplit = hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT
+        splitCarPlayReadyForYoutube = false
+        mainHandler.removeCallbacks(finishSplitYoutubeStartup)
         mainHandler.removeCallbacks(retryYoutubeProfileResolution)
         if (youtubeFullscreen) setYoutubeFullscreen(false)
         youtubeBrowser?.let { browser ->
@@ -992,13 +1022,19 @@ class CarPlayHostActivity : ComponentActivity() {
             )
         }
         youtubeProfile = profile
-        attachYoutubeBrowser(profile)
+        if (splitCarPlayReadyForYoutube) attachYoutubeBrowser(profile)
         profileResolutionTimedOut = false
         mainHandler.removeCallbacks(retryYoutubeProfileResolution)
         return true
     }
 
     private fun attachYoutubeBrowser(profile: YoutubeDeviceProfile) {
+        if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT ||
+            !splitCarPlayReadyForYoutube || pendingDisplaySize != null || handshakeResetInProgress ||
+            restartReadyToStart || shuttingDown.get() || isFinishing || isDestroyed
+        ) {
+            return
+        }
         val browser = youtubeBrowser ?: createYoutubeBrowser()?.also { created ->
             youtubeBrowser = created
             youtubeContent?.addView(created.view, FrameLayout.LayoutParams(-1, -1))
@@ -3436,12 +3472,14 @@ class CarPlayHostActivity : ComponentActivity() {
         displayDiagnosticAttempt = DisplayDiagnosticSnapshot.currentAttempt(this)
         controller = snapshot.controller
         sink = snapshot.sink
-        CarPlayBackgroundSession.store(snapshot.controller, snapshot.sink, snapshot.width, snapshot.height, this) { completion ->
-            runOnUiThread {
-                shutdown(false, "DiPlay disconnect", completion)
-                finish()
-            }
-        }
+        CarPlayBackgroundSession.store(
+            snapshot.controller,
+            snapshot.sink,
+            snapshot.width,
+            snapshot.height,
+            this,
+            backgroundStopAction(),
+        )
         if (snapshot.width > 0 && snapshot.height > 0) {
             activeDisplaySize = DisplaySize(snapshot.width, snapshot.height)
             displayResizeCoordinator.observe(DisplaySize(snapshot.width, snapshot.height))
@@ -3483,7 +3521,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
-        if (shuttingDown.get() || menuOpen || handshakeResetInProgress || controller != null) return
+        if (shuttingDown.get() || isFinishing || isDestroyed || menuOpen || handshakeResetInProgress || controller != null) return
         val controllerGeneration = restartGeneration
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)
@@ -3552,19 +3590,26 @@ class CarPlayHostActivity : ComponentActivity() {
             },
         )
         controller = next
-        CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this) { completion ->
-            runOnUiThread {
-                shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
-                finish()
-            }
-        }
+        CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this, backgroundStopAction())
         try {
             startForegroundService(Intent(this, DiPlaySessionService::class.java))
             next.start()
+            if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
+                splitCarPlayReadyForYoutube = true
+                resolveYoutubeProfile()
+                youtubeProfile?.let(::attachYoutubeBrowser)
+            }
         } catch (error: RuntimeException) {
             appendLog("Connection could not start: ${error.javaClass.simpleName}")
             shutdown(false, "foreground service could not start")
             setConnectionStage("Could not start CarPlay. Return to DiPlay and check app permissions.")
+        }
+    }
+
+    private fun backgroundStopAction(): ((() -> Unit) -> Unit) = { completion ->
+        runOnUiThread {
+            shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
+            finish()
         }
     }
 
@@ -3590,9 +3635,10 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun scheduleDisplaySize(width: Int, height: Int) {
-        if (width <= 0 || height <= 0 || shuttingDown.get()) return
+        if (width <= 0 || height <= 0 || shuttingDown.get() || isFinishing || isDestroyed) return
         val size = DisplaySize(width, height)
         if (size == pendingDisplaySize) return
+        CarPlayBackgroundSession.observePendingRestartSize(this, size)
         displayResizeCoordinator.observe(size)
         if (size == activeDisplaySize) {
             pendingDisplaySize = null
@@ -3600,6 +3646,10 @@ class CarPlayHostActivity : ComponentActivity() {
             if (restartReadyToStart) {
                 mainHandler.removeCallbacks(finishRestartAfterResize)
                 mainHandler.postDelayed(finishRestartAfterResize, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
+            }
+            if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT && controller != null) {
+                mainHandler.removeCallbacks(finishSplitYoutubeStartup)
+                mainHandler.postDelayed(finishSplitYoutubeStartup, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
             }
             return
         }
@@ -3610,7 +3660,8 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun applyDisplaySize(size: DisplaySize) {
-        if (shuttingDown.get()) return
+        if (shuttingDown.get() || isFinishing || isDestroyed) return
+        CarPlayBackgroundSession.markPendingRestartLayoutReady(this, size)
         if (size == activeDisplaySize) {
             if (restartReadyToStart) finishRestartAtLatestSize(size)
             return
@@ -3645,7 +3696,22 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun maybeStartCarPlay() {
-        if (shuttingDown.get()) return
+        if (shuttingDown.get() || isFinishing || isDestroyed) return
+        if (CarPlayBackgroundSession.isRestartSuppressed()) return
+        if (CarPlayBackgroundSession.hasPendingRestart()) {
+            if (restartHandoffToken != null) return
+            if (pendingDisplaySize != null) return
+            val settledSize = activeDisplaySize ?: return
+            CarPlayBackgroundSession.markPendingRestartLayoutReady(this, settledSize)
+            val handedOffSize = CarPlayBackgroundSession.claimPendingRestart(this, backgroundStopAction())
+            if (handedOffSize == null) {
+                scheduleRestartHandoffRetry()
+                return
+            }
+            restartHandoffRetryScheduled = false
+            activeDisplaySize = handedOffSize
+            displayResizeCoordinator.observe(handedOffSize)
+        }
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) {
             if (!adoptBackgroundSession()) mainHandler.postDelayed({ maybeStartCarPlay() }, 500)
             return
@@ -3666,6 +3732,15 @@ class CarPlayHostActivity : ComponentActivity() {
             return
         }
         startCarPlay(size)
+    }
+
+    private fun scheduleRestartHandoffRetry() {
+        if (restartHandoffRetryScheduled || isFinishing || isDestroyed) return
+        restartHandoffRetryScheduled = true
+        mainHandler.postDelayed({
+            restartHandoffRetryScheduled = false
+            maybeStartCarPlay()
+        }, 500)
     }
 
     private fun reconnectAfterLoss(reason: String) {
@@ -3701,18 +3776,24 @@ class CarPlayHostActivity : ComponentActivity() {
     /** Full-stack fallback when an AirPlay-only reconnect is unavailable. */
     private fun restartCarPlay(reason: String) {
         if (!CarPlayBackgroundSession.isOwner(this)) return
-        if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
+        if (shuttingDown.get() || isFinishing || isDestroyed || menuOpen || handshakeResetInProgress) return
         val size = activeDisplaySize ?: return
         if (!displayResizeCoordinator.beginRestart()) return
+        val oldController = controller
+        val restartToken = CarPlayBackgroundSession.beginRestart(oldController, this, size)
+        if (restartToken == null) {
+            displayResizeCoordinator.completeRestart(size)
+            return
+        }
+        restartHandoffToken = restartToken
+        splitCarPlayReadyForYoutube = false
         appendLog(reason)
         activeScreenStreamTypes.clear()
         setConnectionStage(reason)
         Log.i(TAG, "$reason; rebuilding stack at ${size.width}x${size.height}")
         val generation = ++restartGeneration
         handshakeResetInProgress = true
-        val oldController = controller
         val oldSink = sink
-        CarPlayBackgroundSession.clear(oldController, keepOwner = true)
         controller = null
         sink = null
         teardownExecutor.execute {
@@ -3720,21 +3801,34 @@ class CarPlayHostActivity : ComponentActivity() {
             oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS)
             oldSink?.close()
             runOnUiThread {
-                if (!shuttingDown.get() && generation == restartGeneration) {
-                    restartFallbackSize = size
-                    restartReadyToStart = true
-                    if (pendingDisplaySize == null) {
-                        mainHandler.removeCallbacks(finishRestartAfterResize)
-                        mainHandler.postDelayed(finishRestartAfterResize, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
-                    }
+                val latestSize = displayResizeCoordinator.latestDesiredSize(size)
+                CarPlayBackgroundSession.completePendingRestartTeardown(restartToken, latestSize)
+                if (restartHandoffToken != restartToken) return@runOnUiThread
+                if (shuttingDown.get() || isFinishing || isDestroyed) {
+                    CarPlayBackgroundSession.releaseRestartOwner(this)
+                    restartHandoffToken = null
+                    return@runOnUiThread
+                }
+                if (generation != restartGeneration) return@runOnUiThread
+                restartFallbackSize = latestSize
+                restartReadyToStart = true
+                if (pendingDisplaySize == null) {
+                    mainHandler.removeCallbacks(finishRestartAfterResize)
+                    mainHandler.postDelayed(finishRestartAfterResize, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
                 }
             }
         }
     }
 
     private fun finishRestartAtLatestSize(fallback: DisplaySize) {
-        if (!restartReadyToStart || pendingDisplaySize != null || shuttingDown.get()) return
-        val size = displayResizeCoordinator.completeRestart(fallback)
+        if (!restartReadyToStart || pendingDisplaySize != null || shuttingDown.get() || isFinishing || isDestroyed) return
+        if (restartHandoffToken == null) return
+        val latestSize = displayResizeCoordinator.latestDesiredSize(fallback)
+        CarPlayBackgroundSession.markPendingRestartLayoutReady(this, latestSize)
+        val handedOffSize = CarPlayBackgroundSession.claimPendingRestart(this, backgroundStopAction()) ?: return
+        restartHandoffToken = null
+        restartHandoffRetryScheduled = false
+        val size = displayResizeCoordinator.completeRestart(handedOffSize)
         activeDisplaySize = size
         restartReadyToStart = false
         restartFallbackSize = null
@@ -4098,10 +4192,19 @@ class CarPlayHostActivity : ComponentActivity() {
 internal object CarPlayBackgroundSession {
     @Volatile var active = false
     private var stopAction: (((() -> Unit)) -> Unit)? = null
+    private var stopActionOwner: Any? = null
     private var stopping = false
     private var owner: Any? = null
+    private var restartSuppressed = false
+    private val restartHandoff = CarPlayRestartHandoff()
     @Synchronized fun isOwner(candidate: Any): Boolean = owner === candidate
-    @Synchronized fun hasSession(): Boolean = stopAction != null || stopping
+    @Synchronized fun hasSession(): Boolean = stopAction != null || stopping || restartHandoff.hasPending()
+    @Synchronized fun isRestartSuppressed(): Boolean = restartSuppressed
+
+    @Synchronized
+    fun clearRestartSuppression() {
+        restartSuppressed = false
+    }
     private val stopWaiters = mutableListOf<() -> Unit>()
 
     fun stop(completion: () -> Unit = {}) {
@@ -4109,7 +4212,18 @@ internal object CarPlayBackgroundSession {
         synchronized(this) {
             if (stopping) { stopWaiters.add(completion); return }
             action = stopAction
-            if (action != null) { stopping = true; stopWaiters.add(completion) }
+            if (action != null) {
+                stopping = true
+                stopWaiters.add(completion)
+            } else if (restartHandoff.hasPending()) {
+                restartHandoff.clear()
+                restartSuppressed = true
+                owner = null
+                stopActionOwner = null
+                active = false
+                width = 0
+                height = 0
+            }
         }
         if (action == null) { completion(); return }
         action.invoke {
@@ -4141,8 +4255,11 @@ internal object CarPlayBackgroundSession {
     }
 
     @Synchronized
-    fun store(controller: CarPlayController, sink: AndroidMediaSink, width: Int, height: Int, owner: Any, stop: (() -> Unit) -> Unit) {
+    fun store(controller: CarPlayController, sink: AndroidMediaSink, width: Int, height: Int, owner: Any, stop: ((() -> Unit)) -> Unit) {
+        restartHandoff.clear()
+        restartSuppressed = false
         this.stopAction = stop
+        this.stopActionOwner = owner
         this.owner = owner
         this.controller = controller
         this.sink = sink
@@ -4151,11 +4268,69 @@ internal object CarPlayBackgroundSession {
     }
 
     @Synchronized
+    fun beginRestart(expected: CarPlayController?, owner: Any, size: DisplaySize): Long? {
+        if (this.owner !== owner || controller !== expected) return null
+        val token = restartHandoff.begin(owner, size) ?: return null
+        controller = null
+        sink = null
+        active = false
+        width = 0
+        height = 0
+        return token
+    }
+
+    @Synchronized
+    fun hasPendingRestart(): Boolean = restartHandoff.hasPending()
+
+    @Synchronized
+    fun isClaimedRestartOwner(owner: Any): Boolean = restartHandoff.isClaimedBy(owner)
+
+    @Synchronized
+    fun observePendingRestartSize(owner: Any, size: DisplaySize) {
+        restartHandoff.observeSize(owner, size)
+    }
+
+    @Synchronized
+    fun markPendingRestartLayoutReady(owner: Any, size: DisplaySize) {
+        restartHandoff.markLayoutReady(owner, size)
+    }
+
+    @Synchronized
+    fun completePendingRestartTeardown(token: Long, size: DisplaySize) {
+        restartHandoff.completeTeardown(token, size)
+    }
+
+    @Synchronized
+    fun claimPendingRestart(owner: Any, stop: ((() -> Unit)) -> Unit): DisplaySize? {
+        val size = restartHandoff.claim(owner) ?: return null
+        this.owner = owner
+        this.stopAction = stop
+        this.stopActionOwner = owner
+        return size
+    }
+
+    @Synchronized
+    fun releaseRestartOwner(owner: Any) {
+        restartHandoff.releaseOwner(owner)
+        if (stopActionOwner === owner) {
+            stopAction = null
+            stopActionOwner = null
+        }
+        if (this.owner === owner && controller == null) this.owner = null
+    }
+
+    @Synchronized
     fun clear(expected: CarPlayController? = null, keepOwner: Boolean = false) {
         if (expected != null && controller !== expected) return
         controller = null
         sink = null
-        if (!keepOwner) { stopAction = null; owner = null }
+        if (!keepOwner) {
+            restartHandoff.clear()
+            restartSuppressed = false
+            stopAction = null
+            stopActionOwner = null
+            owner = null
+        }
         active = false
         width = 0
         height = 0

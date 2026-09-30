@@ -28,4 +28,4 @@ AirPlay `RECORD` reports a live control session before the screen stream is set 
 
 ## Keep menu-origin settings navigation scoped to its back stack
 
-When settings are opened above a foreground menu, carry a return-to-menu flag and finish the settings Activity on Back. Ordinary DiPlay launches keep their existing settings-to-home navigation.
+Treat About as a child of Settings: Back returns to Settings, while Back from the Settings root finishes the menu-origin Activity. After a reconnect launches the CarPlay host, finish that Settings Activity so repeated changes do not build up stale instances. Ordinary DiPlay launches keep their existing settings-to-home navigation.

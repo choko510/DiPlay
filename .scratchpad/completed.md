@@ -1,5 +1,6 @@
 # Completed
 
+- 2026-09-30: Fixed PR #6 menu-origin Settings stack buildup and About Back behavior, added DiAuto/AGPL attribution and focused Robolectric navigation coverage, and split the Android preference test from pure persistence tests. `git diff --check` passed; Gradle validation could not configure because the Android SDK is unavailable.
 - 2026-09-30: Added localized DiPlay Menu routing for CarPlay OEM host UI requests, preserved the existing background session path, and added menu-origin settings navigation plus OEM label persistence coverage. `git diff --check` and XML parsing passed; requested Gradle validation could not configure because the Android SDK is unavailable.
 - 2026-09-28: Kept the wired startup watchdog armed through AirPlay `RECORD` until `SCREEN_STREAM_OPENED`, scoped session-state callbacks and asynchronous teardown to their attempt, and rechecked teardown ownership inside the lock. `git diff --check` and 16 focused Kotlin/JUnit tests passed; Gradle tests/builds remain blocked because the Android SDK is unavailable.
 - 2026-09-28: Re-reviewed the follow-up wired CarPlay changes. The USB request state, frame decoder, and watchdog helper tests passed (16 focused tests); Gradle tests/builds remain blocked by the missing Android SDK. Found an early watchdog-success condition and check-then-act attempt races in callbacks/teardown.

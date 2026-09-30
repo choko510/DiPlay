@@ -91,9 +91,14 @@ class DiPlayActivity : ComponentActivity() {
         handleWirelessRecovery()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (returnToMenu) finish()
-                else if (page != "home") { page = "home"; render() }
-                else { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
+                when {
+                    returnToMenu && page == "settings" -> finish()
+                    page != "home" -> {
+                        page = if (returnToMenu) "settings" else "home"
+                        render()
+                    }
+                    else -> { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
+                }
             }
         })
     }
@@ -135,8 +140,11 @@ class DiPlayActivity : ComponentActivity() {
         header.addView(label("DiPlay", 26, TEXT, true).apply { setPadding(dp(12), 0, 0, 0) }, LinearLayout.LayoutParams(0, dp(56), 1f))
         header.addView(button(getString(if (page == "home") R.string.ui_car_home else R.string.ui_back), false) {
             if (page == "home") startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
-            else if (returnToMenu) finish()
-            else { page = "home"; render() }
+            else if (returnToMenu && page == "settings") finish()
+            else {
+                page = if (returnToMenu) "settings" else "home"
+                render()
+            }
         }, LinearLayout.LayoutParams(dp(130), dp(56)))
         content.addView(header)
         content.addView(space(24))
@@ -525,6 +533,7 @@ class DiPlayActivity : ComponentActivity() {
         val open = {
             AirPlayPersistence.saveWirelessEnabled(this, wireless)
             openProjection()
+            if (returnToMenu) finish()
         }
         if (CarPlayBackgroundSession.hasSession()) CarPlayBackgroundSession.stop { runOnUiThread { open() } }
         else open()

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// UI copy and visual language adapted from DiAuto. See docs/THIRD_PARTY_NOTICES.md.
 package com.shilapi.xcertplay
 
 import android.content.Context

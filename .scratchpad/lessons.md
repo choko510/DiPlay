@@ -68,3 +68,7 @@ The usbmuxd GET_MODE reply is diagnostic input; the mode guess comes from the ad
 ## Recheck asynchronous USB opens before publishing
 
 USB session creation can finish after a manual reconnect or shutdown. Bind each open to a generation and close any session/bridge returned for a stale generation before reporting success or failure.
+
+## Keep iAP2 capability negotiation separate from an output consumer
+
+When deleting an application-specific RouteGuidance consumer, keep the generic iAP2 advertisement, subscription endpoints, and regression test. Remove only its callback hookup and let the transport's existing default handler discard frames.

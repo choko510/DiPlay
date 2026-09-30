@@ -71,7 +71,6 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        com.shilapi.xcertplay.hud.BydNavigationOutputs.onAppOpened(applicationContext)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         window.statusBarColor = BG; window.navigationBarColor = BG
         WindowInsetsControllerCompat(window, window.decorView).apply {
@@ -249,11 +248,6 @@ class DiPlayActivity : ComponentActivity() {
             toggle(card, getString(R.string.ui_full_screen), getString(R.string.ui_full_screen_description), AirPlayPersistence.loadHideTopBar(this) && AirPlayPersistence.loadHideBottomBar(this)) {
                 AirPlayPersistence.saveHideTopBar(this, it); AirPlayPersistence.saveHideBottomBar(this, it)
             }
-        }
-        if (com.shilapi.xcertplay.hud.BydOutputSettings.available(this)) section(content, getString(R.string.ui_byd_navigation)) { card ->
-            toggle(card, getString(R.string.ui_navigation_hud),
-                getString(R.string.ui_navigation_hud_description),
-                com.shilapi.xcertplay.hud.BydOutputSettings.enabled(this)) { com.shilapi.xcertplay.hud.BydOutputSettings.setEnabled(this, it) }
         }
         section(content, getString(R.string.ui_permissions_help)) { card ->
             card.addView(label(getString(R.string.ui_permissions_description), 16, MUTED))

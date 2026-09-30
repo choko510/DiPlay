@@ -38,7 +38,7 @@ Report OUT not-ready results instead of dropping them silently. Before link read
 
 ## Use evidence for NCM link readiness
 
-Track `PRE_CARPLAY_START`, `CARPLAY_START_SENT`, `NCM_LINK_PROBING`, and `NCM_LINK_READY`. Do not infer readiness from a successful outbound write; mark ready only after inbound IPv6/peer-MAC evidence or accepted AirPlay control traffic.
+Track `PRE_CARPLAY_START`, `CARPLAY_START_SENT`, `NCM_LINK_PROBING`, and `NCM_LINK_READY`. Require both inbound IPv6 and a successful outbound IPv6 write before inferring bidirectional readiness; accepted AirPlay control traffic remains an independent strong readiness signal.
 
 ## Pair NCM interfaces from CDC Union descriptors
 

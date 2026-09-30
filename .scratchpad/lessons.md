@@ -57,6 +57,10 @@ USB read error paths can mark the same request failed in both the low-level stat
 
 The current Robolectric `RuntimeEnvironment.getApplication()` method is not generic. Let Kotlin infer the application type instead of adding a type argument in tests.
 
+## Require bidirectional proof before NCM readiness
+
+An inbound NCM IPv6 packet proves Bulk IN only. Wait for a successful IPv6 Bulk OUT as well before declaring the NCM link ready; accepted AirPlay control traffic can establish readiness independently.
+
 ## Infer Apple mode from configurations, not GET_MODE bytes
 
 The usbmuxd GET_MODE reply is diagnostic input; the mode guess comes from the advertised configuration set. Do not infer that setting mode 1 and then mode 4 creates a safe reset.

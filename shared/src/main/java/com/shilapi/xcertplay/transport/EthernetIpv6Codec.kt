@@ -44,6 +44,13 @@ object EthernetIpv6Codec {
         )
     }
 
+    fun isNeighborDiscovery(ipv6: ByteArray, offset: Int = 0, length: Int = ipv6.size - offset): Boolean =
+        length >= IPV6_HEADER_BYTES + 1 && offset >= 0 && offset + length <= ipv6.size &&
+            (ipv6[offset].toInt() ushr 4 and 0x0f) == 6 &&
+            (ipv6[offset + IPV6_NEXT_HEADER_OFFSET].toInt() and 0xff) == ICMPV6_NEXT_HEADER &&
+            (ipv6[offset + IPV6_HEADER_BYTES].toInt() and 0xff) in
+            ICMPV6_NEIGHBOR_SOLICITATION..ICMPV6_NEIGHBOR_ADVERTISEMENT
+
     fun build(sourceMac: ByteArray, destinationMac: ByteArray, ipv6: ByteArray): ByteArray {
         require(sourceMac.size == MAC_BYTES) { "sourceMac must be $MAC_BYTES bytes" }
         require(destinationMac.size == MAC_BYTES) { "destinationMac must be $MAC_BYTES bytes" }
@@ -150,6 +157,7 @@ object EthernetIpv6Codec {
     private const val IPV6_SOURCE_OFFSET = 8
     private const val IPV6_DESTINATION_OFFSET = 24
     private const val ICMPV6_NEXT_HEADER = 58
+    private const val ICMPV6_NEIGHBOR_SOLICITATION = 135
     private const val ICMPV6_NEIGHBOR_ADVERTISEMENT = 136
     private const val ICMPV6_NA_BYTES = 24
     private const val ICMPV6_NA_MIN_BYTES = IPV6_HEADER_BYTES + ICMPV6_NA_BYTES

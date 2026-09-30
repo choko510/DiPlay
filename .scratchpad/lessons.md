@@ -1,5 +1,9 @@
 # Lessons
 
+## Do not remove a Wi-Fi Direct group from partial identity
+
+When Android omits a system-generated passphrase, the group may be unusable and still unconfirmed for cleanup. Test that the fallback sends a null configuration and that cleanup skips a group without complete identity.
+
 ## Wired CarPlay "Opening" is a multi-stage interval
 
 The host labels `RunningControl` as "Opening CarPlay", but that status is emitted before wired iAP2 identification and MFi authentication. The panel disappears when the first AirPlay screen stream is opened, before the first video frame is rendered. Diagnose a long display using timestamp gaps between `STEP iap2/wired`, iAP2 progress, AirPlay SETUP, and screen-stream logs; the label alone does not identify the slow operation. Optional syslog capture and 256-byte CarKit write splitting are now gated by the debug setting; their cost remains unmeasured when enabled.
@@ -32,3 +36,35 @@ Treat About as a child of Settings: Back returns to Settings, while Back from th
 ## Compare advertised and negotiated audio formats
 
 The `/info` output mask and the SETUP `audioFormat` bit are the two sides of format negotiation. Log both with stream type and audioType so a real-device report can show which advertised candidate was selected; keep receiver decode support separate from the formats offered for output. Apply a negotiation change to the specific AirPlay stream type under investigation so it does not narrow MainAudio by assumption.
+
+## Distinguish USB request timeout from error
+
+For `UsbDeviceConnection.requestWait(timeout)`, `TimeoutException` means no request completed before the deadline and leaves the request pending. A null return means an error. Keep these paths separate in both lifecycle state and diagnostics.
+
+## Keep link-layer retries narrower than network retransmission
+
+NCM bulk OUT may be not-ready before CarPlayStartSession. Use short single attempts for all traffic until readiness is proven, retry only Neighbor Solicitation/Advertisement frames during startup with a strict attempt and delay bound, and do not retry TCP or UDP frames after an ambiguous USB result.
+
+## Apply wired retry policy from the first data-path open
+
+Allocate the wired attempt before opening the iAP2 USB session. Route USB/NCM open and claim failures through the same bounded retry policy as runStack failures so a pre-stack error cannot fall back to the host's long generic reconnect delay.
+
+## Preserve pending USB cancellation across repeated failure handling
+
+USB read error paths can mark the same request failed in both the low-level state transition and the session error handler. Keep the pending-cancel flag sticky until close so idempotent failure handling cannot lose the queued request cleanup.
+
+## Match Robolectric helpers to the installed API
+
+The current Robolectric `RuntimeEnvironment.getApplication()` method is not generic. Let Kotlin infer the application type instead of adding a type argument in tests.
+
+## Require bidirectional proof before NCM readiness
+
+An inbound NCM IPv6 packet proves Bulk IN only. Wait for a successful IPv6 Bulk OUT as well before declaring the NCM link ready; accepted AirPlay control traffic can establish readiness independently.
+
+## Infer Apple mode from configurations, not GET_MODE bytes
+
+The usbmuxd GET_MODE reply is diagnostic input; the mode guess comes from the advertised configuration set. Do not infer that setting mode 1 and then mode 4 creates a safe reset.
+
+## Recheck asynchronous USB opens before publishing
+
+USB session creation can finish after a manual reconnect or shutdown. Bind each open to a generation and close any session/bridge returned for a stale generation before reporting success or failure.

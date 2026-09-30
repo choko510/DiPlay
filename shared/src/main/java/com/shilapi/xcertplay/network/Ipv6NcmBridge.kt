@@ -1,14 +1,14 @@
 package com.shilapi.xcertplay.network
 
 import android.os.ParcelFileDescriptor
-import android.util.Log
 import com.shilapi.xcertplay.transport.EthernetIpv6Codec
+import com.shilapi.xcertplay.transport.NcmLinkPhase
 import com.shilapi.xcertplay.transport.NcmUsbBridge
+import com.shilapi.xcertplay.transport.NcmSendResult
 import java.io.Closeable
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
-import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.LockSupport
 
@@ -24,6 +24,7 @@ class Ipv6NcmBridge(
     private val tun: ParcelFileDescriptor,
     private val hostMac: ByteArray,
     private val onError: (Throwable) -> Unit,
+    private val onBridgeStarted: () -> Unit = {},
 ) : Closeable {
     init {
         require(hostMac.size == EthernetIpv6Codec.MAC_BYTES) { "hostMac must be 6 bytes" }
@@ -31,11 +32,6 @@ class Ipv6NcmBridge(
 
     @Volatile
     private var peerMac: ByteArray? = null
-    private var loggedInbound = false
-    private var loggedOutbound = false
-    private var loggedWaitingForPeer = false
-    private var inboundLogBudget = 16
-    private var outboundLogBudget = 24
     private val running = AtomicBoolean(false)
     private lateinit var ncmToTunThread: Thread
     private lateinit var tunToNcmThread: Thread
@@ -50,6 +46,7 @@ class Ipv6NcmBridge(
             isDaemon = true
             start()
         }
+        onBridgeStarted()
     }
 
     override fun close() {
@@ -73,18 +70,7 @@ class Ipv6NcmBridge(
                 val frame = ncm.recv(READ_TIMEOUT_MILLIS) ?: continue
                 val ipv6 = EthernetIpv6Codec.parseIpv6View(frame) ?: continue
                 peerMac = ipv6.sourceMac
-                if (!loggedInbound) {
-                    loggedInbound = true
-                    Log.i(
-                        TAG,
-                        "ncm first inbound ipv6 bytes=${ipv6.payloadLength} " +
-                            "peer=${ipv6.sourceMac.macString()}",
-                    )
-                }
-                if (inboundLogBudget > 0) {
-                    inboundLogBudget--
-                    Log.i(TAG, "ncm inbound ${frame.summary(ipv6.payloadOffset)}")
-                }
+                ncm.recordPeerMacLearned()
                 output.write(frame, ipv6.payloadOffset, ipv6.payloadLength)
             }
         } catch (error: IOException) {
@@ -112,31 +98,24 @@ class Ipv6NcmBridge(
                 }
                 val tunPacket = buffer.copyOf(length)
                 val ipv6 = EthernetIpv6Codec.addNeighborAdvertisementTargetMac(tunPacket, hostMac)
-                if (ipv6.size != tunPacket.size) {
-                    Log.i(TAG, "ncm added target-link-layer option to neighbor advertisement")
-                }
-                if (outboundLogBudget > 0) {
-                    outboundLogBudget--
-                    Log.i(TAG, "ncm outbound ${ipv6.summary(0)}")
-                }
                 val multicastMac = EthernetIpv6Codec.multicastDestinationMac(ipv6)
                 val mac = multicastMac ?: peerMac
-                if (mac == null) {
-                    if (!loggedWaitingForPeer) {
-                        loggedWaitingForPeer = true
-                        Log.i(TAG, "ncm deferred outbound unicast bytes=$length until peer MAC is learned")
-                    }
-                    continue
-                }
-                if (!loggedOutbound) {
-                    loggedOutbound = true
-                    Log.i(
-                        TAG,
-                        "ncm first outbound ipv6 bytes=$length destination=${mac.macString()} multicast=${multicastMac != null}",
-                    )
-                }
+                if (mac == null) continue
                 val frame = EthernetIpv6Codec.build(hostMac, mac, ipv6)
-                ncm.send(frame, WRITE_TIMEOUT_MILLIS)
+                val ndp = EthernetIpv6Codec.isNeighborDiscovery(ipv6)
+                val linkPhase = ncm.linkPhase()
+                val linkReady = linkPhase == NcmLinkPhase.NCM_LINK_READY
+                val result = NcmStartupNdpRetry.send(
+                    startupNeighborDiscovery = ndp &&
+                        linkPhase != NcmLinkPhase.PRE_CARPLAY_START && !linkReady,
+                    linkReady = linkReady,
+                    isActive = running::get,
+                    sendOnce = { timeoutMillis -> ncm.send(frame, timeoutMillis) },
+                    pause = { delayMillis -> LockSupport.parkNanos(delayMillis * NANOS_PER_MILLISECOND) },
+                )
+                if (result is NcmSendResult.Failed) {
+                    throw result.error as? Exception ?: IOException("NCM send failed")
+                }
             }
         } catch (error: IOException) {
             if (running.get()) onError(error)
@@ -155,33 +134,11 @@ class Ipv6NcmBridge(
         if (thread.isAlive) thread.interrupt()
     }
 
-    private fun ByteArray.macString(): String =
-        joinToString(":") { byte -> "%02x".format(byte.toInt() and 0xff) }
-
-    private fun ByteArray.summary(offset: Int): String {
-        val payloadBytes = size - offset
-        if (payloadBytes < 40) return "truncated bytes=$payloadBytes"
-        val source = InetAddress.getByAddress(copyOfRange(offset + 8, offset + 24)).hostAddress
-        val destination = InetAddress.getByAddress(copyOfRange(offset + 24, offset + 40)).hostAddress
-        val nextHeader = this[offset + 6].toInt() and 0xff
-        val detail = when {
-            nextHeader == 6 && payloadBytes >= 44 -> " tcp=${u16(offset + 40)}->${u16(offset + 42)}"
-            nextHeader == 17 && payloadBytes >= 44 -> " udp=${u16(offset + 40)}->${u16(offset + 42)}"
-            nextHeader == 58 && payloadBytes >= 41 -> " icmp6=${this[offset + 40].toInt() and 0xff}"
-            else -> ""
-        }
-        return "bytes=$payloadBytes src=$source dst=$destination next=$nextHeader$detail"
-    }
-
-    private fun ByteArray.u16(offset: Int): Int =
-        ((this[offset].toInt() and 0xff) shl 8) or (this[offset + 1].toInt() and 0xff)
-
     private companion object {
-        const val TAG = "xcertplay-usb"
         const val READ_TIMEOUT_MILLIS = 1_000L
-        const val WRITE_TIMEOUT_MILLIS = 2_000
         const val TUN_READ_BYTES = 4_096
         const val ZERO_READ_BACKOFF_NANOS = 1_000_000L
+        const val NANOS_PER_MILLISECOND = 1_000_000L
         const val JOIN_TIMEOUT_MILLIS = 2_000L
     }
 }

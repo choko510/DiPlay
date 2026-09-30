@@ -47,14 +47,96 @@ class WiredStartupWatchdogTest {
     }
 
     @Test
-    fun startupRecoveryRetriesOnceUntilAirPlayOrManualReconnectResetsThePolicy() {
+    fun softSnapshotDoesNotExpireTheHardWatchdog() {
+        val watchdog = WiredStartupWatchdog()
+        val token = watchdog.arm(attempt = 12)!!
+
+        assertEquals(8_000L, WiredStartupWatchdog.SOFT_TIMEOUT_MILLIS)
+        assertEquals(15_000L, WiredStartupWatchdog.HARD_TIMEOUT_MILLIS)
+        assertTrue(watchdog.markSlow(token))
+        assertFalse(watchdog.markSlow(token))
+        assertEquals(12, watchdog.expire(token))
+    }
+
+    @Test
+    fun screenOpenBeforeHardDeadlineCancelsTheDelayedExpiry() {
+        val watchdog = WiredStartupWatchdog()
+
+        listOf(7_000L, 10_000L).forEachIndexed { index, elapsedMillis ->
+            val attempt = index + 20
+            val token = watchdog.arm(attempt)!!
+            if (elapsedMillis >= WiredStartupWatchdog.SOFT_TIMEOUT_MILLIS) {
+                assertTrue(watchdog.markSlow(token))
+            }
+            watchdog.cancel(attempt)
+            assertNull(watchdog.expire(token))
+        }
+    }
+
+    @Test
+    fun oldSoftAndHardCallbacksCannotAffectTheNextAttempt() {
+        val watchdog = WiredStartupWatchdog()
+        val old = watchdog.arm(attempt = 31)!!
+        watchdog.clear(attempt = 31)
+        val current = watchdog.arm(attempt = 32)!!
+
+        assertFalse(watchdog.markSlow(old))
+        assertNull(watchdog.expire(old))
+        assertTrue(watchdog.markSlow(current))
+        assertEquals(32, watchdog.expire(current))
+    }
+
+    @Test
+    fun startupRecoveryAllowsThreeShortCleanRetriesBeforeDeepRecoveryCandidate() {
         val policy = WiredStartupRetryPolicy()
 
-        assertTrue(policy.claimAutomaticRetry())
-        assertFalse(policy.claimAutomaticRetry())
+        assertEquals(WiredRecoveryDecision.FastCleanRetry(400L), policy.onFailure(true, false, false))
+        assertEquals(WiredRecoveryDecision.FastCleanRetry(800L), policy.onFailure(true, false, false))
+        assertEquals(WiredRecoveryDecision.FastCleanRetry(1_200L), policy.onFailure(true, false, false))
+        assertEquals(WiredRecoveryDecision.DeepRecoveryCandidate, policy.onFailure(true, false, false))
         policy.reset()
-        assertTrue(policy.claimAutomaticRetry())
-        policy.reset()
-        assertTrue(policy.claimAutomaticRetry())
+        assertEquals(WiredRecoveryDecision.FastCleanRetry(400L), policy.onFailure(true, false, false))
+    }
+
+    @Test
+    fun userActionsAndDeviceDisappearanceDoNotEnterAutomaticRecovery() {
+        val policy = WiredStartupRetryPolicy()
+
+        assertEquals(
+            WiredRecoveryDecision.FastCleanRetry(400L),
+            policy.onFailure(devicePresent = true, closed = false, manualReconnect = false),
+        )
+        assertEquals(
+            WiredRecoveryDecision.UserOrPhysicalDisconnect,
+            policy.onFailure(devicePresent = false, closed = false, manualReconnect = false),
+        )
+        assertEquals(
+            WiredRecoveryDecision.FastCleanRetry(400L),
+            policy.onFailure(devicePresent = true, closed = false, manualReconnect = false),
+        )
+        assertEquals(
+            WiredRecoveryDecision.Suppressed,
+            policy.onFailure(devicePresent = true, closed = true, manualReconnect = false),
+        )
+        assertEquals(
+            WiredRecoveryDecision.Suppressed,
+            policy.onFailure(devicePresent = true, closed = false, manualReconnect = true),
+        )
+        assertEquals(
+            WiredRecoveryDecision.FastCleanRetry(400L),
+            policy.onFailure(devicePresent = true, closed = false, manualReconnect = false),
+        )
+    }
+
+    @Test
+    fun oldDataPathCallbackCannotPublishIntoANewerGeneration() {
+        val generation = WiredDataPathGeneration()
+        val oldAttempt = generation.begin()
+        val newAttempt = generation.begin()
+
+        assertFalse(generation.isCurrent(oldAttempt))
+        assertTrue(generation.isCurrent(newAttempt))
+        generation.invalidate()
+        assertFalse(generation.isCurrent(newAttempt))
     }
 }

@@ -1,6 +1,5 @@
 package com.shilapi.xcertplay
 
-import android.app.Application
 import android.content.Intent
 import android.os.Looper
 import android.view.View
@@ -55,7 +54,7 @@ class DiPlayActivityNavigationTest {
     @Test
     fun reconnectFromMenuOriginSettingsFinishesAfterOpeningCarPlayHost() {
         val activity = launchMenuOriginSettings()
-        val preferences = RuntimeEnvironment.getApplication<Application>()
+        val preferences = RuntimeEnvironment.getApplication()
             .getSharedPreferences("xcertplay_airplay", 0)
         val hadWirelessValue = preferences.contains("wireless_enabled")
         val wirelessValue = preferences.getBoolean("wireless_enabled", true)
@@ -94,7 +93,7 @@ class DiPlayActivityNavigationTest {
     }
 
     private fun launchMenuOriginSettings(): DiPlayActivity {
-        val application = RuntimeEnvironment.getApplication<Application>()
+        val application = RuntimeEnvironment.getApplication()
         val intent = Intent(application, DiPlayActivity::class.java)
             .putExtra("page", "settings")
             .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true)

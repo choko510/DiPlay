@@ -19,7 +19,23 @@ enum class ConnectionTraceStage {
     IAP2_IDENTIFICATION_ACCEPTED,
     MFI_AUTHENTICATED,
     CARPLAY_START_SENT,
+    NCM_BRIDGE_STARTED,
+    NCM_READ_QUEUED,
+    NCM_FIRST_USB_COMPLETION,
+    NCM_FIRST_ETHERNET_RX,
+    NCM_FIRST_IPV6_RX,
+    NCM_PEER_MAC_LEARNED,
+    NCM_LINK_READY,
+    NCM_FIRST_IPV6_TX_ATTEMPT,
+    NCM_FIRST_IPV6_TX_SUCCESS,
+    NCM_TX_NOT_READY,
+    WIRED_STARTUP_SLOW,
+    WIRED_DEEP_RECOVERY_CANDIDATE,
     AIRPLAY_SESSION_ACTIVE,
+    AIRPLAY_CONTROL_ACCEPTED,
+    AIRPLAY_CONTROL_ENCRYPTION_STARTED,
+    AIRPLAY_CONTROL_ENCRYPTED,
+    AIRPLAY_EVENT_ACCEPTED,
     SCREEN_STREAM_OPENED,
     FIRST_FRAME_RENDERED,
     RETRY,
@@ -37,12 +53,19 @@ enum class ConnectionTraceError {
     AIRPLAY,
     DECODER,
     UNKNOWN,
+    NCM_REQUEST_WAIT_ERROR,
+    NCM_QUEUE_ERROR,
+    USBMUX_TRANSPORT_ERROR,
+    STARTUP_WATCHDOG_TIMEOUT,
+    USER_OR_PHYSICAL_DISCONNECT,
+    AIRPLAY_HANDSHAKE_ERROR,
 }
 
 data class ConnectionTraceEvent(
     val stage: ConnectionTraceStage,
     val elapsedMs: Long,
     val error: ConnectionTraceError? = null,
+    val detail: String? = null,
 )
 
 internal fun connectionTraceElapsedMs(startedAtNanos: Long, nowNanos: Long): Long =
@@ -67,6 +90,11 @@ internal fun classifyConnectionTraceError(error: Throwable): ConnectionTraceErro
     ) {
         return ConnectionTraceError.PAIRING
     }
+    if (operationText.any { "ncm_request_wait_error" in it }) {
+        return ConnectionTraceError.NCM_REQUEST_WAIT_ERROR
+    }
+    if (operationText.any { "ncm_queue_error" in it }) return ConnectionTraceError.NCM_QUEUE_ERROR
+    if (operationText.any { "usbmux_transport_error" in it }) return ConnectionTraceError.USBMUX_TRANSPORT_ERROR
     if (operationText.any {
             "usbmux" in it || "ncm" in it || "usb host" in it || "usb-host" in it ||
                 "usbhost" in it || "usb config" in it || "usb configuration" in it ||

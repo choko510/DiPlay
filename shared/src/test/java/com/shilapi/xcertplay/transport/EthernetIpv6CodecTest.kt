@@ -39,6 +39,24 @@ class EthernetIpv6CodecTest {
     }
 
     @Test
+    fun `classifies only IPv6 neighbor solicitation and advertisement as NDP`() {
+        val packet = ByteArray(41)
+        packet[0] = 0x60
+        packet[6] = 58
+        packet[40] = 135.toByte()
+        assertEquals(true, EthernetIpv6Codec.isNeighborDiscovery(packet))
+
+        packet[40] = 136.toByte()
+        assertEquals(true, EthernetIpv6Codec.isNeighborDiscovery(packet))
+
+        packet[40] = 137.toByte()
+        assertEquals(false, EthernetIpv6Codec.isNeighborDiscovery(packet))
+        packet[40] = 135.toByte()
+        packet[6] = 6
+        assertEquals(false, EthernetIpv6Codec.isNeighborDiscovery(packet))
+    }
+
+    @Test
     fun `adds target link layer option to tun neighbor advertisement`() {
         val packet = ByteArray(64)
         packet[0] = 0x60

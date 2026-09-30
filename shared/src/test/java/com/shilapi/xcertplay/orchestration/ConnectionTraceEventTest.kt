@@ -23,6 +23,45 @@ class ConnectionTraceEventTest {
     }
 
     @Test
+    fun traceIncludesTheNcmNetworkAndAirPlayStartupMilestones() {
+        val required = setOf(
+            "NCM_BRIDGE_STARTED",
+            "NCM_READ_QUEUED",
+            "NCM_FIRST_USB_COMPLETION",
+            "NCM_FIRST_ETHERNET_RX",
+            "NCM_FIRST_IPV6_RX",
+            "NCM_PEER_MAC_LEARNED",
+            "NCM_LINK_READY",
+            "NCM_FIRST_IPV6_TX_ATTEMPT",
+            "NCM_FIRST_IPV6_TX_SUCCESS",
+            "NCM_TX_NOT_READY",
+            "AIRPLAY_CONTROL_ACCEPTED",
+            "AIRPLAY_CONTROL_ENCRYPTED",
+            "AIRPLAY_EVENT_ACCEPTED",
+            "SCREEN_STREAM_OPENED",
+            "FIRST_FRAME_RENDERED",
+        )
+
+        assertTrue(ConnectionTraceStage.values().map { it.name }.containsAll(required))
+    }
+
+    @Test
+    fun ncmFailureCodesStayDistinctInTrace() {
+        assertEquals(
+            ConnectionTraceError.NCM_REQUEST_WAIT_ERROR,
+            classifyConnectionTraceError(IphoneUsbException.DeviceUnavailable("NCM_REQUEST_WAIT_ERROR")),
+        )
+        assertEquals(
+            ConnectionTraceError.NCM_QUEUE_ERROR,
+            classifyConnectionTraceError(IphoneUsbException.DeviceUnavailable("NCM_QUEUE_ERROR")),
+        )
+        assertEquals(
+            ConnectionTraceError.USBMUX_TRANSPORT_ERROR,
+            classifyConnectionTraceError(IphoneUsbException.DeviceUnavailable("USBMUX_TRANSPORT_ERROR")),
+        )
+    }
+
+    @Test
     fun usbProtocolSubtypeTakesPrecedenceOverGenericMessageHeuristics() {
         assertEquals(
             ConnectionTraceError.USB,

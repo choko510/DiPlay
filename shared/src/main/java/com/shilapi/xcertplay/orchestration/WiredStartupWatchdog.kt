@@ -1,18 +1,34 @@
 package com.shilapi.xcertplay.orchestration
 
-/** Guards only the interval from wired CarPlayStartSession until AirPlay starts. */
+/** Guards the interval from wired CarPlayStartSession until the screen stream opens. */
 internal class WiredStartupWatchdog {
+    companion object {
+        const val SOFT_TIMEOUT_MILLIS = 8_000L
+        const val HARD_TIMEOUT_MILLIS = 15_000L
+    }
+
     class Token internal constructor(val generation: Int, val attempt: Int)
 
     private var generation = 0
     private var armed: Token? = null
     private var expiredAttempt: Int? = null
+    private var slowReported = false
 
     @Synchronized
     fun arm(attempt: Int): Token? {
         if (expiredAttempt == attempt) return null
         armed?.let { if (it.attempt == attempt) return null }
-        return Token(++generation, attempt).also { armed = it }
+        return Token(++generation, attempt).also {
+            armed = it
+            slowReported = false
+        }
+    }
+
+    @Synchronized
+    fun markSlow(token: Token): Boolean {
+        if (armed !== token || slowReported) return false
+        slowReported = true
+        return true
     }
 
     @Synchronized
@@ -21,6 +37,7 @@ internal class WiredStartupWatchdog {
             generation++
             armed = null
             expiredAttempt = null
+            slowReported = false
         }
     }
 
@@ -29,6 +46,7 @@ internal class WiredStartupWatchdog {
         if (armed !== token) return null
         armed = null
         expiredAttempt = token.attempt
+        slowReported = false
         return token.attempt
     }
 
@@ -41,18 +59,49 @@ internal class WiredStartupWatchdog {
     }
 }
 
+internal sealed interface WiredRecoveryDecision {
+    data class FastCleanRetry(val delayMillis: Long) : WiredRecoveryDecision
+    data object DeepRecoveryCandidate : WiredRecoveryDecision
+    data object UserOrPhysicalDisconnect : WiredRecoveryDecision
+    data object Suppressed : WiredRecoveryDecision
+}
+
 internal class WiredStartupRetryPolicy {
-    private var retryConsumed = false
+    private var failureStreak = 0
+    private val retryDelaysMillis = longArrayOf(400L, 800L, 1_200L)
 
     @Synchronized
-    fun claimAutomaticRetry(): Boolean {
-        if (retryConsumed) return false
-        retryConsumed = true
-        return true
+    fun onFailure(devicePresent: Boolean, closed: Boolean, manualReconnect: Boolean): WiredRecoveryDecision {
+        if (closed) return WiredRecoveryDecision.Suppressed
+        if (manualReconnect) {
+            failureStreak = 0
+            return WiredRecoveryDecision.Suppressed
+        }
+        if (!devicePresent) {
+            failureStreak = 0
+            return WiredRecoveryDecision.UserOrPhysicalDisconnect
+        }
+        if (failureStreak < retryDelaysMillis.size) {
+            return WiredRecoveryDecision.FastCleanRetry(retryDelaysMillis[failureStreak++])
+        }
+        return WiredRecoveryDecision.DeepRecoveryCandidate
     }
 
     @Synchronized
     fun reset() {
-        retryConsumed = false
+        failureStreak = 0
     }
+}
+
+internal class WiredDataPathGeneration {
+    private var current = 0
+
+    @Synchronized
+    fun begin(): Int = ++current
+
+    @Synchronized
+    fun invalidate(): Int = ++current
+
+    @Synchronized
+    fun isCurrent(generation: Int): Boolean = current == generation
 }

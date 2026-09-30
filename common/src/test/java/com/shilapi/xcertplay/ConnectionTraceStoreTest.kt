@@ -49,6 +49,25 @@ class ConnectionTraceStoreTest {
         store.closeForTests()
     }
 
+    @Test fun reportPersistsBoundedStartupDiagnosticDetailsOnTheTraceEvent() {
+        val store = ConnectionTraceStore(File(RuntimeEnvironment.getApplication().cacheDir, "trace-detail"))
+        store.append(
+            "attempt-test-detail",
+            1,
+            ConnectionTraceEvent(
+                ConnectionTraceStage.WIRED_STARTUP_SLOW,
+                8_000,
+                detail = "ncmReadQueued=true\nreadNullErrors=0",
+            ),
+        )
+
+        val report = store.reportSection()
+        assertTrue(report.contains("stage=WIRED_STARTUP_SLOW"))
+        assertTrue(report.contains("detail=ncmReadQueued=true readNullErrors=0"))
+        assertFalse(report.contains("\nreadNullErrors=0"))
+        store.closeForTests()
+    }
+
     @Test fun debugPreferenceSurvivesPreferenceReload() {
         val context = RuntimeEnvironment.getApplication()
         AirPlayPersistence.saveDebugLogsEnabled(context, true)

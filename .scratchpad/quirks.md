@@ -1,6 +1,5 @@
 # Quirks
 
-- `ANDROID_HOME`, `ANDROID_SDK_ROOT`, and repository `local.properties` are unset, but the SDK is installed at `$LOCALAPPDATA/Android/Sdk`; pass that path to the Gradle process when needed. The configured NDK `28.2.13676358` folder lacks `source.properties` and emits AGP `CXX1101` warnings. With the SDK path supplied, shared Kotlin compilation stops because `onIphonePermission` reads `requestId` and `device` from the `PermissionResult` base type, although those properties exist only on its subclasses. The same source mismatch is present on `origin/main`.
-- Focused pure Kotlin/JUnit tests can be compiled with the Gradle-cached Kotlin compiler, JUnit, required cached dependencies, and the installed Android `android.jar` without compiling the full shared source set.
-- The 8-second wired AirPlay startup timeout still has no measured slow-device distribution; validate or adjust it with real-device connection timing before treating it as a stable threshold.
-- The `gh` command-line tool is unavailable in this checkout environment; the configured GitHub connector can create and inspect pull requests after `git push`.
+- Managed worktrees omit the ignored `local.properties`; setting `ANDROID_HOME` and `ANDROID_SDK_ROOT` to the installed SDK allows Gradle builds. This checkout's `ndk.dir` points to NDK 27.0 while `android.ndkVersion` requests 28.2, producing a nonfatal mismatch warning; both APK builds still succeed and package two affected libraries without stripping.
+- The 8-second startup snapshot and 15-second hard timeout reflect the slow-success timing in the 2026-09-30 brief. UIS8581/iOS 27 physical validation is still required.
+- `gh` is unavailable in this checkout; use the GitHub connector after pushing a branch.

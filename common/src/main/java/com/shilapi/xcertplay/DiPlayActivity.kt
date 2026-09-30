@@ -41,6 +41,7 @@ import java.util.Locale
 class DiPlayActivity : ComponentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private var page = "home"
+    private var returnToMenu = false
     private var setupError: String? = null
     private var status: TextView? = null
     private var connectButton: Button? = null
@@ -81,24 +82,36 @@ class DiPlayActivity : ComponentActivity() {
             getString(R.string.ui_setup_error)
         }
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "home"
+        returnToMenu = savedInstanceState
+            ?.takeIf { it.containsKey(EXTRA_RETURN_TO_MENU) }
+            ?.getBoolean(EXTRA_RETURN_TO_MENU)
+            ?: intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false)
         initialLaunch = savedInstanceState?.getBoolean("initial_launch_pending") ?: true
         render()
         handleWirelessRecovery()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (page != "home") { page = "home"; render() }
-                else { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
+                when {
+                    returnToMenu && page == "settings" -> finish()
+                    page != "home" -> {
+                        page = if (returnToMenu) "settings" else "home"
+                        render()
+                    }
+                    else -> { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
+                }
             }
         })
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent); setIntent(intent)
+        returnToMenu = intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false)
         page = intent.getStringExtra("page") ?: "home"; render()
         handleWirelessRecovery()
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
+        outState.putBoolean(EXTRA_RETURN_TO_MENU, returnToMenu)
         outState.putBoolean("initial_launch_pending", initialLaunch)
         super.onSaveInstanceState(outState)
     }
@@ -127,7 +140,11 @@ class DiPlayActivity : ComponentActivity() {
         header.addView(label("DiPlay", 26, TEXT, true).apply { setPadding(dp(12), 0, 0, 0) }, LinearLayout.LayoutParams(0, dp(56), 1f))
         header.addView(button(getString(if (page == "home") R.string.ui_car_home else R.string.ui_back), false) {
             if (page == "home") startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
-            else { page = "home"; render() }
+            else if (returnToMenu && page == "settings") finish()
+            else {
+                page = if (returnToMenu) "settings" else "home"
+                render()
+            }
         }, LinearLayout.LayoutParams(dp(130), dp(56)))
         content.addView(header)
         content.addView(space(24))
@@ -520,6 +537,7 @@ class DiPlayActivity : ComponentActivity() {
         val open = {
             AirPlayPersistence.saveWirelessEnabled(this, wireless)
             openProjection()
+            if (returnToMenu) finish()
         }
         if (CarPlayBackgroundSession.hasSession()) CarPlayBackgroundSession.stop { runOnUiThread { open() } }
         else open()
@@ -753,6 +771,7 @@ class DiPlayActivity : ComponentActivity() {
     private fun space(height: Int) = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)) }
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     companion object {
+        const val EXTRA_RETURN_TO_MENU = "returnToMenu"
         private val BG = Color.rgb(12, 17, 27)
         private val SURFACE = Color.rgb(21, 30, 44)
         private val BORDER = Color.rgb(42, 56, 75)

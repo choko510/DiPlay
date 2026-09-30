@@ -1,4 +1,15 @@
 <resources>
+    <string name="menu_return_carplay">CarPlayに戻る</string>
+    <string name="menu_vehicle_home">車のホーム</string>
+    <string name="menu_settings">DiPlay設定</string>
+    <string name="menu_status_connected">接続中</string>
+    <string name="menu_status_connecting">接続処理中…</string>
+    <string name="menu_status_disconnected">未接続</string>
+    <string name="menu_connection_method">接続方式: %1$s</string>
+    <string name="menu_transport_usb">USB</string>
+    <string name="menu_transport_wireless">ワイヤレス</string>
+    <string name="menu_vehicle_home_unavailable">車のホーム画面を開けませんでした。</string>
+    <string name="menu_return_failed">CarPlay画面を開けませんでした。</string>
     <string name="ui_car_home">車の画面へ</string>
     <string name="ui_back">戻る</string>
     <string name="ui_home_eyebrow">あなたのスマホと、いつものドライブ。</string>

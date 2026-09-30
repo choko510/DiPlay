@@ -1,4 +1,15 @@
 <resources>
+    <string name="menu_return_carplay">Return to CarPlay</string>
+    <string name="menu_vehicle_home">Vehicle Home</string>
+    <string name="menu_settings">DiPlay Settings</string>
+    <string name="menu_status_connected">Connected</string>
+    <string name="menu_status_connecting">Connecting…</string>
+    <string name="menu_status_disconnected">Disconnected</string>
+    <string name="menu_connection_method">Connection: %1$s</string>
+    <string name="menu_transport_usb">USB</string>
+    <string name="menu_transport_wireless">Wireless</string>
+    <string name="menu_vehicle_home_unavailable">Could not open the vehicle home screen.</string>
+    <string name="menu_return_failed">Could not open CarPlay.</string>
     <string name="ui_car_home">Car home</string>
     <string name="ui_back">Back</string>
     <string name="ui_home_eyebrow">YOUR PHONE. YOUR DRIVE.</string>

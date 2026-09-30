@@ -49,6 +49,10 @@ Allocate the wired attempt before opening the iAP2 USB session. Route USB/NCM op
 
 USB read error paths can mark the same request failed in both the low-level state transition and the session error handler. Keep the pending-cancel flag sticky until close so idempotent failure handling cannot lose the queued request cleanup.
 
+## Match Robolectric helpers to the installed API
+
+The current Robolectric `RuntimeEnvironment.getApplication()` method is not generic. Let Kotlin infer the application type instead of adding a type argument in tests.
+
 ## Infer Apple mode from configurations, not GET_MODE bytes
 
 The usbmuxd GET_MODE reply is diagnostic input; the mode guess comes from the advertised configuration set. Do not infer that setting mode 1 and then mode 4 creates a safe reset.

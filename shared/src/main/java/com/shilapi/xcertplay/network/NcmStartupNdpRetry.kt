@@ -10,11 +10,13 @@ internal object NcmStartupNdpRetry {
 
     fun send(
         startupNeighborDiscovery: Boolean,
+        linkReady: Boolean,
         isActive: () -> Boolean,
         sendOnce: (timeoutMillis: Int) -> NcmSendResult,
         pause: (delayMillis: Long) -> Unit,
     ): NcmSendResult {
-        if (!startupNeighborDiscovery) return sendOnce(NORMAL_TIMEOUT_MILLIS)
+        if (linkReady) return sendOnce(NORMAL_TIMEOUT_MILLIS)
+        if (!startupNeighborDiscovery) return sendOnce(NOT_READY_TIMEOUT_MILLIS)
 
         for (retryIndex in 0..BACKOFF_MILLIS.size) {
             if (!isActive()) return NcmSendResult.NotReady

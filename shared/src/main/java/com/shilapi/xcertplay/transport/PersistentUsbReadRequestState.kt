@@ -82,7 +82,7 @@ internal class PersistentUsbReadRequestState<T : Any> {
     @Synchronized
     fun markFailure() {
         if (currentState != State.CLOSING && currentState != State.CLOSED) {
-            queuedRequestNeedsCancel = currentState == State.QUEUED
+            queuedRequestNeedsCancel = queuedRequestNeedsCancel || currentState == State.QUEUED
             currentState = State.FAILED
         }
     }

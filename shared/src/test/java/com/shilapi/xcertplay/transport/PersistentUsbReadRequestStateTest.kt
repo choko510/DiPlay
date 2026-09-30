@@ -83,6 +83,18 @@ class PersistentUsbReadRequestStateTest {
     }
 
     @Test
+    fun nullWaitResultCancellationSurvivesTheFailureHandlerMarkingFailureAgain() {
+        val state = PersistentUsbReadRequestState<Any>()
+        state.requestOrCreate { Any() }
+        state.markQueued()
+
+        assertTrue(state.onNullResult())
+        state.markFailure()
+
+        assertTrue(state.beginClose().cancelQueuedRequest)
+    }
+
+    @Test
     fun physicalDetachLikeUnexpectedRequestFailsTheTransport() {
         val state = PersistentUsbReadRequestState<Any>()
         state.requestOrCreate { Any() }
@@ -99,6 +111,18 @@ class PersistentUsbReadRequestStateTest {
         state.markQueued()
 
         assertFalse(state.onCompletion(Any()))
+        assertTrue(state.beginClose().cancelQueuedRequest)
+    }
+
+    @Test
+    fun unexpectedCompletionCancellationSurvivesTheFailureHandlerMarkingFailureAgain() {
+        val state = PersistentUsbReadRequestState<Any>()
+        state.requestOrCreate { Any() }
+        state.markQueued()
+
+        assertFalse(state.onCompletion(Any()))
+        state.markFailure()
+
         assertTrue(state.beginClose().cancelQueuedRequest)
     }
 }

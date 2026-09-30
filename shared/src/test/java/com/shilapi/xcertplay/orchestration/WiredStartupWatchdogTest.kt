@@ -87,22 +87,15 @@ class WiredStartupWatchdogTest {
     }
 
     @Test
-    fun startupRecoveryUsesOneFastRetryThenStopsAtDeepRecoveryCandidate() {
+    fun startupRecoveryAllowsThreeShortCleanRetriesBeforeDeepRecoveryCandidate() {
         val policy = WiredStartupRetryPolicy()
 
-        assertEquals(
-            WiredRecoveryDecision.FAST_CLEAN_RETRY,
-            policy.onFailure(devicePresent = true, closed = false, manualReconnect = false),
-        )
-        assertEquals(
-            WiredRecoveryDecision.DEEP_RECOVERY_CANDIDATE,
-            policy.onFailure(devicePresent = true, closed = false, manualReconnect = false),
-        )
+        assertEquals(WiredRecoveryDecision.FastCleanRetry(400L), policy.onFailure(true, false, false))
+        assertEquals(WiredRecoveryDecision.FastCleanRetry(800L), policy.onFailure(true, false, false))
+        assertEquals(WiredRecoveryDecision.FastCleanRetry(1_200L), policy.onFailure(true, false, false))
+        assertEquals(WiredRecoveryDecision.DeepRecoveryCandidate, policy.onFailure(true, false, false))
         policy.reset()
-        assertEquals(
-            WiredRecoveryDecision.FAST_CLEAN_RETRY,
-            policy.onFailure(devicePresent = true, closed = false, manualReconnect = false),
-        )
+        assertEquals(WiredRecoveryDecision.FastCleanRetry(400L), policy.onFailure(true, false, false))
     }
 
     @Test
@@ -110,27 +103,27 @@ class WiredStartupWatchdogTest {
         val policy = WiredStartupRetryPolicy()
 
         assertEquals(
-            WiredRecoveryDecision.FAST_CLEAN_RETRY,
+            WiredRecoveryDecision.FastCleanRetry(400L),
             policy.onFailure(devicePresent = true, closed = false, manualReconnect = false),
         )
         assertEquals(
-            WiredRecoveryDecision.USER_OR_PHYSICAL_DISCONNECT,
+            WiredRecoveryDecision.UserOrPhysicalDisconnect,
             policy.onFailure(devicePresent = false, closed = false, manualReconnect = false),
         )
         assertEquals(
-            WiredRecoveryDecision.FAST_CLEAN_RETRY,
+            WiredRecoveryDecision.FastCleanRetry(400L),
             policy.onFailure(devicePresent = true, closed = false, manualReconnect = false),
         )
         assertEquals(
-            WiredRecoveryDecision.SUPPRESSED,
+            WiredRecoveryDecision.Suppressed,
             policy.onFailure(devicePresent = true, closed = true, manualReconnect = false),
         )
         assertEquals(
-            WiredRecoveryDecision.SUPPRESSED,
+            WiredRecoveryDecision.Suppressed,
             policy.onFailure(devicePresent = true, closed = false, manualReconnect = true),
         )
         assertEquals(
-            WiredRecoveryDecision.FAST_CLEAN_RETRY,
+            WiredRecoveryDecision.FastCleanRetry(400L),
             policy.onFailure(devicePresent = true, closed = false, manualReconnect = false),
         )
     }

@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.network
 
 import android.os.ParcelFileDescriptor
 import com.shilapi.xcertplay.transport.EthernetIpv6Codec
+import com.shilapi.xcertplay.transport.NcmLinkPhase
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import com.shilapi.xcertplay.transport.NcmSendResult
 import java.io.Closeable
@@ -102,8 +103,12 @@ class Ipv6NcmBridge(
                 if (mac == null) continue
                 val frame = EthernetIpv6Codec.build(hostMac, mac, ipv6)
                 val ndp = EthernetIpv6Codec.isNeighborDiscovery(ipv6)
+                val linkPhase = ncm.linkPhase()
+                val linkReady = linkPhase == NcmLinkPhase.NCM_LINK_READY
                 val result = NcmStartupNdpRetry.send(
-                    startupNeighborDiscovery = ndp && !ncm.hasSuccessfulWrite(),
+                    startupNeighborDiscovery = ndp &&
+                        linkPhase != NcmLinkPhase.PRE_CARPLAY_START && !linkReady,
+                    linkReady = linkReady,
                     isActive = running::get,
                     sendOnce = { timeoutMillis -> ncm.send(frame, timeoutMillis) },
                     pause = { delayMillis -> LockSupport.parkNanos(delayMillis * NANOS_PER_MILLISECOND) },

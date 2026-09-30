@@ -59,33 +59,32 @@ internal class WiredStartupWatchdog {
     }
 }
 
-internal enum class WiredRecoveryDecision {
-    FAST_CLEAN_RETRY,
-    DEEP_RECOVERY_CANDIDATE,
-    USER_OR_PHYSICAL_DISCONNECT,
-    SUPPRESSED,
+internal sealed interface WiredRecoveryDecision {
+    data class FastCleanRetry(val delayMillis: Long) : WiredRecoveryDecision
+    data object DeepRecoveryCandidate : WiredRecoveryDecision
+    data object UserOrPhysicalDisconnect : WiredRecoveryDecision
+    data object Suppressed : WiredRecoveryDecision
 }
 
 internal class WiredStartupRetryPolicy {
     private var failureStreak = 0
+    private val retryDelaysMillis = longArrayOf(400L, 800L, 1_200L)
 
     @Synchronized
     fun onFailure(devicePresent: Boolean, closed: Boolean, manualReconnect: Boolean): WiredRecoveryDecision {
-        if (closed) return WiredRecoveryDecision.SUPPRESSED
+        if (closed) return WiredRecoveryDecision.Suppressed
         if (manualReconnect) {
             failureStreak = 0
-            return WiredRecoveryDecision.SUPPRESSED
+            return WiredRecoveryDecision.Suppressed
         }
         if (!devicePresent) {
             failureStreak = 0
-            return WiredRecoveryDecision.USER_OR_PHYSICAL_DISCONNECT
+            return WiredRecoveryDecision.UserOrPhysicalDisconnect
         }
-        return if (failureStreak == 0) {
-            failureStreak = 1
-            WiredRecoveryDecision.FAST_CLEAN_RETRY
-        } else {
-            WiredRecoveryDecision.DEEP_RECOVERY_CANDIDATE
+        if (failureStreak < retryDelaysMillis.size) {
+            return WiredRecoveryDecision.FastCleanRetry(retryDelaysMillis[failureStreak++])
         }
+        return WiredRecoveryDecision.DeepRecoveryCandidate
     }
 
     @Synchronized

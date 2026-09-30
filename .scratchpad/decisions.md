@@ -6,11 +6,11 @@ The debug setting applies from the next connection attempt and writes structured
 
 ## Keep one USBMUX IN request and use bounded recovery
 
-USBMUX now reuses one 32 KiB direct-buffer request across wait timeouts; framing rebuilds up to 64 KiB messages above the USB read layer. On failure, close the wired CSM, USBMUX/session, and VPN/NCM together, then allow at most one automatic retry. USBMUX and NCM remain on separate `UsbDeviceConnection`s because the current interface layout provides no evidence that combining them improves reliability.
+USBMUX now reuses one 32 KiB direct-buffer request across wait timeouts; framing rebuilds up to 64 KiB messages above the USB read layer. On failure, close the wired CSM, USBMUX/session, and VPN/NCM together, then allow three bounded clean retries at 400, 800, and 1,200 ms before surfacing a deep-recovery candidate. USBMUX and NCM remain on separate `UsbDeviceConnection`s because the current interface layout provides no evidence that combining them improves reliability.
 
 ## Bind asynchronous startup results to the wired attempt
 
-AirPlay startup success and VPN/NCM transport errors must identify the attachment/connection attempt that produced them before they can cancel a watchdog or tear down/restart the wired stack. A service-local cleanup is not sufficient when the controller still owns the iAP2 CSM and USBMUX host.
+AirPlay startup success and VPN/NCM transport errors must identify the attachment/connection attempt that produced them before they can cancel a watchdog or tear down/restart the wired stack. Allocate that attempt ID when `openDataPaths()` begins so iAP2 USB session and NCM open failures share the wired retry budget. A service-local cleanup is not sufficient when the controller still owns the iAP2 CSM and USBMUX host.
 
 The attempt check must be atomic with the state mutation or cleanup it protects. A check followed by an unscoped callback or teardown still leaves a check-then-act race.
 
@@ -30,7 +30,11 @@ Treat `requestWait` timeout as idle while preserving the queued request; treat a
 
 ## Retry only idempotent NDP during NCM startup
 
-Report OUT not-ready results instead of dropping them silently. Retry only Neighbor Solicitation/Advertisement frames before the first successful NCM OUT, with five short bounded attempts; leave TCP/UDP retransmission to their own protocols.
+Report OUT not-ready results instead of dropping them silently. Before link readiness is proven, use one short OUT timeout for all frames and retry only Neighbor Solicitation/Advertisement frames after CarPlayStartSession, with five short bounded attempts; leave TCP/UDP retransmission to their own protocols.
+
+## Use evidence for NCM link readiness
+
+Track `PRE_CARPLAY_START`, `CARPLAY_START_SENT`, `NCM_LINK_PROBING`, and `NCM_LINK_READY`. Do not infer readiness from a successful outbound write; mark ready only after inbound IPv6/peer-MAC evidence or accepted AirPlay control traffic.
 
 ## Pair NCM interfaces from CDC Union descriptors
 

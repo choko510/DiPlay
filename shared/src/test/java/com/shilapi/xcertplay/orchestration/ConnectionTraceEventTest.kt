@@ -31,6 +31,7 @@ class ConnectionTraceEventTest {
             "NCM_FIRST_ETHERNET_RX",
             "NCM_FIRST_IPV6_RX",
             "NCM_PEER_MAC_LEARNED",
+            "NCM_LINK_READY",
             "NCM_FIRST_IPV6_TX_ATTEMPT",
             "NCM_FIRST_IPV6_TX_SUCCESS",
             "NCM_TX_NOT_READY",

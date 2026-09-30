@@ -12,6 +12,7 @@ import java.util.ArrayDeque
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 enum class NcmDiagnosticEvent {
     READ_QUEUED,
@@ -22,6 +23,14 @@ enum class NcmDiagnosticEvent {
     FIRST_IPV6_TX_ATTEMPT,
     FIRST_IPV6_TX_SUCCESS,
     TX_NOT_READY,
+    LINK_READY,
+}
+
+internal enum class NcmLinkPhase {
+    PRE_CARPLAY_START,
+    CARPLAY_START_SENT,
+    NCM_LINK_PROBING,
+    NCM_LINK_READY,
 }
 
 sealed interface NcmSendResult {
@@ -32,6 +41,7 @@ sealed interface NcmSendResult {
 
 internal data class NcmDiagnosticsSnapshot(
     val selection: String,
+    val linkPhase: NcmLinkPhase,
     val readState: PersistentUsbReadRequestState.State,
     val statusPollingEnabled: Boolean,
     val peerMacLearned: Boolean,
@@ -60,7 +70,7 @@ internal data class NcmDiagnosticsSnapshot(
     val statusPollFailures: Long,
 ) {
     fun report(): String =
-        "selected={$selection} readState=$readState statusPolling=$statusPollingEnabled " +
+        "selected={$selection} linkPhase=$linkPhase readState=$readState statusPolling=$statusPollingEnabled " +
             "peerMacLearned=$peerMacLearned failure=${failure ?: "none"} " +
             "readQueues=$readQueues readCompletions=$readCompletions readTimeouts=$readTimeouts " +
             "readNullErrors=$readNullErrors readQueueFailures=$readQueueFailures " +
@@ -136,6 +146,7 @@ class NcmUsbBridge internal constructor(
     private var diagnosticEventListener: (NcmDiagnosticEvent) -> Unit = onDiagnosticEvent
     private val firstEvents = mutableSetOf<NcmDiagnosticEvent>()
     private val peerMacLearned = AtomicBoolean(false)
+    private val linkPhase = AtomicReference(NcmLinkPhase.PRE_CARPLAY_START)
     private val readQueues = AtomicLong()
     private val readCompletions = AtomicLong()
     private val readTimeouts = AtomicLong()
@@ -168,6 +179,7 @@ class NcmUsbBridge internal constructor(
     /** Wraps one Ethernet frame in one NTB16 block and writes it to bulk OUT. */
     fun send(frame: ByteArray, timeoutMillis: Int): NcmSendResult = synchronized(writeLock) {
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
+        linkPhase.compareAndSet(NcmLinkPhase.CARPLAY_START_SENT, NcmLinkPhase.NCM_LINK_PROBING)
         val ipv6 = EthernetIpv6Codec.parseIpv6View(frame)
         val ndp = ipv6?.let {
             EthernetIpv6Codec.isNeighborDiscovery(frame, it.payloadOffset, it.payloadLength)
@@ -222,6 +234,7 @@ class NcmUsbBridge internal constructor(
 
     internal fun diagnosticSnapshot(): NcmDiagnosticsSnapshot = NcmDiagnosticsSnapshot(
         selection = selectionDiagnostics,
+        linkPhase = linkPhase.get(),
         readState = readLifecycle.state(),
         statusPollingEnabled = statusPollingEnabled,
         peerMacLearned = peerMacLearned.get(),
@@ -252,13 +265,23 @@ class NcmUsbBridge internal constructor(
 
     internal fun recordPeerMacLearned() {
         if (peerMacLearned.compareAndSet(false, true)) emitFirst(NcmDiagnosticEvent.PEER_MAC_LEARNED)
+        markLinkReady()
     }
 
     internal fun setDiagnosticEventListener(listener: (NcmDiagnosticEvent) -> Unit) {
         diagnosticEventListener = listener
     }
 
-    internal fun hasSuccessfulWrite(): Boolean = writeSuccesses.get() > 0
+    internal fun linkPhase(): NcmLinkPhase = linkPhase.get()
+
+    internal fun markCarPlayStartSent() {
+        linkPhase.compareAndSet(NcmLinkPhase.PRE_CARPLAY_START, NcmLinkPhase.CARPLAY_START_SENT)
+    }
+
+    internal fun markLinkReady() {
+        val previous = linkPhase.getAndSet(NcmLinkPhase.NCM_LINK_READY)
+        if (previous != NcmLinkPhase.NCM_LINK_READY) emitFirst(NcmDiagnosticEvent.LINK_READY)
+    }
 
     private fun emitFirst(event: NcmDiagnosticEvent) {
         val first = synchronized(firstEvents) { firstEvents.add(event) }
@@ -382,6 +405,7 @@ class NcmUsbBridge internal constructor(
         if (ipv6 != null) {
             ipv6RxPackets.incrementAndGet()
             emitFirst(NcmDiagnosticEvent.FIRST_IPV6_RX)
+            markLinkReady()
             if (EthernetIpv6Codec.isNeighborDiscovery(frame, ipv6.payloadOffset, ipv6.payloadLength)) {
                 ndpRxPackets.incrementAndGet()
             }

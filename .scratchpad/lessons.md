@@ -39,7 +39,15 @@ For `UsbDeviceConnection.requestWait(timeout)`, `TimeoutException` means no requ
 
 ## Keep link-layer retries narrower than network retransmission
 
-NCM bulk OUT may be not-ready before CarPlayStartSession. Retry only Neighbor Solicitation/Advertisement frames during startup, with a strict attempt and delay bound; do not retry TCP or UDP frames after an ambiguous USB result.
+NCM bulk OUT may be not-ready before CarPlayStartSession. Use short single attempts for all traffic until readiness is proven, retry only Neighbor Solicitation/Advertisement frames during startup with a strict attempt and delay bound, and do not retry TCP or UDP frames after an ambiguous USB result.
+
+## Apply wired retry policy from the first data-path open
+
+Allocate the wired attempt before opening the iAP2 USB session. Route USB/NCM open and claim failures through the same bounded retry policy as runStack failures so a pre-stack error cannot fall back to the host's long generic reconnect delay.
+
+## Preserve pending USB cancellation across repeated failure handling
+
+USB read error paths can mark the same request failed in both the low-level state transition and the session error handler. Keep the pending-cancel flag sticky until close so idempotent failure handling cannot lose the queued request cleanup.
 
 ## Infer Apple mode from configurations, not GET_MODE bytes
 

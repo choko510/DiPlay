@@ -16,6 +16,7 @@ class NcmStartupNdpRetryTest {
 
         val result = NcmStartupNdpRetry.send(
             startupNeighborDiscovery = true,
+            linkReady = false,
             isActive = { true },
             sendOnce = { timeout -> timeouts += timeout; outcomes.removeFirst() },
             pause = pauses::add,
@@ -33,6 +34,7 @@ class NcmStartupNdpRetryTest {
 
         val result = NcmStartupNdpRetry.send(
             startupNeighborDiscovery = true,
+            linkReady = false,
             isActive = { true },
             sendOnce = { timeout -> timeouts += timeout; NcmSendResult.NotReady },
             pause = pauses::add,
@@ -46,14 +48,31 @@ class NcmStartupNdpRetryTest {
     }
 
     @Test
-    fun ordinaryNetworkFramesAreNotBlindlyRetried() {
+    fun ordinaryNetworkFramesBeforeLinkReadyUseOneShortAttempt() {
         val timeouts = mutableListOf<Int>()
 
         val result = NcmStartupNdpRetry.send(
             startupNeighborDiscovery = false,
+            linkReady = false,
             isActive = { true },
             sendOnce = { timeout -> timeouts += timeout; NcmSendResult.NotReady },
             pause = { error("ordinary network frames must not retry") },
+        )
+
+        assertSame(NcmSendResult.NotReady, result)
+        assertEquals(listOf(NcmStartupNdpRetry.NOT_READY_TIMEOUT_MILLIS), timeouts)
+    }
+
+    @Test
+    fun linkReadyUsesNormalTimeoutWithoutRetrying() {
+        val timeouts = mutableListOf<Int>()
+
+        val result = NcmStartupNdpRetry.send(
+            startupNeighborDiscovery = false,
+            linkReady = true,
+            isActive = { true },
+            sendOnce = { timeout -> timeouts += timeout; NcmSendResult.NotReady },
+            pause = { error("ready link writes must not retry") },
         )
 
         assertSame(NcmSendResult.NotReady, result)
@@ -70,6 +89,7 @@ class NcmStartupNdpRetryTest {
             failed,
             NcmStartupNdpRetry.send(
                 startupNeighborDiscovery = true,
+                linkReady = false,
                 isActive = { true },
                 sendOnce = { calls++; failed },
                 pause = { error("failed writes must not retry") },
@@ -80,6 +100,7 @@ class NcmStartupNdpRetryTest {
         calls = 0
         val cancelled = NcmStartupNdpRetry.send(
             startupNeighborDiscovery = true,
+            linkReady = false,
             isActive = { active },
             sendOnce = { calls++; NcmSendResult.NotReady },
             pause = { active = false },

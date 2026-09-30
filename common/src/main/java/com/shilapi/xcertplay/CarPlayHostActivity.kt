@@ -556,8 +556,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        val appliedLanguage = resources.configuration.locales[0].language
-        if (appliedLanguage != AppLanguage.get(this)) {
+        if (!AppLanguage.isApplied(this)) {
             // Recreate only the UI. onDestroy leaves the background controller alive and the
             // replacement activity adopts it in onCreate via adoptBackgroundSession().
             recreate()

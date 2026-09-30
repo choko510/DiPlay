@@ -113,15 +113,17 @@ class CarPlayMediaEngine(
 
         val key = outputKey(session, stream) ?: return null
         val audioType = stream["audioType"]?.toString()?.lowercase() ?: "default"
+        val formatBits = (stream["audioFormat"] as? Number)?.toLong() ?: 0L
         val format = AudioStreamCodec.fromFormatBits(
-            (stream["audioFormat"] as? Number)?.toLong() ?: 0L,
+            formatBits,
             type,
             audioType,
         )
         Log.i(
             TAG,
-            "airplay audio format type=$type audioType=$audioType codec=${format.codec} " +
-                "rate=${format.sampleRate} channels=${format.channels} " +
+            "AirPlay audio negotiated type=$type audioType=$audioType " +
+                "formatBits=0x${formatBits.toString(16)} codec=${format.codec} " +
+                "sampleRate=${format.sampleRate} channels=${format.channels} " +
                 "micPort=${(stream["dataPort"] as? Number)?.toInt() ?: 0}",
         )
         val connectionId = stream["streamConnectionID"]

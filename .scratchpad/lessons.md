@@ -29,3 +29,6 @@ AirPlay `RECORD` reports a live control session before the screen stream is set 
 ## Keep menu-origin settings navigation scoped to its back stack
 
 Treat About as a child of Settings: Back returns to Settings, while Back from the Settings root finishes the menu-origin Activity. After a reconnect launches the CarPlay host, finish that Settings Activity so repeated changes do not build up stale instances. Ordinary DiPlay launches keep their existing settings-to-home navigation.
+## Compare advertised and negotiated audio formats
+
+The `/info` output mask and the SETUP `audioFormat` bit are the two sides of format negotiation. Log both with stream type and audioType so a real-device report can show which advertised candidate was selected; keep receiver decode support separate from the formats offered for output. Apply a negotiation change to the specific AirPlay stream type under investigation so it does not narrow MainAudio by assumption.

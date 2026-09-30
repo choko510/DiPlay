@@ -332,8 +332,12 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun languageSelector(parent: LinearLayout) {
-        val codes = listOf(AppLanguage.JAPANESE, AppLanguage.ENGLISH)
-        val names = listOf(getString(R.string.ui_language_japanese), getString(R.string.ui_language_english))
+        val codes = listOf(AppLanguage.SYSTEM, AppLanguage.JAPANESE, AppLanguage.ENGLISH)
+        val names = listOf(
+            getString(R.string.ui_language_system),
+            getString(R.string.ui_language_japanese),
+            getString(R.string.ui_language_english),
+        )
         var selected = codes.indexOf(AppLanguage.get(this)).coerceAtLeast(0)
         val button = button(getString(R.string.ui_language_choice, names[selected]), false) {}
         button.setOnClickListener {
@@ -348,7 +352,7 @@ class DiPlayActivity : ComponentActivity() {
                         if (CarPlayBackgroundSession.hasSession()) {
                             startService(Intent(this, DiPlaySessionService::class.java))
                         }
-                        recreate()
+                        if (Build.VERSION.SDK_INT < 33) recreate()
                     }
                 }
                 .setNegativeButton(getString(R.string.ui_cancel), null)

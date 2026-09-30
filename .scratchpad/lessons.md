@@ -25,3 +25,7 @@ Filter permission broadcasts by a unique request ID, expected USB device, and cu
 ## Keep the startup watchdog through screen setup
 
 AirPlay `RECORD` reports a live control session before the screen stream is set up. If the recovery goal is to prevent the visible Opening panel from hanging, cancel the watchdog at screen-stream open rather than at `RECORD`; first-frame delivery can remain outside that threshold.
+
+## Keep menu-origin settings navigation scoped to its back stack
+
+When settings are opened above a foreground menu, carry a return-to-menu flag and finish the settings Activity on Back. Ordinary DiPlay launches keep their existing settings-to-home navigation.

@@ -2932,6 +2932,24 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             }
 
+            override fun onHostUiRequested(session: AirPlaySession) {
+                runOnUiThread {
+                    if (
+                        controllerGeneration != restartGeneration ||
+                        isFinishing ||
+                        isDestroyed
+                    ) {
+                        return@runOnUiThread
+                    }
+                    controller?.sendTouch(emptyList())
+                    appendLog("CarPlay requested host UI; opening DiPlay Menu")
+                    startActivity(
+                        Intent(this@CarPlayHostActivity, DiPlayMenuActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                    )
+                }
+            }
+
             override fun onDebugLog(message: String) {
                 if (DiagnosticRedactor.redact(message) == null) return
                 runOnUiThread {

@@ -23,3 +23,7 @@ Use the existing debug-log preference for syslog relay capture and small CarKit 
 ## Preserve observed USBMUX receive compatibility
 
 Keep the received TCP `word8` field diagnostic-only because observed iPhone replies omit the host's `0xfeedface` value. The version handshake still validates its response version; do not reject TCP frames on an unconfirmed magic-field rule.
+
+## Route CarPlay OEM host UI requests from the common host layer
+
+`CarPlayController` forwards `onHostUiRequested` through its UI listener without selecting an Android Activity. `CarPlayHostActivity` opens `DiPlayMenuActivity` so `shared` does not depend on `common`; the existing `CarPlayBackgroundSession` remains responsible for retaining the controller and media sink while the host UI is covered.

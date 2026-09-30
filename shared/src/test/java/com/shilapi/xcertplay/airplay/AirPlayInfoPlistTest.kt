@@ -248,19 +248,29 @@ class AirPlayInfoPlistTest {
             val wired = audioInfo(sampleRate, microphone = true)
             val wireless = audioInfo(sampleRate, microphone = true, wirelessAudio = true)
             val pcm = lowRatePcmFormats or highRatePcm
+            val highRateStereo = if (sampleRate == 48000) 0x8000 else 0x800
             val monoPcm = 0x154 or (if (sampleRate == 48000) 0x4000 else 0x400)
 
-            listOf("compatibility", "media").forEach { audioType ->
-                assertEquals(pcm, audioCapability(wired, 100, audioType)["audioOutputFormats"])
-                assertEquals(pcm, audioCapability(wireless, 100, audioType)["audioOutputFormats"])
-            }
+            assertEquals(pcm, audioCapability(wired, 100, "compatibility")["audioOutputFormats"])
+            assertEquals(highRateStereo, audioCapability(wired, 100, "media")["audioOutputFormats"])
+            assertEquals(pcm, audioCapability(wireless, 100, "compatibility")["audioOutputFormats"])
+            assertEquals(pcm, audioCapability(wireless, 100, "media")["audioOutputFormats"])
             assertEquals(pcm, audioCapability(wired, 100, "default")["audioOutputFormats"])
             assertEquals(pcm, audioCapability(wired, 100, "alert")["audioOutputFormats"])
             assertEquals(pcm or opusFormats, audioCapability(wireless, 100, "default")["audioOutputFormats"])
             assertEquals(pcm or opusFormats, audioCapability(wireless, 100, "alert")["audioOutputFormats"])
             val aacFormats = if (sampleRate == 48000) 0x800000 else 0x400000
-            assertEquals(aacFormats, audioCapability(wired, 102, "media")["audioOutputFormats"])
+            assertFalse((wired["audioFormats"] as List<*>).any {
+                val capability = it as Map<*, *>
+                capability["type"] == 102 && capability["audioType"] == "media"
+            })
             assertEquals(aacFormats, audioCapability(wireless, 102, "media")["audioOutputFormats"])
+            val wiredLatencies = wired["audioLatencies"] as List<*>
+            assertFalse(wiredLatencies.any { (it as Map<*, *>)["type"] == 102 })
+            val wirelessLatency = (wireless["audioLatencies"] as List<*>)
+                .map { it as Map<*, *> }
+                .single { it["type"] == 102 }
+            assertEquals("media", wirelessLatency["audioType"])
             listOf("telephony", "speechRecognition").forEach { audioType ->
                 val wiredCapability = audioCapability(wired, 100, audioType)
                 val wirelessCapability = audioCapability(wireless, 100, audioType)
@@ -277,20 +287,10 @@ class AirPlayInfoPlistTest {
 
     @Test
     fun mainAltAndHighAudioStreamsAreDeclared() {
-        val info = AirPlayInfoPlist.build(
-            AirPlayConfig(
-                deviceName = "test",
-                deviceId = "02:00:00:00:00:02",
-                btMac = "02:00:00:00:00:02",
-                sourceVersion = "366.0",
-                main = AirPlayDisplayConfig(widthPixels = 1280, heightPixels = 720),
-            ),
-        )
-
-        val types = (info["audioFormats"] as List<*>)
-            .map { (it as Map<*, *>)["type"] }
-            .toSet()
-        assertEquals(setOf(100, 101, 102), types)
+        val wired = audioInfo(48000)
+        val wireless = audioInfo(48000, wirelessAudio = true)
+        assertEquals(setOf(100, 101), audioTypes(wired))
+        assertEquals(setOf(100, 101, 102), audioTypes(wireless))
     }
 
     private fun audioInfo(
@@ -315,4 +315,9 @@ class AirPlayInfoPlistTest {
         (info["audioFormats"] as List<*>)
             .map { it as Map<*, *> }
             .single { it["type"] == type && it["audioType"] == audioType }
+
+    private fun audioTypes(info: Map<String, Any?>): Set<Any?> =
+        (info["audioFormats"] as List<*>)
+            .map { (it as Map<*, *>)["type"] }
+            .toSet()
 }

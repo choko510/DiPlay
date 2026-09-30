@@ -1,7 +1,9 @@
 package com.shilapi.xcertplay.media
 
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.AudioFormat as AndroidAudioFormat
+import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.media.MediaCodec
 import android.media.MediaCodecList
@@ -11,8 +13,12 @@ import android.util.Log
 import android.view.Surface
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioFormat
+import com.shilapi.xcertplay.airplay.AudioPlaybackClock
+import com.shilapi.xcertplay.airplay.AudioPlaybackClockMapper
 import com.shilapi.xcertplay.airplay.MediaSink
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
+import com.shilapi.xcertplay.airplay.PlaybackHeadTracker
+import com.shilapi.xcertplay.airplay.RtpSampleTimestampMapper
 import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
 import java.io.Closeable
@@ -36,6 +42,9 @@ class AndroidMediaSink(
     private val videoHeight: Int = 720,
     private val preferSoftwareHevcDecoder: Boolean = false,
     private val advancedAudioChannelMapping: Boolean = false,
+    private val navigationAudioRoute: NavigationAudioRoute = NavigationAudioRoute.FULL_BAND,
+    private val transport: String = "wired",
+    private val audioManager: AudioManager? = null,
     onScreenStreamActiveChanged: ((Int, Boolean) -> Unit)? = null,
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
     private val onAudioDiagnostic: (String) -> Unit = {},
@@ -129,6 +138,9 @@ class AndroidMediaSink(
         audioRenderers.remove(type)?.close()
     }
 
+    override fun audioPlaybackClock(type: Int): AudioPlaybackClock? =
+        audioRenderers[type]?.playbackClock()
+
     override fun onMicrophoneStarted(type: Int, config: MicrophoneConfig) {
         val uplink = microphoneUplinks.computeIfAbsent(type) { MicrophoneUplink(config) }
         if (!uplink.start()) microphoneUplinks.remove(type, uplink)
@@ -172,7 +184,15 @@ class AndroidMediaSink(
         val existing = audioRenderers[type]
         if (existing?.format == format) return existing
         existing?.close()
-        return AudioRenderer(format, advancedAudioChannelMapping, mediaBufferMillis, onAudioDiagnostic).also { audioRenderers[type] = it }
+        return AudioRenderer(
+            format = format,
+            advancedAudioChannelMapping = advancedAudioChannelMapping,
+            navigationAudioRoute = navigationAudioRoute,
+            transport = transport,
+            audioManager = audioManager,
+            mediaBufferMillis = mediaBufferMillis,
+            report = onAudioDiagnostic,
+        ).also { audioRenderers[type] = it }
     }
 }
 
@@ -494,10 +514,19 @@ private fun MediaFormat.intOrNull(key: String): Int? =
 private class AudioRenderer(
     val format: AudioFormat,
     private val advancedAudioChannelMapping: Boolean,
+    private val navigationAudioRoute: NavigationAudioRoute,
+    private val transport: String,
+    private val audioManager: AudioManager?,
     private val mediaBufferMillis: Int,
     private val report: (String) -> Unit,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
+    private data class DecoderPcmFormat(
+        val sampleRate: Int,
+        val channels: Int,
+        val encoding: Int,
+        val fallbackReason: String? = null,
+    )
 
     private val queue = LinkedBlockingQueue<AudioPacket>(MAX_QUEUED_PACKETS)
     @Volatile private var running = true
@@ -505,18 +534,36 @@ private class AudioRenderer(
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
     private var pcm = ByteArray(64 * 1024)
+    private var normalizedPcm = ByteArray(64 * 1024)
+    private var activeDecoderPcmFormat: DecoderPcmFormat? = null
+    private var lastAttemptedDecoderPcmFormat: DecoderPcmFormat? = null
+    private var rejectedDecoderOutputFormat: String? = null
+    @Volatile private var playbackClockSnapshot: AudioPlaybackClock? = null
+    private val playbackClockMapper = AudioPlaybackClockMapper(format.payloadType)
+    private val playbackHeadTracker = PlaybackHeadTracker()
+    private val sampleTimestampMapper = RtpSampleTimestampMapper(format.sampleRate)
     private var playbackStarted = false
     private var prebufferBytes = 0
     private var startThresholdBytes = 0
     private var fadeApplied = false
     private var droppedPacketsLogged = false
+    private var packetFailureLogged = false
     private var firstAacPayloadLogged = false
+    private var lastAacInputMode: String? = null
+    private var aacAdtsFallback = false
+    private var aacAdtsFallbackAttempted = false
+    private var aacRawStartedNs = 0L
+    private var aacRawPackets = 0
+    private var aacRawOutputBuffers = 0
     private var firstOpusShortPacketLogged = false
     private var firstInputQueuedLogged = false
     private var inputQueued = 0
     private var inputDropped = 0
     private var outputBuffers = 0
+    private var decoderOutputFailureLogged = false
     private var firstPcmLogged = false
+    private var trackWriteFailureLogged = false
+    private var unalignedPcmLogged = false
     private val packetsReceived = AtomicInteger()
     private val packetsDropped = AtomicInteger()
     private val lastArrivalNs = AtomicLong()
@@ -524,16 +571,26 @@ private class AudioRenderer(
     private var maxWriteMs = 0L
     private var statsWindowStartNs = 0L
     private var statsLastUnderruns = 0
-    private var bytesPerSecond = 0
-    private val bufferProgress = AudioBufferProgress(if (format.channels >= 2) 4 else 2)
+    private var bytesPerSecond = 0L
+    private var frameBytes = format.channels.coerceIn(1, 2) * 2
+    private var prebufferWriteChunkBytes = PREBUFFER_WRITE_CHUNK_BYTES
+    private var bufferProgress = AudioBufferProgress(frameBytes)
     private var underrunsAtPlaybackStart = 0
     private var lastPcmWriteNs = 0L
     private var rebufferCount = 0
+    private val audioTimestamp = AudioTimestamp()
     private val thread = Thread(::run, "carplay-audio").apply { isDaemon = true }
+
+    fun playbackClock(): AudioPlaybackClock? = playbackClockSnapshot
 
     fun start() {
         if (started) return
         started = true
+        report(
+            "Audio: stream start transport=$transport type=${format.payloadType} audioType=${format.audioType} " +
+                "codec=${format.codec} sampleRate=${format.sampleRate} channels=${format.channels} " +
+                "routingPolicy=${if (advancedAudioChannelMapping) "AUTOMOTIVE_BUS" else navigationAudioRoute}",
+        )
         thread.start()
     }
 
@@ -564,15 +621,22 @@ private class AudioRenderer(
             when (format.codec) {
                 AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
                 AudioCodecKind.OPUS -> configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
-                AudioCodecKind.LPCM -> Unit
+                AudioCodecKind.LPCM -> createTrack(
+                    DecoderPcmFormat(
+                        format.sampleRate,
+                        format.channels.coerceIn(1, 2),
+                        AndroidAudioFormat.ENCODING_PCM_16BIT,
+                    ),
+                )
             }
-            createTrack()
             while (running) {
                 queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
                 // Output becomes ready asynchronously, including after the last packet of a burst.
                 // Waiting for the next UDP packet can strand decoded sound for hundreds of ms.
                 codec?.let(::drainCodec)
+                maybeSwitchAacToAdtsFallback()
                 maintainPlaybackBuffer()
+                updatePlaybackClock()
                 logStatsIfDue()
             }
         } catch (_: InterruptedException) {
@@ -588,14 +652,15 @@ private class AudioRenderer(
         }
     }
 
-    private fun configureCodec(mime: String) {
+    private fun configureCodec(mime: String, useAdts: Boolean = false) {
+        releaseCodec()
         val mediaFormat = MediaFormat().apply {
             setString(MediaFormat.KEY_MIME, mime)
             setInteger(MediaFormat.KEY_SAMPLE_RATE, format.sampleRate)
             setInteger(MediaFormat.KEY_CHANNEL_COUNT, format.channels)
             setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, 64 * 1024)
             if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) {
-                setInteger(MediaFormat.KEY_IS_ADTS, 1)
+                setInteger(MediaFormat.KEY_IS_ADTS, if (useAdts) 1 else 0)
                 setByteBuffer("csd-0", ByteBuffer.wrap(aacAudioSpecificConfig()))
             } else {
                 setByteBuffer("csd-0", ByteBuffer.wrap(opusHead()))
@@ -606,11 +671,12 @@ private class AudioRenderer(
         if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) {
             Log.i(
                 TAG,
-                "audio AAC config rate=${format.sampleRate} channels=${format.channels} " +
+                "audio AAC config mode=${if (useAdts) "adts-fallback" else "raw"} " +
+                    "rate=${format.sampleRate} channels=${format.channels} " +
                     "csd0=${aacAudioSpecificConfig().toHexString()}",
             )
         }
-        codec = try {
+        val configured = try {
             MediaCodec.createDecoderByType(mime).also {
                 it.configure(mediaFormat, null, null, 0)
                 it.start()
@@ -618,47 +684,121 @@ private class AudioRenderer(
             }
         } catch (error: Exception) {
             Log.e(TAG, "audio decoder configuration failed mime=$mime", error)
-            null
+            report("Audio: decoder configuration failed mime=$mime error=${error.javaClass.simpleName}")
+            if (mime == MediaFormat.MIMETYPE_AUDIO_AAC && !useAdts) {
+                aacAdtsFallbackAttempted = true
+                configureCodec(mime, useAdts = true)
+            }
+            return
+        }
+        codec = configured
+        if (mime == MediaFormat.MIMETYPE_AUDIO_AAC) {
+            aacAdtsFallback = useAdts
+            aacAdtsFallbackAttempted = useAdts
+            aacRawStartedNs = System.nanoTime()
+            aacRawOutputBuffers = 0
+            if (useAdts) reportAacInputMode("adts-fallback")
         }
     }
 
-    private fun createTrack() {
+    private fun createTrack(output: DecoderPcmFormat) {
+        if (track != null && output == activeDecoderPcmFormat) return
+        if (track == null && output == lastAttemptedDecoderPcmFormat) return
+        if (track != null) releaseTrack()
+        val sampleRate = output.sampleRate.takeIf { it in MIN_OUTPUT_SAMPLE_RATE..MAX_OUTPUT_SAMPLE_RATE }
+            ?: format.sampleRate
+        val channels = output.channels.takeIf { it in 1..2 } ?: format.channels.coerceIn(1, 2)
+        val effective = output.copy(sampleRate = sampleRate, channels = channels)
+        lastAttemptedDecoderPcmFormat = effective
         val encoding = AndroidAudioFormat.ENCODING_PCM_16BIT
-        val channelMask = if (format.channels >= 2) AndroidAudioFormat.CHANNEL_OUT_STEREO
+        val channelMask = if (channels >= 2) AndroidAudioFormat.CHANNEL_OUT_STEREO
         else AndroidAudioFormat.CHANNEL_OUT_MONO
-        val minBuffer = AudioTrack.getMinBufferSize(format.sampleRate, channelMask, encoding)
+        val minBuffer = AudioTrack.getMinBufferSize(sampleRate, channelMask, encoding)
         if (minBuffer <= 0) {
-            Log.e(TAG, "AudioTrack buffer size unavailable rate=${format.sampleRate} channels=${format.channels}")
+            Log.e(TAG, "AudioTrack buffer size unavailable rate=$sampleRate channels=$channels")
+            report("Audio: AudioTrack buffer size unavailable rate=$sampleRate channels=$channels")
             return
         }
-        val plan = MediaAudioBuffer.plan(format.audioType, format.sampleRate, format.channels, minBuffer, mediaBufferMillis)
-        val frameBytes = if (format.channels >= 2) 4 else 2
-        bytesPerSecond = format.sampleRate * frameBytes
-        val built = AudioTrack.Builder()
-            .setAudioAttributes(audioAttributes())
-            .setAudioFormat(
-                AndroidAudioFormat.Builder()
-                    .setEncoding(encoding)
-                    .setSampleRate(format.sampleRate)
-                    .setChannelMask(channelMask)
-                    .build(),
-            )
-            .setBufferSizeInBytes(plan.trackBufferBytes)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
-        track = built
-        val capacityBytes = built.bufferSizeInFrames * frameBytes
-        startThresholdBytes = MediaAudioBuffer.startBytesFor(plan.startBytes, capacityBytes, PREBUFFER_WRITE_CHUNK_BYTES)
-        report("Audio: ready audioType=${format.audioType} codec=${format.codec} " +
-            "rate=${format.sampleRate} channels=${format.channels} " +
-            "bufferMs=${capacityBytes * 1000L / bytesPerSecond} startMs=${startThresholdBytes * 1000L / bytesPerSecond}")
-        Log.i(
-            TAG,
-            "audio track prepared type=${format.payloadType} audioType=${format.audioType} " +
-                "codec=${format.codec} " +
-                "rate=${format.sampleRate} channels=${format.channels} " +
-                "buffer=${capacityBytes * 1000L / bytesPerSecond}ms start=${startThresholdBytes * 1000L / bytesPerSecond}ms",
+        val plan = MediaAudioBuffer.plan(
+            format.audioType,
+            sampleRate,
+            channels,
+            minBuffer,
+            mediaBufferMillis,
+            bytesPerSample = 2,
         )
+        val nextFrameBytes = channels * 2
+        val attributes = audioAttributes()
+        val built = try {
+            AudioTrack.Builder()
+                .setAudioAttributes(attributes)
+                .setAudioFormat(
+                    AndroidAudioFormat.Builder()
+                        .setEncoding(encoding)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(channelMask)
+                        .build(),
+                )
+                .setBufferSizeInBytes(plan.trackBufferBytes)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build()
+        } catch (error: Exception) {
+            Log.e(TAG, "AudioTrack creation failed rate=$sampleRate channels=$channels", error)
+            report("Audio: AudioTrack creation failed error=${error.javaClass.simpleName}")
+            return
+        }
+        if (built.state != AudioTrack.STATE_INITIALIZED) {
+            runCatching { built.release() }
+            report("Audio: AudioTrack not initialized rate=$sampleRate channels=$channels")
+            return
+        }
+        track = built
+        trackWriteFailureLogged = false
+        frameBytes = nextFrameBytes
+        bytesPerSecond = sampleRate.toLong() * frameBytes
+        val capacityBytes = built.bufferSizeInFrames * frameBytes
+        prebufferWriteChunkBytes = minOf(PREBUFFER_WRITE_CHUNK_BYTES, capacityBytes)
+            .coerceAtLeast(frameBytes)
+        prebufferWriteChunkBytes -= prebufferWriteChunkBytes % frameBytes
+        if (prebufferWriteChunkBytes == 0) prebufferWriteChunkBytes = frameBytes
+        startThresholdBytes = MediaAudioBuffer.startBytesFor(
+            plan.startBytes,
+            capacityBytes,
+            prebufferWriteChunkBytes,
+        )
+        bufferProgress = AudioBufferProgress(frameBytes)
+        playbackClockMapper.reset(format.sampleRate, sampleRate)
+        playbackHeadTracker.reset()
+        playbackClockSnapshot = null
+        activeDecoderPcmFormat = effective
+        val routedDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            runCatching {
+                built.routedDevice?.let { "${it.productName}/type=${it.type}" } ?: "null"
+            }.getOrDefault("unavailable")
+        } else {
+            "unavailable"
+        }
+        val nativeRate = runCatching { audioManager?.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE) }
+            .getOrNull() ?: "unavailable"
+        val nativeFrames = runCatching { audioManager?.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER) }
+            .getOrNull() ?: "unavailable"
+        val bufferMs = capacityBytes * 1000L / bytesPerSecond.coerceAtLeast(1L)
+        val startMs = startThresholdBytes * 1000L / bytesPerSecond.coerceAtLeast(1L)
+        val diagnostic = "Audio: ready transport=$transport type=${format.payloadType} audioType=${format.audioType} " +
+            "negotiatedCodec=${format.codec} negotiatedSampleRate=${format.sampleRate} " +
+            "negotiatedChannels=${format.channels} decoder=${codec?.name ?: "LPCM"} " +
+            "decoderOutputSampleRate=${effective.sampleRate} decoderOutputChannels=${effective.channels} " +
+            "decoderOutputEncoding=${encodingName(effective.encoding)} " +
+            "decoderOutputFallback=${effective.fallbackReason ?: "none"} " +
+            "audioTrackSampleRate=${built.sampleRate} audioTrackChannels=${built.channelCount} audioTrackEncoding=PCM16 " +
+            "audioTrackRequestedBufferBytes=${plan.trackBufferBytes} audioTrackBufferBytes=$capacityBytes " +
+            "audioTrackBufferMs=$bufferMs startThresholdMs=$startMs " +
+            "usage=${usageName(attributes.usage)}(${attributes.usage}) " +
+            "contentType=${contentTypeName(attributes.contentType)}(${attributes.contentType}) " +
+            "routingPolicy=${if (advancedAudioChannelMapping) "AUTOMOTIVE_BUS" else navigationAudioRoute} " +
+            "routedDevice=$routedDevice nativeSampleRate=$nativeRate framesPerBuffer=$nativeFrames"
+        Log.i(TAG, diagnostic)
+        report(diagnostic)
     }
 
     private fun aacAudioSpecificConfig(): ByteArray {
@@ -679,21 +819,25 @@ private class AudioRenderer(
             audioType = format.audioType,
             payloadType = format.payloadType,
             mode = mode,
+            navigationRoute = navigationAudioRoute,
         )
         val usage = usageFor(selection.channel)
         val contentType = contentTypeFor(selection.contentType)
-        return AudioAttributes.Builder()
-            .setUsage(usage)
-            .setContentType(contentType)
-            .build()
-            .also {
-                Log.i(
-                    TAG,
-                    "audio route type=${format.payloadType} audioType=${format.audioType} " +
-                        "mode=$mode channel=${selection.channel} " +
-                        "usage=$usage contentType=$contentType",
-                )
-            }
+        val builder = AudioAttributes.Builder()
+        if (selection.useLegacyMusicStream) {
+            builder.setLegacyStreamType(AudioManager.STREAM_MUSIC)
+        } else {
+            builder.setUsage(usage).setContentType(contentType)
+        }
+        return builder.build().also {
+            val message = "audio route transport=$transport type=${format.payloadType} " +
+                "audioType=${format.audioType} mode=$mode navigationRoute=$navigationAudioRoute " +
+                "channel=${selection.channel} usage=${usageName(it.usage)}(${it.usage}) " +
+                "contentType=${contentTypeName(it.contentType)}(${it.contentType}) " +
+                "legacyMusicStream=${selection.useLegacyMusicStream}"
+            Log.i(TAG, message)
+            report(message)
+        }
     }
 
     private fun usageFor(channel: AudioChannel): Int = when (channel) {
@@ -706,6 +850,20 @@ private class AudioRenderer(
     private fun contentTypeFor(contentType: AudioContentType): Int = when (contentType) {
         AudioContentType.MUSIC -> AudioAttributes.CONTENT_TYPE_MUSIC
         AudioContentType.SPEECH -> AudioAttributes.CONTENT_TYPE_SPEECH
+    }
+
+    private fun usageName(usage: Int): String = when (usage) {
+        AudioAttributes.USAGE_MEDIA -> "USAGE_MEDIA"
+        AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE -> "USAGE_ASSISTANCE_NAVIGATION_GUIDANCE"
+        AudioAttributes.USAGE_VOICE_COMMUNICATION -> "USAGE_VOICE_COMMUNICATION"
+        AudioAttributes.USAGE_ASSISTANT -> "USAGE_ASSISTANT"
+        else -> "USAGE_UNKNOWN"
+    }
+
+    private fun contentTypeName(contentType: Int): String = when (contentType) {
+        AudioAttributes.CONTENT_TYPE_MUSIC -> "CONTENT_TYPE_MUSIC"
+        AudioAttributes.CONTENT_TYPE_SPEECH -> "CONTENT_TYPE_SPEECH"
+        else -> "CONTENT_TYPE_UNKNOWN"
     }
 
     /** Minimal OpusHead CSD for the mono 48 kHz stream CarPlay negotiates. */
@@ -736,47 +894,89 @@ private class AudioRenderer(
             .array()
 
     private fun handle(packet: AudioPacket) {
-        val rtp = packet.rtp
-        val timestampUs = sampleTimestampUs(packet.sample)
-        when (format.codec) {
-            AudioCodecKind.LPCM -> writePcm(byteSwapS16(rtp.copyOfRange(12, rtp.size)))
-            AudioCodecKind.AAC_LC -> {
-                val accessUnit = rtp.copyOfRange(12, rtp.size)
-                if (accessUnit.isNotEmpty()) {
+        try {
+            val rtp = packet.rtp
+            val payloadSize = rtp.size - RTP_HEADER_BYTES
+            if (payloadSize <= 0) return
+            when (format.codec) {
+                AudioCodecKind.LPCM -> {
+                    if (payloadSize % frameBytes != 0) {
+                        if (!unalignedPcmLogged) {
+                            unalignedPcmLogged = true
+                            report("Audio: dropping unaligned LPCM payload bytes=$payloadSize frameBytes=$frameBytes")
+                        }
+                        return
+                    }
+                    val pcmBytes = byteSwapS16(rtp.copyOfRange(RTP_HEADER_BYTES, rtp.size))
+                    writePcm(pcmBytes, sourceSample = packet.sample.toLong() and 0xffff_ffffL)
+                }
+                AudioCodecKind.AAC_LC -> {
+                    val payload = rtp.copyOfRange(RTP_HEADER_BYTES, rtp.size)
+                    val parsed = AacRtpPayloadParser.parse(payload)
+                    if (parsed == null) {
+                        report("Audio: dropping empty AAC payload")
+                        return
+                    }
+                    if (!aacAdtsFallback) aacRawPackets += parsed.accessUnits.size
+                    reportAacInputMode(
+                        if (aacAdtsFallback) "adts-fallback" else parsed.mode.name.lowercase(),
+                    )
                     if (!firstAacPayloadLogged) {
                         firstAacPayloadLogged = true
+                        val firstUnit = parsed.accessUnits.first()
                         Log.i(
                             TAG,
-                            "audio AAC access unit bytes=${accessUnit.size} " +
-                                "head=${accessUnit.copyOf(minOf(accessUnit.size, 16)).toHexString()}",
+                            "audio AAC input mode=${if (aacAdtsFallback) "adts-fallback" else parsed.mode.name.lowercase()} " +
+                                "accessUnits=${parsed.accessUnits.size} bytes=${firstUnit.size} " +
+                                "head=${firstUnit.copyOf(minOf(firstUnit.size, 16)).toHexString()}",
                         )
                     }
-                    feedCodec(
-                        MediaCodecSupport.adtsFrame(accessUnit, format.sampleRate, format.channels),
-                        timestampUs,
-                    )
+                    parsed.accessUnits.forEachIndexed { index, accessUnit ->
+                        val sample = (packet.sample.toLong() and 0xffff_ffffL) +
+                            index * AAC_SAMPLES_PER_ACCESS_UNIT
+                        val timestampUs = sampleTimestampMapper.presentationTimeUs(sample.toInt())
+                        val codecInput = if (aacAdtsFallback) {
+                            MediaCodecSupport.adtsFrame(accessUnit, format.sampleRate, format.channels)
+                        } else {
+                            accessUnit
+                        }
+                        feedCodec(codecInput, timestampUs)
+                    }
+                }
+                AudioCodecKind.OPUS -> {
+                    val accessUnit = rtp.copyOfRange(RTP_HEADER_BYTES, rtp.size)
+                    if (accessUnit.size < MIN_OPUS_PACKET_BYTES) {
+                        if (!firstOpusShortPacketLogged) {
+                            firstOpusShortPacketLogged = true
+                            Log.i(
+                                TAG,
+                                "audio Opus skipping short packet bytes=${accessUnit.size} " +
+                                    "head=${accessUnit.toHexString()}",
+                            )
+                        }
+                        return
+                    }
+                    feedCodec(accessUnit, sampleTimestampMapper.presentationTimeUs(packet.sample))
                 }
             }
-            AudioCodecKind.OPUS -> {
-                val accessUnit = rtp.copyOfRange(12, rtp.size)
-                if (accessUnit.size < MIN_OPUS_PACKET_BYTES) {
-                    if (!firstOpusShortPacketLogged) {
-                        firstOpusShortPacketLogged = true
-                        Log.i(
-                            TAG,
-                            "audio Opus skipping short packet bytes=${accessUnit.size} " +
-                                "head=${accessUnit.toHexString()}",
-                        )
-                    }
-                    return
-                }
-                feedCodec(accessUnit, timestampUs)
+        } catch (error: InterruptedException) {
+            Thread.currentThread().interrupt()
+        } catch (error: Exception) {
+            if (!packetFailureLogged) {
+                packetFailureLogged = true
+                Log.w(TAG, "audio packet dropped codec=${format.codec}", error)
+                report("Audio: packet dropped codec=${format.codec} error=${error.javaClass.simpleName}")
             }
         }
     }
 
-    private fun sampleTimestampUs(sample: Int): Long =
-        (sample.toLong() and 0xffff_ffffL) * 1_000_000L / format.sampleRate
+    private fun reportAacInputMode(mode: String) {
+        if (lastAacInputMode == mode) return
+        lastAacInputMode = mode
+        val message = "Audio: AAC input mode=$mode"
+        Log.i(TAG, message)
+        report(message)
+    }
 
     private fun feedCodec(payload: ByteArray, presentationTimeUs: Long) {
         val codec = codec ?: return
@@ -816,67 +1016,262 @@ private class AudioRenderer(
     private fun drainCodec(codec: MediaCodec) {
         val info = MediaCodec.BufferInfo()
         while (running) {
-            val index = codec.dequeueOutputBuffer(info, 0)
-            when {
-                index == MediaCodec.INFO_TRY_AGAIN_LATER -> return
-                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> Unit
-                index >= 0 -> {
-                    val size = info.size
-                    if (size > 0) {
-                        outputBuffers++
-                        if (outputBuffers == 1 || outputBuffers % DECODED_BUFFER_LOG_INTERVAL == 0) {
-                            Log.i(
-                                TAG,
-                                "audio decoder output codec=${format.codec} " +
-                                    "buffers=$outputBuffers bytes=$size " +
-                                    "queued=$inputQueued dropped=$inputDropped",
-                            )
-                        }
+            var outputIndex = -1
+            try {
+                val index = codec.dequeueOutputBuffer(info, 0)
+                if (index >= 0) outputIndex = index
+                when {
+                    index == MediaCodec.INFO_TRY_AGAIN_LATER -> return
+                    index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        val outputFormat = runCatching { codec.outputFormat }.getOrNull()
+                        applyDecoderOutputFormat(outputFormat)
                     }
-                    if (size > 0) {
-                        val output = codec.getOutputBuffer(index)
-                        if (output != null) {
-                            if (size > pcm.size) pcm = ByteArray(size)
-                            output.position(info.offset)
-                            output.limit(info.offset + size)
-                            output.get(pcm, 0, size)
-                            writePcm(pcm, 0, size)
+                    index >= 0 -> {
+                        val size = info.size
+                        if (size > 0) {
+                            outputBuffers++
+                            if (format.codec == AudioCodecKind.AAC_LC && !aacAdtsFallback) {
+                                aacRawOutputBuffers++
+                            }
+                            if (outputBuffers == 1 || outputBuffers % DECODED_BUFFER_LOG_INTERVAL == 0) {
+                                Log.i(
+                                    TAG,
+                                    "audio decoder output codec=${format.codec} " +
+                                        "buffers=$outputBuffers bytes=$size " +
+                                        "queued=$inputQueued dropped=$inputDropped",
+                                )
+                            }
                         }
+                        if (size > 0) {
+                            val output = codec.getOutputBuffer(index)
+                            if (output != null && track == null) {
+                                applyDecoderOutputFormat(runCatching { codec.outputFormat }.getOrNull())
+                            }
+                            if (output != null && track != null) {
+                                if (size > pcm.size) pcm = ByteArray(size)
+                                output.position(info.offset)
+                                output.limit(info.offset + size)
+                                output.get(pcm, 0, size)
+                                val decoderEncoding = activeDecoderPcmFormat?.encoding
+                                    ?: AndroidAudioFormat.ENCODING_PCM_16BIT
+                                val normalized = normalizePcm16(pcm, 0, size, decoderEncoding)
+                                if (normalized != null) {
+                                    writePcm(
+                                        normalized.bytes,
+                                        normalized.offset,
+                                        normalized.length,
+                                        sampleTimestampMapper.sampleAtPresentationTimeUs(info.presentationTimeUs),
+                                    )
+                                }
+                            }
+                        }
+                        codec.releaseOutputBuffer(index, false)
+                        outputIndex = -1
+                        if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
                     }
-                    codec.releaseOutputBuffer(index, false)
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
+                    else -> return
                 }
-                else -> return
+            } catch (error: Exception) {
+                if (outputIndex >= 0) runCatching { codec.releaseOutputBuffer(outputIndex, false) }
+                if (running && !decoderOutputFailureLogged) {
+                    decoderOutputFailureLogged = true
+                    Log.w(TAG, "audio decoder output failed codec=${format.codec}", error)
+                    report("Audio: decoder output failed codec=${format.codec} error=${error.javaClass.simpleName}")
+                }
+                return
             }
         }
     }
 
-    private fun writePcm(data: ByteArray, offset: Int = 0, length: Int = data.size) {
+    private fun applyDecoderOutputFormat(output: MediaFormat?) {
+        val fingerprint = output?.toString() ?: "missing"
+        if (fingerprint == rejectedDecoderOutputFormat) return
+        val reasons = ArrayList<String>(3)
+        val decoderRate = output?.intOrNull(MediaFormat.KEY_SAMPLE_RATE)
+        val sampleRate = decoderRate?.takeIf { it > 0 } ?: format.sampleRate.also {
+            reasons += if (decoderRate == null) "sample_rate_missing" else "sample_rate_invalid"
+        }
+        val decoderChannels = output?.intOrNull(MediaFormat.KEY_CHANNEL_COUNT)
+        val channels = when {
+            decoderChannels == null || decoderChannels <= 0 -> format.channels.coerceIn(1, 2).also {
+                reasons += if (decoderChannels == null) "channel_count_missing" else "channel_count_invalid"
+            }
+            decoderChannels > 2 -> {
+                releaseTrack()
+                rejectedDecoderOutputFormat = fingerprint
+                val message = "Audio: unsupported decoder output channels=$decoderChannels; waiting for stereo or mono output"
+                Log.w(TAG, message)
+                report(message)
+                return
+            }
+            else -> decoderChannels
+        }
+        val decoderEncoding = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            output?.intOrNull(MediaFormat.KEY_PCM_ENCODING)
+        } else {
+            null
+        }
+        val encoding = decoderEncoding ?: AndroidAudioFormat.ENCODING_PCM_16BIT.also {
+            reasons += "pcm_encoding_missing_default_pcm16"
+        }
+        if (decoderEncoding != null && !isSupportedDecoderPcmEncoding(encoding)) {
+            releaseTrack()
+            rejectedDecoderOutputFormat = fingerprint
+            val message = "Audio: unsupported decoder PCM encoding=$decoderEncoding"
+            Log.w(TAG, message)
+            report(message)
+            return
+        }
+        if (encoding != AndroidAudioFormat.ENCODING_PCM_16BIT) {
+            reasons += "${encodingName(encoding)}_normalized_to_pcm16"
+        }
+        val next = DecoderPcmFormat(
+            sampleRate = sampleRate,
+            channels = channels,
+            encoding = encoding,
+            fallbackReason = reasons.takeIf { it.isNotEmpty() }?.joinToString(",") ?: "none",
+        )
+        rejectedDecoderOutputFormat = null
+        val message = "Audio: decoder output format sampleRate=$sampleRate channels=$channels " +
+            "encoding=${encodingName(encoding)} fallback=${next.fallbackReason}"
+        Log.i(TAG, message)
+        report(message)
+        createTrack(next)
+    }
+
+    private data class PcmChunk(val bytes: ByteArray, val offset: Int, val length: Int)
+
+    private fun normalizePcm16(source: ByteArray, offset: Int, length: Int, encoding: Int): PcmChunk? {
+        val sourceBytesPerSample = when (encoding) {
+            AndroidAudioFormat.ENCODING_PCM_16BIT -> 2
+            AndroidAudioFormat.ENCODING_PCM_8BIT -> 1
+            AndroidAudioFormat.ENCODING_PCM_FLOAT -> 4
+            AndroidAudioFormat.ENCODING_PCM_24BIT_PACKED -> 3
+            AndroidAudioFormat.ENCODING_PCM_32BIT -> 4
+            else -> return null
+        }
+        val channels = activeDecoderPcmFormat?.channels ?: format.channels.coerceIn(1, 2)
+        val sourceFrameBytes = sourceBytesPerSample * channels
+        val completeLength = length - length % sourceFrameBytes
+        if (completeLength != length && !unalignedPcmLogged) {
+            unalignedPcmLogged = true
+            report("Audio: decoder PCM contained incomplete frame bytes=${length - completeLength}")
+        }
+        if (completeLength == 0) return null
+        if (encoding == AndroidAudioFormat.ENCODING_PCM_16BIT) {
+            return PcmChunk(source, offset, completeLength)
+        }
+
+        val samples = completeLength / sourceBytesPerSample
+        val destinationBytes = samples * 2
+        if (normalizedPcm.size < destinationBytes) {
+            normalizedPcm = ByteArray(maxOf(destinationBytes, normalizedPcm.size * 2))
+        }
+        var sourceCursor = offset
+        var destinationCursor = 0
+        repeat(samples) {
+            val sample = when (encoding) {
+                AndroidAudioFormat.ENCODING_PCM_8BIT ->
+                    ((source[sourceCursor].toInt() and 0xff) - 128) shl 8
+                AndroidAudioFormat.ENCODING_PCM_FLOAT -> {
+                    val bits = (source[sourceCursor].toInt() and 0xff) or
+                        ((source[sourceCursor + 1].toInt() and 0xff) shl 8) or
+                        ((source[sourceCursor + 2].toInt() and 0xff) shl 16) or
+                        ((source[sourceCursor + 3].toInt() and 0xff) shl 24)
+                    val value = Float.fromBits(bits).takeIf { it.isFinite() } ?: 0f
+                    (value.coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt()
+                }
+                AndroidAudioFormat.ENCODING_PCM_24BIT_PACKED -> {
+                    val value = (source[sourceCursor].toInt() and 0xff) or
+                        ((source[sourceCursor + 1].toInt() and 0xff) shl 8) or
+                        ((source[sourceCursor + 2].toInt() and 0xff) shl 16)
+                    (if (value and 0x800000 != 0) value or -0x1000000 else value) shr 8
+                }
+                else -> {
+                    val value = (source[sourceCursor].toInt() and 0xff) or
+                        ((source[sourceCursor + 1].toInt() and 0xff) shl 8) or
+                        ((source[sourceCursor + 2].toInt() and 0xff) shl 16) or
+                        ((source[sourceCursor + 3].toInt() and 0xff) shl 24)
+                    value shr 16
+                }
+            }
+            normalizedPcm[destinationCursor] = sample.toByte()
+            normalizedPcm[destinationCursor + 1] = (sample shr 8).toByte()
+            sourceCursor += sourceBytesPerSample
+            destinationCursor += 2
+        }
+        return PcmChunk(normalizedPcm, 0, destinationBytes)
+    }
+
+    private fun isSupportedDecoderPcmEncoding(encoding: Int): Boolean =
+        encoding == AndroidAudioFormat.ENCODING_PCM_16BIT ||
+            encoding == AndroidAudioFormat.ENCODING_PCM_8BIT ||
+            encoding == AndroidAudioFormat.ENCODING_PCM_FLOAT ||
+            encoding == AndroidAudioFormat.ENCODING_PCM_24BIT_PACKED ||
+            encoding == AndroidAudioFormat.ENCODING_PCM_32BIT
+
+    private fun encodingName(encoding: Int): String = when (encoding) {
+        AndroidAudioFormat.ENCODING_PCM_16BIT -> "PCM16"
+        AndroidAudioFormat.ENCODING_PCM_8BIT -> "PCM8"
+        AndroidAudioFormat.ENCODING_PCM_FLOAT -> "PCM_FLOAT"
+        AndroidAudioFormat.ENCODING_PCM_24BIT_PACKED -> "PCM24_PACKED"
+        AndroidAudioFormat.ENCODING_PCM_32BIT -> "PCM32"
+        else -> "UNKNOWN($encoding)"
+    }
+
+    private fun writePcm(
+        data: ByteArray,
+        offset: Int = 0,
+        length: Int = data.size,
+        sourceSample: Long? = null,
+    ) {
         val track = track ?: return
-        if (!firstPcmLogged && length > 0) {
+        val completeLength = length - length % frameBytes
+        if (completeLength != length && !unalignedPcmLogged) {
+            unalignedPcmLogged = true
+            report("Audio: dropping incomplete PCM frame bytes=${length - completeLength} frameBytes=$frameBytes")
+        }
+        if (completeLength <= 0) return
+        if (!firstPcmLogged) {
             firstPcmLogged = true
-            val end = minOf(data.size, offset + minOf(length, 16))
+            val end = minOf(data.size, offset + minOf(completeLength, 16))
             Log.i(
                 TAG,
-                "audio first PCM type=${format.payloadType} bytes=$length " +
+                "audio first PCM type=${format.payloadType} bytes=$completeLength " +
                     "head=${data.copyOfRange(offset, end).toHexString()}",
             )
         }
         if (!fadeApplied) {
-            applyFadeIn(data, offset, length)
-            fadeApplied = true
+            applyFadeIn(data, offset, completeLength)
         }
         var written = 0
-        while (written < length && running) {
+        while (written < completeLength && running) {
             val writeLength = if (playbackStarted) {
-                length - written
+                completeLength - written
             } else {
-                minOf(length - written, PREBUFFER_WRITE_CHUNK_BYTES)
+                minOf(completeLength - written, prebufferWriteChunkBytes)
             }
             val writeStarted = System.nanoTime()
-            val count = track.write(data, offset + written, writeLength, AudioTrack.WRITE_BLOCKING)
+            val count = track.write(data, offset + written, writeLength, AudioTrack.WRITE_NON_BLOCKING)
             maxWriteMs = maxOf(maxWriteMs, (System.nanoTime() - writeStarted) / 1_000_000L)
-            if (count <= 0) break
+            if (count == 0) {
+                Thread.sleep(AUDIO_WRITE_RETRY_MILLIS)
+                continue
+            }
+            if (count < 0) {
+                val failedFormat = activeDecoderPcmFormat
+                if (count == AudioTrack.ERROR_DEAD_OBJECT) {
+                    report("Audio: AudioTrack died during write; recreating output track")
+                    releaseTrack()
+                    failedFormat?.let(::createTrack)
+                } else if (!trackWriteFailureLogged) {
+                    trackWriteFailureLogged = true
+                    report("Audio: AudioTrack write failed result=$count")
+                }
+                break
+            }
+            if (!fadeApplied) fadeApplied = true
+            if (sourceSample != null) playbackClockMapper.onPcmWritten(sourceSample)
             written += count
             bufferProgress.written(count)
             lastPcmWriteNs = System.nanoTime()
@@ -925,7 +1320,8 @@ private class AudioRenderer(
             "dropped=${packetsDropped.getAndSet(0)} underruns=+${underruns - statsLastUnderruns} queue=${queue.size} " +
             "playing=$playbackStarted maxGapMs=${maxArrivalGapMs.getAndSet(0)} " +
             "sinceRxMs=${if (lastRx == 0L) -1 else (now - lastRx) / 1_000_000L} maxWriteMs=$maxWriteMs " +
-            "decoderDroppedTotal=$inputDropped outputBuffersTotal=$outputBuffers rebuffers=$rebufferCount ended=$force"
+            "decoderDroppedTotal=$inputDropped outputBuffersTotal=$outputBuffers rebuffers=$rebufferCount " +
+            "feedbackClock=${playbackClockSnapshot?.source ?: "fallbackElapsed"} ended=$force"
         Log.i(STATS_TAG, line)
         report(line)
         statsLastUnderruns = underruns
@@ -934,15 +1330,59 @@ private class AudioRenderer(
     }
 
     private fun applyFadeIn(data: ByteArray, offset: Int, length: Int) {
-        val samples = (length - length % 2) / 2
-        val fadeSamples = minOf(samples, maxOf(1, format.sampleRate / 100))
-        for (index in 0 until fadeSamples) {
-            val position = offset + index * 2
-            val sample = (data[position].toInt() and 0xff) or (data[position + 1].toInt() shl 8)
-            val scaled = (sample.toLong() * (index + 1) / fadeSamples).toInt()
-            data[position] = scaled.toByte()
-            data[position + 1] = (scaled shr 8).toByte()
+        val frames = length / frameBytes
+        val sampleRate = activeDecoderPcmFormat?.sampleRate ?: format.sampleRate
+        val fadeFrames = minOf(frames, maxOf(1, sampleRate / 100))
+        val channels = frameBytes / 2
+        for (frame in 0 until fadeFrames) {
+            val gainNumerator = frame + 1
+            for (channel in 0 until channels) {
+                val position = offset + frame * frameBytes + channel * 2
+                val sample = (data[position].toInt() and 0xff) or (data[position + 1].toInt() shl 8)
+                val scaled = (sample.toLong() * gainNumerator / fadeFrames).toInt()
+                data[position] = scaled.toByte()
+                data[position + 1] = (scaled shr 8).toByte()
+            }
         }
+    }
+
+    private fun updatePlaybackClock() {
+        val currentTrack = track
+        if (currentTrack == null) {
+            playbackClockSnapshot = null
+            return
+        }
+        val headFrame = runCatching { playbackHeadTracker.update(currentTrack.playbackHeadPosition) }
+            .getOrNull()
+        if (headFrame == null) {
+            playbackClockSnapshot = null
+            return
+        }
+        val timestampAvailable = runCatching { currentTrack.getTimestamp(audioTimestamp) }.getOrDefault(false)
+        playbackClockSnapshot = if (timestampAvailable) {
+            playbackClockMapper.snapshot(
+                framePosition = audioTimestamp.framePosition,
+                timestampNs = audioTimestamp.nanoTime,
+                source = "audioTrackTimestamp",
+            )
+        } else {
+            playbackClockMapper.snapshot(
+                framePosition = headFrame,
+                timestampNs = System.nanoTime(),
+                source = "playbackHead",
+            )
+        }
+    }
+
+    private fun maybeSwitchAacToAdtsFallback() {
+        if (format.codec != AudioCodecKind.AAC_LC || aacAdtsFallbackAttempted || aacRawPackets < MIN_RAW_AAC_PACKETS) return
+        if (aacRawOutputBuffers > 0 || System.nanoTime() - aacRawStartedNs < RAW_AAC_FALLBACK_WAIT_NS) return
+        val message = "Audio: raw AAC decoder produced no output after $aacRawPackets access units; " +
+            "switching to ADTS compatibility fallback"
+        Log.w(TAG, message)
+        report(message)
+        aacAdtsFallbackAttempted = true
+        configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC, useAdts = true)
     }
 
     private fun byteSwapS16(source: ByteArray): ByteArray {
@@ -954,8 +1394,15 @@ private class AudioRenderer(
         return source
     }
 
-    @Synchronized
     private fun release() {
+        playbackClockSnapshot = null
+        queue.clear()
+        releaseCodec()
+        releaseTrack()
+        sampleTimestampMapper.reset()
+    }
+
+    private fun releaseCodec() {
         val codec = codec
         this.codec = null
         if (codec != null) {
@@ -970,8 +1417,17 @@ private class AudioRenderer(
                 // Best effort.
             }
         }
+    }
+
+    private fun releaseTrack() {
         val track = track
         this.track = null
+        activeDecoderPcmFormat = null
+        lastAttemptedDecoderPcmFormat = null
+        playbackClockSnapshot = null
+        playbackStarted = false
+        prebufferBytes = 0
+        startThresholdBytes = 0
         if (track != null) {
             try {
                 track.pause()
@@ -989,6 +1445,9 @@ private class AudioRenderer(
                 // Best effort.
             }
         }
+        bufferProgress = AudioBufferProgress(frameBytes)
+        playbackClockMapper.reset(format.sampleRate, format.sampleRate)
+        playbackHeadTracker.reset()
     }
 
     private companion object {
@@ -999,12 +1458,19 @@ private class AudioRenderer(
         const val OPUS_SEEK_PRE_ROLL_NANOS = 80_000_000L
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_POLL_MILLIS = 10L
+        const val AUDIO_WRITE_RETRY_MILLIS = 2L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
-        // Holds a burst after a Wi-Fi gap (~4 s of AAC) instead of dropping it.
+        // Decoder/render queue for bursts; RTP ordering and its short jitter hold happen upstream.
         const val MAX_QUEUED_PACKETS = 192
         const val PREBUFFER_WRITE_CHUNK_BYTES = 2 * 1024
         const val STATS_TAG = "DiPlay-AudioStats"
         const val STATS_WINDOW_NS = 5_000_000_000L
         const val DECODED_BUFFER_LOG_INTERVAL = 50
+        const val RTP_HEADER_BYTES = 12
+        const val AAC_SAMPLES_PER_ACCESS_UNIT = 1024
+        const val MIN_RAW_AAC_PACKETS = 8
+        const val RAW_AAC_FALLBACK_WAIT_NS = 2_000_000_000L
+        const val MIN_OUTPUT_SAMPLE_RATE = 8_000
+        const val MAX_OUTPUT_SAMPLE_RATE = 192_000
     }
 }

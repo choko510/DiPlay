@@ -133,15 +133,12 @@ object MediaCodecSupport {
 
     /** Extracts one RFC 3640 AAC access unit from an RTP payload. */
     fun aacAccessUnit(rtpPayload: ByteArray): ByteArray {
-        if (rtpPayload.size < 4) return ByteArray(0)
-        val headerBits = readU16Be(rtpPayload, 0)
-        if (headerBits < 16 || headerBits % 16 != 0) return ByteArray(0)
-        val headerBytes = headerBits / 8
-        if (2 + headerBytes > rtpPayload.size) return ByteArray(0)
-        val auSize = (readU16Be(rtpPayload, 2) shr 3) and 0x1fff
-        val start = 2 + headerBytes
-        val end = minOf(start + auSize, rtpPayload.size)
-        return if (end <= start) ByteArray(0) else rtpPayload.copyOfRange(start, end)
+        val parsed = AacRtpPayloadParser.parse(rtpPayload) ?: return ByteArray(0)
+        return if (parsed.mode == AacPayloadMode.RFC3640 && parsed.accessUnits.size == 1) {
+            parsed.accessUnits.single()
+        } else {
+            ByteArray(0)
+        }
     }
 
     /** MPEG-4 sampling frequency index used by both ADTS and AudioSpecificConfig. */

@@ -72,3 +72,11 @@ USB session creation can finish after a manual reconnect or shutdown. Bind each 
 ## Keep iAP2 capability negotiation separate from an output consumer
 
 When deleting an application-specific RouteGuidance consumer, keep the generic iAP2 advertisement, subscription endpoints, and regression test. Remove only its callback hookup and let the transport's existing default handler discard frames.
+
+## Preserve AAC bytes unless RFC 3640 is fully validated
+
+Do not classify AAC as RFC 3640 from the leading length field alone. Validate 16-bit alignment, header bounds, nonzero AU sizes, and exact aggregate data length; otherwise pass the complete payload through as raw AAC.
+
+## Keep the playback clock in the source sample domain
+
+AudioTrack reports output frames, while CarPlay feedback uses source RTP samples. Keep both rates in the immutable clock snapshot, map from the first accepted PCM frame, handle 32-bit head/sample wraps, and reset the base when recreating a track.

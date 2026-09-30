@@ -275,10 +275,15 @@ class WifiP2pGroupManagerTest {
         radio.rejectCustom = true
         radio.missingCredentials = true
         WifiP2pGroupManager(context).use { manager ->
-            assertTrue(failure { manager.start(4000) }.message!!.contains("usable Wi-Fi P2P group"))
+            val error = failure { manager.start(4000) }
+            assertTrue(
+                "Unexpected Wi-Fi P2P failure: ${error.message}",
+                error.message.orEmpty().contains("Wi-Fi P2P group identity"),
+            )
         }
         assertEquals(6, radio.requests.size)
-        assertEquals(1, radio.removals)
+        assertNull(radio.requests.last())
+        assertEquals(0, radio.removals)
     }
 
     @Test fun unansweredCreateIsNotFollowedByASecondRequest() {

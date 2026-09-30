@@ -71,3 +71,13 @@ Keep the transport flag false by default and set it only when creating the wirel
 ## Remove BYD outputs without changing RouteGuidance negotiation
 
 Delete the BYD output consumers and their `onIncoming` controller callbacks while retaining the generic iAP2 RouteGuidance advertisement, subscription messages, endpoint registry, and subscription test. The capability is part of protocol negotiation independently of the removed HUD output.
+
+## Bind persistent YouTube storage to a verified iPhone identity
+
+Resolve identity in this order: Pair Verify controller ID, AirPlay device ID, then Wi-Fi MAC. Hash a versioned, source-prefixed key before using it as GeckoView's context ID. Do not store the raw identifier or Google credentials; GeckoView owns the persistent cookie and web storage for each context.
+
+Keep one application-scoped GeckoRuntime and create/close Activity-scoped GeckoSessions per device context. Closing a session must never clear its storage context, so returning to the same iPhone restores its Google login.
+
+## Split CarPlay and YouTube inside the existing host
+
+Keep CarPlayController, AndroidMediaSink, and CarPlayBackgroundSession in CarPlayHostActivity. Put the CarPlay TextureView, touch layer, and connection panel in the same left pane; let GeckoView own the right pane. Defer CarPlay restarts until the latest pane size has settled, and use ABI-specific APKs to preserve all supported architectures without shipping every GeckoView native library to every device.

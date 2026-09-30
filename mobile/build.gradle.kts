@@ -10,7 +10,9 @@ val localAuthenticationAssets = providers.environmentVariable("DIPLAY_AUTH_ASSET
 android {
     namespace = "com.shilapi.xcertplay"
     compileSdk {
-        version = release(37)
+        version = release(37) {
+            minorApiLevel = 1
+        }
     }
 
     defaultConfig {
@@ -20,6 +22,15 @@ android {
         versionCode = 20
         versionName = "0.2.0"
 
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
     }
 
 
@@ -50,8 +61,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
         compose = true

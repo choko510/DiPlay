@@ -72,3 +72,13 @@ USB session creation can finish after a manual reconnect or shutdown. Bind each 
 ## Keep iAP2 capability negotiation separate from an output consumer
 
 When deleting an application-specific RouteGuidance consumer, keep the generic iAP2 advertisement, subscription endpoints, and regression test. Remove only its callback hookup and let the transport's existing default handler discard frames.
+
+## Pin GeckoView to its tested stable artifact and matching toolchain
+
+GeckoView 156.0.20260921121718 resolves from Mozilla Maven, requires compile SDK 37.1 and brings Kotlin 2.4.10 metadata. This project uses Kotlin Gradle plugin 2.4.20 and Java 17 compatibility; do not suppress the compiler's metadata-version check or force an older Kotlin runtime.
+
+`GeckoSessionSettings.Builder.contextId` partitions cookies and web storage, and GeckoView retains data per context after a session closes. A deterministic context ID is sufficient for returning to the same device; app-owned Google credentials or a raw-ID profile index are unnecessary.
+
+## Preserve all native ABIs while controlling GeckoView package size
+
+The GeckoView AAR includes arm64-v8a, armeabi-v7a and x86_64 native libraries. A universal APK exceeds 570 MB in this build; ABI-specific outputs preserve the existing support while avoiding unrelated libraries in each download.

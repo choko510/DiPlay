@@ -3,7 +3,7 @@ agp = "9.3.0"
 coreKtx = "1.19.0"
 lifecycleRuntimeKtx = "2.6.1"
 activityCompose = "1.8.0"
-kotlin = "2.2.10"
+kotlin = "2.4.20"
 composeBom = "2026.02.01"
 appcompat = "1.8.0"
 appProjected = "1.4.0"
@@ -12,6 +12,7 @@ app = "1.4.0"
 junit = "4.13.2"
 bouncycastle = "1.79"
 jmdns = "3.6.3"
+geckoview = "156.0.20260921121718"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -30,6 +31,7 @@ androidx-app = { group = "androidx.car.app", name = "app", version.ref = "app" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 bouncycastle = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 jmdns = { group = "org.jmdns", name = "jmdns", version.ref = "jmdns" }
+mozilla-geckoview = { group = "org.mozilla.geckoview", name = "geckoview", version.ref = "geckoview" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -20,8 +20,11 @@ CarPlay and the CarPlay icon are Apple Inc. marks/assets. This asset is not cove
 
 ## Runtime dependencies
 
-- AndroidX and Jetpack Compose — Android Open Source Project; Apache License 2.0.
+- GeckoView 156.0.20260921121718 — Mozilla; Mozilla Public License 2.0. Full text: `docs/licenses/dependencies/MPL-2.0.txt`.
+- AndroidX, Jetpack Compose and AndroidX Media3 1.11.0 — Android Open Source Project; Apache License 2.0.
 - Kotlin standard library — JetBrains; Apache License 2.0.
+- Google Play services FIDO 21.3.1 and its Play services runtime dependencies — Android Software Development Kit License; [terms](https://developer.android.com/studio/terms.html).
+- SnakeYAML 2.2 — Apache Software Foundation; Apache License 2.0.
 - Bouncy Castle 1.79 — The Legion of the Bouncy Castle Inc.; Bouncy Castle license (MIT-style).
 - JmDNS 3.6.3 — JmDNS contributors; Apache License 2.0.
 - SLF4J — QOS.ch; MIT license.

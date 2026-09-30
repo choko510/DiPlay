@@ -1,5 +1,6 @@
 <resources>
     <string name="menu_return_carplay">CarPlayに戻る</string>
+    <string name="menu_carplay_youtube">CarPlay + YouTube</string>
     <string name="menu_vehicle_home">車のホーム</string>
     <string name="menu_settings">DiPlay設定</string>
     <string name="menu_status_connected">接続中</string>
@@ -10,6 +11,14 @@
     <string name="menu_transport_wireless">ワイヤレス</string>
     <string name="menu_vehicle_home_unavailable">車のホーム画面を開けませんでした。</string>
     <string name="menu_return_failed">CarPlay画面を開けませんでした。</string>
+    <string name="menu_youtube_split_failed">CarPlay + YouTubeを開けませんでした。</string>
+    <string name="youtube_waiting_for_iphone_profile">iPhoneを識別しています…</string>
+    <string name="youtube_identity_error">接続中のiPhoneを識別できませんでした。</string>
+    <string name="youtube_loading">YouTubeを読み込んでいます…</string>
+    <string name="youtube_load_error">YouTubeを読み込めませんでした。</string>
+    <string name="youtube_reload">再読み込み</string>
+    <string name="youtube_back">戻る</string>
+    <string name="youtube_close">YouTubeを閉じる</string>
     <string name="ui_car_home">車の画面へ</string>
     <string name="ui_back">戻る</string>
     <string name="ui_home_eyebrow">あなたのスマホと、いつものドライブ。</string>
@@ -90,7 +99,7 @@
     <string name="ui_public_preview_title">一般公開プレビュー · %1$s</string>
     <string name="ui_about_description">Android車載機向けの独立したCarPlayレシーバーです。有線・無線接続は車載機上で動作し、認証情報は端末内で処理します。一般的なiPhoneなら、脱獄、Mac、ドングル、サインインなしで接続できます。\n\nこのプレビューでは実験的なアクセサリ識別情報を使っています。すべてのiPhoneと車載機との互換性を検証中です。Appleの認定製品ではありません。</string>
     <string name="ui_open_source_title">オープンソースへの感謝</string>
-    <string name="ui_open_source_description">レシーバーはGPL-3.0でライセンスされたxcertplayをベースにしています。DiPlayの画面デザインは、AGPL-3.0でライセンスされたDiAutoに基づいています。\n\nAndroidX、Bouncy Castle、JmDNS、SLF4Jを使用しています。ソースコードとライセンス表記はこのリリースに含まれます。\n\nCarPlayとCarPlayアイコンはApple Inc.の商標です。DiPlayは独立したプロジェクトです。</string>
+    <string name="ui_open_source_description">レシーバーはGPL-3.0でライセンスされたxcertplayをベースにしています。DiPlayの画面デザインは、AGPL-3.0でライセンスされたDiAutoに基づいています。\n\nGeckoView（MPL-2.0）、AndroidX、Bouncy Castle、JmDNS、SLF4Jを使用しています。ソースコードとライセンス表記はこのリリースに含まれます。\n\nCarPlayとCarPlayアイコンはApple Inc.の商標です。DiPlayは独立したプロジェクトです。</string>
     <string name="ui_car_hotspot_off_title">車のホットスポットがオフです</string>
     <string name="ui_car_hotspot_off_message">DiPlayは車のホットスポット「%1$s」を使って接続します。車の設定でオンにしてから接続してください。</string>
     <string name="ui_open_car_settings">車の設定を開く</string>

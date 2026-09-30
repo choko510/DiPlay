@@ -148,10 +148,16 @@ class DiPlayMenuActivity : ComponentActivity() {
             actionLayoutParams(wide, 0, 0),
         )
         actions.addView(
+            actionButton(getString(R.string.menu_carplay_youtube), primary = false) {
+                openCarPlayYoutube()
+            },
+            actionLayoutParams(wide, 1, ACTION_SPACING_DP),
+        )
+        actions.addView(
             actionButton(getString(R.string.menu_vehicle_home), primary = false) {
                 openVehicleHome()
             },
-            actionLayoutParams(wide, 1, ACTION_SPACING_DP),
+            actionLayoutParams(wide, 2, ACTION_SPACING_DP),
         )
         actions.addView(
             actionButton(getString(R.string.menu_settings), primary = false) {
@@ -162,7 +168,7 @@ class DiPlayMenuActivity : ComponentActivity() {
                         .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true),
                 )
             },
-            actionLayoutParams(wide, 2, ACTION_SPACING_DP),
+            actionLayoutParams(wide, 3, ACTION_SPACING_DP),
         )
         content.addView(actions, LinearLayout.LayoutParams(-1, -2))
 
@@ -207,14 +213,29 @@ class DiPlayMenuActivity : ComponentActivity() {
         Log.i(TAG, "DiPlay Menu action=return_carplay")
         try {
             startActivity(
-                Intent(this, CarPlayHostActivity::class.java).addFlags(
-                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP,
-                ),
+                Intent(this, CarPlayHostActivity::class.java)
+                    .setAction(CarPlayHostActions.EXIT_YOUTUBE_SPLIT)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             )
             finish()
         } catch (error: RuntimeException) {
             Log.w(TAG, "CarPlay host could not be opened", error)
             Toast.makeText(this, R.string.menu_return_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openCarPlayYoutube() {
+        Log.i(TAG, "DiPlay Menu action=carplay_youtube")
+        try {
+            startActivity(
+                Intent(this, CarPlayHostActivity::class.java)
+                    .setAction(CarPlayHostActions.ENTER_YOUTUBE_SPLIT)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            )
+            finish()
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "CarPlay + YouTube host could not be opened", error)
+            Toast.makeText(this, R.string.menu_youtube_split_failed, Toast.LENGTH_SHORT).show()
         }
     }
 

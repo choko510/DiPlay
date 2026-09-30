@@ -2372,6 +2372,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 hotspotStatus.copy(state = "Running")
             CarPlayStatus.WirelessActive ->
                 hotspotStatus.copy(state = "Active")
+            CarPlayStatus.WirelessActiveBootstrapControl ->
+                hotspotStatus.copy(state = "Active")
             CarPlayStatus.AttachingNetwork ->
                 hotspotStatus.copy(state = "Starting AirPlay service")
             is CarPlayStatus.Failed -> hotspotStatus.copy(state = "Error")
@@ -3559,6 +3561,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.ConnectingBluetooth -> "Connecting Bluetooth"
         CarPlayStatus.RunningWireless -> "Wireless CarPlay control running"
         CarPlayStatus.WirelessActive -> "Wireless CarPlay active"
+        CarPlayStatus.WirelessActiveBootstrapControl -> "Wireless CarPlay active"
         CarPlayStatus.DiscoveringIphone -> "Discovering iPhone"
         CarPlayStatus.WaitingForIphone -> "Waiting for iPhone over USB"
         CarPlayStatus.RequestingIphonePermission -> "Requesting iPhone USB permission"

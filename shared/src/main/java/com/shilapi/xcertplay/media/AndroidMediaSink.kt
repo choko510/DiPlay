@@ -275,24 +275,16 @@ private class VideoDecoder(
         else MediaFormat.MIMETYPE_VIDEO_AVC
         val csd = if (codec == VideoCodec.H265) {
             MediaCodecSupport.hevcCodecSpecificData(codecData).takeIf { it.isNotEmpty() }
-                ?.let { listOf(it) } ?: emptyList()
+                ?.let { listOf(CodecSpecificData(0, it)) } ?: emptyList()
         } else {
-            val (sps, pps) = MediaCodecSupport.avcParameterSets(codecData)
-            listOfNotNull(
-                sps.takeIf { it.isNotEmpty() }?.let { START_CODE + it },
-                pps.takeIf { it.isNotEmpty() }?.let { START_CODE + it },
-            )
+            MediaCodecSupport.avcCodecSpecificData(codecData)
         }
         // Some vendor decoders (e.g. MediaTek c2.mtk.avc.decoder) reject the tuned
         // parameters with BAD_VALUE. Fall back to a minimal format, then to software.
-        val attempts = listOf(
-            DecoderAttempt(codecName = null, tuned = true),
-            DecoderAttempt(codecName = null, tuned = false),
-        ) + softwareDecoderName(mime)?.let { listOf(DecoderAttempt(it, tuned = false)) }.orEmpty()
-        var next: MediaCodec? = null
-        for (attempt in attempts) {
-            next = tryConfigure(mime, csd, surface, attempt)
-            if (next != null) break
+        val attempts = videoDecoderAttemptPlan(softwareDecoderName(mime))
+        val attemptedFormats = mutableSetOf<DecoderAttemptKey>()
+        val next = firstSuccessfulDecoderAttempt(attempts) { attempt ->
+            tryConfigure(mime, csd, surface, attempt, attemptedFormats)
         }
         if (next == null) {
             report("decoder configuration failed mime=$mime size=${width}x$height")
@@ -309,28 +301,34 @@ private class VideoDecoder(
         }
     }
 
-    private data class DecoderAttempt(val codecName: String?, val tuned: Boolean)
-
-    private fun buildFormat(mime: String, csd: List<ByteArray>, tuned: Boolean): MediaFormat =
+    private fun buildFormat(mime: String, csd: List<CodecSpecificData>, tuned: Boolean): MediaFormat =
         MediaFormat.createVideoFormat(mime, width, height).apply {
             if (tuned) {
                 setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_INPUT_SIZE)
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
             }
-            csd.forEachIndexed { index, bytes -> setByteBuffer("csd-$index", ByteBuffer.wrap(bytes)) }
+            csd.forEach { data ->
+                setByteBuffer("csd-${data.index}", ByteBuffer.wrap(data.bytes))
+            }
         }
 
     private fun tryConfigure(
         mime: String,
-        csd: List<ByteArray>,
+        csd: List<CodecSpecificData>,
         surface: Surface,
         attempt: DecoderAttempt,
+        attemptedFormats: MutableSet<DecoderAttemptKey>,
     ): MediaCodec? {
         var candidate: MediaCodec? = null
         return try {
             val format = buildFormat(mime, csd, attempt.tuned)
             val codec = attempt.codecName?.let { MediaCodec.createByCodecName(it) } ?: createDecoder(mime)
             candidate = codec
+            if (!recordDecoderAttempt(attemptedFormats, codec.name, attempt.tuned)) {
+                runCatching { codec.release() }
+                candidate = null
+                return null
+            }
             if (attempt.tuned && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                 codec.codecInfo.getCapabilitiesForType(mime).isFeatureSupported("low-latency")) {
                 format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)

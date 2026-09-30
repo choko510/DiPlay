@@ -28,4 +28,34 @@ class Iap2ControlDeadlineTest {
         now += 100_000_000L
         assertEquals(0L, deadline.remainingMillis())
     }
+
+    @Test fun finiteWirelessBringUpExpiresUntilCarPlayControlIsEstablished() {
+        var now = 0L
+        val deadline = Iap2ControlDeadline(300_000) { now }
+        now = 299_999_000_000L
+        assertEquals(1L, deadline.remainingMillis())
+        now = 300_000_000_000L
+        assertEquals(0L, deadline.remainingMillis())
+    }
+
+    @Test fun establishedWirelessControlHasNoAbsoluteLifetimeDeadline() {
+        var now = 0L
+        val deadline = Iap2ControlDeadline(300_000) { now }
+        now = 299_999_000_000L
+        deadline.established()
+        now += 24 * 60 * 60 * 1_000_000_000L
+
+        assertEquals(Iap2ControlDeadline.MAX_POLL_MILLIS, deadline.remainingMillis())
+    }
+
+    @Test fun explicitBringUpDeadlineCanExpireThenBePromotedAfterAProvenConnection() {
+        var now = 0L
+        val deadline = Iap2ControlDeadline(300_000) { now }
+        now = 300_000_000_000L
+        assertEquals(0L, deadline.remainingMillis())
+
+        deadline.established()
+
+        assertEquals(Iap2ControlDeadline.MAX_POLL_MILLIS, deadline.remainingMillis())
+    }
 }

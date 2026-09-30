@@ -72,9 +72,6 @@
     <string name="ui_right_hand_drive_description">CarPlayの操作ボタンを運転席側に配置します。</string>
     <string name="ui_full_screen">全画面表示</string>
     <string name="ui_full_screen_description">CarPlayの表示中に車載機のシステムバーを隠します。</string>
-    <string name="ui_byd_navigation">BYDナビゲーション</string>
-    <string name="ui_navigation_hud">ヘッドアップディスプレイとメーターにナビを表示</string>
-    <string name="ui_navigation_hud_description">対応するBYDの画面に、スマートフォンの進行方向、距離、道路名を表示します。車種によって対応状況が異なります。</string>
     <string name="ui_permissions_help">権限と接続のヘルプ</string>
     <string name="ui_permissions_description">付近のデバイスはiPhoneとの接続に使います。マイクはSiriと通話に必要です。古いAndroidではワイヤレス設定に位置情報も必要です。USB接続ではローカルVPN接続を求められる場合があります。</string>
     <string name="ui_app_permissions">アプリの権限</string>

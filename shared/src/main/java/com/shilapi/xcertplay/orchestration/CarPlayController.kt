@@ -27,7 +27,6 @@ import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
-import com.shilapi.xcertplay.hud.BydNavigationOutputs
 import com.shilapi.xcertplay.iap2.session.Iap2Session
 import com.shilapi.xcertplay.mfi.Iap2MfiAuthenticationClient
 import com.shilapi.xcertplay.mfi.MfiAuthenticationClient
@@ -156,7 +155,6 @@ class CarPlayController(
         require(!config.locationReportingEnabled || locationProvider != null) {
             "A location provider is required when location reporting is enabled"
         }
-        BydNavigationOutputs.start(context.applicationContext)
     }
 
     private enum class Phase { IDLE, MFI, WIRELESS, IPHONE, REENUMERATION, DATAPATHS, CONTROL }
@@ -282,10 +280,8 @@ class CarPlayController(
 
         override fun onSessionActive(session: AirPlaySession) {
             synchronized(wiredTeardownLock) {
-                val changed = activeSession !== session
                 activeSession = session
                 activeWiredSessionAttempt = 0
-                if (changed) BydNavigationOutputs.start(appContext)
             }
             debugLog(
                 "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
@@ -300,7 +296,6 @@ class CarPlayController(
                     false
                 } else {
                     activeSession = null
-                    BydNavigationOutputs.endNow()
                     true
                 }
             }
@@ -432,7 +427,6 @@ class CarPlayController(
             traceConnection(ConnectionTraceStage.CANCELLED)
             closed = true
         }
-        BydNavigationOutputs.endNow()
         wiredDataPathGeneration.invalidate()
         closeReceivers()
         availabilityPollGeneration.incrementAndGet()
@@ -481,11 +475,6 @@ class CarPlayController(
             Thread.currentThread().interrupt()
             false
         }
-    }
-
-    // HUD (SOME/IP) and cluster (AMap broadcast) keep separate state so one failing cannot stall the other.
-    private fun onRouteFrame(frame: com.shilapi.xcertplay.iap2.wire.Iap2Frame) {
-        BydNavigationOutputs.onFrame(frame)
     }
 
     private fun startMfi() {
@@ -1023,7 +1012,6 @@ class CarPlayController(
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
-                onIncoming = ::onRouteFrame,
                 onProgress = ::debugLog,
             )
             if (isStaleWirelessRun(generation)) {
@@ -1112,7 +1100,6 @@ class CarPlayController(
                         onReady = {
                             onWirelessTunnelReady(generation)
                         },
-                        onIncoming = ::onRouteFrame,
                         onProgress = { message -> debugLog("iAP tunnel $message") },
                     )
                     if (closed || generation != wirelessGeneration.get()) return@execute
@@ -1804,7 +1791,6 @@ class CarPlayController(
                 availableCurrentMilliAmps = config.availableCurrentMilliAmps,
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
-                onIncoming = ::onRouteFrame,
                 onProgress = { message -> debugLog("wired $message") },
                 onTraceStage = { stage ->
                     traceConnection(stage)
@@ -2535,10 +2521,8 @@ class CarPlayController(
             if (!isActiveWiredAttemptLocked(attempt)) {
                 false
             } else {
-                val changed = activeSession !== session
                 activeSession = session
                 activeWiredSessionAttempt = attempt
-                if (changed) BydNavigationOutputs.start(appContext)
                 true
             }
         }
@@ -2557,7 +2541,6 @@ class CarPlayController(
             } else {
                 activeSession = null
                 activeWiredSessionAttempt = 0
-                BydNavigationOutputs.endNow()
                 true
             }
         }

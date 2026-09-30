@@ -72,9 +72,6 @@
     <string name="ui_right_hand_drive_description">Place CarPlay’s controls closer to the driver.</string>
     <string name="ui_full_screen">Full screen</string>
     <string name="ui_full_screen_description">Hide the car’s system bars while CarPlay is open.</string>
-    <string name="ui_byd_navigation">BYD navigation</string>
-    <string name="ui_navigation_hud">Navigation on HUD and instrument cluster</string>
-    <string name="ui_navigation_hud_description">Show phone navigation arrows, distance and street names on supported BYD displays. Vehicle compatibility varies.</string>
     <string name="ui_permissions_help">Permissions and connection help</string>
     <string name="ui_permissions_description">Nearby devices connects your iPhone. Microphone enables Siri and calls. Older Android versions also require Location for wireless setup. USB mode may ask for a local VPN connection.</string>
     <string name="ui_app_permissions">App permissions</string>

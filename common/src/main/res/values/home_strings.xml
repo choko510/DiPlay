@@ -27,6 +27,7 @@
     <string name="ui_settings_description">サイズ、解像度、音楽バッファ、フレームレートの変更を適用するとCarPlayが再接続します。その他の変更は次回接続時に反映されます。</string>
     <string name="ui_language_section">言語</string>
     <string name="ui_language_choice">言語 · %1$s</string>
+    <string name="ui_language_system">システム設定に従う</string>
     <string name="ui_language_japanese">日本語</string>
     <string name="ui_language_english">English</string>
     <string name="ui_phone_name_fallback">あなたのiPhone</string>

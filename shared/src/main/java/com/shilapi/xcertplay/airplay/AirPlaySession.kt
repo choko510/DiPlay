@@ -366,6 +366,7 @@ class AirPlaySession(
             }
             path.endsWith("/info") -> {
                 val info = AirPlayInfoPlist.build(config)
+                val audioFormats = info["audioFormats"] as? List<*>
                 if (request.body.isNotEmpty()) {
                     val requestInfo = try {
                         BplistCodec.decode(request.body).toString()
@@ -377,9 +378,22 @@ class AirPlaySession(
                 Log.i(
                     TAG,
                     "airplay /info features=${info["features"]} " +
-                        "audioFormats=${(info["audioFormats"] as? List<*>)?.size ?: 0} " +
+                        "audioFormats=${audioFormats?.size ?: 0} " +
                         "audioLatencies=${(info["audioLatencies"] as? List<*>)?.size ?: 0}",
                 )
+                audioFormats?.forEach { entry ->
+                    val capability = entry as? Map<*, *> ?: return@forEach
+                    val type = (capability["type"] as? Number)?.toInt() ?: return@forEach
+                    val audioType = capability["audioType"]?.toString() ?: return@forEach
+                    val outputFormats = (capability["audioOutputFormats"] as? Number)?.toLong()
+                        ?: return@forEach
+                    val inputFormats = (capability["audioInputFormats"] as? Number)?.toLong()
+                    val input = inputFormats?.let { " inputFormats=0x${it.toString(16)}" }.orEmpty()
+                    debugLog(
+                        "AirPlay audio capability type=$type audioType=$audioType " +
+                            "outputFormats=0x${outputFormats.toString(16)}$input",
+                    )
+                }
                 debugLog("airplay /info displays=${info["displays"]}")
                 RtspMessage.Response(
                     headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE),

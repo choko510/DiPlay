@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import android.content.Context
 import android.os.Build
+import androidx.core.content.edit
 import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
 import com.shilapi.xcertplay.airplay.AirPlayPhysicalSizeBasis
 import com.shilapi.xcertplay.airplay.CarPlayDisplayScale
@@ -139,9 +140,9 @@ object AirPlayPersistence {
     }
 
     fun saveNavigationAudioRoute(context: Context, route: NavigationAudioRoute) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_NAVIGATION_AUDIO_ROUTE, route.name)
-            .apply()
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit {
+            putString(KEY_NAVIGATION_AUDIO_ROUTE, route.name)
+        }
     }
 
     fun loadWirelessEnabled(context: Context): Boolean =

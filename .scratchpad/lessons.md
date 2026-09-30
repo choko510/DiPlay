@@ -80,3 +80,11 @@ Do not classify AAC as RFC 3640 from the leading length field alone. Validate 16
 ## Keep the playback clock in the source sample domain
 
 AudioTrack reports output frames, while CarPlay feedback uses source RTP samples. Keep both rates in the immutable clock snapshot, map from the first accepted PCM frame, handle 32-bit head/sample wraps, and reset the base when recreating a track.
+
+## Retry peripheral audio setup without suppressing the stream forever
+
+Do not use a last-attempted AudioTrack format as a permanent duplicate guard. Treat a format as active only after the track reaches `STATE_INITIALIZED`; rate-limit retries with bounded backoff, and keep the pending format so temporary HAL failures can recover during the stream.
+
+## Enforce replay limits after adding the live fallback AU
+
+A reserve covers ordinary packet sizes but cannot guarantee a hard byte or duration cap by itself. When a live AU trips the AAC fallback, merge it with the cached AUs and evict older cached entries until all replay limits hold while keeping the live AU.

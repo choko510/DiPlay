@@ -48,27 +48,28 @@ internal class AudioPlaybackClockMapper(private val streamType: Int) {
     }
 }
 
-/** Extends AudioTrack's unsigned 32-bit playback head while ignoring small backward glitches. */
-internal class PlaybackHeadTracker {
-    private var lastRawHead: Long? = null
-    private var extendedHead = 0L
+/** Extends an unsigned 32-bit track frame counter and ignores backward read glitches. */
+internal class Unsigned32FrameTracker {
+    private var lastRawFrame: Long? = null
+    private var extendedFrame = 0L
 
     fun reset() {
-        lastRawHead = null
-        extendedHead = 0L
+        lastRawFrame = null
+        extendedFrame = 0L
     }
 
-    fun update(rawHead: Int): Long {
-        val raw = rawHead.toLong() and UINT32_MASK
-        val previous = lastRawHead
+    fun update(rawFrame: Long): Long {
+        val raw = rawFrame and UINT32_MASK
+        val previous = lastRawFrame
         if (previous == null) {
-            extendedHead = raw
+            extendedFrame = raw
         } else {
             val delta = (raw - previous) and UINT32_MASK
-            if (delta <= UINT32_HALF_RANGE) extendedHead += delta
+            if (delta > UINT32_HALF_RANGE) return extendedFrame
+            extendedFrame += delta
         }
-        lastRawHead = raw
-        return extendedHead
+        lastRawFrame = raw
+        return extendedFrame
     }
 }
 
@@ -106,6 +107,13 @@ private fun framesToSourceSamples(frames: Long, sourceRate: Int, outputRate: Int
     val wholeSeconds = frames / rate
     val remainderFrames = frames % rate
     return wholeSeconds * source + remainderFrames * source / rate
+}
+
+internal fun framesToNanos(frames: Long, sampleRate: Int): Long {
+    val rate = sampleRate.coerceAtLeast(1).toLong()
+    val wholeSeconds = frames / rate
+    val remainderFrames = frames % rate
+    return wholeSeconds * 1_000_000_000L + remainderFrames * 1_000_000_000L / rate
 }
 
 private const val UINT32_MASK = 0xffff_ffffL

@@ -1,6 +1,7 @@
 # Quirks
 
 - In this checkout, set `ANDROID_HOME` and `ANDROID_SDK_ROOT` to `%LOCALAPPDATA%\Android\Sdk` for Gradle. The repository's `ndk.dir` emits AGP CXX5106 deprecation warnings; they are nonfatal, and the full test aggregate plus mobile/automotive debug builds pass.
+- 2026-10-01: After rebasing onto main #9, 270 shared and 55 common Gradle tests, the full test aggregate, both debug builds, and mobile lint pass. Explicit `:shared:lintDebug` and `:common:lintDebug` still fail on existing permission/NewApi/translation issues in unchanged files (Bluetooth/Wi-Fi/P2P, AppLanguage, manifests/resources); the updated audio renderer has no lint findings.
 - The 8-second startup snapshot and 15-second hard timeout reflect the slow-success timing in the 2026-09-30 brief. UIS8581/iOS 27 physical validation is still required.
 - `gh` is unavailable in this checkout; use the GitHub connector after pushing a branch.
 - This managed worktree had no `ANDROID_HOME` or `ANDROID_SDK_ROOT`; setting both to the installed SDK and using Android Studio JBR 21 enabled Gradle. NDK 28.2 emitted a nonfatal missing `source.properties` warning and packaged two libraries without stripping. The first shared-test run hit a 50 ms MFi retry timeout; the complete shared suite passed on rerun.

@@ -29,13 +29,13 @@ class AudioChannelMappingTest {
         )
         listOf("default", "alert", "compatibility").forEach { audioType ->
             assertMapped(
-            mode = AudioChannelMappingMode.MOBILE_COMPATIBLE,
-            audioType = audioType,
-            payloadType = 100,
-            navigationRoute = NavigationAudioRoute.SYSTEM_NAVIGATION,
-            channel = AudioChannel.NAVIGATION,
-            contentType = AudioContentType.SPEECH,
-        )
+                mode = AudioChannelMappingMode.MOBILE_COMPATIBLE,
+                audioType = audioType,
+                payloadType = 100,
+                navigationRoute = NavigationAudioRoute.SYSTEM_NAVIGATION,
+                channel = AudioChannel.NAVIGATION,
+                contentType = AudioContentType.SPEECH,
+            )
         }
     }
 
@@ -68,15 +68,17 @@ class AudioChannelMappingTest {
 
     @Test
     fun legacyMusicStreamIsLimitedToNavigationFamilies() {
-        val selection = AudioChannelMapper.map(
-            "alert",
-            100,
-            AudioChannelMappingMode.MOBILE_COMPATIBLE,
-            NavigationAudioRoute.LEGACY_STREAM_MUSIC,
-        )
-        assertEquals(AudioChannel.MEDIA, selection.channel)
-        assertEquals(AudioContentType.MUSIC, selection.contentType)
-        assertEquals(true, selection.useLegacyMusicStream)
+        listOf("default", "alert", "compatibility").forEach { audioType ->
+            val selection = AudioChannelMapper.map(
+                audioType,
+                100,
+                AudioChannelMappingMode.MOBILE_COMPATIBLE,
+                NavigationAudioRoute.LEGACY_STREAM_MUSIC,
+            )
+            assertEquals(AudioChannel.MEDIA, selection.channel)
+            assertEquals(AudioContentType.MUSIC, selection.contentType)
+            assertEquals(true, selection.useLegacyMusicStream)
+        }
         assertEquals(
             false,
             AudioChannelMapper.map(
@@ -86,6 +88,15 @@ class AudioChannelMappingTest {
                 NavigationAudioRoute.LEGACY_STREAM_MUSIC,
             ).useLegacyMusicStream,
         )
+        val media = AudioChannelMapper.map(
+            "media",
+            102,
+            AudioChannelMappingMode.MOBILE_COMPATIBLE,
+            NavigationAudioRoute.LEGACY_STREAM_MUSIC,
+        )
+        assertEquals(AudioChannel.MEDIA, media.channel)
+        assertEquals(AudioContentType.MUSIC, media.contentType)
+        assertEquals(false, media.useLegacyMusicStream)
     }
 
     @Test
@@ -120,6 +131,15 @@ class AudioChannelMappingTest {
             channel = AudioChannel.NAVIGATION,
             contentType = AudioContentType.SPEECH,
         )
+        val aaosDefault = AudioChannelMapper.map(
+            "default",
+            100,
+            AudioChannelMappingMode.AUTOMOTIVE_BUS,
+            NavigationAudioRoute.LEGACY_STREAM_MUSIC,
+        )
+        assertEquals(AudioChannel.MEDIA, aaosDefault.channel)
+        assertEquals(AudioContentType.MUSIC, aaosDefault.contentType)
+        assertEquals(false, aaosDefault.useLegacyMusicStream)
     }
 
     @Test

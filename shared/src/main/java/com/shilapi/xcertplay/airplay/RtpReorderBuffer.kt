@@ -12,6 +12,7 @@ internal fun parseRtpHeader(packet: ByteArray): RtpHeader? {
     return RtpHeader(sequence, timestamp)
 }
 
+/** `reordered` counts forward out-of-order arrivals; `maxGap` is sequence distance in packets, not milliseconds. */
 internal data class RtpReorderStats(
     val received: Long,
     val delivered: Long,
@@ -29,7 +30,10 @@ internal data class RtpDelivery<T>(
     val missingBefore: Int,
 )
 
-/** Small bounded jitter window for the 16-bit RTP sequence number space. */
+/**
+ * Small bounded jitter window for the 16-bit RTP sequence number space. The first packet sets the
+ * base immediately; an earlier packet arriving afterward is late and is not replayed.
+ */
 internal class RtpReorderBuffer<T>(
     private val maxPendingPackets: Int,
     private val holdNanos: Long,
@@ -87,6 +91,7 @@ internal class RtpReorderBuffer<T>(
 
     fun flush(): List<RtpDelivery<T>> = drain(Long.MAX_VALUE, force = true)
 
+    /** Drops pending ordering state while retaining counters for the stream's final stats log. */
     fun clear() {
         pending.clear()
         recentDelivered.fill(-1)

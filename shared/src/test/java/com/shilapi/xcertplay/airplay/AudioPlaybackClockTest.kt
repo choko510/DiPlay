@@ -28,10 +28,13 @@ class AudioPlaybackClockTest {
 
     @Test
     fun playbackHeadWrapExtendsAndPauseDoesNotAdvanceTheClock() {
-        val head = PlaybackHeadTracker()
-        assertEquals(0xffff_fff0L, head.update(0xffff_fff0.toInt()))
+        val head = Unsigned32FrameTracker()
+        assertEquals(0xffff_fff0L, head.update(0xffff_fff0L))
         assertEquals(0x1_0000_0010L, head.update(0x10))
         assertEquals(0x1_0000_0010L, head.update(0x10))
+        assertEquals(0x1_0000_0010L, head.update(0x0f))
+        assertEquals(0x1_0000_0010L, head.update(0x10))
+        assertEquals(0x1_0000_0011L, head.update(0x11))
     }
 
     @Test
@@ -51,6 +54,31 @@ class AudioPlaybackClockTest {
         val after = timestamps.presentationTimeUs(0x10)
         assertEquals(32L * 1_000_000L / 48_000, after - before)
         assertEquals(16, timestamps.sampleAtPresentationTimeUs(after))
+    }
+
+    @Test
+    fun frameToNanosecondConversionKeepsLongDurationsInLongArithmetic() {
+        assertEquals(1_000_000_000L, framesToNanos(48_000, 48_000))
+        val framesAcrossOneUnsignedWrap = 0x1_0000_0010L
+        assertEquals(89_478_485_666_666L, framesToNanos(framesAcrossOneUnsignedWrap, 48_000))
+    }
+
+    @Test
+    fun timestampFramePositionUsesItsOwnUnsignedExtender() {
+        val timestampFrames = Unsigned32FrameTracker()
+        assertEquals(0xffff_fff0L, timestampFrames.update(0xffff_fff0L))
+        assertEquals(0x1_0000_0010L, timestampFrames.update(0x10L))
+        assertEquals(0x1_0000_0010L, timestampFrames.update(0x10L))
+        assertEquals(0x1_0000_0010L, timestampFrames.update(0x0fL))
+    }
+
+    @Test
+    fun frameExtendersResetForANewTrackGeneration() {
+        val frames = Unsigned32FrameTracker()
+        frames.update(0xffff_fff0L)
+        assertEquals(0x1_0000_0010L, frames.update(0x10L))
+        frames.reset()
+        assertEquals(0L, frames.update(0L))
     }
 
     @Test

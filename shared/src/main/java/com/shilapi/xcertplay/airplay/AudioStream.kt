@@ -269,7 +269,7 @@ class AudioStream(
         val message = "audio RTP stats type=$streamType audioType=$audioType transport=" +
             "${if (wirelessAudio) "wireless" else "wired"} rx=${stats.received} delivered=${stats.delivered} " +
             "lost=${stats.lost} reordered=${stats.reordered} duplicate=${stats.duplicates} late=${stats.late} " +
-            "maxReorderDepth=${stats.maxReorderDepth} maxGap=${stats.maxGap} holdMs=$holdMs " +
+            "maxReorderDepth=${stats.maxReorderDepth} maxGapSeqDistance=${stats.maxGap} holdMs=$holdMs " +
             "pending=${reorderBuffer.pendingCount}"
         android.util.Log.i(TAG, message)
         onDiagnostic(message)

@@ -56,14 +56,16 @@ dsp_engine *dsp_engine_create(
     int bass_coefficient_count,
     const double *mono_bass_coefficients,
     int mono_bass_coefficient_count,
-    const dsp_spatial_config *spatial_config) {
+    const dsp_spatial_config *spatial_config,
+    const dsp_convolver_config *convolver_config) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
         peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
         dynamics_config == NULL || bass_coefficient_count < 0 || bass_coefficient_count > 1 ||
         (bass_coefficient_count > 0 && bass_coefficients == NULL) ||
         mono_bass_coefficient_count < 0 || mono_bass_coefficient_count > 1 ||
-        (mono_bass_coefficient_count > 0 && mono_bass_coefficients == NULL) || spatial_config == NULL) {
+        (mono_bass_coefficient_count > 0 && mono_bass_coefficients == NULL) || spatial_config == NULL ||
+        convolver_config == NULL) {
         return NULL;
     }
 
@@ -86,6 +88,7 @@ dsp_engine *dsp_engine_create(
     if (!dsp_graph_prepare(
             &engine->graph,
             sample_rate,
+            channels,
             gain_db,
             peq_coefficients,
             (size_t)peq_band_count,
@@ -94,7 +97,9 @@ dsp_engine *dsp_engine_create(
             bass_coefficient_count,
             mono_bass_coefficients,
             mono_bass_coefficient_count,
-            spatial_config)) {
+            spatial_config,
+            convolver_config)) {
+        dsp_graph_close(&engine->graph);
         free(engine);
         return NULL;
     }
@@ -187,7 +192,7 @@ dsp_status dsp_engine_reset(dsp_engine *engine) {
 }
 
 int dsp_engine_get_latency_frames(const dsp_engine *engine) {
-    return engine_is_prepared(engine) ? 0 : -1;
+    return engine_is_prepared(engine) ? dsp_convolver_latency_frames(&engine->graph.convolver) : -1;
 }
 
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics) {
@@ -229,5 +234,6 @@ void dsp_engine_destroy(dsp_engine *engine) {
         return;
     }
     engine->magic = 0;
+    dsp_graph_close(&engine->graph);
     free(engine);
 }

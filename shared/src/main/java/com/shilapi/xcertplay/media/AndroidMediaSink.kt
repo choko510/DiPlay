@@ -1893,7 +1893,12 @@ internal class AudioRenderer(
         } else {
             "playbackHead"
         }
-        playbackClockSnapshot = playbackClockMapper.snapshot(headFrame, timestampNs, clockSource)
+        playbackClockSnapshot = playbackClockMapper.snapshot(
+            framePosition = headFrame,
+            timestampNs = timestampNs,
+            source = clockSource,
+            algorithmicLatencyFrames = dspPipeline?.algorithmicLatencyFrames ?: 0,
+        )
     }
 
     private fun maybeSwitchAacToAdtsFallback() {

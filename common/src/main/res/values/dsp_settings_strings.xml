@@ -40,6 +40,14 @@
     <string name="dsp_limiter">Safety limiter</string>
     <string name="dsp_convolver">Convolver</string>
     <string name="dsp_convolver_placeholder">No impulse response is selected.</string>
+    <string name="dsp_impulse_response">Impulse response</string>
+    <string name="dsp_ir_none">None selected</string>
+    <string name="dsp_ir_import">WAVを読み込む</string>
+    <string name="dsp_ir_select_first">先にWAVインパルス応答を読み込んでください。</string>
+    <string name="dsp_ir_imported">WAVインパルス応答を読み込みました。</string>
+    <string name="dsp_ir_invalid">対応していない、または破損したWAVです。</string>
+    <string name="dsp_ir_too_large">WAVは8MiB以下、最大65,536フレームです。</string>
+    <string name="dsp_ir_write_failed">WAVインパルス応答を保存できませんでした。</string>
     <string name="dsp_wet">Wet</string>
     <string name="dsp_diagnostics">Diagnostics</string>
     <string name="dsp_current_profile">Current profile: %1$s</string>

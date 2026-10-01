@@ -9,6 +9,7 @@ static const dsp_dynamics_config bypass_dynamics = {
     0, -20.0, 4.0, 10.0, 100.0, 0.0, 0.0, 0, -1.0, 60.0,
 };
 static const dsp_spatial_config bypass_spatial = {1.0, 0, 120};
+static const dsp_convolver_config bypass_convolver = {0, 0, 0, 0, 0, 0.0f, NULL};
 
 static void fail(const char *message) {
     fprintf(stderr, "FAIL: %s\n", message);
@@ -34,7 +35,8 @@ static dsp_engine *create_test_engine(
         0,
         NULL,
         0,
-        &bypass_spatial);
+        &bypass_spatial,
+        &bypass_convolver);
 }
 
 static dsp_engine *create_test_engine_with_dynamics(
@@ -54,7 +56,8 @@ static dsp_engine *create_test_engine_with_dynamics(
         0,
         NULL,
         0,
-        &bypass_spatial);
+        &bypass_spatial,
+        &bypass_convolver);
 }
 
 static dsp_engine *create_test_engine_with_spatial(
@@ -78,7 +81,29 @@ static dsp_engine *create_test_engine_with_spatial(
         bass_coefficient_count,
         mono_bass_coefficients,
         mono_bass_coefficient_count,
-        spatial_config);
+        spatial_config,
+        &bypass_convolver);
+}
+
+static dsp_engine *create_test_engine_with_convolver(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_convolver_config *convolver_config) {
+    return dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        convolver_config);
 }
 
 static void assert_true(int condition, const char *message) {
@@ -156,7 +181,8 @@ static void test_bad_handles_arguments_and_capacities(void) {
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 1) == NULL, "missing filter coefficients are rejected");
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 16) == NULL, "too many filters are rejected");
     assert_true(
-        dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL, NULL, 0, NULL, 0, &bypass_spatial) == NULL,
+        dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL, NULL, 0, NULL, 0,
+            &bypass_spatial, &bypass_convolver) == NULL,
         "missing dynamics configuration is rejected");
 }
 
@@ -665,6 +691,232 @@ static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
     }
 }
 
+static void test_kiss_fft_round_trip(void) {
+    kiss_fftr_cfg forward = kiss_fftr_alloc(256, 0, NULL, NULL);
+    kiss_fftr_cfg inverse = kiss_fftr_alloc(256, 1, NULL, NULL);
+    assert_true(forward != NULL && inverse != NULL, "real FFT plans allocate");
+    float input[256];
+    float output[256];
+    kiss_fft_cpx spectrum[129];
+    for (size_t index = 0; index < 256; index++) {
+        input[index] = (float)(0.4 * sin(2.0 * 3.14159265358979323846 * 17.0 * index / 256.0) +
+            0.1 * cos(2.0 * 3.14159265358979323846 * 31.0 * index / 256.0));
+    }
+    kiss_fftr(forward, input, spectrum);
+    kiss_fftri(inverse, spectrum, output);
+    for (size_t index = 0; index < 256; index++) {
+        assert_near(output[index] / 256.0, input[index], 1e-5, "real FFT round-trip sample");
+    }
+    kiss_fftr_free(forward);
+    kiss_fftr_free(inverse);
+}
+
+static void test_convolver_impulse_direct_convolution_and_latency(void) {
+    const float unit_impulse[] = {1.0f};
+    const dsp_convolver_config unit_config = {1, 48000, 1, 1, 1, 1.0f, unit_impulse};
+    dsp_engine *unit = create_test_engine_with_convolver(48000, 1, 256, &unit_config);
+    assert_true(unit != NULL, "unit impulse convolver creates");
+    assert_true(dsp_engine_get_latency_frames(unit) == DSP_CONVOLVER_PARTITION_FRAMES,
+        "convolver reports its measured partition startup latency");
+    float input[256] = {0};
+    float output[256] = {0};
+    input[0] = 1.0f;
+    assert_true(
+        dsp_engine_process(unit, input, 256, output, 256, 256, 1) == DSP_STATUS_OK,
+        "unit impulse convolution block processes");
+    for (size_t index = 0; index < DSP_CONVOLVER_PARTITION_FRAMES; index++) {
+        assert_near(output[index], 0.0, 0.0, "convolver emits startup silence");
+    }
+    assert_near(output[DSP_CONVOLVER_PARTITION_FRAMES], 1.0, 1e-5,
+        "unit IR impulse emerges after reported latency");
+    assert_true(dsp_engine_reset(unit) == DSP_STATUS_OK, "convolver reset succeeds");
+    for (size_t index = 0; index < 256; index++) output[index] = 0.0f;
+    assert_true(
+        dsp_engine_process(unit, input, 256, output, 256, 256, 1) == DSP_STATUS_OK,
+        "reset convolver processes a fresh impulse");
+    assert_near(output[DSP_CONVOLVER_PARTITION_FRAMES], 1.0, 1e-5,
+        "reset convolver matches its fresh-engine impulse response");
+    dsp_engine_destroy(unit);
+
+    const float shifted_ir[] = {0.0f, 1.0f};
+    const dsp_convolver_config shifted_config = {1, 48000, 1, 2, 2, 1.0f, shifted_ir};
+    dsp_engine *shifted = create_test_engine_with_convolver(48000, 1, 256, &shifted_config);
+    assert_true(shifted != NULL, "shifted impulse convolver creates");
+    for (size_t index = 0; index < 256; index++) {
+        input[index] = 0.0f;
+        output[index] = 0.0f;
+    }
+    input[0] = 1.0f;
+    assert_true(
+        dsp_engine_process(shifted, input, 256, output, 256, 256, 1) == DSP_STATUS_OK,
+        "shifted impulse convolution processes");
+    assert_near(output[128], 0.0, 1e-6, "IR sample zero stays at the block latency");
+    assert_near(output[129], 1.0, 1e-5, "IR unit delay adds one sample after block latency");
+    dsp_engine_destroy(shifted);
+
+    const dsp_convolver_config mono_ir_config = {1, 48000, 1, 1, 1, 1.0f, unit_impulse};
+    dsp_engine *mono_ir = create_test_engine_with_convolver(48000, 2, 256, &mono_ir_config);
+    assert_true(mono_ir != NULL, "mono IR on stereo output creates");
+    float stereo_input[512] = {0};
+    float stereo_output[512] = {0};
+    stereo_input[0] = 1.0f;
+    stereo_input[1] = 0.25f;
+    assert_true(
+        dsp_engine_process(mono_ir, stereo_input, 512, stereo_output, 512, 256, 2) == DSP_STATUS_OK,
+        "mono IR processes both stereo channels");
+    assert_near(stereo_output[256], 1.0, 1e-5, "mono IR feeds left output");
+    assert_near(stereo_output[257], 0.25, 1e-5, "mono IR feeds right output");
+    dsp_engine_destroy(mono_ir);
+
+    const float stereo_ir_samples[] = {1.0f, 2.0f};
+    const dsp_convolver_config stereo_ir_config = {1, 48000, 2, 1, 2, 1.0f, stereo_ir_samples};
+    dsp_engine *stereo_ir = create_test_engine_with_convolver(48000, 2, 256, &stereo_ir_config);
+    assert_true(stereo_ir != NULL, "stereo IR graph creates");
+    for (size_t index = 0; index < 512; index++) {
+        stereo_input[index] = 0.0f;
+        stereo_output[index] = 0.0f;
+    }
+    stereo_input[0] = 0.5f;
+    stereo_input[1] = 0.25f;
+    assert_true(
+        dsp_engine_process(stereo_ir, stereo_input, 512, stereo_output, 512, 256, 2) == DSP_STATUS_OK,
+        "stereo IR processes independent left/right inputs");
+    assert_near(stereo_output[256], 0.5, 1e-5, "stereo IR maps left to left");
+    assert_near(stereo_output[257], 0.5, 1e-5, "stereo IR maps right to right");
+    dsp_engine_destroy(stereo_ir);
+
+    const float ir[] = {1.0f, 0.5f, -0.25f};
+    const dsp_convolver_config direct_config = {1, 48000, 1, 3, 3, 1.0f, ir};
+    dsp_engine *direct = create_test_engine_with_convolver(48000, 1, 256, &direct_config);
+    assert_true(direct != NULL, "short direct-reference convolver creates");
+    float reference_input[256] = {0};
+    reference_input[0] = 1.0f;
+    reference_input[1] = 2.0f;
+    reference_input[2] = 3.0f;
+    reference_input[3] = 4.0f;
+    float reference_output[256] = {0};
+    assert_true(
+        dsp_engine_process(direct, reference_input, 256, reference_output, 256, 256, 1) == DSP_STATUS_OK,
+        "direct-reference convolution block processes");
+    dsp_engine_destroy(direct);
+    const double expected[] = {1.0, 2.5, 3.75, 5.0, 1.25, -1.0};
+    for (size_t index = 0; index < sizeof(expected) / sizeof(expected[0]); index++) {
+        assert_near(
+            reference_output[DSP_CONVOLVER_PARTITION_FRAMES + index],
+            expected[index],
+            1e-4,
+            "partitioned output matches direct FIR convolution");
+    }
+}
+
+static void test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass(void) {
+    const float impulse[] = {1.0f, 0.25f, -0.125f};
+    const dsp_convolver_config convolver = {1, 48000, 1, 3, 3, 1.0f, impulse};
+    dsp_engine *whole = create_test_engine_with_convolver(48000, 1, 512, &convolver);
+    dsp_engine *split = create_test_engine_with_convolver(48000, 1, 512, &convolver);
+    assert_true(whole != NULL && split != NULL, "convolver engines create for chunk test");
+    float input[512];
+    float whole_output[512] = {0};
+    float split_output[512] = {0};
+    for (size_t index = 0; index < 512; index++) input[index] = index == 0 ? 1.0f : 0.0f;
+    assert_true(
+        dsp_engine_process(whole, input, 512, whole_output, 512, 512, 1) == DSP_STATUS_OK,
+        "whole convolver input block processes");
+    const size_t chunks[] = {127, 1, 64, 256, 64};
+    size_t offset = 0;
+    for (size_t chunk = 0; chunk < sizeof(chunks) / sizeof(chunks[0]); chunk++) {
+        const size_t frames = chunks[chunk];
+        assert_true(
+            dsp_engine_process(
+                split,
+                input + offset,
+                frames,
+                split_output + offset,
+                frames,
+                (int)frames,
+                1) == DSP_STATUS_OK,
+            "split convolver chunk processes");
+        offset += frames;
+    }
+    assert_true(offset == 512, "convolver test chunks cover the source block");
+    for (size_t index = 0; index < 512; index++) {
+        assert_near(whole_output[index], split_output[index], 1e-6, "convolver output is chunk invariant");
+    }
+    dsp_engine_destroy(whole);
+    dsp_engine_destroy(split);
+
+    const dsp_convolver_config wet_mix = {1, 48000, 1, 1, 1, 0.5f, impulse};
+    dsp_engine *mixed = create_test_engine_with_convolver(48000, 1, 256, &wet_mix);
+    assert_true(mixed != NULL, "wet mix convolver creates");
+    float mixed_input[256] = {0};
+    float mixed_output[256] = {0};
+    mixed_input[0] = 1.0f;
+    assert_true(
+        dsp_engine_process(mixed, mixed_input, 256, mixed_output, 256, 256, 1) == DSP_STATUS_OK,
+        "wet/dry aligned convolver block processes");
+    assert_near(mixed_output[128], 1.0, 1e-5, "wet/dry paths share the reported latency");
+    dsp_engine_destroy(mixed);
+
+    const dsp_convolver_config mismatched_rate = {1, 44100, 1, 1, 1, 1.0f, impulse};
+    dsp_engine *bypassed = dsp_engine_create(
+        48000,
+        1,
+        4,
+        6.020599913279624,
+        NULL,
+        0,
+        &bypass_dynamics,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        &mismatched_rate);
+    assert_true(bypassed != NULL, "sample-rate-mismatched IR leaves DSP engine prepared");
+    assert_true(dsp_engine_get_latency_frames(bypassed) == 0, "mismatched IR reports zero added latency");
+    const float dry_input[] = {0.25f, -0.5f};
+    float dry_output[2] = {0};
+    assert_true(
+        dsp_engine_process(bypassed, dry_input, 2, dry_output, 2, 2, 1) == DSP_STATUS_OK,
+        "mismatched IR bypasses only convolution");
+    assert_near(dry_output[0], 0.5, 1e-6, "mismatched IR leaves preamp active");
+    assert_near(dry_output[1], -1.0, 1e-6, "mismatched IR bypass leaves other DSP stages active");
+    dsp_engine_destroy(bypassed);
+}
+
+static void test_convolver_ir_sizes_and_validation(void) {
+    const int sizes[] = {4096, 16384, DSP_CONVOLVER_MAX_IR_FRAMES};
+    for (size_t size_index = 0; size_index < sizeof(sizes) / sizeof(sizes[0]); size_index++) {
+        const int frame_count = sizes[size_index];
+        float *impulse = (float *)calloc((size_t)frame_count, sizeof(float));
+        assert_true(impulse != NULL, "large IR test buffer allocates");
+        impulse[0] = 1.0f;
+        const dsp_convolver_config config = {1, 48000, 1, frame_count, (size_t)frame_count, 1.0f, impulse};
+        dsp_engine *engine = create_test_engine_with_convolver(48000, 2, 512, &config);
+        assert_true(engine != NULL, "supported partitioned IR size prepares");
+        assert_true(dsp_engine_get_latency_frames(engine) == DSP_CONVOLVER_PARTITION_FRAMES,
+            "large IR preserves explicit block latency");
+        float input[258] = {0};
+        float output[258] = {0};
+        input[0] = 1.0f;
+        assert_true(
+            dsp_engine_process(engine, input, 258, output, 258, 129, 2) == DSP_STATUS_OK,
+            "large IR impulse block processes");
+        assert_near(output[256], 1.0, 1e-5, "large IR unit impulse emerges after fixed latency");
+        dsp_engine_destroy(engine);
+        free(impulse);
+    }
+
+    const float sample[] = {1.0f};
+    const dsp_convolver_config too_long = {
+        1, 48000, 1, DSP_CONVOLVER_MAX_IR_FRAMES + 1,
+        DSP_CONVOLVER_MAX_IR_FRAMES + 1, 1.0f, sample,
+    };
+    assert_true(
+        create_test_engine_with_convolver(48000, 1, 512, &too_long) == NULL,
+        "IRs longer than the configured frame limit are rejected");
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
@@ -677,6 +929,10 @@ int main(void) {
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
+    test_kiss_fft_round_trip();
+    test_convolver_impulse_direct_convolution_and_latency();
+    test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass();
+    test_convolver_ir_sizes_and_validation();
     puts("native DSP tests passed");
     return 0;
 }

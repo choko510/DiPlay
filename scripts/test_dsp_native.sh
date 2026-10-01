@@ -22,7 +22,7 @@ fi
 build_dir="$(mktemp -d)"
 trap 'rm -rf "$build_dir"' EXIT
 
-flags=(-std=c11 -Wall -Wextra -Werror -pedantic -g -I"$source_dir")
+flags=(-std=c11 -Wall -Wextra -Werror -pedantic -g -I"$source_dir" -I"$root_dir/shared/src/main/jni/third_party/kissfft")
 if [[ $sanitize -eq 1 ]]; then
   flags+=(-O1 -fsanitize=address,undefined -fno-omit-frame-pointer)
 else
@@ -36,8 +36,11 @@ fi
   "$source_dir/dsp_biquad.c" \
   "$source_dir/dsp_dynamics.c" \
   "$source_dir/dsp_spatial.c" \
+  "$source_dir/dsp_convolver.c" \
   "$source_dir/dsp_gain.c" \
   "$source_dir/dsp_meter.c" \
+  "$root_dir/shared/src/main/jni/third_party/kissfft/kiss_fft.c" \
+  "$root_dir/shared/src/main/jni/third_party/kissfft/kiss_fftr.c" \
   -lm -o "$build_dir/test_dsp_engine"
 
 if [[ $sanitize -eq 1 ]]; then

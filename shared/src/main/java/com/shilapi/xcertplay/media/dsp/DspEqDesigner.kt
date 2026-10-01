@@ -205,6 +205,8 @@ internal data class DspPreparedConfig(
     val bassCoefficients: DoubleArray,
     val monoBassCoefficients: DoubleArray,
     val spatial: DoubleArray,
+    val convolverConfig: DoubleArray,
+    val convolverSamples: FloatArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -239,6 +241,10 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     } else {
         DoubleArray(0)
     }
+    val impulseResponse = convolver.impulseResponse
+    val activeImpulseResponse = impulseResponse?.takeIf { convolver.enabled && convolver.wet > 0.0 }
+    val convolverEnabled = activeImpulseResponse != null
+    val convolverSamples = activeImpulseResponse?.copySamples() ?: FloatArray(0)
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
@@ -284,6 +290,14 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             if (monoBass.enabled) 1.0 else 0.0,
             monoBass.cutoffHz.toDouble(),
         ),
+        convolverConfig = doubleArrayOf(
+            if (convolverEnabled) 1.0 else 0.0,
+            activeImpulseResponse?.sampleRate?.toDouble() ?: 0.0,
+            activeImpulseResponse?.channels?.toDouble() ?: 0.0,
+            activeImpulseResponse?.frameCount?.toDouble() ?: 0.0,
+            convolver.wet,
+        ),
+        convolverSamples = convolverSamples,
         headroom = headroom,
     )
 }

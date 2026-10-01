@@ -35,9 +35,11 @@ data class DspConvolverConfig(
     val enabled: Boolean = false,
     val impulseResponseId: String? = null,
     val wet: Double = 1.0,
+    val impulseResponse: DspImpulseResponse? = null,
 ) {
     init {
         require(impulseResponseId == null || PROFILE_ID.matches(impulseResponseId))
+        require(impulseResponse == null || impulseResponse.id == impulseResponseId)
         require(wet.isFinite() && wet in 0.0..1.0)
     }
 

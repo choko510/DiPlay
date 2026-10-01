@@ -17,6 +17,7 @@ internal class DspPcmPipeline(
     private val outputFloat = ByteBuffer.allocateDirect(floatBufferBytes).order(ByteOrder.nativeOrder())
     private var processedPcm16 = ByteArray(DspBufferSizing.pcm16ByteCount(processingChunkFrames, format.channels))
     private var processedLength = 0
+    private var startupLatencyRemainingFrames = processor.latencyFrames.coerceAtLeast(0)
 
     init {
         require(processingChunkFrames > 0)
@@ -28,6 +29,9 @@ internal class DspPcmPipeline(
 
     val outputLength: Int
         get() = processedLength
+
+    val algorithmicLatencyFrames: Int
+        get() = processor.latencyFrames
 
     fun process(
         source: ByteArray,
@@ -77,6 +81,7 @@ internal class DspPcmPipeline(
                 return fail()
             }
             outputFloat.flip()
+            val silentFrames = minOf(startupLatencyRemainingFrames, chunkFrames)
             if (!DspPcmConverter.floatToPcm16(
                     source = outputFloat,
                     frames = chunkFrames,
@@ -85,10 +90,12 @@ internal class DspPcmPipeline(
                     offset = outputOffset,
                     dither = dither,
                     diagnostics = diagnostics,
+                    initialSilenceFrames = silentFrames,
                 )
             ) {
                 return fail()
             }
+            startupLatencyRemainingFrames -= silentFrames
 
             framesProcessed += chunkFrames
             outputOffset += DspBufferSizing.pcm16ByteCount(chunkFrames, format.channels)
@@ -102,6 +109,7 @@ internal class DspPcmPipeline(
         processor.reset()
         dither.reset()
         processedLength = 0
+        startupLatencyRemainingFrames = processor.latencyFrames.coerceAtLeast(0)
     }
 
     fun diagnostics(): DspDiagnosticsSnapshot {

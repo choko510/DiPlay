@@ -40,6 +40,14 @@
     <string name="dsp_limiter">Safety limiter</string>
     <string name="dsp_convolver">Convolver</string>
     <string name="dsp_convolver_placeholder">No impulse response is selected.</string>
+    <string name="dsp_impulse_response">Impulse response</string>
+    <string name="dsp_ir_none">None selected</string>
+    <string name="dsp_ir_import">Import WAV</string>
+    <string name="dsp_ir_select_first">Import or select a WAV impulse response first.</string>
+    <string name="dsp_ir_imported">WAV impulse response imported.</string>
+    <string name="dsp_ir_invalid">The WAV format is unsupported or invalid.</string>
+    <string name="dsp_ir_too_large">The WAV must be at most 8 MiB and 65,536 frames.</string>
+    <string name="dsp_ir_write_failed">Could not save the WAV impulse response.</string>
     <string name="dsp_wet">Wet</string>
     <string name="dsp_diagnostics">Diagnostics</string>
     <string name="dsp_current_profile">Current profile: %1$s</string>

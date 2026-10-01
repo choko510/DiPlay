@@ -13,6 +13,8 @@ internal interface NativeDspBindings {
         bassCoefficients: DoubleArray,
         monoBassCoefficients: DoubleArray,
         spatial: DoubleArray,
+        convolverConfig: DoubleArray,
+        convolverSamples: FloatArray,
     ): Long
     fun process(
         handle: Long,
@@ -42,6 +44,8 @@ internal object NativeDspJni : NativeDspBindings {
         bassCoefficients: DoubleArray,
         monoBassCoefficients: DoubleArray,
         spatial: DoubleArray,
+        convolverConfig: DoubleArray,
+        convolverSamples: FloatArray,
     ): Long = nativeCreate(
         sampleRate,
         channels,
@@ -52,6 +56,8 @@ internal object NativeDspJni : NativeDspBindings {
         bassCoefficients,
         monoBassCoefficients,
         spatial,
+        convolverConfig,
+        convolverSamples,
     )
 
     override fun process(
@@ -92,6 +98,8 @@ internal object NativeDspJni : NativeDspBindings {
         bassCoefficients: DoubleArray,
         monoBassCoefficients: DoubleArray,
         spatial: DoubleArray,
+        convolverConfig: DoubleArray,
+        convolverSamples: FloatArray,
     ): Long
     private external fun nativeProcess(
         handle: Long,
@@ -273,6 +281,8 @@ internal class NativeDspProcessor internal constructor(
                     bassCoefficients = prepared.bassCoefficients,
                     monoBassCoefficients = prepared.monoBassCoefficients,
                     spatial = prepared.spatial,
+                    convolverConfig = prepared.convolverConfig,
+                    convolverSamples = prepared.convolverSamples,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

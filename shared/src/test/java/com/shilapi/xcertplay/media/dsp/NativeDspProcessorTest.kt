@@ -52,6 +52,9 @@ class NativeDspProcessorTest {
         assertEquals(1.0, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
         assertEquals(0.0, bindings.createdSpatial?.get(1) ?: -1.0, 0.0)
         assertEquals(120.0, bindings.createdSpatial?.get(2) ?: 0.0, 0.0)
+        assertEquals(5, bindings.createdConvolverConfig?.size)
+        assertEquals(0.0, bindings.createdConvolverConfig?.get(0) ?: -1.0, 0.0)
+        assertEquals(0, bindings.createdConvolverSamples?.size)
         processor?.close()
     }
 
@@ -159,6 +162,8 @@ class NativeDspProcessorTest {
         var createdBassCoefficients: DoubleArray? = null
         var createdMonoBassCoefficients: DoubleArray? = null
         var createdSpatial: DoubleArray? = null
+        var createdConvolverConfig: DoubleArray? = null
+        var createdConvolverSamples: FloatArray? = null
 
         override fun create(
             sampleRate: Int,
@@ -170,6 +175,8 @@ class NativeDspProcessorTest {
             bassCoefficients: DoubleArray,
             monoBassCoefficients: DoubleArray,
             spatial: DoubleArray,
+            convolverConfig: DoubleArray,
+            convolverSamples: FloatArray,
         ): Long {
             createdGainDb = gainDb
             createdEqCoefficients = eqCoefficients.copyOf()
@@ -177,6 +184,8 @@ class NativeDspProcessorTest {
             createdBassCoefficients = bassCoefficients.copyOf()
             createdMonoBassCoefficients = monoBassCoefficients.copyOf()
             createdSpatial = spatial.copyOf()
+            createdConvolverConfig = convolverConfig.copyOf()
+            createdConvolverSamples = convolverSamples.copyOf()
             return createHandle
         }
 

@@ -4,7 +4,9 @@ import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -44,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.dsp.DspAudioProfile
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.dsp.DspProfileSaveResult
+import com.shilapi.xcertplay.dsp.DspImpulseImportResult
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
@@ -52,6 +55,7 @@ import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import com.shilapi.xcertplay.shared.AppLanguage
 import java.util.Locale
+import java.util.UUID
 
 class DspSettingsActivity : ComponentActivity() {
     override fun attachBaseContext(newBase: Context) {
@@ -79,6 +83,33 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
     var advanced by rememberSaveable { mutableStateOf(false) }
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var bandTypeDialog by remember { mutableStateOf<Int?>(null) }
+    var impulseResponseIds by remember(runtime) { mutableStateOf(runtime.availableImpulseResponseIds()) }
+    val openImpulseResponse = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val irId = "ir_${UUID.randomUUID().toString().replace("-", "")}"
+            runtime.importImpulseResponseAsync(
+                id = irId,
+                openInput = { context.contentResolver.openInputStream(uri) },
+            ) { result ->
+                when (result) {
+                    is DspImpulseImportResult.Imported -> {
+                        impulseResponseIds = runtime.availableImpulseResponseIds()
+                        profile = profile.copy(
+                            convolver = profile.convolver.copy(
+                                enabled = true,
+                                impulseResponseId = result.impulseResponse.id,
+                                impulseResponse = null,
+                            ),
+                        )
+                        Toast.makeText(context, R.string.dsp_ir_imported, Toast.LENGTH_SHORT).show()
+                    }
+                    DspImpulseImportResult.TooLarge -> Toast.makeText(context, R.string.dsp_ir_too_large, Toast.LENGTH_LONG).show()
+                    DspImpulseImportResult.WriteFailed -> Toast.makeText(context, R.string.dsp_ir_write_failed, Toast.LENGTH_LONG).show()
+                    else -> Toast.makeText(context, R.string.dsp_ir_invalid, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -109,7 +140,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         onCheckedChange = { enabled ->
                             dspEnabled = enabled
                             profile = profile.copy(enabled = enabled)
-                            runtime.apply(profile, enabled)
+                            runtime.applyAsync(profile, enabled) { }
                         },
                     )
                     Text(stringResource(R.string.dsp_profile), style = MaterialTheme.typography.titleMedium)
@@ -237,9 +268,33 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_convolver),
                         checked = profile.convolver.enabled,
-                        onCheckedChange = { profile = profile.copy(convolver = profile.convolver.copy(enabled = it)) },
+                        onCheckedChange = { enabled ->
+                            if (enabled && profile.convolver.impulseResponseId == null) {
+                                Toast.makeText(context, R.string.dsp_ir_select_first, Toast.LENGTH_SHORT).show()
+                            } else {
+                                profile = profile.copy(convolver = profile.convolver.copy(enabled = enabled, impulseResponse = null))
+                            }
+                        },
                     )
-                    Text(stringResource(R.string.dsp_convolver_placeholder), style = MaterialTheme.typography.bodySmall)
+                    ChoiceField(
+                        title = stringResource(R.string.dsp_impulse_response),
+                        selected = profile.convolver.impulseResponseId ?: stringResource(R.string.dsp_ir_none),
+                        choices = listOf(stringResource(R.string.dsp_ir_none)) + impulseResponseIds,
+                        onSelect = { selected ->
+                            val id = selected.takeUnless { it == context.getString(R.string.dsp_ir_none) }
+                            profile = profile.copy(
+                                convolver = profile.convolver.copy(
+                                    enabled = id != null,
+                                    impulseResponseId = id,
+                                    impulseResponse = null,
+                                ),
+                            )
+                        },
+                    )
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = { openImpulseResponse.launch(arrayOf("audio/*")) },
+                    ) { Text(stringResource(R.string.dsp_ir_import)) }
                     DspValueSlider(stringResource(R.string.dsp_wet), profile.convolver.wet, 0.0..1.0, "%") {
                         profile = profile.copy(convolver = profile.convolver.copy(wet = it))
                     }
@@ -253,7 +308,10 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
-                    val applied = profile.copy(enabled = dspEnabled)
+                    val applied = profile.copy(
+                        enabled = dspEnabled,
+                        convolver = profile.convolver.copy(impulseResponse = null),
+                    )
                     if (applied.id == CUSTOM_PROFILE_1 || applied.id == CUSTOM_PROFILE_2) {
                         runtime.saveCustomAsync(applied, dspEnabled) { result ->
                             showProfileSaveResult(context, result)
@@ -263,8 +321,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                             }
                         }
                     } else {
-                        runtime.apply(applied, dspEnabled)
-                        profile = applied
+                        runtime.applyAsync(applied, dspEnabled) { profile = applied }
                     }
                 },
             ) {

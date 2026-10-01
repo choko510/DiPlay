@@ -155,3 +155,5 @@ For combined filter headroom, multiply each section's magnitude at each shared s
 For a sample-peak limiter with release, recovery may advance only while the stereo-linked frame stays under the ceiling. If release advances on a repeated over-threshold DC sample, it can raise gain between identical samples and exceed the advertised threshold; clamp gain to threshold/peak on every over-threshold frame.
 
 Validate profile numbers and enum names while decoding, then construct the same validated runtime config used by DSP preparation. Check the stored schema before `AtomicFile.startWrite`; a generic parse fallback must not turn an unsupported future profile into a file the older app overwrites.
+
+M/S width must bypass mono buffers rather than synthesizing a second channel. For stereo, use a single linked transform; apply mono-bass HPF to the Side signal, not to Left and Right independently.

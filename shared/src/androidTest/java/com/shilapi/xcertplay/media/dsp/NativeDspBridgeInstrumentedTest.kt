@@ -253,6 +253,75 @@ class NativeDspBridgeInstrumentedTest {
         }
     }
 
+    @Test
+    fun nativePartitionedConvolverIsNToNAndReportsLatencyFromAnImpulse() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val partitionFrames = 128
+        for (ir in listOf(floatArrayOf(1.0f), floatArrayOf(0.0f, 1.0f))) {
+            val id = if (ir.size == 1) "unit" else "delayed"
+            val config = DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                convolver = DspConvolverConfig(
+                    enabled = true,
+                    impulseResponseId = id,
+                    wet = 1.0,
+                    impulseResponse = DspImpulseResponse(id, 48_000, 1, ir),
+                ),
+            )
+            val processor = NativeDspProcessor.createOrNull(DspAudioFormat(48_000, 1), config)
+            assertNotNull(processor)
+            processor ?: return
+            try {
+                assertEquals(partitionFrames, processor.latencyFrames)
+                val input = ByteBuffer.allocateDirect(512 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+                input.putFloat(1.0f)
+                repeat(511) { input.putFloat(0.0f) }
+                input.flip()
+                val output = ByteBuffer.allocateDirect(512 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+                assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames = 512).status)
+                output.flip()
+                repeat(partitionFrames) { assertEquals(0.0f, output.float, 0f) }
+                assertEquals(ir[0], output.float, 0.001f)
+                if (ir.size > 1) assertEquals(ir[1], output.float, 0.001f)
+            } finally {
+                processor.close()
+            }
+        }
+    }
+
+    @Test
+    fun sampleRateMismatchedIrBypassesOnlyConvolution() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val id = "rate_mismatch"
+        val config = DspRuntimeConfig(
+            enabled = true,
+            gainDb = 6.020599913279624,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            convolver = DspConvolverConfig(
+                enabled = true,
+                impulseResponseId = id,
+                impulseResponse = DspImpulseResponse(id, 44_100, 1, floatArrayOf(1.0f)),
+            ),
+        )
+        val processor = NativeDspProcessor.createOrNull(DspAudioFormat(48_000, 1), config)
+        assertNotNull(processor)
+        processor ?: return
+
+        try {
+            assertEquals(0, processor.latencyFrames)
+            val input = ByteBuffer.allocateDirect(Float.SIZE_BYTES).order(ByteOrder.nativeOrder()).putFloat(0.25f)
+            input.flip()
+            val output = ByteBuffer.allocateDirect(Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames = 1).status)
+            assertEquals(0.5f, output.getFloat(0), 1e-6f)
+        } finally {
+            processor.close()
+        }
+    }
+
     private fun measureNativeToneGain(
         config: DspRuntimeConfig,
         channels: Int,

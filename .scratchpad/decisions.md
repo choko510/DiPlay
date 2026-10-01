@@ -189,6 +189,10 @@ Calculate normalized RBJ coefficients in double precision when preparing a forma
 
 The compressor uses one peak envelope from `max(abs(L), abs(R))`, applies one 4:1-capable gain to both channels, and adds makeup after the compression curve. The final sample-peak limiter clamps immediately whenever a frame exceeds its threshold, then releases gain only while the frame stays below threshold. This keeps linked image, zero lookahead, and a hard output ceiling without adding true-peak oversampling.
 
+## Keep stereo and mono bass processing inside the DSP graph
+
+Apply the static low shelf to each channel after PEQ and before compression. Apply linked M/S width and optional mono-bass high-pass after compression; mono input bypasses both stereo operations. The limiter remains after spatial processing so width expansion cannot exceed the final sample ceiling. Auto Headroom uses the same static low-shelf settings.
+
 ## Keep DSP profile I/O out of the audio config provider
 
 Persist profiles as schema-versioned JSON under `filesDir/dsp/profiles/` with `AtomicFile`; keep only the global enable flag and selected profile ID in SharedPreferences. The common runtime loads storage before publishing the config store, then `DspConfigProvider.snapshot()` only reads an `AtomicReference`. Each `AudioRenderer` retains its own immutable snapshot, so a profile change affects new streams without mutating an active renderer. Never overwrite a file whose schema version is newer than this app.

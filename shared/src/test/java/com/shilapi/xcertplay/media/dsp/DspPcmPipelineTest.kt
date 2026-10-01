@@ -85,6 +85,24 @@ class DspPcmPipelineTest {
         pipeline.close()
     }
 
+    @Test
+    fun startupLatencyFramesRemainExactPcmSilenceAndRestartAfterReset() {
+        val format = DspAudioFormat(48_000, 1)
+        val pipeline = DspPcmPipeline(format, StartupLatencyDspProcessor(format, latencyFrames = 2), seed = 9)
+        val input = byteArrayOf(0xff.toByte(), 0x7f, 0xff.toByte(), 0x7f, 0xff.toByte(), 0x7f)
+
+        val firstLength = pipeline.process(input, 0, input.size, DspPcmEncoding.PCM16)
+        val firstOutput = pipeline.output.copyOf(firstLength)
+        assertArrayEquals(byteArrayOf(0, 0, 0, 0), firstOutput.copyOfRange(0, 4))
+        assertEquals(2, pipeline.algorithmicLatencyFrames)
+
+        pipeline.reset()
+        val secondLength = pipeline.process(input, 0, input.size, DspPcmEncoding.PCM16)
+        val secondOutput = pipeline.output.copyOf(secondLength)
+        assertArrayEquals(byteArrayOf(0, 0, 0, 0), secondOutput.copyOfRange(0, 4))
+        pipeline.close()
+    }
+
     private fun pcm16Stereo(frames: Int): ByteArray {
         val output = ByteArray(frames * 2 * Short.SIZE_BYTES)
         var offset = 0
@@ -111,6 +129,36 @@ class DspPcmPipelineTest {
 
         override fun reset() = Unit
         override fun diagnostics(): DspDiagnosticsSnapshot = DspDiagnosticsSnapshot.EMPTY
+        override fun close() = Unit
+    }
+
+    private class StartupLatencyDspProcessor(
+        override val format: DspAudioFormat,
+        override val latencyFrames: Int,
+    ) : DspProcessor {
+        private val result = DspProcessResult()
+        private var processedFrames = 0
+
+        override fun process(
+            input: java.nio.ByteBuffer,
+            output: java.nio.ByteBuffer,
+            frames: Int,
+        ): DspProcessResult {
+            repeat(frames * format.channels) { index ->
+                val frame = processedFrames + index / format.channels
+                output.putFloat(if (frame < latencyFrames) 0.0f else input.getFloat(input.position() + index * Float.SIZE_BYTES))
+            }
+            processedFrames += frames
+            input.position(input.position() + frames * format.channels * Float.SIZE_BYTES)
+            return result.success(frames, latencyFrames)
+        }
+
+        override fun reset() {
+            processedFrames = 0
+        }
+
+        override fun diagnostics(): DspDiagnosticsSnapshot = DspDiagnosticsSnapshot.EMPTY
+
         override fun close() = Unit
     }
 }

@@ -274,7 +274,8 @@ class CarPlayMediaEngine(
                     meta.lastFeedbackClockLogNs = nowNs
                     session.logDebug(
                         "Audio feedback clock source=${playbackClock.source} type=${meta.type} " +
-                            "baseSample=${playbackClock.baseRtpSample} playedFrames=${playbackClock.playedFrames} " +
+                                "baseSample=${playbackClock.baseRtpSample} playedFrames=${playbackClock.playedFrames} " +
+                                "contentFrames=${playbackClock.contentFrames} latencyFrames=${playbackClock.algorithmicLatencyFrames} " +
                             "sampleTime=${playbackClock.samplePosition} sourceRate=${playbackClock.sourceSampleRate} " +
                             "outputRate=${playbackClock.outputSampleRate}",
                     )

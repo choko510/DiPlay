@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
+import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
@@ -33,7 +34,10 @@ data class DspAudioProfile(
         require(stereoWidth.isFinite() && stereoWidth in 0.0..MAX_STEREO_WIDTH)
     }
 
-    fun toRuntimeConfig(masterEnabled: Boolean): DspRuntimeConfig = DspRuntimeConfig(
+    fun toRuntimeConfig(
+        masterEnabled: Boolean,
+        impulseResponse: DspImpulseResponse? = null,
+    ): DspRuntimeConfig = DspRuntimeConfig(
         enabled = masterEnabled && enabled,
         gainDb = preampDb,
         peqBands = eqBands,
@@ -44,7 +48,7 @@ data class DspAudioProfile(
         safetyLimiter = limiter,
         stereoWidth = stereoWidth,
         monoBass = monoBass,
-        convolver = convolver,
+        convolver = convolver.copy(impulseResponse = impulseResponse),
     )
 
     companion object {

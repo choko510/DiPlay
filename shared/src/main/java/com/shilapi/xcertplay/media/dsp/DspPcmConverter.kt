@@ -80,8 +80,10 @@ internal object DspPcmConverter {
         offset: Int,
         dither: DspTpdfDither?,
         diagnostics: DspDiagnostics? = null,
+        initialSilenceFrames: Int = 0,
     ): Boolean {
         if (frames <= 0 || offset < 0) return false
+        if (initialSilenceFrames !in 0..frames) return false
         val sampleCount = frames.toLong() * format.channels
         val sourceBytes = sampleCount * Float.SIZE_BYTES
         val destinationBytes = sampleCount * Short.SIZE_BYTES
@@ -94,16 +96,16 @@ internal object DspPcmConverter {
 
         var sourceIndex = source.position()
         var destinationIndex = offset
-        repeat(frames) {
+        repeat(frames) { frame ->
             repeat(format.channels) { channel ->
                 val raw = source.getFloat(sourceIndex)
                 val finite = if (raw.isFinite()) raw else {
                     diagnostics?.let { it.nonFiniteOutputSamples++ }
                     0f
                 }
-                val clipped = finite.coerceIn(-1f, MAX_PCM16_FLOAT)
+                val clipped = if (frame < initialSilenceFrames) 0f else finite.coerceIn(-1f, MAX_PCM16_FLOAT)
                 val scaled = clipped * 32768f
-                val noise = dither?.nextTpdf(channel) ?: 0.0
+                val noise = if (frame < initialSilenceFrames) 0.0 else dither?.nextTpdf(channel) ?: 0.0
                 val quantized = (scaled.toDouble() + noise).roundToInt().coerceIn(-32768, 32767)
                 destination[destinationIndex] = quantized.toByte()
                 destination[destinationIndex + 1] = (quantized shr 8).toByte()

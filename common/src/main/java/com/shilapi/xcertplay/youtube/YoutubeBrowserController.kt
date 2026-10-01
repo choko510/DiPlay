@@ -53,7 +53,7 @@ internal class YoutubeBrowserController(
     private var lifecycle = YoutubeBrowserLifecycle.ACTIVE
     private var pageReadyTraceCookie: Int? = null
     private var warmSessionReopenPending = false
-    private var awaitingVisiblePaint = false
+    private val visiblePaintMeasurement = YoutubeVisiblePaintMeasurement()
     private var paintStatusResetObserved = false
     private var resumedFromSuspendedSession = false
 
@@ -77,7 +77,8 @@ internal class YoutubeBrowserController(
             YoutubeBrowserOpenDecision.REACTIVATE_SUSPENDED_SESSION -> {
                 setLifecycle(YoutubeBrowserLifecycle.ACTIVE)
                 warmSessionReopenPending = true
-                awaitingVisiblePaint = true
+                visiblePaintMeasurement.begin()
+                paintStatusResetObserved = false
                 return
             }
             YoutubeBrowserOpenDecision.CREATE_SESSION -> Unit
@@ -90,7 +91,7 @@ internal class YoutubeBrowserController(
         warmSessionReopenPending = false
         profile = deviceProfile
         crashed = false
-        awaitingVisiblePaint = true
+        visiblePaintMeasurement.begin()
         paintStatusResetObserved = false
         resumedFromSuspendedSession = false
         setCanGoBack(false)
@@ -139,10 +140,8 @@ internal class YoutubeBrowserController(
     fun setActive(isActive: Boolean) {
         if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
         if (!isActive && active && primarySession != null) {
-            awaitingVisiblePaint = true
             resumedFromSuspendedSession = true
         }
-        if (isActive && !active && primarySession != null) awaitingVisiblePaint = true
         val traceWarmReopen = isActive && warmSessionReopenPending
         val wasActive = active
         if (!isActive) {
@@ -173,7 +172,7 @@ internal class YoutubeBrowserController(
                 warmSessionReopenPending = false
                 SplitPerformanceTracer.increment(SplitPerformanceCounter.WARM_SESSION_REOPENS)
             }
-            if (!wasActive || awaitingVisiblePaint) scheduleVisiblePaintTimeout()
+            if (!wasActive || visiblePaintMeasurement.isWaiting) scheduleVisiblePaintTimeout()
         } else {
             cancelVisiblePaintTimeout()
         }
@@ -204,11 +203,12 @@ internal class YoutubeBrowserController(
 
     fun destroy() {
         if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
+        uiStatePublisher.clearBackStateForDestroy()
+        finishVisiblePaintMeasurement()
         setLifecycle(YoutubeBrowserLifecycle.DESTROYED)
         warmSessionReopenPending = false
         active = false
         uiStatePublisher.setActive(false)
-        cancelVisiblePaintTimeout()
         closeSession()
         profile = null
     }
@@ -465,10 +465,7 @@ internal class YoutubeBrowserController(
 
     private fun setSessionLoadState(owner: GeckoSession, state: YoutubeLoadState) {
         when (owner) {
-            primarySession -> {
-                primaryLoadState = state
-                if (state == YoutubeLoadState.ERROR) cancelVisiblePaintTimeout()
-            }
+            primarySession -> primaryLoadState = state
             popupSession -> Unit
             else -> return
         }
@@ -484,7 +481,7 @@ internal class YoutubeBrowserController(
     }
 
     private fun closeSession() {
-        cancelVisiblePaintTimeout()
+        finishVisiblePaintMeasurement()
         finishPageReadyTrace()
         val sessions = listOfNotNull(primarySession, popupSession).distinct()
         primarySession = null
@@ -520,7 +517,7 @@ internal class YoutubeBrowserController(
 
     private fun completeVisiblePaint(paintedSession: GeckoSession) {
         if (
-            !awaitingVisiblePaint ||
+            !visiblePaintMeasurement.isWaiting ||
             paintedSession !== session ||
             !isCurrentSession(paintedSession) ||
             !active ||
@@ -530,8 +527,8 @@ internal class YoutubeBrowserController(
         ) {
             return
         }
+        if (!visiblePaintMeasurement.complete()) return
         cancelVisiblePaintTimeout()
-        awaitingVisiblePaint = false
         paintStatusResetObserved = false
         resumedFromSuspendedSession = false
         SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_VISIBLE_PAINT_COMPLETIONS)
@@ -549,7 +546,7 @@ internal class YoutubeBrowserController(
     private fun scheduleVisiblePaintTimeout() {
         cancelVisiblePaintTimeout()
         if (
-            !SplitPerformanceTracer.enabled || !awaitingVisiblePaint ||
+            !SplitPerformanceTracer.enabled || !visiblePaintMeasurement.isWaiting ||
             lifecycle != YoutubeBrowserLifecycle.ACTIVE || !active || session == null
         ) {
             return
@@ -561,8 +558,23 @@ internal class YoutubeBrowserController(
         view.removeCallbacks(visiblePaintTimeout)
     }
 
+    fun finishVisiblePaintMeasurement() {
+        cancelVisiblePaintTimeout()
+        visiblePaintMeasurement.cancel()
+        paintStatusResetObserved = false
+        resumedFromSuspendedSession = false
+    }
+
     private val visiblePaintTimeout = Runnable {
-        if (!awaitingVisiblePaint || lifecycle != YoutubeBrowserLifecycle.ACTIVE || !active || session == null) return@Runnable
+        if (
+            !visiblePaintMeasurement.isWaiting || lifecycle != YoutubeBrowserLifecycle.ACTIVE ||
+            !active || session == null || !visiblePaintMeasurement.timeout()
+        ) {
+            return@Runnable
+        }
+        cancelVisiblePaintTimeout()
+        paintStatusResetObserved = false
+        resumedFromSuspendedSession = false
         SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_VISIBLE_PAINT_TIMEOUTS)
         SplitPerformanceTracer.section("diplay.split.total.paint_missing") {}
         onVisiblePaintTimeout()

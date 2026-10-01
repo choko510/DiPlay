@@ -25,6 +25,12 @@ internal class YoutubeBrowserUiStatePublisher(
         lastPublishedCanGoBack = null
     }
 
+    fun clearBackStateForDestroy() {
+        canGoBack = false
+        lastPublishedCanGoBack = false
+        onCanGoBackChanged(false)
+    }
+
     fun shouldPublish(isCurrentSession: Boolean): Boolean =
         lifecycle == YoutubeBrowserLifecycle.ACTIVE && active && isCurrentSession
 

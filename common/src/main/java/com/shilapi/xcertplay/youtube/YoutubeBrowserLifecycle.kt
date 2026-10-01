@@ -34,3 +34,21 @@ internal object YoutubeBrowserSessionReusePolicy {
         }
     }
 }
+
+internal object YoutubeBrowserMemoryPolicy {
+    private const val API_LEVEL_WITHOUT_RUNNING_TRIM_LEVELS = 34
+    private const val RUNNING_CRITICAL_LEVEL = 15
+    private const val UI_HIDDEN_LEVEL = 20
+
+    fun shouldEvictSuspendedSession(
+        sdkInt: Int,
+        trimLevel: Int,
+        splitMode: Boolean,
+        browserSuspended: Boolean,
+    ): Boolean =
+        sdkInt < API_LEVEL_WITHOUT_RUNNING_TRIM_LEVELS &&
+            trimLevel >= RUNNING_CRITICAL_LEVEL &&
+            trimLevel < UI_HIDDEN_LEVEL &&
+            !splitMode &&
+            browserSuspended
+}

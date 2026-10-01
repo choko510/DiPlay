@@ -208,3 +208,7 @@ Start the warm-reopen span around `GeckoSession.setActive(true)` after the view 
 ## Gate Gecko UI updates on the current active presentation
 
 Keep progress and navigation state from the current suspended session internally, but publish to the Activity only when the controller is active and the callback's session is still current. Publish the latest cached state once after `setActive(true)` succeeds. Treat MediaCodec `releaseOutputBuffer(true)` as submission to a render surface, and close a missing-paint trace as a diagnostic timeout rather than success.
+
+## Keep Gecko paint outcomes terminal and memory trims specific
+
+Treat paint completion, timeout and cancellation as mutually exclusive terminal outcomes for one activation measurement. On Android versions that deliver `TRIM_MEMORY_RUNNING_CRITICAL`, evict a suspended session only for running-critical levels below `TRIM_MEMORY_UI_HIDDEN`; Android 14 and later do not deliver the running levels, and UI-hidden alone keeps the warm session.

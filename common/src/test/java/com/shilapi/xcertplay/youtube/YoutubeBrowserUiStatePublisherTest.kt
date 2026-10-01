@@ -55,6 +55,18 @@ class YoutubeBrowserUiStatePublisherTest {
         assertEquals(listOf(true), backStates)
     }
 
+    @Test
+    fun destroyClearsBackStateEvenWhenPublisherIsInactive() {
+        val (publisher, _, backStates) = createPublisher()
+        publisher.updateCanGoBack(true)
+        suspend(publisher)
+
+        publisher.clearBackStateForDestroy()
+
+        assertEquals(false, publisher.canGoBack)
+        assertEquals(listOf(true, false), backStates)
+    }
+
     private fun suspend(publisher: YoutubeBrowserUiStatePublisher) {
         publisher.setLifecycle(YoutubeBrowserLifecycle.SUSPENDED)
         publisher.setActive(false)

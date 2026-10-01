@@ -181,3 +181,7 @@ Use Gecko's content paint/compositor callbacks after activation for split presen
 ## Suppress stale Gecko UI callbacks during profile revalidation
 
 Gecko can deliver page-stop and process-crash callbacks after a session becomes inactive. Session identity alone does not protect the host UI; also gate on controller lifecycle and activation, cache valid current-session state, and republish it only after successful reactivation.
+
+## Make paint timeout a terminal result
+
+If a paint timeout closes a trace but leaves its pending flag set, later callbacks or Activity resume can count both timeout and success or schedule repeated timeouts. Store completion, timeout and cancellation as mutually exclusive measurement outcomes; clear the Back affordance explicitly when destroying its controller.

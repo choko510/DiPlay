@@ -97,6 +97,7 @@ import com.shilapi.xcertplay.youtube.SplitLayoutConfig
 import com.shilapi.xcertplay.youtube.SplitPerformanceCounter
 import com.shilapi.xcertplay.youtube.SplitPerformanceTracer
 import com.shilapi.xcertplay.youtube.YoutubeBrowserController
+import com.shilapi.xcertplay.youtube.YoutubeBrowserMemoryPolicy
 import com.shilapi.xcertplay.youtube.YoutubeDeviceProfile
 import com.shilapi.xcertplay.youtube.YoutubeDeviceProfileManager
 import com.shilapi.xcertplay.youtube.YoutubeFullscreenStatusPolicy
@@ -847,9 +848,12 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (
-            level >= TRIM_MEMORY_RUNNING_CRITICAL_LEVEL &&
-            hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT &&
-            youtubeBrowser?.isSuspendedForReuse == true
+            YoutubeBrowserMemoryPolicy.shouldEvictSuspendedSession(
+                sdkInt = Build.VERSION.SDK_INT,
+                trimLevel = level,
+                splitMode = hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT,
+                browserSuspended = youtubeBrowser?.isSuspendedForReuse == true,
+            )
         ) {
             Log.i(TAG, "Discarding suspended YouTube session under memory pressure")
             destroyYoutubeBrowser()
@@ -1344,7 +1348,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun finishSplitTrace() {
-        youtubeBrowser?.cancelVisiblePaintTimeout()
+        youtubeBrowser?.finishVisiblePaintMeasurement()
         SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
         splitTraceCookie = null
     }
@@ -4670,8 +4674,6 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private companion object {
         const val TAG = "xcertplay-usb"
-        // Android's running-critical trim level stays 15, though the SDK constant is deprecated.
-        private const val TRIM_MEMORY_RUNNING_CRITICAL_LEVEL = 15
         private const val STATE_YOUTUBE_SPLIT = "host.youtube_split"
         private const val STATE_CARPLAY_FRACTION = "host.carplay_fraction"
         private const val PROFILE_IDENTITY_TIMEOUT_MILLIS = 5_000L

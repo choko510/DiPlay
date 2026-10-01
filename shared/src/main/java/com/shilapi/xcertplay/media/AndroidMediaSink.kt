@@ -807,9 +807,13 @@ private class AudioRenderer(
             recordTrackCreateFailure(effective, attempt.attempt, "builder:${error.javaClass.simpleName}", error)
             return
         }
-        if (built.state != AudioTrack.STATE_INITIALIZED) {
+        val stateResult = runCatching { built.state }
+        if (stateResult.getOrNull() != AudioTrack.STATE_INITIALIZED) {
             runCatching { built.release() }
-            recordTrackCreateFailure(effective, attempt.attempt, "state=${built.state}")
+            val error = stateResult.exceptionOrNull()
+            val reason = error?.let { "state:${it.javaClass.simpleName}" }
+                ?: "state=${stateResult.getOrNull()}"
+            recordTrackCreateFailure(effective, attempt.attempt, reason, error as? Exception)
             return
         }
         val recoveredAttempts = trackCreationRetry.recordSuccess(effective)
@@ -823,7 +827,8 @@ private class AudioRenderer(
         trackWriteFailureLogged = false
         frameBytes = nextFrameBytes
         bytesPerSecond = sampleRate.toLong() * frameBytes
-        val capacityBytes = built.bufferSizeInFrames * frameBytes
+        val capacityBytes = runCatching { built.bufferSizeInFrames * frameBytes }
+            .getOrDefault(plan.trackBufferBytes)
         prebufferWriteChunkBytes = minOf(PREBUFFER_WRITE_CHUNK_BYTES, capacityBytes)
             .coerceAtLeast(frameBytes)
         prebufferWriteChunkBytes -= prebufferWriteChunkBytes % frameBytes
@@ -849,6 +854,8 @@ private class AudioRenderer(
             .getOrNull() ?: "unavailable"
         val nativeFrames = runCatching { audioManager?.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER) }
             .getOrNull() ?: "unavailable"
+        val actualTrackSampleRate = runCatching { built.sampleRate }.getOrDefault(sampleRate)
+        val actualTrackChannels = runCatching { built.channelCount }.getOrDefault(channels)
         val bufferMs = capacityBytes * 1000L / bytesPerSecond.coerceAtLeast(1L)
         val startMs = startThresholdBytes * 1000L / bytesPerSecond.coerceAtLeast(1L)
         val diagnostic = "Audio: ready transport=$transport type=${format.payloadType} audioType=${format.audioType} " +
@@ -857,7 +864,7 @@ private class AudioRenderer(
             "decoderOutputSampleRate=${effective.sampleRate} decoderOutputChannels=${effective.channels} " +
             "decoderOutputEncoding=${encodingName(effective.encoding)} " +
             "decoderOutputFallback=${effective.fallbackReason ?: "none"} " +
-            "audioTrackSampleRate=${built.sampleRate} audioTrackChannels=${built.channelCount} audioTrackEncoding=PCM16 " +
+            "audioTrackSampleRate=$actualTrackSampleRate audioTrackChannels=$actualTrackChannels audioTrackEncoding=PCM16 " +
             "audioTrackRequestedBufferBytes=${plan.trackBufferBytes} audioTrackBufferBytes=$capacityBytes " +
             "audioTrackBufferMs=$bufferMs startThresholdMs=$startMs " +
             "usage=${usageName(attributes.usage)}(${attributes.usage}) " +
@@ -1178,25 +1185,25 @@ private class AudioRenderer(
                         }
                         if (pcmOutput) {
                             val output = codec.getOutputBuffer(index)
-                            if (output != null && track == null && pendingDecoderPcmFormat == null) {
+                            if (output != null && track == null && pendingDecoderPcmFormat == null &&
+                                rejectedDecoderOutputFormat == null
+                            ) {
                                 applyDecoderOutputFormat(runCatching { codec.outputFormat }.getOrNull())
                             }
                             if (output != null) {
-                                if (size > pcm.size) pcm = ByteArray(size)
-                                output.position(info.offset)
-                                output.limit(info.offset + size)
-                                output.get(pcm, 0, size)
-                                val decoderEncoding = pendingDecoderPcmFormat?.encoding
-                                    ?: activeDecoderPcmFormat?.encoding
-                                    ?: AndroidAudioFormat.ENCODING_PCM_16BIT
-                                val normalized = normalizePcm16(pcm, 0, size, decoderEncoding)
-                                if (normalized != null) {
-                                    if (format.codec == AudioCodecKind.AAC_LC && !aacAdtsFallback &&
-                                        pendingDecoderPcmFormat != null
-                                    ) {
-                                        markRawAacDecoderOutput()
-                                    }
-                                    if (track != null) {
+                                if (format.codec == AudioCodecKind.AAC_LC && !aacAdtsFallback) {
+                                    markRawAacDecoderOutput()
+                                }
+                                if (track != null) {
+                                    if (size > pcm.size) pcm = ByteArray(size)
+                                    output.position(info.offset)
+                                    output.limit(info.offset + size)
+                                    output.get(pcm, 0, size)
+                                    val decoderEncoding = pendingDecoderPcmFormat?.encoding
+                                        ?: activeDecoderPcmFormat?.encoding
+                                        ?: AndroidAudioFormat.ENCODING_PCM_16BIT
+                                    val normalized = normalizePcm16(pcm, 0, size, decoderEncoding)
+                                    if (normalized != null) {
                                         writePcm(
                                             normalized.bytes,
                                             normalized.offset,
@@ -1297,7 +1304,9 @@ private class AudioRenderer(
                 encoding == AndroidAudioFormat.ENCODING_PCM_32BIT -> 4
             else -> return null
         }
-        val channels = activeDecoderPcmFormat?.channels ?: format.channels.coerceIn(1, 2)
+        val channels = pendingDecoderPcmFormat?.channels
+            ?: activeDecoderPcmFormat?.channels
+            ?: format.channels.coerceIn(1, 2)
         val sourceFrameBytes = sourceBytesPerSample * channels
         val completeLength = length - length % sourceFrameBytes
         if (completeLength != length && !unalignedPcmLogged) {

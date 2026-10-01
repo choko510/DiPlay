@@ -96,3 +96,7 @@ A reserve covers ordinary packet sizes but cannot guarantee a hard byte or durat
 ## Count RTP duplicates before reorder depth
 
 A duplicate still has positive sequence distance from the next expected packet. Check pending/delivered membership before incrementing `reordered`, then test duplicate arrivals against an already pending out-of-order packet.
+
+## Separate decoded output from rendered PCM
+
+If MediaCodec emits real PCM while AudioTrack setup is failing, that still disproves an AAC no-output failure. Clear the compressed startup cache then, and avoid copying/normalizing PCM until an initialized output track is available.

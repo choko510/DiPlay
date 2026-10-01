@@ -116,6 +116,8 @@ Use a 250 ms startup delay, 500 ms warm-up, and switch to 10-second probes after
 
 Start the two-second fallback timer only after an AU is actually queued into the raw AAC decoder. Do not charge decoder setup time or input-buffer failures against the startup grace period; configuration failure and bounded-cache overflow remain immediate fallback reasons.
 
+Treat any real raw AAC PCM output as decoder success and clear its compressed startup cache even while AudioTrack is unavailable. Skip PCM copying and normalization until an initialized track exists.
+
 ## Recover AudioTrack operation failures on its owner thread
 
 Catch playback, pause, and write exceptions on the audio worker, then release the failed generation and recreate from the retained pending decoder format. Record underrun baselines per initialized track and query the routed device once after playback starts.

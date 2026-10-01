@@ -141,6 +141,82 @@ class AndroidMediaSinkStateTest {
         }
     }
 
+    @Test fun sameTokenInactiveMicrophoneUplinkIsRecreated() {
+        val sink = AndroidMediaSink()
+        val token = AudioOwnerToken(100, 1)
+        val inactive = FakeMicrophoneUplink()
+        val replacement = FakeMicrophoneUplink()
+        val creations = AtomicInteger()
+        sink.microphoneUplinkFactoryForTest = { _, _ ->
+            creations.incrementAndGet()
+            replacement
+        }
+        val config = microphoneConfig()
+        val entryType = AndroidMediaSink::class.java.declaredClasses.single {
+            it.simpleName == "MicrophoneEntry"
+        }
+        val entry = entryType.declaredConstructors.single().apply { isAccessible = true }
+            .newInstance(token, inactive)
+        val uplinksField = AndroidMediaSink::class.java.getDeclaredField("microphoneUplinks").apply {
+            isAccessible = true
+        }
+        @Suppress("UNCHECKED_CAST")
+        val uplinks = uplinksField.get(sink) as MutableMap<Int, Any>
+        sink.claimAudioOwner(token)
+        uplinks[100] = entry
+
+        try {
+            assertTrue(sink.onMicrophoneStarted(token, config))
+
+            assertEquals(1, creations.get())
+            assertTrue(inactive.closed)
+            assertSame(replacement, microphoneUplink(sink, 100))
+            assertTrue(replacement.isActive)
+        } finally {
+            sink.close()
+        }
+    }
+
+    private fun microphoneConfig() = MicrophoneConfig(
+        audioType = "telephony",
+        sampleRate = 16_000,
+        channels = 1,
+        payloadType = 100,
+        frameMillis = 20,
+        host = InetAddress.getLoopbackAddress(),
+        port = 1,
+        key = ByteArray(32),
+    )
+
+    private fun microphoneUplink(sink: AndroidMediaSink, type: Int): MicrophoneUplinkController? {
+        val field = AndroidMediaSink::class.java.getDeclaredField("microphoneUplinks").apply {
+            isAccessible = true
+        }
+        val entry = (field.get(sink) as Map<*, *>)[type] ?: return null
+        val uplinkField = entry.javaClass.getDeclaredField("uplink").apply { isAccessible = true }
+        return uplinkField.get(entry) as MicrophoneUplinkController
+    }
+
+    private class FakeMicrophoneUplink : MicrophoneUplinkController {
+        private var active = false
+        var closed = false
+            private set
+
+        override val isActive: Boolean
+            get() = active && !closed
+
+        override fun start(): Boolean = true
+
+        override fun activate() {
+            active = true
+        }
+
+        override fun close() {
+            active = false
+            closed = true
+        }
+    }
+
     private fun rendererToken(sink: AndroidMediaSink, type: Int): AudioOwnerToken? {
         val field = AndroidMediaSink::class.java.getDeclaredField("audioRenderers").apply {
             isAccessible = true

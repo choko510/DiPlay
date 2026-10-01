@@ -86,6 +86,7 @@ class CarPlayMediaEngine(
         @Volatile var sinkStarted = false
         @Volatile var microphoneStarted = false
         @Volatile var microphoneStarting = false
+        @Volatile var nextMicrophoneAttemptNs = 0L
         @Volatile var lastFeedbackClockLogNs = 0L
     }
 
@@ -102,6 +103,7 @@ class CarPlayMediaEngine(
     internal var beforeAudioOwnerCommitForTest: ((AirPlaySession, Int) -> Unit)? = null
     internal var beforeAudioReceiverStartForTest: ((AudioOwnerToken) -> Unit)? = null
     internal var audioStreamTestHooksForTest: AudioStreamTestHooks? = null
+    internal var monotonicTimeForTest: (() -> Long)? = null
 
     override fun setIapTunnelHandler(handler: ((BlockingDuplexByteStream) -> Boolean)?) {
         iapTunnelHandler = handler
@@ -507,24 +509,25 @@ class CarPlayMediaEngine(
                 val microphone = synchronized(slot.lock) {
                     if (slot.owner === state) startAudioSinkLocked(state, slot) else null
                 }
-                microphone?.let { startMicrophone(state, it) }
+                microphone?.let { startMicrophone(state, slot, it) }
             }
 
             override fun onRtp(rtp: ByteArray, sample: Int) {
                 if (slot.owner !== state) return
-                var microphone: MicrophoneConfig? = null
-                if (!state.sinkStarted) {
-                    synchronized(slot.lock) {
-                        if (slot.owner === state) {
-                            if (state.firstSample == null) {
-                                state.firstSample = sample
-                                state.originNs = System.nanoTime()
-                            }
-                            microphone = startAudioSinkLocked(state, slot)
+                val microphone = synchronized(slot.lock) {
+                    if (slot.owner !== state) {
+                        null
+                    } else if (!state.sinkStarted) {
+                        if (state.firstSample == null) {
+                            state.firstSample = sample
+                            state.originNs = System.nanoTime()
                         }
+                        startAudioSinkLocked(state, slot)
+                    } else {
+                        startMicrophoneIfDueLocked(state, slot)
                     }
                 }
-                microphone?.let { startMicrophone(state, it) }
+                microphone?.let { startMicrophone(state, slot, it) }
                 if (slot.owner === state && state.sinkStarted) {
                     sink.onAudioRtp(state.token, state.format, rtp, sample)
                 }
@@ -549,17 +552,45 @@ class CarPlayMediaEngine(
         val firstSample = state.firstSample ?: return null
         sink.onAudioStarted(state.token, state.format, firstSample)
         state.sinkStarted = true
-        return state.microphoneConfig?.takeUnless { state.microphoneStarted || state.microphoneStarting }
-            ?.also { state.microphoneStarting = true }
+        return startMicrophoneIfDueLocked(state, slot)
     }
 
-    private fun startMicrophone(state: AudioState, microphone: MicrophoneConfig) {
+    private fun startMicrophoneIfDueLocked(
+        state: AudioState,
+        slot: AudioOwnerSlot<AudioState>,
+    ): MicrophoneConfig? {
+        check(Thread.holdsLock(slot.lock))
+        if (slot.owner !== state || !state.sinkStarted || state.microphoneStarting) {
+            return null
+        }
+        val microphone = state.microphoneConfig ?: return null
+        if (monotonicTimeNs() < state.nextMicrophoneAttemptNs) return null
+        state.microphoneStarting = true
+        return microphone
+    }
+
+    private fun startMicrophone(
+        state: AudioState,
+        slot: AudioOwnerSlot<AudioState>,
+        microphone: MicrophoneConfig,
+    ) {
+        var started = false
         try {
-            state.microphoneStarted = sink.onMicrophoneStarted(state.token, microphone)
+            started = sink.onMicrophoneStarted(state.token, microphone)
+        } catch (error: Exception) {
+            Log.w(TAG, "Microphone start failed; retrying", error)
         } finally {
-            state.microphoneStarting = false
+            synchronized(slot.lock) {
+                state.microphoneStarted = started
+                if (slot.owner === state) {
+                    state.nextMicrophoneAttemptNs = monotonicTimeNs() + MICROPHONE_RETRY_BACKOFF_NS
+                }
+                state.microphoneStarting = false
+            }
         }
     }
+
+    private fun monotonicTimeNs(): Long = monotonicTimeForTest?.invoke() ?: System.nanoTime()
 
     private fun rollbackAudioState(state: AudioState, slot: AudioOwnerSlot<AudioState>): List<AudioState> =
         synchronized(slot.lock) { rollbackAudioStateLocked(state, slot) }
@@ -751,6 +782,7 @@ class CarPlayMediaEngine(
         const val OPUS_24K = 0x20000000L
         const val OPUS_48K = 0x40000000L
         const val FEEDBACK_CLOCK_LOG_INTERVAL_NS = 5_000_000_000L
+        const val MICROPHONE_RETRY_BACKOFF_NS = 750_000_000L
     }
 }
 

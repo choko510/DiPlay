@@ -17,6 +17,14 @@ import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
 
+internal interface MicrophoneUplinkController : Closeable {
+    val isActive: Boolean
+
+    fun start(): Boolean
+
+    fun activate()
+}
+
 /**
  * Captures one PCM microphone stream and sends it back to the phone as sealed CarPlay RTP.
  *
@@ -26,7 +34,7 @@ import java.util.concurrent.CountDownLatch
 internal class MicrophoneUplink(
     private val config: MicrophoneConfig,
     private val isCurrentOwner: () -> Boolean = { true },
-) : Closeable {
+) : MicrophoneUplinkController {
     private val running = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val firstPacketLogged = AtomicBoolean(false)
@@ -37,11 +45,11 @@ internal class MicrophoneUplink(
     @Volatile private var opusEncoder: OpusEncoder? = null
     private var thread: Thread? = null
 
-    val isActive: Boolean
+    override val isActive: Boolean
         get() = running.get() && activated && !closed.get()
 
     @Synchronized
-    fun start(): Boolean {
+    override fun start(): Boolean {
         if (closed.get()) return false
         if (!running.compareAndSet(false, true)) return true
 
@@ -146,7 +154,7 @@ internal class MicrophoneUplink(
         }
     }
 
-    fun activate() {
+    override fun activate() {
         activated = true
         activation.countDown()
     }

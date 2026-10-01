@@ -149,3 +149,7 @@ For 20 ms Opus uplink frames, derive samples and PCM bytes from the negotiated s
 ## Propagate renderer and microphone start outcomes
 
 If a sink swallows a synchronous renderer-start failure, the engine can mark an absent renderer as started and drop every later RTP packet. Return success only after the worker has started; likewise mark microphone state started only after its uplink is active, and test that the next RTP retries after a failed renderer start.
+
+## Keep microphone recovery independent from downlink startup
+
+After the downlink renderer succeeds, microphone startup still needs its own retry path. Rate-limit retries and liveness checks with a monotonic deadline, and replace an inactive same-token uplink so a capture thread that exits cannot leave a permanent dead entry.

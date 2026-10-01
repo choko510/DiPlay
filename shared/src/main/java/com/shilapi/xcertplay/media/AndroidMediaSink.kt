@@ -52,7 +52,7 @@ class AndroidMediaSink(
     private val onAudioDiagnostic: (String) -> Unit = {},
 ) : MediaSink {
     private data class AudioRendererEntry(val token: AudioOwnerToken, val renderer: AudioRenderer)
-    private data class MicrophoneEntry(val token: AudioOwnerToken, val uplink: MicrophoneUplink)
+    private data class MicrophoneEntry(val token: AudioOwnerToken, val uplink: MicrophoneUplinkController)
 
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
@@ -73,6 +73,8 @@ class AndroidMediaSink(
         Thread(task, "carplay-video-recovery").apply { isDaemon = true }
     }
     internal var audioRendererThreadFactoryForTest: ((Runnable, String) -> Thread)? = null
+    internal var microphoneUplinkFactoryForTest:
+        ((MicrophoneConfig, () -> Boolean) -> MicrophoneUplinkController)? = null
 
     override fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {
         videoRecoveryHandlers[type] = handler
@@ -201,7 +203,7 @@ class AndroidMediaSink(
     override fun onAudioStopped(token: AudioOwnerToken) {
         val lock = audioTypeLock(token.type)
         var renderer: AudioRenderer? = null
-        var microphone: MicrophoneUplink? = null
+        var microphone: MicrophoneUplinkController? = null
         synchronized(lock) {
             audioRenderers[token.type]?.takeIf { it.token == token }?.let { entry ->
                 if (audioRenderers.remove(token.type, entry)) renderer = entry.renderer
@@ -218,18 +220,23 @@ class AndroidMediaSink(
         if (closed.get()) return false
         val lock = audioTypeLock(token.type)
         lateinit var entry: MicrophoneEntry
-        var previous: MicrophoneEntry? = null
+        val retired = mutableListOf<MicrophoneUplinkController>()
         synchronized(lock) {
             if (closed.get() || activeAudioOwners[token.type] != token) return false
             val current = microphoneUplinks[token.type]
-            if (current?.token == token) return current.uplink.isActive
-            val uplink = MicrophoneUplink(config) {
+            if (current?.token == token) {
+                if (current.uplink.isActive) return true
+                if (microphoneUplinks.remove(token.type, current)) retired.add(current.uplink)
+            }
+            val isCurrentOwner = {
                 !closed.get() && activeAudioOwners[token.type] == token
             }
+            val uplink = microphoneUplinkFactoryForTest?.invoke(config, isCurrentOwner)
+                ?: MicrophoneUplink(config, isCurrentOwner)
             entry = MicrophoneEntry(token, uplink)
-            previous = microphoneUplinks.put(token.type, entry)
+            microphoneUplinks.put(token.type, entry)?.let { retired.add(it.uplink) }
         }
-        previous?.uplink?.close()
+        retired.forEach(MicrophoneUplinkController::close)
         if (!entry.uplink.start()) {
             synchronized(lock) { microphoneUplinks.remove(token.type, entry) }
             entry.uplink.close()
@@ -272,7 +279,7 @@ class AndroidMediaSink(
         recoveryExecutor.shutdownNow()
         val types = (audioTypeLocks.keys + activeAudioOwners.keys + audioRenderers.keys + microphoneUplinks.keys).toSet()
         val renderers = mutableListOf<AudioRenderer>()
-        val microphones = mutableListOf<MicrophoneUplink>()
+        val microphones = mutableListOf<MicrophoneUplinkController>()
         types.forEach { type ->
             synchronized(audioTypeLock(type)) {
                 activeAudioOwners.remove(type)
@@ -281,7 +288,7 @@ class AndroidMediaSink(
             }
         }
         renderers.forEach(AudioRenderer::close)
-        microphones.forEach(MicrophoneUplink::close)
+        microphones.forEach(MicrophoneUplinkController::close)
     }
 
     private fun videoDecoder(type: Int): VideoDecoder =

@@ -2,6 +2,9 @@ package com.shilapi.xcertplay.airplay
 
 import java.io.Closeable
 import java.net.DatagramSocket
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.ServerSocket
 import java.net.Socket
 import java.math.BigInteger
 import java.util.concurrent.CountDownLatch
@@ -9,6 +12,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -184,6 +188,60 @@ class CarPlayMediaEngineTest {
     }
 
     @Test
+    fun microphoneStartFailureRetriesAfterBackoffUntilItSucceeds() {
+        val now = AtomicLong(1_000_000_000L)
+        val microphoneAttempts = AtomicInteger()
+        val rtpPackets = AtomicInteger()
+        val sink = object : MediaSink {
+            override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
+                return when (microphoneAttempts.incrementAndGet()) {
+                    2, 4 -> true
+                    else -> false
+                }
+            }
+
+            override fun onAudioRtp(token: AudioOwnerToken, format: AudioFormat, rtp: ByteArray, sample: Int) {
+                rtpPackets.incrementAndGet()
+            }
+        }
+        val engine = CarPlayMediaEngine(sink, microphoneEnabled = true)
+        engine.monotonicTimeForTest = { now.get() }
+        val session = audioSession(engine, withRemoteAddress = true)
+        try {
+            assertNotNull(engine.onAudio(session, 100, validMicrophoneAudioSetup(1L)))
+            val listener = audioListenerForCurrentState(engine, 100)
+
+            listener.onStarted(1234)
+            assertEquals(1, microphoneAttempts.get())
+
+            listener.onRtp(ByteArray(12), 1234)
+            now.addAndGet(749_000_000L)
+            listener.onRtp(ByteArray(12), 1234)
+            assertEquals(1, microphoneAttempts.get())
+
+            now.addAndGet(1_000_000L)
+            listener.onRtp(ByteArray(12), 1234)
+            assertEquals(2, microphoneAttempts.get())
+
+            now.addAndGet(750_000_000L)
+            listener.onRtp(ByteArray(12), 1234)
+            assertEquals(3, microphoneAttempts.get())
+
+            now.addAndGet(749_000_000L)
+            listener.onRtp(ByteArray(12), 1234)
+            assertEquals(3, microphoneAttempts.get())
+
+            now.addAndGet(1_000_000L)
+            listener.onRtp(ByteArray(12), 1234)
+            assertEquals(4, microphoneAttempts.get())
+            assertEquals(6, rtpPackets.get())
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
+    @Test
     fun closedSessionCannotCommitAudioAfterPrepareFinishes() {
         val sink = TrackingSink()
         val engine = CarPlayMediaEngine(sink)
@@ -328,9 +386,9 @@ class CarPlayMediaEngineTest {
         media = object : AirPlayMediaHandler {},
     )
 
-    private fun audioSession(media: AirPlayMediaHandler): AirPlaySession {
+    private fun audioSession(media: AirPlayMediaHandler, withRemoteAddress: Boolean = false): AirPlaySession {
         val session = AirPlaySession(
-            socket = Socket(),
+            socket = if (withRemoteAddress) connectedSocket() else Socket(),
             config = AirPlayConfig(
                 deviceName = "audio-test",
                 deviceId = "02:00:00:00:00:02",
@@ -355,10 +413,21 @@ class CarPlayMediaEngineTest {
         return session
     }
 
+    private fun connectedSocket(): Socket = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { server ->
+        Socket().apply { connect(InetSocketAddress(server.inetAddress, server.localPort)) }
+    }
+
     private fun validAudioSetup(connectionId: Long): Map<String, Any?> = mapOf(
         "streamConnectionID" to connectionId,
         "audioType" to "media",
         "audioFormat" to 0x8000L,
+    )
+
+    private fun validMicrophoneAudioSetup(connectionId: Long): Map<String, Any?> = mapOf(
+        "streamConnectionID" to connectionId,
+        "audioType" to "telephony",
+        "audioFormat" to 0x4000L,
+        "dataPort" to 12345,
     )
 
     private fun audioListenerForCurrentState(engine: CarPlayMediaEngine, type: Int): AudioStream.Listener {

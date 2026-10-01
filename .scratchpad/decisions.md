@@ -172,3 +172,7 @@ Set identity resolution in `finally` after processing Pair Verify state 3, and p
 ## Keep DSP semantic role separate from Android audio routing
 
 Classify each stream once when its `AudioRenderer` is created, deriving the Android route through `AudioChannelMapper` and the DSP role from CarPlay metadata. Only the `MEDIA` role may use the full DSP chain, even when navigation audio is routed through `USAGE_MEDIA`; snapshot DSP config per renderer and default provider failures to the disabled legacy path.
+
+## Keep canonical DSP conversion behind explicit opt-in
+
+Expose only the immutable runtime config and snapshot provider across `shared` and `common`; keep PCM math and processors internal. Build the reusable 512-frame Float32 pipeline only for enabled semantic media, preserve the existing PCM16 path when disabled, and recreate pipeline state when the decoder sample rate or channel count changes.

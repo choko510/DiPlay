@@ -1,6 +1,6 @@
 package com.shilapi.xcertplay.media.dsp
 
-internal data class DspRuntimeConfig(
+data class DspRuntimeConfig(
     val enabled: Boolean,
 ) {
     companion object {

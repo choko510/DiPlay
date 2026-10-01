@@ -23,6 +23,9 @@ import com.shilapi.xcertplay.airplay.framesToNanos
 import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
 import com.shilapi.xcertplay.media.dsp.DspConfigProvider
+import com.shilapi.xcertplay.media.dsp.DspAudioFormat
+import com.shilapi.xcertplay.media.dsp.DspPcmEncoding
+import com.shilapi.xcertplay.media.dsp.DspPcmPipeline
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
 import java.io.Closeable
@@ -40,7 +43,7 @@ import java.util.concurrent.TimeUnit
  * decoded with MediaCodec onto a Surface; audio streams are decoded to PCM and
  * played through AudioTrack. Call [close] when the session tears down.
  */
-class AndroidMediaSink internal constructor(
+class AndroidMediaSink(
     private val dspConfigProvider: DspConfigProvider,
     surface: Surface? = null,
     private val videoWidth: Int = 1280,
@@ -608,7 +611,7 @@ private fun MediaFormat.intOrNull(key: String): Int? =
     }
 
 /** Decodes AAC-LC/Opus to PCM and plays it, or plays wired LPCM directly. */
-private class AudioRenderer(
+internal class AudioRenderer(
     val format: AudioFormat,
     private val classification: AudioStreamClassification,
     private val dspRuntimeConfig: DspRuntimeConfig,
@@ -637,6 +640,7 @@ private class AudioRenderer(
     @Volatile private var started = false
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
+    private var dspPipeline: DspPcmPipeline? = null
     private var pcm = ByteArray(64 * 1024)
     private var normalizedPcm = ByteArray(64 * 1024)
     private var activeDecoderPcmFormat: DecoderPcmFormat? = null
@@ -752,13 +756,15 @@ private class AudioRenderer(
             when (format.codec) {
                 AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
                 AudioCodecKind.OPUS -> configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
-                AudioCodecKind.LPCM -> createTrack(
-                    DecoderPcmFormat(
+                AudioCodecKind.LPCM -> {
+                    val pcmFormat = DecoderPcmFormat(
                         format.sampleRate,
                         format.channels.coerceIn(1, 2),
                         AndroidAudioFormat.ENCODING_PCM_16BIT,
-                    ),
-                )
+                    )
+                    prepareDspPipeline(pcmFormat)
+                    createTrack(pcmFormat)
+                }
             }
             while (running) {
                 queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
@@ -1121,7 +1127,10 @@ private class AudioRenderer(
                         return
                     }
                     val pcmBytes = byteSwapS16(rtp.copyOfRange(RTP_HEADER_BYTES, rtp.size))
-                    writePcm(pcmBytes, sourceSample = packet.sample.toLong() and 0xffff_ffffL)
+                    val sourceSample = packet.sample.toLong() and 0xffff_ffffL
+                    if (!writeDspIfAvailable(pcmBytes, 0, pcmBytes.size, DspPcmEncoding.PCM16, sourceSample)) {
+                        writePcm(pcmBytes, sourceSample = sourceSample)
+                    }
                 }
                 AudioCodecKind.AAC_LC -> {
                     val payload = rtp.copyOfRange(RTP_HEADER_BYTES, rtp.size)
@@ -1306,14 +1315,23 @@ private class AudioRenderer(
                                     val decoderEncoding = pendingDecoderPcmFormat?.encoding
                                         ?: activeDecoderPcmFormat?.encoding
                                         ?: AndroidAudioFormat.ENCODING_PCM_16BIT
-                                    val normalized = normalizePcm16(pcm, 0, size, decoderEncoding)
-                                    if (normalized != null) {
-                                        writePcm(
-                                            normalized.bytes,
-                                            normalized.offset,
-                                            normalized.length,
-                                            sampleTimestampMapper.sampleAtPresentationTimeUs(info.presentationTimeUs),
-                                        )
+                                    val sourceSample =
+                                        sampleTimestampMapper.sampleAtPresentationTimeUs(info.presentationTimeUs)
+                                    val handledByDsp = dspPipeline?.let {
+                                        val dspEncoding = dspPcmEncoding(decoderEncoding)
+                                        dspEncoding != null &&
+                                            writeDspIfAvailable(pcm, 0, size, dspEncoding, sourceSample)
+                                    } ?: false
+                                    if (!handledByDsp) {
+                                        val normalized = normalizePcm16(pcm, 0, size, decoderEncoding)
+                                        if (normalized != null) {
+                                            writePcm(
+                                                normalized.bytes,
+                                                normalized.offset,
+                                                normalized.length,
+                                                sourceSample,
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1383,6 +1401,7 @@ private class AudioRenderer(
             fallbackReason = reasons.takeIf { it.isNotEmpty() }?.joinToString(",") ?: "none",
         )
         if (pendingDecoderPcmFormat?.hasSameTrackFormat(next) == true) return
+        prepareDspPipeline(next)
         trackOperationRecovery.reset()
         pendingDecoderPcmFormat = next
         rejectedDecoderOutputFormat = null
@@ -1396,9 +1415,80 @@ private class AudioRenderer(
     private fun DecoderPcmFormat.hasSameTrackFormat(other: DecoderPcmFormat): Boolean =
         sampleRate == other.sampleRate && channels == other.channels && encoding == other.encoding
 
-    private data class PcmChunk(val bytes: ByteArray, val offset: Int, val length: Int)
+    private fun prepareDspPipeline(pcmFormat: DecoderPcmFormat) {
+        if (!DspStreamPolicy.shouldProcess(dspRuntimeConfig.enabled, classification.dspRole)) {
+            runCatching { dspPipeline?.close() }
+            dspPipeline = null
+            return
+        }
+        if (dspPcmEncoding(pcmFormat.encoding) == null) {
+            runCatching { dspPipeline?.close() }
+            dspPipeline = null
+            reportDsp("DSP unavailable: reason=UNSUPPORTED_PCM_ENCODING fallback=LEGACY_PCM")
+            return
+        }
+        val nextFormat = runCatching { DspAudioFormat(pcmFormat.sampleRate, pcmFormat.channels) }.getOrNull()
+        if (nextFormat == null) {
+            runCatching { dspPipeline?.close() }
+            dspPipeline = null
+            reportDsp("DSP unavailable: reason=UNSUPPORTED_AUDIO_FORMAT fallback=LEGACY_PCM")
+            return
+        }
+        if (dspPipeline?.format == nextFormat) return
+        runCatching { dspPipeline?.close() }
+        dspPipeline = try {
+            DspPcmPipeline(nextFormat).also {
+                reportDsp("DSP: Float32 pipeline ready sampleRate=${nextFormat.sampleRate} channels=${nextFormat.channels}")
+            }
+        } catch (_: Exception) {
+            reportDsp("DSP unavailable: reason=PIPELINE_PREPARE_FAILED fallback=LEGACY_PCM")
+            null
+        }
+    }
 
-    private fun normalizePcm16(source: ByteArray, offset: Int, length: Int, encoding: Int): PcmChunk? {
+    private fun writeDspIfAvailable(
+        source: ByteArray,
+        offset: Int,
+        length: Int,
+        encoding: DspPcmEncoding,
+        sourceSample: Long,
+    ): Boolean {
+        val pipeline = dspPipeline ?: return false
+        val outputLength = try {
+            pipeline.process(source, offset, length, encoding)
+        } catch (_: Exception) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        }
+        if (outputLength < 0) {
+            runCatching { pipeline.close() }
+            if (dspPipeline === pipeline) dspPipeline = null
+            reportDsp("DSP unavailable: reason=PROCESS_FAILED fallback=LEGACY_PCM")
+            return false
+        }
+        if (outputLength > 0) writePcm(pipeline.output, 0, outputLength, sourceSample)
+        return true
+    }
+
+    private fun dspPcmEncoding(encoding: Int): DspPcmEncoding? = when {
+        encoding == AndroidAudioFormat.ENCODING_PCM_8BIT -> DspPcmEncoding.PCM8
+        encoding == AndroidAudioFormat.ENCODING_PCM_16BIT -> DspPcmEncoding.PCM16
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            encoding == AndroidAudioFormat.ENCODING_PCM_24BIT_PACKED -> DspPcmEncoding.PCM24_PACKED
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            encoding == AndroidAudioFormat.ENCODING_PCM_32BIT -> DspPcmEncoding.PCM32
+        encoding == AndroidAudioFormat.ENCODING_PCM_FLOAT -> DspPcmEncoding.PCM_FLOAT
+        else -> null
+    }
+
+    private fun reportDsp(message: String) {
+        runCatching { report(message) }
+    }
+
+    internal data class PcmChunk(val bytes: ByteArray, val offset: Int, val length: Int)
+
+    internal fun normalizePcm16(source: ByteArray, offset: Int, length: Int, encoding: Int): PcmChunk? {
         val sourceBytesPerSample = when {
             encoding == AndroidAudioFormat.ENCODING_PCM_16BIT -> 2
             encoding == AndroidAudioFormat.ENCODING_PCM_8BIT -> 1
@@ -1855,6 +1945,8 @@ private class AudioRenderer(
         pendingDecoderPcmFormat = null
         aacStartupCache.clear()
         aacStartupCacheEnabled = false
+        runCatching { dspPipeline?.close() }
+        dspPipeline = null
         releaseCodec()
         releaseTrack()
         sampleTimestampMapper.reset()

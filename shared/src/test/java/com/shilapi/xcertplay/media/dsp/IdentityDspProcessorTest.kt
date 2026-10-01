@@ -17,7 +17,8 @@ class IdentityDspProcessorTest {
         }
         val output = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder())
 
-        val result = IdentityDspProcessor().process(input, output, frames = 2)
+        val format = DspAudioFormat(sampleRate = 48_000, channels = 2)
+        val result = IdentityDspProcessor(format).process(input, output, frames = 2)
 
         assertEquals(DspProcessStatus.SUCCESS, result.status)
         assertEquals(2, result.inputFrames)
@@ -39,7 +40,8 @@ class IdentityDspProcessorTest {
         }
         val output = ByteBuffer.allocateDirect(4)
 
-        val result = IdentityDspProcessor().process(input, output, frames = 1)
+        val format = DspAudioFormat(sampleRate = 48_000, channels = 2)
+        val result = IdentityDspProcessor(format).process(input, output, frames = 1)
 
         assertEquals(DspProcessStatus.ERROR, result.status)
         assertEquals(DspBypassReason.INVALID_BUFFER, result.bypassReason)
@@ -54,10 +56,27 @@ class IdentityDspProcessorTest {
             flip()
         }
 
-        val result = IdentityDspProcessor().process(buffer, buffer, frames = 1)
+        val result = IdentityDspProcessor(DspAudioFormat(48_000, 1)).process(buffer, buffer, frames = 1)
 
         assertEquals(DspProcessStatus.ERROR, result.status)
         assertEquals(DspBypassReason.INVALID_BUFFER, result.bypassReason)
         assertEquals(0, buffer.position())
+    }
+
+    @Test
+    fun rejectsFrameCountThatDoesNotMatchTheChannelAwareBufferSize() {
+        val input = ByteBuffer.allocateDirect(16).apply {
+            repeat(4) { putFloat(0.25f) }
+            flip()
+        }
+        val output = ByteBuffer.allocateDirect(16)
+        val format = DspAudioFormat(sampleRate = 48_000, channels = 2)
+
+        val result = IdentityDspProcessor(format).process(input, output, frames = 1)
+
+        assertEquals(DspProcessStatus.ERROR, result.status)
+        assertEquals(DspBypassReason.INVALID_BUFFER, result.bypassReason)
+        assertEquals(0, input.position())
+        assertEquals(0, output.position())
     }
 }

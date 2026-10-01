@@ -16,4 +16,11 @@ class DspStreamPolicyTest {
             DspStreamRole.OTHER_LOW_LATENCY,
         ).forEach { role -> assertFalse(DspStreamPolicy.allowsFullDsp(role)) }
     }
+
+    @Test
+    fun processingRequiresBothTheGlobalEnableFlagAndMediaRole() {
+        assertFalse(DspStreamPolicy.shouldProcess(false, DspStreamRole.MEDIA))
+        assertTrue(DspStreamPolicy.shouldProcess(true, DspStreamRole.MEDIA))
+        assertFalse(DspStreamPolicy.shouldProcess(true, DspStreamRole.NAVIGATION))
+    }
 }

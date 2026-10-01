@@ -141,3 +141,7 @@ Later main changes can reintroduce raw controller or device identifiers into deb
 ## Do not infer DSP eligibility from Android usage
 
 Navigation may intentionally use the media route. Keep stream semantics explicit in one classification snapshot and base full-DSP eligibility on that role rather than on the selected Android route.
+
+## Validate audio buffers with frames, channels and encoding together
+
+Compute complete frames from the source encoding before decoding, then require exactly `frames × channels × sizeof(float)` at the processor boundary. Drop and count incomplete trailing frames, keep conversion scratch buffers across chunks, and retain independent dither state so decoder chunk splits do not change output.

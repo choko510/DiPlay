@@ -27,6 +27,19 @@ class WirelessConnectionProofTest {
         assertEquals(1, saves)
     }
 
+    @Test fun tunnelEndClearsAuthenticationQueuedForAnAirPlaySessionThatHasNotStarted() {
+        var saves = 0
+        val session = Any()
+        val proof = WirelessConnectionProof<Any>()
+        proof.begin(1) { saves++ }
+        proof.tunnelAuthenticated(1)
+        proof.tunnelEnded(1)
+        proof.activate(1, session)
+        proof.rendered(1, session, nowNanos = 100)
+
+        assertEquals(0, saves)
+    }
+
     @Test fun bothEventsAreRequiredInEitherOrderAndOnlySaveOnce() {
         for (videoFirst in listOf(true, false)) {
             var saves = 0
@@ -91,6 +104,7 @@ class WirelessConnectionProofTest {
         proof.rendered(1, session)
         proof.end(1, session)
         proof.authenticated(1)
+        proof.rendered(1, session)
         assertFalse(proof.hasRecentRenderedFrame(1, System.nanoTime(), Long.MAX_VALUE))
         proof.clear()
         proof.activate(1, session)

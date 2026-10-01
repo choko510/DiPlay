@@ -1,6 +1,6 @@
 package com.shilapi.xcertplay.transport
 
-/** Bounded bring-up phases can transition to an established control loop with bounded I/O polls. */
+/** A finite bring-up budget can end only after operational CarPlay proof; I/O polls stay bounded. */
 internal class Iap2ControlDeadline(
     private val timeoutMillis: Long,
     private val maxPollMillis: Long = MAX_POLL_MILLIS,
@@ -14,8 +14,17 @@ internal class Iap2ControlDeadline(
     private val startedNanos = clockNanos()
     private var authenticated = false
     private var established = false
+
+    /** Completes protocol authentication; this only releases the NO_TIMEOUT handshake budget. */
     fun authenticated() { authenticated = true }
-    fun established() { established = true }
+
+    /** Promotes the deadline only after actual CarPlay session, rendered-video, and live-control proof. */
+    fun establishIfOperational(proven: Boolean): Boolean {
+        if (established || !proven) return false
+        established = true
+        return true
+    }
+
     fun isEstablished(): Boolean = established
     fun remainingMillis(): Long {
         if (established || (unlimited && authenticated)) return maxPollMillis

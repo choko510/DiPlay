@@ -67,17 +67,10 @@ class Iap2WirelessControlClient(
         var locationActive = false
         var locationSentLogged = false
         while (true) {
-                if (!deadline.isEstablished() && isConnectionEstablished()) {
-                    deadline.established()
-                    onProgress("iap2 wireless control entered established state; absolute timeout disabled")
-                }
+                promoteDeadlineIfOperational(deadline, isConnectionEstablished, onProgress)
                 val remaining = deadline.remainingMillis()
                 if (remaining == 0L) {
-                    if (!deadline.isEstablished() && isConnectionEstablished()) {
-                        deadline.established()
-                        onProgress("iap2 wireless control entered established state; absolute timeout disabled")
-                        continue
-                    }
+                    if (promoteDeadlineIfOperational(deadline, isConnectionEstablished, onProgress)) continue
                     return Iap2WirelessControlResult(
                         Iap2WirelessControlTerminal.TIMED_OUT,
                         stage,
@@ -93,18 +86,16 @@ class Iap2WirelessControlClient(
                     locationSentLogged = true
                     onProgress("iap2 tx=0xfffb location-information")
                 }
-                val pollTimeout = if (locationActive) {
-                    min(remaining, LOCATION_POLL_INTERVAL_MILLIS)
-                } else {
-                    remaining
+                val pollInterval = when {
+                    locationActive -> LOCATION_POLL_INTERVAL_MILLIS
+                    timeoutMillis != NO_TIMEOUT_MILLIS && !deadline.isEstablished() ->
+                        OPERATIONAL_PROOF_POLL_INTERVAL_MILLIS
+                    else -> remaining
                 }
+                val pollTimeout = min(remaining, pollInterval)
                 val incoming = session.recv(pollTimeout)
                 if (incoming == null) {
-                    if (!deadline.isEstablished() && isConnectionEstablished()) {
-                        deadline.established()
-                        onProgress("iap2 wireless control entered established state; absolute timeout disabled")
-                        continue
-                    }
+                    if (promoteDeadlineIfOperational(deadline, isConnectionEstablished, onProgress)) continue
                     if (session.isClosed) {
                         return Iap2WirelessControlResult(
                             Iap2WirelessControlTerminal.CHANNEL_CLOSED,
@@ -118,6 +109,7 @@ class Iap2WirelessControlClient(
                         )
                     }
                     if (deadline.remainingMillis() == 0L) {
+                        if (promoteDeadlineIfOperational(deadline, isConnectionEstablished, onProgress)) continue
                         return Iap2WirelessControlResult(
                             Iap2WirelessControlTerminal.TIMED_OUT,
                             stage,
@@ -175,9 +167,7 @@ class Iap2WirelessControlClient(
                         send(carPlayStartSession(endpoint), deadline)
                         stage = later(stage, Iap2WirelessControlStage.CARPLAY_START_SENT)
                         carPlayStartSessionsSent++
-                        deadline.established()
-                        onProgress("iap2 wireless control established after CarPlay start session")
-                        onProgress("iap2 tx=0x4301 carplay-start-session")
+                        onProgress("iap2 tx=0x4301 carplay-start-session; awaiting operational proof")
                     }
 
                     WIRELESS_CARPLAY_UPDATE -> {
@@ -244,6 +234,16 @@ class Iap2WirelessControlClient(
         }
     }
 
+    private fun promoteDeadlineIfOperational(
+        deadline: Iap2ControlDeadline,
+        isConnectionEstablished: () -> Boolean,
+        onProgress: (String) -> Unit,
+    ): Boolean {
+        if (!deadline.establishIfOperational(isConnectionEstablished())) return false
+        onProgress("iap2 wireless operational CarPlay control confirmed; absolute timeout disabled")
+        return true
+    }
+
     private fun send(frame: Iap2Frame, deadline: Iap2ControlDeadline) {
         session.send(frame, requireRemaining(deadline))
     }
@@ -283,6 +283,7 @@ class Iap2WirelessControlClient(
         private const val WIRELESS_CARPLAY_UPDATE = 0x4e0d
         private const val DEVICE_TRANSPORT_IDENTIFIER_NOTIFICATION = 0x4e0e
         private const val LOCATION_POLL_INTERVAL_MILLIS = 1_000L
+        private const val OPERATIONAL_PROOF_POLL_INTERVAL_MILLIS = 1_000L
         const val NO_TIMEOUT_MILLIS = Long.MAX_VALUE
         private const val DEFAULT_TIMEOUT_MILLIS = 60_000L
         private const val MAX_TIMEOUT_MILLIS = 24 * 60 * 60 * 1_000L

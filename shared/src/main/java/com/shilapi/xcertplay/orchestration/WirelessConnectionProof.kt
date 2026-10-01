@@ -17,6 +17,7 @@ internal enum class WirelessControlTransitionKind {
     TUNNEL_ACTIVE,
     BOOTSTRAP_CONTROL_ACTIVE,
     WAITING_FOR_TUNNEL,
+    TUNNEL_ENDED,
     BOOTSTRAP_ENDED,
     FAILED,
 }
@@ -35,6 +36,10 @@ internal class WirelessConnectionProof<S : Any> {
     private var session: S? = null
     private var authenticated = false
     private var pendingAuthenticationBeforeSession = false
+    private var authenticatedIndependently = false
+    private var authenticatedByTunnel = false
+    private var liveTunnelAuthenticated = false
+    private var pendingTunnelAuthenticationBeforeSession = false
     private var hasActivatedSession = false
     private var rendered = false
     private var lastRenderedFrameNanos: Long? = null
@@ -63,8 +68,12 @@ internal class WirelessConnectionProof<S : Any> {
         val firstSession = !hasActivatedSession
         this.session = session
         hasActivatedSession = true
-        authenticated = firstSession && pendingAuthenticationBeforeSession
+        authenticatedIndependently = firstSession && pendingAuthenticationBeforeSession
+        authenticatedByTunnel =
+            firstSession && pendingTunnelAuthenticationBeforeSession && liveTunnelAuthenticated
+        authenticated = authenticatedIndependently || authenticatedByTunnel
         pendingAuthenticationBeforeSession = false
+        pendingTunnelAuthenticationBeforeSession = false
         rendered = false
         lastRenderedFrameNanos = null
         return true
@@ -76,6 +85,7 @@ internal class WirelessConnectionProof<S : Any> {
             if (!hasActivatedSession) pendingAuthenticationBeforeSession = true
             return
         }
+        authenticatedIndependently = true
         authenticated = true
         confirmIfReady()
     }
@@ -112,7 +122,10 @@ internal class WirelessConnectionProof<S : Any> {
                 controlMode = WirelessControlMode.HANDOFF_REQUESTED
                 transition(WirelessControlTransitionKind.HANDOFF_REQUESTED)
             }
-            WirelessControlMode.TUNNEL_READY -> completeTunnelHandoff()
+            WirelessControlMode.TUNNEL_READY -> {
+                check(liveTunnelAuthenticated) { "TUNNEL_READY requires a live authenticated tunnel" }
+                completeTunnelHandoff()
+            }
             else -> transition(WirelessControlTransitionKind.IGNORED)
         }
     }
@@ -125,19 +138,79 @@ internal class WirelessConnectionProof<S : Any> {
         ) {
             return transition(WirelessControlTransitionKind.IGNORED)
         }
-        if (session != null) {
-            authenticated = true
-            confirmIfReady()
-        } else if (!hasActivatedSession) {
-            pendingAuthenticationBeforeSession = true
-        }
         return when (controlMode) {
             WirelessControlMode.BOOTSTRAP -> {
+                liveTunnelAuthenticated = true
+                if (session == null && !hasActivatedSession) {
+                    pendingTunnelAuthenticationBeforeSession = true
+                } else if (session != null) {
+                    authenticatedByTunnel = true
+                    authenticated = true
+                    confirmIfReady()
+                }
                 controlMode = WirelessControlMode.TUNNEL_READY
                 transition(WirelessControlTransitionKind.TUNNEL_READY)
             }
             WirelessControlMode.HANDOFF_REQUESTED,
-            WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL -> completeTunnelHandoff()
+            WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL -> {
+                liveTunnelAuthenticated = true
+                if (session == null && !hasActivatedSession) {
+                    pendingTunnelAuthenticationBeforeSession = true
+                } else if (session != null) {
+                    authenticatedByTunnel = true
+                    authenticated = true
+                    confirmIfReady()
+                }
+                completeTunnelHandoff()
+            }
+            WirelessControlMode.TUNNEL_READY,
+            WirelessControlMode.TUNNEL_CONTROL -> {
+                liveTunnelAuthenticated = true
+                if (session != null) {
+                    authenticatedByTunnel = true
+                    authenticated = true
+                    confirmIfReady()
+                }
+                transition(WirelessControlTransitionKind.IGNORED)
+            }
+            else -> transition(WirelessControlTransitionKind.IGNORED)
+        }
+    }
+
+    @Synchronized fun tunnelEnded(generation: Int): WirelessControlTransition {
+        if (
+            this.generation != generation ||
+            controlMode == WirelessControlMode.INACTIVE ||
+            controlMode == WirelessControlMode.FAILED
+        ) {
+            return transition(WirelessControlTransitionKind.IGNORED)
+        }
+
+        liveTunnelAuthenticated = false
+        pendingTunnelAuthenticationBeforeSession = false
+        authenticatedByTunnel = false
+        authenticated = authenticatedIndependently
+
+        return when (controlMode) {
+            WirelessControlMode.TUNNEL_READY -> {
+                if (bluetoothBootstrapOpen) {
+                    controlMode = WirelessControlMode.BOOTSTRAP
+                    transition(WirelessControlTransitionKind.TUNNEL_ENDED)
+                } else {
+                    failForLostControlPath("Wireless tunnel closed after Bluetooth bootstrap ended")
+                }
+            }
+            WirelessControlMode.TUNNEL_CONTROL ->
+                failForLostControlPath("Wireless tunnel control path closed")
+            WirelessControlMode.BOOTSTRAP,
+            WirelessControlMode.HANDOFF_REQUESTED,
+            WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL -> {
+                if (bluetoothBootstrapOpen) {
+                    transition(WirelessControlTransitionKind.TUNNEL_ENDED)
+                } else {
+                    failForLostControlPath("Wireless tunnel closed without a live Bluetooth control path")
+                }
+            }
             else -> transition(WirelessControlTransitionKind.IGNORED)
         }
     }
@@ -232,6 +305,8 @@ internal class WirelessConnectionProof<S : Any> {
         }
         this.session = null
         authenticated = false
+        authenticatedIndependently = false
+        authenticatedByTunnel = false
         rendered = false
         lastRenderedFrameNanos = null
         if (controlMode == WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL) {
@@ -249,6 +324,10 @@ internal class WirelessConnectionProof<S : Any> {
         session = null
         authenticated = false
         pendingAuthenticationBeforeSession = false
+        authenticatedIndependently = false
+        authenticatedByTunnel = false
+        liveTunnelAuthenticated = false
+        pendingTunnelAuthenticationBeforeSession = false
         hasActivatedSession = false
         rendered = false
         lastRenderedFrameNanos = null
@@ -261,13 +340,30 @@ internal class WirelessConnectionProof<S : Any> {
     @Synchronized fun mode(generation: Int): WirelessControlMode? =
         if (this.generation == generation) controlMode else null
 
-    @Synchronized fun hasEstablishedControl(generation: Int): Boolean =
-        this.generation == generation &&
-            (controlMode == WirelessControlMode.TUNNEL_READY ||
-                controlMode == WirelessControlMode.TUNNEL_CONTROL ||
-                controlMode == WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL)
+    @Synchronized fun hasOperationalCarPlayControl(
+        generation: Int,
+        nowNanos: Long,
+        maxFrameAgeNanos: Long,
+    ): Boolean {
+        if (
+            this.generation != generation ||
+            session == null ||
+            !hasRecentRenderedFrame(generation, nowNanos, maxFrameAgeNanos)
+        ) {
+            return false
+        }
+        return when (controlMode) {
+            WirelessControlMode.BOOTSTRAP,
+            WirelessControlMode.HANDOFF_REQUESTED,
+            WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL -> bluetoothBootstrapOpen
+            WirelessControlMode.TUNNEL_READY,
+            WirelessControlMode.TUNNEL_CONTROL -> liveTunnelAuthenticated
+            else -> false
+        }
+    }
 
     private fun completeTunnelHandoff(): WirelessControlTransition {
+        check(liveTunnelAuthenticated) { "Tunnel control cannot take ownership after its tunnel ended" }
         controlMode = WirelessControlMode.TUNNEL_CONTROL
         val closeBluetoothBootstrap = bluetoothBootstrapOpen
         bluetoothBootstrapOpen = false
@@ -278,6 +374,11 @@ internal class WirelessConnectionProof<S : Any> {
             closeBluetoothBootstrap = closeBluetoothBootstrap,
             reportActive = reportActive,
         )
+    }
+
+    private fun failForLostControlPath(reason: String): WirelessControlTransition {
+        controlMode = WirelessControlMode.FAILED
+        return transition(WirelessControlTransitionKind.FAILED, failureReason = reason)
     }
 
     private fun transition(

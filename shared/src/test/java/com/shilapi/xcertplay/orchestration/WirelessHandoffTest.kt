@@ -49,7 +49,13 @@ class WirelessHandoffTest {
         val state = state()
         val ready = state.tunnelAuthenticated(1)
         assertEquals(WirelessControlTransitionKind.TUNNEL_READY, ready.kind)
-        assertTrue(state.hasEstablishedControl(1))
+        assertFalse(
+            state.hasOperationalCarPlayControl(1, nowNanos = 100, maxFrameAgeNanos = 10),
+        )
+        state.rendered(1, defaultSession, nowNanos = 100)
+        assertTrue(
+            state.hasOperationalCarPlayControl(1, nowNanos = 100, maxFrameAgeNanos = 10),
+        )
         assertFalse(ready.closeBluetoothBootstrap)
 
         val transition = state.requestHandoff(1, defaultSession)
@@ -109,15 +115,125 @@ class WirelessHandoffTest {
     }
 
     @Test
-    fun activeAirPlayWithBootstrapControlAlsoEstablishesTheControlDeadlinePhase() {
+    fun recentAirPlayFrameAndLiveBootstrapEstablishTheOperationalControlProof() {
         val session = Any()
         val state = state(session)
-        assertFalse(state.hasEstablishedControl(1))
+        assertFalse(
+            state.hasOperationalCarPlayControl(1, nowNanos = 100, maxFrameAgeNanos = 10),
+        )
         state.requestHandoff(1, session)
         state.rendered(1, session, nowNanos = 100)
         state.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
 
-        assertTrue(state.hasEstablishedControl(1))
+        assertTrue(
+            state.hasOperationalCarPlayControl(1, nowNanos = 101, maxFrameAgeNanos = 10),
+        )
+        assertFalse(
+            state.hasOperationalCarPlayControl(1, nowNanos = 111, maxFrameAgeNanos = 10),
+        )
+    }
+
+    @Test
+    fun airPlayFrameWithoutAnyLiveControlPathDoesNotEstablishOperationalProof() {
+        val session = Any()
+        val state = state(session)
+        state.requestHandoff(1, session)
+        state.bootstrapEnded(1)
+        state.rendered(1, session, nowNanos = 100)
+
+        assertFalse(
+            state.hasOperationalCarPlayControl(1, nowNanos = 101, maxFrameAgeNanos = 10),
+        )
+    }
+
+    @Test
+    fun tunnelReadyLossReturnsToBootstrapBeforeLaterHandoff() {
+        val state = state()
+        assertEquals(WirelessControlTransitionKind.TUNNEL_READY, state.tunnelAuthenticated(1).kind)
+
+        val ended = state.tunnelEnded(1)
+
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ENDED, ended.kind)
+        assertEquals(WirelessControlMode.BOOTSTRAP, state.mode(1))
+        val handoff = state.requestHandoff(1, defaultSession)
+        assertEquals(WirelessControlTransitionKind.HANDOFF_REQUESTED, handoff.kind)
+        assertEquals(WirelessControlMode.HANDOFF_REQUESTED, state.mode(1))
+        assertFalse(handoff.closeBluetoothBootstrap)
+    }
+
+    @Test
+    fun tunnelLossAfterBootstrapEofFailsInsteadOfLeavingZombieReadyState() {
+        val state = state()
+        state.tunnelAuthenticated(1)
+        assertEquals(
+            WirelessControlTransitionKind.WAITING_FOR_TUNNEL,
+            state.bootstrapEnded(1).kind,
+        )
+
+        val ended = state.tunnelEnded(1)
+
+        assertEquals(WirelessControlTransitionKind.FAILED, ended.kind)
+        assertEquals(WirelessControlMode.FAILED, state.mode(1))
+    }
+
+    @Test
+    fun optionalTunnelLossPreservesLiveFallbackControl() {
+        val session = Any()
+        val state = state(session)
+        state.requestHandoff(1, session)
+        state.rendered(1, session, nowNanos = 100)
+        state.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
+
+        val ended = state.tunnelEnded(1)
+
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ENDED, ended.kind)
+        assertEquals(WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL, state.mode(1))
+        assertTrue(state.hasOperationalCarPlayControl(1, nowNanos = 102, maxFrameAgeNanos = 10))
+    }
+
+    @Test
+    fun activeTunnelLossFailsAndCannotRemainTunnelControl() {
+        val state = state()
+        state.requestHandoff(1, defaultSession)
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, state.tunnelAuthenticated(1).kind)
+
+        val ended = state.tunnelEnded(1)
+
+        assertEquals(WirelessControlTransitionKind.FAILED, ended.kind)
+        assertEquals(WirelessControlMode.FAILED, state.mode(1))
+        assertFalse(state.hasOperationalCarPlayControl(1, nowNanos = 100, maxFrameAgeNanos = 10))
+    }
+
+    @Test
+    fun tunnelEndAndHandoffRaceNeverHandsOffToADeadTunnel() {
+        val tunnelEndsFirst = state()
+        tunnelEndsFirst.tunnelAuthenticated(1)
+        tunnelEndsFirst.tunnelEnded(1)
+        assertEquals(
+            WirelessControlTransitionKind.HANDOFF_REQUESTED,
+            tunnelEndsFirst.requestHandoff(1, defaultSession).kind,
+        )
+        assertEquals(WirelessControlMode.HANDOFF_REQUESTED, tunnelEndsFirst.mode(1))
+
+        val handoffWinsFirst = state()
+        handoffWinsFirst.tunnelAuthenticated(1)
+        assertEquals(
+            WirelessControlTransitionKind.TUNNEL_ACTIVE,
+            handoffWinsFirst.requestHandoff(1, defaultSession).kind,
+        )
+        assertEquals(WirelessControlTransitionKind.FAILED, handoffWinsFirst.tunnelEnded(1).kind)
+        assertEquals(WirelessControlMode.FAILED, handoffWinsFirst.mode(1))
+    }
+
+    @Test
+    fun oldGenerationTunnelEndCannotChangeNewLiveTunnel() {
+        val state = state()
+        state.begin(2) {}
+        state.activate(2, defaultSession)
+        state.tunnelAuthenticated(2)
+
+        assertEquals(WirelessControlTransitionKind.IGNORED, state.tunnelEnded(1).kind)
+        assertEquals(WirelessControlMode.TUNNEL_READY, state.mode(2))
     }
 
     @Test

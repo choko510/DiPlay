@@ -10,6 +10,7 @@ LOCAL_MODULE := xcertplay_dsp
 LOCAL_SRC_FILES := \
     dsp/dsp_engine.c \
     dsp/dsp_graph.c \
+    dsp/dsp_biquad.c \
     dsp/dsp_gain.c \
     dsp/dsp_meter.c \
     dsp/dsp_jni.c

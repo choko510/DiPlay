@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 int dsp_gain_set_db(dsp_gain *gain, double decibels) {
-    if (gain == NULL || !isfinite(decibels) || decibels < -120.0 || decibels > 24.0) {
+    if (gain == NULL || !isfinite(decibels) || decibels < -700.0 || decibels > 24.0) {
         return 0;
     }
 

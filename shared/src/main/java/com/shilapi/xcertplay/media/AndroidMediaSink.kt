@@ -1444,7 +1444,7 @@ internal class AudioRenderer(
         }
         if (dspPipeline?.format == nextFormat) return
         runCatching { dspPipeline?.close() }
-        val processor = NativeDspProcessor.createOrNull(nextFormat, dspRuntimeConfig.gainDb)
+        val processor = NativeDspProcessor.createOrNull(nextFormat, dspRuntimeConfig)
         if (processor == null) {
             dspPipeline = null
             reportDsp("DSP unavailable: reason=NATIVE_CREATE_FAILED fallback=LEGACY_PCM")

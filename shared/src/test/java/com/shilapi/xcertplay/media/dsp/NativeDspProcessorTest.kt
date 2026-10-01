@@ -13,15 +13,37 @@ class NativeDspProcessorTest {
     fun loaderFailureAndNativeCreateFailureFallBackWithoutThrowing() {
         val format = DspAudioFormat(48_000, 2)
         assertFalse(NativeDspLibrary.ensureLoaded { throw UnsatisfiedLinkError("missing test library") })
-        assertNull(NativeDspProcessor.createOrNull(format, 0.0, loadLibrary = { false }))
+        val config = DspRuntimeConfig(enabled = true)
+        assertNull(NativeDspProcessor.createOrNull(format, config, loadLibrary = { false }))
         assertNull(
             NativeDspProcessor.createOrNull(
                 format,
-                0.0,
+                config,
                 loadLibrary = { true },
                 bindings = FakeNativeDspBindings(createHandle = 0L),
             ),
         )
+    }
+
+    @Test
+    fun preparationPassesDoubleCoefficientsAndHeadroomAdjustedPreampToNativeCreate() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                gainDb = 4.0,
+                peqBands = listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 6.0, q = 2.0)),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(-7.0, requireNotNull(bindings.createdGainDb), 0.02)
+        assertEquals(5, bindings.createdEqCoefficients?.size)
+        assertTrue(bindings.createdEqCoefficients?.all(Double::isFinite) == true)
+        processor?.close()
     }
 
     @Test
@@ -97,8 +119,20 @@ class NativeDspProcessorTest {
         var lastFrames = 0
         var lastChannels = 0
         var destroyedHandle: Long? = null
+        var createdGainDb: Double? = null
+        var createdEqCoefficients: DoubleArray? = null
 
-        override fun create(sampleRate: Int, channels: Int, maxFrames: Int, gainDb: Double): Long = createHandle
+        override fun create(
+            sampleRate: Int,
+            channels: Int,
+            maxFrames: Int,
+            gainDb: Double,
+            eqCoefficients: DoubleArray,
+        ): Long {
+            createdGainDb = gainDb
+            createdEqCoefficients = eqCoefficients.copyOf()
+            return createHandle
+        }
 
         override fun process(
             handle: Long,

@@ -33,6 +33,7 @@ fi
   "$test_source" \
   "$source_dir/dsp_engine.c" \
   "$source_dir/dsp_graph.c" \
+  "$source_dir/dsp_biquad.c" \
   "$source_dir/dsp_gain.c" \
   "$source_dir/dsp_meter.c" \
   -lm -o "$build_dir/test_dsp_engine"

@@ -3,7 +3,13 @@ package com.shilapi.xcertplay.media.dsp
 import java.nio.ByteBuffer
 
 internal interface NativeDspBindings {
-    fun create(sampleRate: Int, channels: Int, maxFrames: Int, gainDb: Double): Long
+    fun create(
+        sampleRate: Int,
+        channels: Int,
+        maxFrames: Int,
+        gainDb: Double,
+        eqCoefficients: DoubleArray,
+    ): Long
     fun process(
         handle: Long,
         input: ByteBuffer,
@@ -22,8 +28,13 @@ internal interface NativeDspBindings {
 }
 
 internal object NativeDspJni : NativeDspBindings {
-    override fun create(sampleRate: Int, channels: Int, maxFrames: Int, gainDb: Double): Long =
-        nativeCreate(sampleRate, channels, maxFrames, gainDb)
+    override fun create(
+        sampleRate: Int,
+        channels: Int,
+        maxFrames: Int,
+        gainDb: Double,
+        eqCoefficients: DoubleArray,
+    ): Long = nativeCreate(sampleRate, channels, maxFrames, gainDb, eqCoefficients)
 
     override fun process(
         handle: Long,
@@ -53,7 +64,13 @@ internal object NativeDspJni : NativeDspBindings {
         nativeGetDiagnostics(handle, values, counters)
     override fun destroy(handle: Long) = nativeDestroy(handle)
 
-    private external fun nativeCreate(sampleRate: Int, channels: Int, maxFrames: Int, gainDb: Double): Long
+    private external fun nativeCreate(
+        sampleRate: Int,
+        channels: Int,
+        maxFrames: Int,
+        gainDb: Double,
+        eqCoefficients: DoubleArray,
+    ): Long
     private external fun nativeProcess(
         handle: Long,
         input: ByteBuffer,
@@ -210,18 +227,26 @@ internal class NativeDspProcessor internal constructor(
 
         fun createOrNull(
             format: DspAudioFormat,
-            gainDb: Double,
+            runtimeConfig: DspRuntimeConfig,
             loadLibrary: () -> Boolean = { NativeDspLibrary.ensureLoaded() },
             bindings: NativeDspBindings = NativeDspJni,
         ): NativeDspProcessor? {
             if (!loadLibrary()) return null
+            val prepared = try {
+                runtimeConfig.prepare(format)
+            } catch (_: IllegalArgumentException) {
+                return null
+            } catch (_: ArithmeticException) {
+                return null
+            }
             var handle = 0L
             return try {
                 handle = bindings.create(
                     sampleRate = format.sampleRate,
                     channels = format.channels,
                     maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
-                    gainDb = gainDb,
+                    gainDb = prepared.appliedPreampDb,
+                    eqCoefficients = prepared.eqCoefficients,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

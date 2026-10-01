@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "dsp_biquad.h"
 
 typedef struct dsp_engine dsp_engine;
 
@@ -26,7 +27,13 @@ typedef struct {
     uint64_t native_error_count;
 } dsp_engine_diagnostics;
 
-dsp_engine *dsp_engine_create(int sample_rate, int channels, int max_frames, double gain_db);
+dsp_engine *dsp_engine_create(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const double *peq_coefficients,
+    int peq_band_count);
 dsp_status dsp_engine_process(
     dsp_engine *engine,
     const float *input,

@@ -128,10 +128,33 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jint sample_rate,
     jint channels,
     jint max_frames,
-    jdouble gain_db) {
+    jdouble gain_db,
+    jdoubleArray peq_coefficients) {
     (void)env;
     (void)receiver;
-    return register_engine(dsp_engine_create(sample_rate, channels, max_frames, gain_db));
+    if (peq_coefficients == NULL) {
+        return 0;
+    }
+    const jsize coefficient_count = (*env)->GetArrayLength(env, peq_coefficients);
+    if (coefficient_count < 0 || coefficient_count >
+            DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
+        coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0) {
+        return 0;
+    }
+    double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT];
+    if (coefficient_count > 0) {
+        (*env)->GetDoubleArrayRegion(env, peq_coefficients, 0, coefficient_count, coefficients);
+        if ((*env)->ExceptionCheck(env)) {
+            return 0;
+        }
+    }
+    return register_engine(dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        gain_db,
+        coefficient_count > 0 ? coefficients : NULL,
+        coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT));
 }
 
 JNIEXPORT jint JNICALL

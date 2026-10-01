@@ -2,9 +2,22 @@
 
 #include <math.h>
 
-int dsp_graph_prepare(dsp_graph *graph, double gain_db) {
-    if (graph == NULL || !dsp_gain_set_db(&graph->gain, gain_db)) {
+int dsp_graph_prepare(
+    dsp_graph *graph,
+    double gain_db,
+    const double *peq_coefficients,
+    size_t peq_count) {
+    if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
+        (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
+    }
+    graph->peq_count = peq_count;
+    for (size_t index = 0; index < peq_count; index++) {
+        if (!dsp_biquad_prepare(
+                &graph->peq[index],
+                peq_coefficients + index * DSP_BIQUAD_COEFFICIENT_COUNT)) {
+            return 0;
+        }
     }
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
@@ -14,6 +27,9 @@ int dsp_graph_prepare(dsp_graph *graph, double gain_db) {
 void dsp_graph_reset(dsp_graph *graph) {
     if (graph == NULL) {
         return;
+    }
+    for (size_t index = 0; index < graph->peq_count; index++) {
+        dsp_biquad_reset(&graph->peq[index]);
     }
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
@@ -53,6 +69,12 @@ void dsp_graph_process(
 
         float output_left = dsp_gain_apply(&graph->gain, input_left);
         float output_right = channels == 2 ? dsp_gain_apply(&graph->gain, input_right) : 0.0f;
+        for (size_t index = 0; index < graph->peq_count; index++) {
+            output_left = dsp_biquad_process_sample(&graph->peq[index], output_left, 0);
+            if (channels == 2) {
+                output_right = dsp_biquad_process_sample(&graph->peq[index], output_right, 1);
+            }
+        }
         if (!isfinite(output_left)) {
             output_left = 0.0f;
             if (non_finite_output != NULL) {
@@ -70,5 +92,8 @@ void dsp_graph_process(
             output[offset + 1] = output_right;
         }
         dsp_meter_add_frame(&graph->output_meter, output_left, output_right);
+    }
+    for (size_t index = 0; index < graph->peq_count; index++) {
+        dsp_biquad_flush_denormals(&graph->peq[index]);
     }
 }

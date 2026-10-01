@@ -44,9 +44,16 @@ static int engine_is_prepared(const dsp_engine *engine) {
         engine->channels >= 1 && engine->channels <= 2 && engine->max_frames > 0;
 }
 
-dsp_engine *dsp_engine_create(int sample_rate, int channels, int max_frames, double gain_db) {
+dsp_engine *dsp_engine_create(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const double *peq_coefficients,
+    int peq_band_count) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
-        max_frames < 1 || max_frames > 65536 || !isfinite(gain_db)) {
+        max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
+        peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL)) {
         return NULL;
     }
 
@@ -66,7 +73,11 @@ dsp_engine *dsp_engine_create(int sample_rate, int channels, int max_frames, dou
     engine->sample_rate = sample_rate;
     engine->channels = channels;
     engine->max_frames = max_frames;
-    if (!dsp_graph_prepare(&engine->graph, gain_db)) {
+    if (!dsp_graph_prepare(
+            &engine->graph,
+            gain_db,
+            peq_coefficients,
+            (size_t)peq_band_count)) {
         free(engine);
         return NULL;
     }

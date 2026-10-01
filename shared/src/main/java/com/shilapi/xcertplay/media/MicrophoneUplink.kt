@@ -31,10 +31,14 @@ internal class MicrophoneUplink(
     private val closed = AtomicBoolean(false)
     private val firstPacketLogged = AtomicBoolean(false)
     private val activation = CountDownLatch(1)
+    @Volatile private var activated = false
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var opusEncoder: OpusEncoder? = null
     private var thread: Thread? = null
+
+    val isActive: Boolean
+        get() = running.get() && activated && !closed.get()
 
     @Synchronized
     fun start(): Boolean {
@@ -143,6 +147,7 @@ internal class MicrophoneUplink(
     }
 
     fun activate() {
+        activated = true
         activation.countDown()
     }
 

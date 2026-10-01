@@ -14,6 +14,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -138,6 +139,44 @@ class CarPlayMediaEngineTest {
             assertTrue(sink.stopped.contains(AudioOwnerToken(100, 2)))
             assertFalse(sink.stopped.contains(ownerA))
             assertEquals(1, (engine.onFeedback(session)!!["streams"] as List<*>).size)
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
+    @Test
+    fun audioSinkStartFailureIsRetriedBeforeTheNextRtpSubmission() {
+        val startAttempts = AtomicInteger()
+        val rtpPackets = AtomicInteger()
+        val sink = object : MediaSink {
+            override fun onAudioStarted(token: AudioOwnerToken, format: AudioFormat, firstSample: Int) {
+                if (startAttempts.incrementAndGet() == 1) {
+                    throw IllegalStateException("injected sink start failure")
+                }
+            }
+
+            override fun onAudioRtp(token: AudioOwnerToken, format: AudioFormat, rtp: ByteArray, sample: Int) {
+                rtpPackets.incrementAndGet()
+            }
+        }
+        val engine = CarPlayMediaEngine(sink)
+        val session = audioSession(engine)
+        try {
+            assertNotNull(engine.onAudio(session, 100, validAudioSetup(1L)))
+            val listener = audioListenerForCurrentState(engine, 100)
+
+            try {
+                listener.onStarted(1234)
+                fail("injected sink start failure should be observed by the stream callback")
+            } catch (_: IllegalStateException) {
+                // Expected first start failure.
+            }
+
+            listener.onRtp(ByteArray(12), 1234)
+
+            assertEquals(2, startAttempts.get())
+            assertEquals(1, rtpPackets.get())
         } finally {
             engine.onSessionClosed(session)
             session.close()
@@ -321,6 +360,22 @@ class CarPlayMediaEngineTest {
         "audioType" to "media",
         "audioFormat" to 0x8000L,
     )
+
+    private fun audioListenerForCurrentState(engine: CarPlayMediaEngine, type: Int): AudioStream.Listener {
+        val statesField = CarPlayMediaEngine::class.java.getDeclaredField("audioStates").apply {
+            isAccessible = true
+        }
+        val states = statesField.get(engine) as Map<*, *>
+        val state = states.values.single()
+        val slotsField = CarPlayMediaEngine::class.java.getDeclaredField("audioSlots").apply {
+            isAccessible = true
+        }
+        val slot = (slotsField.get(engine) as Map<*, *>)[type]
+        val listenerFactory = CarPlayMediaEngine::class.java.declaredMethods.single {
+            it.name == "audioListener"
+        }.apply { isAccessible = true }
+        return listenerFactory.invoke(engine, state, slot) as AudioStream.Listener
+    }
 
     private class TrackingSink : MediaSink {
         val currentOwner = AtomicReference<AudioOwnerToken?>()

@@ -72,6 +72,7 @@ class AndroidMediaSink(
     private val recoveryExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "carplay-video-recovery").apply { isDaemon = true }
     }
+    internal var audioRendererThreadFactoryForTest: ((Runnable, String) -> Thread)? = null
 
     override fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {
         videoRecoveryHandlers[type] = handler
@@ -147,23 +148,32 @@ class AndroidMediaSink(
     override fun onAudioStarted(token: AudioOwnerToken, format: AudioFormat, firstSample: Int) {
         if (closed.get()) return
         val retired = mutableListOf<AudioRenderer>()
+        var startFailure: Exception? = null
         synchronized(audioTypeLock(token.type)) {
             if (closed.get() || activeAudioOwners[token.type] != token) return
             val existing = audioRenderers[token.type]
             if (existing?.token == token && existing.renderer.format == format) {
-                existing.renderer.start()
-                return
+                try {
+                    if (existing.renderer.start()) return
+                } catch (error: Exception) {
+                    audioRenderers.remove(token.type, existing)
+                    retired.add(existing.renderer)
+                    Log.w("xcertplay-usb", "Audio renderer restart failed type=${token.type}", error)
+                    startFailure = error
+                    return@synchronized
+                }
             }
             val renderer = createAudioRenderer(format)
             val entry = AudioRendererEntry(token, renderer)
             val previous = audioRenderers.put(token.type, entry)
             try {
-                renderer.start()
+                check(renderer.start()) { "audio renderer closed before worker start" }
             } catch (error: Exception) {
                 audioRenderers.remove(token.type, entry)
                 retired.add(renderer)
                 previous?.let { retired.add(it.renderer) }
                 Log.w("xcertplay-usb", "Audio renderer start failed type=${token.type}", error)
+                startFailure = error
                 return@synchronized
             }
             if (activeAudioOwners[token.type] != token) {
@@ -173,6 +183,7 @@ class AndroidMediaSink(
             previous?.let { retired.add(it.renderer) }
         }
         retired.forEach(AudioRenderer::close)
+        startFailure?.let { throw it }
     }
 
     override fun onAudioRtp(token: AudioOwnerToken, format: AudioFormat, rtp: ByteArray, sample: Int) {
@@ -203,15 +214,15 @@ class AndroidMediaSink(
         microphone?.close()
     }
 
-    override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig) {
-        if (closed.get()) return
+    override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
+        if (closed.get()) return false
         val lock = audioTypeLock(token.type)
         lateinit var entry: MicrophoneEntry
         var previous: MicrophoneEntry? = null
         synchronized(lock) {
-            if (closed.get() || activeAudioOwners[token.type] != token) return
+            if (closed.get() || activeAudioOwners[token.type] != token) return false
             val current = microphoneUplinks[token.type]
-            if (current?.token == token) return
+            if (current?.token == token) return current.uplink.isActive
             val uplink = MicrophoneUplink(config) {
                 !closed.get() && activeAudioOwners[token.type] == token
             }
@@ -222,7 +233,7 @@ class AndroidMediaSink(
         if (!entry.uplink.start()) {
             synchronized(lock) { microphoneUplinks.remove(token.type, entry) }
             entry.uplink.close()
-            return
+            return false
         }
         val activated = synchronized(lock) {
             if (!closed.get() && activeAudioOwners[token.type] == token && microphoneUplinks[token.type] === entry) {
@@ -234,6 +245,7 @@ class AndroidMediaSink(
             }
         }
         if (!activated) entry.uplink.close()
+        return activated
     }
 
     override fun onMicrophoneStopped(token: AudioOwnerToken) {
@@ -292,6 +304,7 @@ class AndroidMediaSink(
         audioManager = audioManager,
         mediaBufferMillis = mediaBufferMillis,
         report = onAudioDiagnostic,
+        threadFactory = audioRendererThreadFactoryForTest ?: { task, name -> Thread(task, name) },
     )
 
     private fun audioTypeLock(type: Int): Any = audioTypeLocks.computeIfAbsent(type) { Any() }
@@ -662,6 +675,7 @@ private class AudioRenderer(
     private val audioManager: AudioManager?,
     private val mediaBufferMillis: Int,
     private val report: (String) -> Unit,
+    threadFactory: (Runnable, String) -> Thread,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
     private data class DecoderPcmFormat(
@@ -749,18 +763,19 @@ private class AudioRenderer(
     private var lastPcmWriteNs = 0L
     private var rebufferCount = 0
     private val audioTimestamp = AudioTimestamp()
-    private val thread = Thread(::run, "carplay-audio").apply { isDaemon = true }
+    private val thread = threadFactory(::run, "carplay-audio").apply { isDaemon = true }
 
     fun playbackClock(): AudioPlaybackClock? = playbackClockSnapshot
 
-    fun start() {
-        lifecycle.start(thread) {
+    fun start(): Boolean {
+        val started = lifecycle.start(thread) {
             report(
                 "Audio: stream start transport=$transport type=${format.payloadType} audioType=${format.audioType} " +
                     "codec=${format.codec} sampleRate=${format.sampleRate} channels=${format.channels} " +
                     "routingPolicy=${if (advancedAudioChannelMapping) "AUTOMOTIVE_BUS" else navigationAudioRoute}",
             )
         }
+        return started || lifecycle.isRunning
     }
 
     fun submit(rtp: ByteArray, sample: Int) {

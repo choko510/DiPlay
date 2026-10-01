@@ -24,7 +24,7 @@ interface MediaSink {
     fun onAudioRtp(token: AudioOwnerToken, format: AudioFormat, rtp: ByteArray, sample: Int) {}
     fun audioPlaybackClock(token: AudioOwnerToken): AudioPlaybackClock? = null
     fun onAudioStopped(token: AudioOwnerToken) {}
-    fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig) {}
+    fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean = false
     fun onMicrophoneStopped(token: AudioOwnerToken) {}
     fun onIapMessage(bytes: ByteArray) {}
 }
@@ -555,8 +555,7 @@ class CarPlayMediaEngine(
 
     private fun startMicrophone(state: AudioState, microphone: MicrophoneConfig) {
         try {
-            sink.onMicrophoneStarted(state.token, microphone)
-            state.microphoneStarted = true
+            state.microphoneStarted = sink.onMicrophoneStarted(state.token, microphone)
         } finally {
             state.microphoneStarting = false
         }

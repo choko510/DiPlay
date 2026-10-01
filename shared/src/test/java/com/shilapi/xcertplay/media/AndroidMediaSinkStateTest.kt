@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.AudioOwnerToken
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import java.net.InetAddress
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -55,6 +56,41 @@ class AndroidMediaSinkStateTest {
             sink.releaseAudioOwner(ownerA)
             assertEquals(ownerB, rendererToken(sink, 100))
             assertNull(sink.audioPlaybackClock(ownerA))
+        } finally {
+            sink.close()
+        }
+    }
+
+    @Test fun rendererThreadStartFailurePropagatesAndAllowsARetry() {
+        val sink = AndroidMediaSink()
+        val format = AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 100, "media")
+        val token = AudioOwnerToken(100, 1)
+        val threadFactoryCalls = AtomicInteger()
+        sink.audioRendererThreadFactoryForTest = { task, name ->
+            if (threadFactoryCalls.getAndIncrement() == 0) {
+                object : Thread(task, name) {
+                    override fun start() {
+                        throw IllegalStateException("injected renderer worker start failure")
+                    }
+                }
+            } else {
+                Thread(task, name)
+            }
+        }
+        sink.claimAudioOwner(token)
+
+        try {
+            try {
+                sink.onAudioStarted(token, format, 0)
+                fail("renderer worker start failure should be returned to the engine")
+            } catch (_: IllegalStateException) {
+                // Expected injected start failure.
+            }
+            assertNull(rendererToken(sink, 100))
+
+            sink.audioRendererThreadFactoryForTest = null
+            sink.onAudioStarted(token, format, 0)
+            assertEquals(token, rendererToken(sink, 100))
         } finally {
             sink.close()
         }

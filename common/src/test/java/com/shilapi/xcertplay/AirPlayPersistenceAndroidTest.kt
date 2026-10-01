@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import com.shilapi.xcertplay.media.NavigationAudioRoute
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -9,6 +10,30 @@ import org.robolectric.RuntimeEnvironment
 
 @RunWith(RobolectricTestRunner::class)
 class AirPlayPersistenceAndroidTest {
+    @Test
+    fun navigationAudioRouteDefaultsToFullBandAndPersistsSelection() {
+        val context = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+        val hadSavedRoute = preferences.contains("navigation_audio_route")
+        val savedRoute = preferences.getString("navigation_audio_route", null)
+
+        try {
+            preferences.edit().remove("navigation_audio_route").commit()
+            assertEquals(NavigationAudioRoute.FULL_BAND, AirPlayPersistence.loadNavigationAudioRoute(context))
+
+            AirPlayPersistence.saveNavigationAudioRoute(context, NavigationAudioRoute.SYSTEM_NAVIGATION)
+            assertEquals(
+                NavigationAudioRoute.SYSTEM_NAVIGATION,
+                AirPlayPersistence.loadNavigationAudioRoute(context),
+            )
+        } finally {
+            val editor = preferences.edit()
+            if (hadSavedRoute) editor.putString("navigation_audio_route", savedRoute)
+            else editor.remove("navigation_audio_route")
+            editor.commit()
+        }
+    }
+
     @Test
     fun defaultsOemLabelToDiPlayAndPreservesSavedValue() {
         val context = RuntimeEnvironment.getApplication()

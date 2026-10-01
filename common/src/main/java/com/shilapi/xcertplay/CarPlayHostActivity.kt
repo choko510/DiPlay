@@ -12,6 +12,7 @@ import android.graphics.Color
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
@@ -64,6 +65,7 @@ import com.shilapi.xcertplay.airplay.SafeAreaRect
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider
 import com.shilapi.xcertplay.media.AndroidMediaSink
+import com.shilapi.xcertplay.media.NavigationAudioRoute
 import com.shilapi.xcertplay.media.CarPlayTouchMapper
 import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.orchestration.CarPlayController
@@ -275,6 +277,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var hevcSoftwareDecoderEnabled = false
     private var advancedAudioChannelMappingSupported = false
     private var advancedAudioChannelMapping = false
+    private var navigationAudioRoute = NavigationAudioRoute.FULL_BAND
     private var autoStartOnBoot = false
     private var carPlayName = AirPlayPersistence.DEFAULT_CARPLAY_NAME
     private var manufacturer = AirPlayPersistence.DEFAULT_MANUFACTURER
@@ -437,6 +440,7 @@ class CarPlayHostActivity : ComponentActivity() {
         advancedAudioChannelMapping =
             advancedAudioChannelMappingSupported &&
                 AirPlayPersistence.loadAdvancedAudioChannelMapping(this)
+        navigationAudioRoute = AirPlayPersistence.loadNavigationAudioRoute(this)
         autoStartOnBoot = AirPlayPersistence.loadAutoStartOnBoot(this)
         carPlayName = AirPlayPersistence.loadCarPlayName(this)
         manufacturer = AirPlayPersistence.loadManufacturer(this)
@@ -828,14 +832,14 @@ class CarPlayHostActivity : ComponentActivity() {
             ).apply { topMargin = dp(12) },
         )
 
+        content.addView(
+            settingsCategoryHeader(getString(R.string.host_section_audio)),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(36) },
+        )
         if (advancedAudioChannelMappingSupported) {
-            content.addView(
-                settingsCategoryHeader(getString(R.string.host_section_audio)),
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { topMargin = dp(36) },
-            )
             content.addView(
                 settingsSwitchRow(
                     label = getString(R.string.host_advanced_audio_mapping),
@@ -848,6 +852,25 @@ class CarPlayHostActivity : ComponentActivity() {
                             "applies when settings close",
                     )
                     updateResolutionMenu()
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(12) },
+            )
+        } else {
+            content.addView(
+                settingsChoiceRow(
+                    label = getString(R.string.host_navigation_audio_route),
+                    options = listOf(
+                        NavigationAudioRoute.FULL_BAND to getString(R.string.host_navigation_audio_full_band),
+                        NavigationAudioRoute.SYSTEM_NAVIGATION to getString(R.string.host_navigation_audio_system),
+                        NavigationAudioRoute.LEGACY_STREAM_MUSIC to getString(R.string.host_navigation_audio_legacy_music),
+                    ),
+                    selected = navigationAudioRoute,
+                ) { route ->
+                    navigationAudioRoute = route
+                    appendLog("Navigation audio route=$route; applies when the next audio stream starts")
                 },
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1290,6 +1313,7 @@ class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveLocationReportingEnabled(this, locationReportingEnabled)
         AirPlayPersistence.saveAutoStartOnBoot(this, autoStartOnBoot)
         AirPlayPersistence.saveAdvancedAudioChannelMapping(this, advancedAudioChannelMapping)
+        AirPlayPersistence.saveNavigationAudioRoute(this, navigationAudioRoute)
         AirPlayPersistence.saveDisplayScaleTenths(this, displayScaleTenths)
         AirPlayPersistence.saveFps(this, fps)
         AirPlayPersistence.saveWidthPhysicalMm(this, widthPhysicalMm)
@@ -2694,6 +2718,7 @@ class CarPlayHostActivity : ComponentActivity() {
             rightHandDrive = rightHandDrive,
             hevc = hevcEnabled,
             microphone = microphoneAvailable,
+            wirelessAudio = wirelessEnabled,
             manufacturer = normalizedManufacturer(),
             model = normalizedModel(),
             oemLabel = oemLabel,
@@ -2874,6 +2899,13 @@ class CarPlayHostActivity : ComponentActivity() {
             videoHeight = videoHeight,
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
             advancedAudioChannelMapping = advancedAudioChannelMapping,
+            navigationAudioRoute = if (advancedAudioChannelMappingSupported && !advancedAudioChannelMapping) {
+                NavigationAudioRoute.SYSTEM_NAVIGATION
+            } else {
+                navigationAudioRoute
+            },
+            transport = if (wirelessEnabled) "wireless" else "wired",
+            audioManager = getSystemService(AudioManager::class.java),
             onScreenStreamActiveChanged = { type, active ->
                 onScreenStreamStateChanged(controllerGeneration, type, active)
             },

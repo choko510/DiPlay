@@ -31,5 +31,25 @@ class MediaAudioBufferTest {
         assertEquals(98_000, MediaAudioBuffer.startBytesFor(192_000, 100_000, 2_048 - 48))
         assertEquals(57_600, MediaAudioBuffer.startBytesFor(57_600, 134_400, 2_048))
         assertEquals(57_600, MediaAudioBuffer.startBytesFor(57_600, 0, 2_048))
+        assertEquals(1_024, MediaAudioBuffer.startBytesFor(2_048, 1_024, 2_048))
+    }
+
+    @Test
+    fun `plans from effective output rate channels and bytes per sample`() {
+        val stereo44k = MediaAudioBuffer.plan("media", 44_100, 2, 4_096, 300)
+        assertEquals(52_920, stereo44k.startBytes)
+
+        val mono = MediaAudioBuffer.plan("media", 48_000, 1, 4_096, 300)
+        assertEquals(28_800, mono.startBytes)
+
+        val floatOutput = MediaAudioBuffer.plan("media", 48_000, 2, 4_096, 500, bytesPerSample = 4)
+        assertEquals(192_000, floatOutput.startBytes)
+    }
+
+    @Test
+    fun `navigation does not inherit media delay presets`() {
+        val lowLatency = MediaAudioBuffer.plan("navigation", 48_000, 2, 4_096, 1000)
+        assertEquals(lowLatency, MediaAudioBuffer.plan("navigation", 48_000, 2, 4_096, 300))
+        assertEquals(lowLatency, MediaAudioBuffer.plan("navigation", 48_000, 2, 4_096, 500))
     }
 }

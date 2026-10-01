@@ -71,3 +71,59 @@ Keep the transport flag false by default and set it only when creating the wirel
 ## Remove BYD outputs without changing RouteGuidance negotiation
 
 Delete the BYD output consumers and their `onIncoming` controller callbacks while retaining the generic iAP2 RouteGuidance advertisement, subscription messages, endpoint registry, and subscription test. The capability is part of protocol negotiation independently of the removed HUD output.
+
+## Scope wired media negotiation to stereo LPCM
+
+Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.
+
+## Keep navigation routing separate from voice and AAOS
+
+Default mobile navigation-family streams to Full-band `USAGE_MEDIA`/music attributes, but keep System navigation and Legacy music stream user-selectable. Telephony and speech recognition stay on phone/assistant speech attributes. On AAOS, retain the existing bus mapper and its System navigation fallback unless bus mapping is enabled.
+
+## Map feedback from AudioTrack frames to RTP samples
+
+Set the clock base from the RTP sample associated with the first PCM frames accepted by a track. Convert played frames by the effective output/source rate ratio; reset the mapper on track recreation and use elapsed-time estimation only before a track clock is available.
+
+## Bound RTP reordering independently from render buffering
+
+Use short packet/time bounds upstream of the existing decoder queue. Media may wait 30 ms with a 64-packet window; low-latency streams may wait 10 ms with a 32-packet window. Declare gaps on timeout or overflow; do not treat the media render queue as the jitter window.
+
+## Retry failed AudioTrack construction with bounded backoff
+
+Only an initialized track establishes the active output format. Retrying the same format remains possible after getMinBufferSize, builder, attributes, or initialization failure; cap exponential delays at five seconds and reset retry/clock state when a track is released.
+
+## Poll AudioTimestamp for sparse anchors
+
+Use the playback head for frequent progress and query AudioTimestamp after a 250 ms start-up delay, every 500 ms while warming, and every 10 seconds after three successful anchors. Keep independent unsigned frame extenders for the two counters and reset both with their anchor whenever the track generation changes.
+
+## Replay only bounded AAC startup data on decoder fallback
+
+Cache raw AUs with their source sample and presentation time until the decoder produces output or the fallback guard trips. Cap the replay at 100 AUs, 512 KiB, and three seconds, reserving room for the live AU that triggers fallback. If that AU exceeds the reserve or duration window, trim older cached AUs while retaining the live AU; replay by presentation timestamp on the audio worker.
+
+## Preserve feedback NTP behavior until receiver correlation is proven
+
+The repository's NTP clock maps local monotonic time to the phone's synchronized timing domain, but it does not establish whether CarPlay expects feedback's NTP timestamp to anchor the reported sampleTime. Keep the current NTP generation and call out hardware/protocol validation rather than inventing a monotonic-to-NTP correlation.
+
+## Release decoder candidates before AAC fallback
+
+Keep a newly created MediaCodec local until both configure and start succeed. On either failure, best-effort stop and release that candidate before publishing diagnostics or constructing the raw-AAC ADTS fallback; use the same lifecycle for Opus.
+
+## Probe unavailable or stale AudioTimestamp routes sparsely
+
+Use a 250 ms startup delay, 500 ms warm-up, and switch to 10-second probes after five false results or ten warm-up queries. Enter 10-second stable polling only after three advancing frame positions; repeated stale frames also return to probing. A probe only returns to warm-up when its frame position advances.
+
+## Start AAC no-output timing at the first queued access unit
+
+Start the two-second fallback timer only after an AU is actually queued into the raw AAC decoder. Do not charge decoder setup time or input-buffer failures against the startup grace period; configuration failure and bounded-cache overflow remain immediate fallback reasons.
+
+Treat any real raw AAC PCM output as decoder success and clear its compressed startup cache even while AudioTrack is unavailable. Skip PCM copying and normalization until an initialized track exists.
+
+## Recover AudioTrack operation failures on its owner thread
+
+Catch playback, pause, and write exceptions on the audio worker, then release the failed generation and recreate from the retained pending decoder format. Record underrun baselines per initialized track and query the routed device once after playback starts.
+
+Keep operation-failure backoff separate from successful track creation so repeated play/pause/write failures keep increasing the delay. Apply it to every negative nonblocking write result as well as exceptions. Reset it only after five seconds of advancing playback; keep an independent 500 ms watchdog for continuous nonblocking writes that return zero.
+
+## Require advancing timestamps during sparse probes
+
+A probe that returns `true` with a stale extended frame position is still unavailable. Keep the 10-second probe interval until the frame advances, then resume 500 ms warm-up.

@@ -18,6 +18,10 @@
     <string name="host_auto_start">Auto-start on boot</string>
     <string name="host_auto_start_description">Start CarPlay automatically after device boot</string>
     <string name="host_section_audio">Audio</string>
+    <string name="host_navigation_audio_route">Navigation audio route</string>
+    <string name="host_navigation_audio_full_band">Full-band audio</string>
+    <string name="host_navigation_audio_system">System navigation</string>
+    <string name="host_navigation_audio_legacy_music">Legacy music stream</string>
     <string name="host_advanced_audio_mapping">Advanced audio channel mapping</string>
     <string name="host_advanced_audio_mapping_description">Route AAOS audio buses by CarPlay audio type</string>
     <string name="host_section_identity_appearance">Identity &amp; appearance</string>

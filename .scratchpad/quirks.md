@@ -1,6 +1,9 @@
 # Quirks
 
-- Managed worktrees omit the ignored `local.properties`; setting `ANDROID_HOME` and `ANDROID_SDK_ROOT` to the installed SDK allows Gradle builds. This checkout's `ndk.dir` points to NDK 27.0 while `android.ndkVersion` requests 28.2, producing a nonfatal mismatch warning; both APK builds still succeed and package two affected libraries without stripping.
+- In this checkout, set `ANDROID_HOME` and `ANDROID_SDK_ROOT` to `%LOCALAPPDATA%\Android\Sdk` for Gradle. The repository's `ndk.dir` emits AGP CXX5106 deprecation warnings; they are nonfatal, and the full test aggregate plus mobile/automotive debug builds pass.
+- 2026-10-01: After rebasing onto main #9, 270 shared and 55 common Gradle tests, the full test aggregate, both debug builds, and mobile lint pass. Explicit `:shared:lintDebug` and `:common:lintDebug` still fail on existing permission/NewApi/translation issues in unchanged files (Bluetooth/Wi-Fi/P2P, AppLanguage, manifests/resources); the updated audio renderer has no lint findings.
+- 2026-10-01: On Windows, the repository's Java 25 Gradle daemon could not load Robolectric's temporary `libandroid_runtime.dll` (`UnsatisfiedLinkError: access denied`). The affected test and full suite passed with installed Android Studio JBR 21 by temporarily overriding the daemon JVM version and restoring `gradle/gradle-daemon-jvm.properties` afterward.
+- 2026-10-01: Android Checks run #34 passed on PR #10 head `6f133a3`; the PR remained mergeable against main #9.
 - The 8-second startup snapshot and 15-second hard timeout reflect the slow-success timing in the 2026-09-30 brief. UIS8581/iOS 27 physical validation is still required.
 - `gh` is unavailable in this checkout; use the GitHub connector after pushing a branch.
 - This managed worktree had no `ANDROID_HOME` or `ANDROID_SDK_ROOT`; setting both to the installed SDK and using Android Studio JBR 21 enabled Gradle. NDK 28.2 emitted a nonfatal missing `source.properties` warning and packaged two libraries without stripping. The first shared-test run hit a 50 ms MFi retry timeout; the complete shared suite passed on rerun.

@@ -18,6 +18,10 @@
     <string name="host_auto_start">起動時に自動開始</string>
     <string name="host_auto_start_description">端末の起動後に CarPlay を自動的に開始します</string>
     <string name="host_section_audio">オーディオ</string>
+    <string name="host_navigation_audio_route">ナビ音声の出力先</string>
+    <string name="host_navigation_audio_full_band">フルバンド音声</string>
+    <string name="host_navigation_audio_system">システムナビゲーション</string>
+    <string name="host_navigation_audio_legacy_music">従来の音楽ストリーム</string>
     <string name="host_advanced_audio_mapping">オーディオチャンネルの詳細設定</string>
     <string name="host_advanced_audio_mapping_description">CarPlay の音声種別に応じて AAOS の音声バスへ振り分けます</string>
     <string name="host_section_identity_appearance">識別情報と外観</string>

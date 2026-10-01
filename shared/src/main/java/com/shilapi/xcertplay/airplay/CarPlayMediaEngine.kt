@@ -20,6 +20,7 @@ interface MediaSink {
     fun onScreenStreamActive(type: Int, active: Boolean) {}
     fun onAudioStarted(type: Int, format: AudioFormat, firstSample: Int) {}
     fun onAudioRtp(type: Int, format: AudioFormat, rtp: ByteArray, sample: Int) {}
+    fun audioPlaybackClock(type: Int): AudioPlaybackClock? = null
     fun onAudioStopped(type: Int) {}
     fun onMicrophoneStarted(type: Int, config: MicrophoneConfig) {}
     fun onMicrophoneStopped(type: Int) {}
@@ -48,6 +49,7 @@ class CarPlayMediaEngine(
         val playoutLatencyMs: Int,
         @Volatile var firstSample: Int? = null,
         @Volatile var originNs: Long? = null,
+        @Volatile var lastFeedbackClockLogNs: Long = 0L,
     )
 
     private data class PendingIapTunnel(
@@ -121,7 +123,8 @@ class CarPlayMediaEngine(
         )
         Log.i(
             TAG,
-            "AirPlay audio negotiated type=$type audioType=$audioType " +
+            "AirPlay audio negotiated transport=${if (session.wirelessAudio) "wireless" else "wired"} " +
+                "type=$type audioType=$audioType " +
                 "formatBits=0x${formatBits.toString(16)} codec=${format.codec} " +
                 "sampleRate=${format.sampleRate} channels=${format.channels} " +
                 "micPort=${(stream["dataPort"] as? Number)?.toInt() ?: 0}",
@@ -134,7 +137,13 @@ class CarPlayMediaEngine(
 
         val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
         if (capture != null) audioCaptures[type] = capture
-        val audio = AudioStream(key, type, session::logDebug)
+        val audio = AudioStream(
+            key = key,
+            streamType = type,
+            onDiagnostic = session::logDebug,
+            audioType = audioType,
+            wirelessAudio = session.wirelessAudio,
+        )
         val (dataPort, controlPort) = audio.listen(
             object : AudioStream.Listener {
                 override fun onStarted(firstSample: Int) {
@@ -253,21 +262,46 @@ class CarPlayMediaEngine(
                 "type" to meta.type,
                 "sampleRate" to meta.format.sampleRate,
             )
-            val firstSample = meta.firstSample
-            val originNs = meta.originNs
-            if (firstSample != null && originNs != null) {
-                val nowNs = System.nanoTime()
-                val elapsedSec = Math.max(
-                    0.0,
-                    (nowNs - originNs) / 1e9 - meta.playoutLatencyMs / 1000.0,
-                )
-                val firstUnsigned = firstSample.toLong() and 0xffff_ffffL
-                val sampleTime = (firstUnsigned + Math.round(elapsedSec * meta.format.sampleRate)) and
-                    0xffff_ffffL
+            val nowNs = System.nanoTime()
+            val playbackClock = sink.audioPlaybackClock(meta.type)
+            if (playbackClock != null) {
                 entry["streamConnectionID"] = unsignedPlistInteger(meta.connectionId ?: 0L)
                 entry["timestamp"] = session.syncedNtp()
-                entry["timestampRawNs"] = nowNs
-                entry["sampleTime"] = sampleTime
+                entry["timestampRawNs"] = playbackClock.monotonicTimestampNs
+                entry["sampleTime"] = playbackClock.samplePosition
+                entry["sampleRate"] = playbackClock.sourceSampleRate
+                if (nowNs - meta.lastFeedbackClockLogNs >= FEEDBACK_CLOCK_LOG_INTERVAL_NS) {
+                    meta.lastFeedbackClockLogNs = nowNs
+                    session.logDebug(
+                        "Audio feedback clock source=${playbackClock.source} type=${meta.type} " +
+                            "baseSample=${playbackClock.baseRtpSample} playedFrames=${playbackClock.playedFrames} " +
+                            "sampleTime=${playbackClock.samplePosition} sourceRate=${playbackClock.sourceSampleRate} " +
+                            "outputRate=${playbackClock.outputSampleRate}",
+                    )
+                }
+            } else {
+                val firstSample = meta.firstSample
+                val originNs = meta.originNs
+                if (firstSample != null && originNs != null) {
+                    val elapsedSec = Math.max(
+                        0.0,
+                        (nowNs - originNs) / 1e9 - meta.playoutLatencyMs / 1000.0,
+                    )
+                    val firstUnsigned = firstSample.toLong() and 0xffff_ffffL
+                    val sampleTime = (firstUnsigned + Math.round(elapsedSec * meta.format.sampleRate)) and
+                        0xffff_ffffL
+                    entry["streamConnectionID"] = unsignedPlistInteger(meta.connectionId ?: 0L)
+                    entry["timestamp"] = session.syncedNtp()
+                    entry["timestampRawNs"] = nowNs
+                    entry["sampleTime"] = sampleTime
+                    if (nowNs - meta.lastFeedbackClockLogNs >= FEEDBACK_CLOCK_LOG_INTERVAL_NS) {
+                        meta.lastFeedbackClockLogNs = nowNs
+                        session.logDebug(
+                            "Audio feedback clock source=fallbackElapsed type=${meta.type} " +
+                                "latencyMs=${meta.playoutLatencyMs}",
+                        )
+                    }
+                }
             }
             entry
         }
@@ -276,11 +310,11 @@ class CarPlayMediaEngine(
 
     override fun onTeardown(session: AirPlaySession, type: Int) {
         if (type == STREAM_TYPE_DATA) clearPendingIapTunnel(session)
+        streams.remove(StreamKey(session, type))?.close()
         if (pendingMicrophone.remove(type) != null) sink.onMicrophoneStopped(type)
         audioMeta.remove(type)
         audioCaptures.remove(type)?.close()
         sink.onAudioStopped(type)
-        streams.remove(StreamKey(session, type))?.close()
         if (isScreenStreamType(type)) sink.onScreenStreamActive(type, false)
     }
 
@@ -291,6 +325,8 @@ class CarPlayMediaEngine(
             .filter { isScreenStreamType(it.type) }
             .forEach { sink.onScreenStreamActive(it.type, false) }
         sessionStreams.forEach { streams.remove(it)?.close() }
+        audioMeta.keys.toList().forEach(sink::onAudioStopped)
+        pendingMicrophone.keys.toList().forEach(sink::onMicrophoneStopped)
         audioMeta.clear()
         pendingMicrophone.clear()
         audioCaptures.values.forEach(AudioPacketCapture::close)
@@ -385,6 +421,7 @@ class CarPlayMediaEngine(
         const val IAP_DATASTREAM_UUID = "E9459FD0-BCAD-4C45-820F-1E72447EF2F2"
         const val OPUS_24K = 0x20000000L
         const val OPUS_48K = 0x40000000L
+        const val FEEDBACK_CLOCK_LOG_INTERVAL_NS = 5_000_000_000L
     }
 }
 

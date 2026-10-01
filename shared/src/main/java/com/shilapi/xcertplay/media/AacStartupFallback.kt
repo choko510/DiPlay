@@ -75,29 +75,34 @@ internal class AacDecoderFallbackPolicy(
     private val minimumAccessUnits: Int = AAC_STARTUP_MIN_AUS,
     private val waitNanos: Long = AAC_STARTUP_WAIT_NS,
 ) {
-    private var rawStartedNs = 0L
+    private var firstSubmittedAuNs: Long? = null
     private var accessUnitsSubmitted = 0
     private var decoderOutputObserved = false
     private var fallbackAttempted = false
 
-    fun reset(nowNs: Long) {
-        rawStartedNs = nowNs
+    fun reset() {
+        firstSubmittedAuNs = null
         accessUnitsSubmitted = 0
         decoderOutputObserved = false
         fallbackAttempted = false
     }
 
-    fun onAccessUnitsSubmitted(count: Int) {
-        if (!fallbackAttempted) accessUnitsSubmitted += count.coerceAtLeast(0)
+    fun onAccessUnitsSubmitted(count: Int, nowNs: Long) {
+        if (fallbackAttempted || decoderOutputObserved) return
+        val submittedCount = count.coerceAtLeast(0)
+        if (submittedCount > 0 && firstSubmittedAuNs == null) firstSubmittedAuNs = nowNs
+        accessUnitsSubmitted += submittedCount
     }
 
     fun onDecoderOutput() {
         decoderOutputObserved = true
     }
 
-    fun shouldFallback(nowNs: Long): Boolean =
-        !fallbackAttempted && !decoderOutputObserved &&
-            accessUnitsSubmitted >= minimumAccessUnits && nowNs - rawStartedNs >= waitNanos
+    fun shouldFallback(nowNs: Long): Boolean {
+        val firstSubmitted = firstSubmittedAuNs ?: return false
+        return !fallbackAttempted && !decoderOutputObserved &&
+            accessUnitsSubmitted >= minimumAccessUnits && nowNs - firstSubmitted >= waitNanos
+    }
 
     fun beginFallback(): Boolean {
         if (fallbackAttempted || decoderOutputObserved) return false

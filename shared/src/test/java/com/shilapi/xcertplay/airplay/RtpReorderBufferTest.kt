@@ -34,6 +34,17 @@ class RtpReorderBufferTest {
     }
 
     @Test
+    fun duplicatePendingOutOfOrderPacketDoesNotIncrementReorderedAgain() {
+        val buffer = RtpReorderBuffer<String>(8, 10)
+        assertEquals(listOf("1"), buffer.offer(1, "1", 0).values())
+        assertEquals(emptyList<String>(), buffer.offer(3, "3", 1).values())
+        assertEquals(emptyList<String>(), buffer.offer(3, "3 duplicate", 2).values())
+
+        assertEquals(1, buffer.stats().reordered.toInt())
+        assertEquals(1, buffer.stats().duplicates.toInt())
+    }
+
+    @Test
     fun handlesSequenceWraparound() {
         val buffer = RtpReorderBuffer<Int>(8, 10)
         val output = listOf(65534, 65535, 0, 1).flatMapIndexed { index, sequence ->

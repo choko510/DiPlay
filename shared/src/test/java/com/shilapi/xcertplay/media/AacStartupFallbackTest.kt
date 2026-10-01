@@ -10,8 +10,10 @@ class AacStartupFallbackTest {
     @Test
     fun fallbackRequiresTimeAndEnoughUnitsAndCanStartOnlyOnce() {
         val policy = AacDecoderFallbackPolicy(minimumAccessUnits = 8, waitNanos = 2_000)
-        policy.reset(100)
-        policy.onAccessUnitsSubmitted(8)
+        policy.reset()
+        policy.onAccessUnitsSubmitted(1, 100)
+        assertFalse(policy.shouldFallback(2_100))
+        policy.onAccessUnitsSubmitted(7, 200)
         assertFalse(policy.shouldFallback(2_099))
         assertTrue(policy.shouldFallback(2_100))
         assertTrue(policy.beginFallback())
@@ -21,23 +23,49 @@ class AacStartupFallbackTest {
     @Test
     fun elapsedTimeAloneDoesNotTriggerFallbackWithoutEnoughUnits() {
         val policy = AacDecoderFallbackPolicy(minimumAccessUnits = 8, waitNanos = 2_000)
-        policy.reset(100)
-        policy.onAccessUnitsSubmitted(7)
+        policy.reset()
+        policy.onAccessUnitsSubmitted(7, 100)
         assertFalse(policy.shouldFallback(10_000))
     }
 
     @Test
     fun outputObservedDisablesFallbackAndNewRawGenerationResetsState() {
         val policy = AacDecoderFallbackPolicy(minimumAccessUnits = 8, waitNanos = 2_000)
-        policy.reset(0)
-        policy.onAccessUnitsSubmitted(8)
+        policy.reset()
+        policy.onAccessUnitsSubmitted(8, 0)
         policy.onDecoderOutput()
+        policy.onAccessUnitsSubmitted(10, 2_000)
+        assertEquals(8, policy.submittedAccessUnits)
         assertFalse(policy.shouldFallback(3_000))
         assertFalse(policy.beginFallback())
 
-        policy.reset(10_000)
+        policy.reset()
         assertEquals(0, policy.submittedAccessUnits)
         assertFalse(policy.shouldFallback(10_000 + AAC_STARTUP_WAIT_NS))
+    }
+
+    @Test
+    fun fallbackTimerStartsAtFirstSubmittedAccessUnitNotDecoderConfiguration() {
+        val policy = AacDecoderFallbackPolicy(minimumAccessUnits = 8, waitNanos = 2_000_000_000L)
+        policy.reset()
+        assertFalse(policy.shouldFallback(10_000_000_000L))
+
+        policy.onAccessUnitsSubmitted(1, 10_000_000_000L)
+        assertFalse(policy.shouldFallback(10_100_000_000L))
+        policy.onAccessUnitsSubmitted(7, 10_200_000_000L)
+
+        assertFalse(policy.shouldFallback(11_999_999_999L))
+        assertTrue(policy.shouldFallback(12_000_000_000L))
+    }
+
+    @Test
+    fun rawDecoderConfigurationFailureCanStartFallbackImmediately() {
+        val policy = AacDecoderFallbackPolicy()
+        policy.reset()
+
+        assertTrue(policy.beginFallback())
+        assertTrue(policy.wasAttempted)
+        assertFalse(policy.beginFallback())
     }
 
     @Test

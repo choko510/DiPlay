@@ -103,3 +103,19 @@ Cache raw AUs with their source sample and presentation time until the decoder p
 ## Preserve feedback NTP behavior until receiver correlation is proven
 
 The repository's NTP clock maps local monotonic time to the phone's synchronized timing domain, but it does not establish whether CarPlay expects feedback's NTP timestamp to anchor the reported sampleTime. Keep the current NTP generation and call out hardware/protocol validation rather than inventing a monotonic-to-NTP correlation.
+
+## Release decoder candidates before AAC fallback
+
+Keep a newly created MediaCodec local until both configure and start succeed. On either failure, best-effort stop and release that candidate before publishing diagnostics or constructing the raw-AAC ADTS fallback; use the same lifecycle for Opus.
+
+## Probe unavailable or stale AudioTimestamp routes sparsely
+
+Use a 250 ms startup delay, 500 ms warm-up, and switch to 10-second probes after five false results or ten warm-up queries. Enter 10-second stable polling only after three advancing frame positions; repeated stale frames also return to probing. A probe result returns to warm-up, and only an advancing result can become a clock anchor.
+
+## Start AAC no-output timing at the first queued access unit
+
+Start the two-second fallback timer only after an AU is actually queued into the raw AAC decoder. Do not charge decoder setup time or input-buffer failures against the startup grace period; configuration failure and bounded-cache overflow remain immediate fallback reasons.
+
+## Recover AudioTrack operation failures on its owner thread
+
+Catch playback, pause, and write exceptions on the audio worker, then release the failed generation and recreate from the retained pending decoder format. Record underrun baselines per initialized track and query the routed device once after playback starts.

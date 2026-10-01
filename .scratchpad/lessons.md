@@ -88,3 +88,11 @@ Do not use a last-attempted AudioTrack format as a permanent duplicate guard. Tr
 ## Enforce replay limits after adding the live fallback AU
 
 A reserve covers ordinary packet sizes but cannot guarantee a hard byte or duration cap by itself. When a live AU trips the AAC fallback, merge it with the cached AUs and evict older cached entries until all replay limits hold while keeping the live AU.
+
+## Treat AudioTimestamp availability and usefulness separately
+
+`getTimestamp() == true` is not enough to trust a vendor clock. Require advancing extended frame positions, stop frequent warm-up polling when the route stays unavailable or stale, and keep playback-head progress available while probing sparsely.
+
+## Count RTP duplicates before reorder depth
+
+A duplicate still has positive sequence distance from the next expected packet. Check pending/delivered membership before incrementing `reordered`, then test duplicate arrivals against an already pending out-of-order packet.

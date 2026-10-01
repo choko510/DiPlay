@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.media
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AacRtpPayloadTest {
@@ -55,6 +56,16 @@ class AacRtpPayloadTest {
             assertEquals(AacPayloadMode.RAW, parsed.mode)
             assertArrayEquals(payload, parsed.accessUnits.single())
         }
+    }
+
+    @Test
+    fun possibleFragmentedRfc3640UnitIsReportedWithoutStrippingPayload() {
+        val payload = byteArrayOf(0, 16, 0, 24, 1, 2)
+        val parsed = AacRtpPayloadParser.parse(payload)!!
+
+        assertEquals(AacPayloadMode.RAW, parsed.mode)
+        assertArrayEquals(payload, parsed.accessUnits.single())
+        assertTrue(parsed.possibleFragmentation)
     }
 
     @Test

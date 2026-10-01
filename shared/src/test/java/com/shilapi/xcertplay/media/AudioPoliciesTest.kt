@@ -44,22 +44,117 @@ class AudioPoliciesTest {
     }
 
     @Test
-    fun timestampQueriesWarmUpThenBackOffToTenSeconds() {
+    fun timestampStartupWaitsThenWarmupUsesFiveHundredMillisecondIntervals() {
         val policy = AudioTimestampPollPolicy()
         policy.reset(0)
         assertFalse(policy.shouldQuery(TIMESTAMP_FIRST_QUERY_NS - 1))
         assertTrue(policy.shouldQuery(TIMESTAMP_FIRST_QUERY_NS))
-        policy.recordQuery(TIMESTAMP_FIRST_QUERY_NS, timestampAvailable = false)
+        policy.recordQuery(TIMESTAMP_FIRST_QUERY_NS, timestampAvailable = false, framePosition = null)
         assertFalse(policy.shouldQuery(TIMESTAMP_FIRST_QUERY_NS + TIMESTAMP_WARMUP_INTERVAL_NS - 1))
         assertTrue(policy.shouldQuery(TIMESTAMP_FIRST_QUERY_NS + TIMESTAMP_WARMUP_INTERVAL_NS))
-        policy.recordQuery(750_000_000L, timestampAvailable = true)
-        policy.recordQuery(1_250_000_000L, timestampAvailable = true)
-        policy.recordQuery(1_750_000_000L, timestampAvailable = true)
-        assertEquals(10_000L, policy.pollingIntervalMs)
-        assertFalse(policy.shouldQuery(11_749_999_999L))
-        assertTrue(policy.shouldQuery(11_750_000_000L))
-        policy.reset(20_000_000_000L)
+        assertEquals(AudioTimestampPollMode.WARMUP, policy.mode)
         assertEquals(500L, policy.pollingIntervalMs)
+    }
+
+    @Test
+    fun repeatedFalseQueriesEnterSparseProbeAndRecoverThroughWarmup() {
+        val policy = AudioTimestampPollPolicy()
+        policy.reset(0)
+        repeat(TIMESTAMP_UNAVAILABLE_FALSE_QUERIES) { index ->
+            val queryNs = TIMESTAMP_FIRST_QUERY_NS + index * TIMESTAMP_WARMUP_INTERVAL_NS
+            assertTrue(policy.shouldQuery(queryNs))
+            val update = policy.recordQuery(queryNs, timestampAvailable = false, framePosition = null)
+            if (index == TIMESTAMP_UNAVAILABLE_FALSE_QUERIES - 1) assertTrue(update.enteredProbe)
+        }
+        assertEquals(AudioTimestampPollMode.PROBE, policy.mode)
+        val lastQueryNs = TIMESTAMP_FIRST_QUERY_NS +
+            (TIMESTAMP_UNAVAILABLE_FALSE_QUERIES - 1) * TIMESTAMP_WARMUP_INTERVAL_NS
+        assertFalse(policy.shouldQuery(lastQueryNs + TIMESTAMP_PROBE_INTERVAL_NS - 1))
+        assertTrue(policy.shouldQuery(lastQueryNs + TIMESTAMP_PROBE_INTERVAL_NS))
+
+        val recoveryNs = lastQueryNs + TIMESTAMP_PROBE_INTERVAL_NS
+        val recovery = policy.recordQuery(recoveryNs, timestampAvailable = true, framePosition = 1_000)
+        assertTrue(recovery.recoveredFromProbe)
+        assertTrue(recovery.acceptAnchor)
+        assertEquals(AudioTimestampPollMode.WARMUP, policy.mode)
+        assertEquals(500L, policy.pollingIntervalMs)
+        assertFalse(policy.shouldQuery(recoveryNs + TIMESTAMP_WARMUP_INTERVAL_NS - 1))
+        assertTrue(policy.shouldQuery(recoveryNs + TIMESTAMP_WARMUP_INTERVAL_NS))
+        policy.recordQuery(recoveryNs + TIMESTAMP_WARMUP_INTERVAL_NS, true, 2_000)
+        val stable = policy.recordQuery(recoveryNs + 2 * TIMESTAMP_WARMUP_INTERVAL_NS, true, 3_000)
+        assertTrue(stable.becameStable)
+        assertEquals(AudioTimestampPollMode.STABLE, policy.mode)
+        assertEquals(10_000L, policy.pollingIntervalMs)
+    }
+
+    @Test
+    fun unavailableProbeReturnsToWarmupWithoutAcceptingAStaleFrame() {
+        val policy = AudioTimestampPollPolicy()
+        policy.reset(0)
+        var nowNs = TIMESTAMP_FIRST_QUERY_NS
+        repeat(TIMESTAMP_MAX_WARMUP_QUERIES) {
+            policy.recordQuery(nowNs, timestampAvailable = true, framePosition = 1_000)
+            nowNs += TIMESTAMP_WARMUP_INTERVAL_NS
+        }
+        assertEquals(AudioTimestampPollMode.PROBE, policy.mode)
+        assertFalse(policy.shouldQuery(nowNs - TIMESTAMP_WARMUP_INTERVAL_NS + TIMESTAMP_PROBE_INTERVAL_NS - 1))
+        val probeNs = nowNs - TIMESTAMP_WARMUP_INTERVAL_NS + TIMESTAMP_PROBE_INTERVAL_NS
+        assertTrue(policy.shouldQuery(probeNs))
+        val staleProbe = policy.recordQuery(probeNs, timestampAvailable = true, framePosition = 1_000)
+        assertTrue(staleProbe.recoveredFromProbe)
+        assertFalse(staleProbe.acceptAnchor)
+        assertEquals(AudioTimestampPollMode.WARMUP, policy.mode)
+        val staleWarmup = policy.recordQuery(
+            probeNs + TIMESTAMP_WARMUP_INTERVAL_NS,
+            timestampAvailable = true,
+            framePosition = 1_000,
+        )
+        assertFalse(staleWarmup.becameStable)
+        assertEquals(AudioTimestampPollMode.WARMUP, policy.mode)
+    }
+
+    @Test
+    fun onlyAdvancingTimestampFramesReachStableMode() {
+        val policy = AudioTimestampPollPolicy()
+        policy.reset(0)
+        policy.recordQuery(TIMESTAMP_FIRST_QUERY_NS, true, 1_000)
+        policy.recordQuery(TIMESTAMP_FIRST_QUERY_NS + TIMESTAMP_WARMUP_INTERVAL_NS, true, 2_000)
+        val stable = policy.recordQuery(
+            TIMESTAMP_FIRST_QUERY_NS + 2 * TIMESTAMP_WARMUP_INTERVAL_NS,
+            true,
+            3_000,
+        )
+        assertTrue(stable.becameStable)
+
+        val stale = AudioTimestampPollPolicy()
+        stale.reset(0)
+        stale.recordQuery(TIMESTAMP_FIRST_QUERY_NS, true, 1_000)
+        repeat(3) { index ->
+            val update = stale.recordQuery(
+                TIMESTAMP_FIRST_QUERY_NS + (index + 1) * TIMESTAMP_WARMUP_INTERVAL_NS,
+                true,
+                1_000,
+            )
+            assertFalse(update.becameStable)
+        }
+        assertEquals(AudioTimestampPollMode.WARMUP, stale.mode)
+    }
+
+    @Test
+    fun resetAfterPauseRestartsTimestampStartupAndClearsProbeState() {
+        val policy = AudioTimestampPollPolicy()
+        policy.reset(0)
+        repeat(TIMESTAMP_UNAVAILABLE_FALSE_QUERIES) { index ->
+            policy.recordQuery(
+                TIMESTAMP_FIRST_QUERY_NS + index * TIMESTAMP_WARMUP_INTERVAL_NS,
+                timestampAvailable = false,
+                framePosition = null,
+            )
+        }
+        assertEquals(AudioTimestampPollMode.PROBE, policy.mode)
+        policy.reset(20_000_000_000L)
+        assertEquals(AudioTimestampPollMode.STARTUP, policy.mode)
+        assertEquals(250L, policy.pollingIntervalMs)
         assertTrue(policy.shouldQuery(20_250_000_000L))
     }
 }

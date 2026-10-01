@@ -68,6 +68,16 @@ class AirPlaySession(
     internal val wirelessAudio: Boolean
         get() = config.wirelessAudio
 
+    internal fun advertisedAudioOutputMask(type: Int, audioType: String): Long? {
+        if (config.disableAudioOutput) return null
+        return AirPlayAudioCapabilities.outputFormatMask(
+            entertainmentSampleRate = config.entertainmentSampleRate,
+            wirelessAudio = config.wirelessAudio,
+            type = type,
+            audioType = audioType,
+        )
+    }
+
     internal val pairSetup = PairSetup(identity, pairings)
     internal val pairVerify = PairVerify(identity, pairings)
     internal var cipher: ControlCipher? = null

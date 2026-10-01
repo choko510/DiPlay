@@ -1,5 +1,7 @@
 <resources>
+    <string name="app_name">DiPlay</string>
     <string name="menu_return_carplay">Return to CarPlay</string>
+    <string name="menu_carplay_youtube">CarPlay + YouTube</string>
     <string name="menu_vehicle_home">Vehicle Home</string>
     <string name="menu_settings">DiPlay Settings</string>
     <string name="menu_status_connected">Connected</string>
@@ -10,6 +12,14 @@
     <string name="menu_transport_wireless">Wireless</string>
     <string name="menu_vehicle_home_unavailable">Could not open the vehicle home screen.</string>
     <string name="menu_return_failed">Could not open CarPlay.</string>
+    <string name="menu_youtube_split_failed">Could not open CarPlay + YouTube.</string>
+    <string name="youtube_waiting_for_iphone_profile">Identifying iPhone…</string>
+    <string name="youtube_identity_error">Could not identify the connected iPhone.</string>
+    <string name="youtube_loading">Loading YouTube…</string>
+    <string name="youtube_load_error">Could not load YouTube.</string>
+    <string name="youtube_reload">Reload</string>
+    <string name="youtube_back">Back</string>
+    <string name="youtube_close">Close YouTube</string>
     <string name="ui_car_home">Car home</string>
     <string name="ui_back">Back</string>
     <string name="ui_home_eyebrow">YOUR PHONE. YOUR DRIVE.</string>
@@ -90,7 +100,7 @@
     <string name="ui_public_preview_title">Public preview · %1$s</string>
     <string name="ui_about_description">An independent CarPlay receiver for Android head units. Wired and wireless connections run on the head unit, with local authentication. A standard iPhone can connect without a jailbreak, Mac, dongle or sign-in.\n\nThis preview uses an experimental accessory identity. Compatibility with every iPhone and head unit is still being tested. It is not an Apple-certified product.</string>
     <string name="ui_open_source_title">Made possible by open source</string>
-    <string name="ui_open_source_description">Receiver based on xcertplay, licensed under GPL-3.0. DiPlay’s interface follows DiAuto’s design, licensed under AGPL-3.0.\n\nIncludes AndroidX, Bouncy Castle, JmDNS and SLF4J. Source and license notices accompany this release.\n\nCarPlay and the CarPlay icon belong to Apple Inc. DiPlay is an independent project.</string>
+    <string name="ui_open_source_description">Receiver based on xcertplay, licensed under GPL-3.0. DiPlay’s interface follows DiAuto’s design, licensed under AGPL-3.0.\n\nIncludes GeckoView (MPL-2.0), AndroidX, Bouncy Castle, JmDNS and SLF4J. Source and license notices accompany this release.\n\nCarPlay and the CarPlay icon belong to Apple Inc. DiPlay is an independent project.</string>
     <string name="ui_car_hotspot_off_title">Car hotspot is off</string>
     <string name="ui_car_hotspot_off_message">DiPlay connects through the car hotspot “%1$s”. Turn it on in the car settings, then connect.</string>
     <string name="ui_open_car_settings">Open car settings</string>

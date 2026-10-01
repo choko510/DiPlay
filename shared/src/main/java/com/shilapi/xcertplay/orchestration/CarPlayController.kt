@@ -301,7 +301,7 @@ class CarPlayController(
         override fun onSessionActive(session: AirPlaySession) {
             recordActiveSession(session)
             debugLog(
-                "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
+                "AirPlay session active controllerIdAvailable=${session.controllerId != null} " +
                     "peer=${session.host}",
             )
             uiListener?.onSessionActive(session)
@@ -331,8 +331,9 @@ class CarPlayController(
 
         override fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {
             debugLog(
-                "AirPlay device info name=${info.name} deviceId=${info.deviceId} " +
-                    "wifiMac=${info.wifiMac} model=${info.model}",
+                "AirPlay device info identityAvailable=" +
+                    "${info.deviceId.isNotBlank() || info.wifiMac.isNotBlank()} " +
+                    "modelAvailable=${info.model.isNotBlank()}",
             )
             uiListener?.onDeviceInfo(session, info)
         }
@@ -376,6 +377,8 @@ class CarPlayController(
         !closed && vpnService?.isAttached() == true
     }
 
+    fun currentAirPlaySession(): AirPlaySession? = activeSession
+
     fun start() {
         synchronized(this) {
             if (closed) return
@@ -389,7 +392,7 @@ class CarPlayController(
     }
 
     /** Reopens the CH341/MFi path without restarting the app. */
-    fun reconnectMfi() = synchronized(lifecycleLock) {
+    fun reconnectMfi(): Unit = synchronized(lifecycleLock) {
         if (closed) return
         traceConnection(ConnectionTraceStage.RETRY)
         closeMfiSession()
@@ -397,7 +400,7 @@ class CarPlayController(
     }
 
     /** Re-runs iPhone discovery/bring-up using the already-open MFi session. */
-    fun reconnectIphone() = synchronized(lifecycleLock) {
+    fun reconnectIphone(): Unit = synchronized(lifecycleLock) {
         if (closed) return
         traceConnection(ConnectionTraceStage.RETRY)
         if (mfiSession == null) {
@@ -1269,7 +1272,7 @@ class CarPlayController(
                 if (!accepted) return
                 debugLog(
                     "wireless AirPlay session active generation=$generation " +
-                        "controller=${session.controllerId ?: "unknown"} peer=${session.host}",
+                        "controllerIdAvailable=${session.controllerId != null} peer=${session.host}",
                 )
                 uiListener?.onSessionActive(session)
             }
@@ -2961,7 +2964,7 @@ class CarPlayController(
         }
         if (!accepted) return
         debugLog(
-            "AirPlay session active controller=${session.controllerId ?: "unknown"} " +
+            "AirPlay session active controllerIdAvailable=${session.controllerId != null} " +
                 "peer=${session.host}",
         )
         uiListener?.onSessionActive(session)

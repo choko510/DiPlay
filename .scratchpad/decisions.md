@@ -72,6 +72,31 @@ Keep the transport flag false by default and set it only when creating the wirel
 
 Delete the BYD output consumers and their `onIncoming` controller callbacks while retaining the generic iAP2 RouteGuidance advertisement, subscription messages, endpoint registry, and subscription test. The capability is part of protocol negotiation independently of the removed HUD output.
 
+## Bind persistent YouTube storage to a verified iPhone identity
+
+Resolve identity in this order: Pair Verify controller ID, AirPlay device ID, then Wi-Fi MAC. Hash a versioned, source-prefixed key before using it as GeckoView's context ID. Do not store the raw identifier or Google credentials; GeckoView owns the persistent cookie and web storage for each context.
+
+Keep one application-scoped GeckoRuntime and create/close Activity-scoped GeckoSessions per device context. Closing a session must never clear its storage context, so returning to the same iPhone restores its Google login.
+
+## Split CarPlay and YouTube inside the existing host
+
+Keep CarPlayController, AndroidMediaSink, and CarPlayBackgroundSession in CarPlayHostActivity. Put the CarPlay TextureView, touch layer, and connection panel in the same left pane; let GeckoView own the right pane. Defer CarPlay restarts until the latest pane size has settled, and use ABI-specific APKs to preserve all supported architectures without shipping every GeckoView native library to every device.
+
+## Keep restart ownership pending until a new controller is stored
+
+A resize restart remains claimable across Activity destruction until the replacement CarPlay controller is stored. A claimed but not-yet-started Activity releases the claim on destruction; an ownerless handoff can be cancelled by Disconnect and suppresses automatic startup until a fresh host launch. Transfer the stop callback when a new host claims ownership so Disconnect never targets a destroyed Activity.
+
+## Bound Google popups to one same-context GeckoSession
+
+HTTPS new-window requests and `about:blank` can create one temporary GeckoSession using the same iPhone context ID. Return to the primary session on popup close; deny HTTP and external schemes, do not log or persist popup URLs, and restore the primary session's most recent load state.
+
+## Follow GeckoView's unopened popup-session contract
+
+For the pinned GeckoView 156 source, `onNewSession` must return a closed GeckoSession; Gecko opens it on the parent runtime with the generated new-session ID. Attach the closed session before return, never call `open()` in the delegate, and validate each navigation callback independently instead of holding request-pending state.
+
+## Lock a split's profile while allowing verified aliases
+
+Keep the selected context stable for an AirPlaySession when identity evidence overlaps. When Pair Verify later resolves a controller ID, bind that strong hash to the chosen fallback context for the next split, but never resolve a verified controller through weak aliases. Only hashed alias keys and profile hashes are persisted.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.
@@ -127,3 +152,19 @@ Keep operation-failure backoff separate from successful track creation so repeat
 ## Require advancing timestamps during sparse probes
 
 A probe that returns `true` with a stale extended frame position is still unavailable. Keep the 10-second probe interval until the frame advances, then resume 500 ms warm-up.
+
+## Ignore IME-only CarPlay display changes
+
+During IME visibility and animation, keep the negotiated CarPlay size and discard pending transient TextureView sizes. After IME animation ends, recheck the laid out size after two stable frames so a true rotation or pane resize still renegotiates once.
+
+## Exit Gecko fullscreen before returning the view to the split pane
+
+Any host-initiated fullscreen exit sends `GeckoSession.exitFullScreen()` before reparenting. Popup close exits both the closing session and the restored primary session; the host immediately updates its layout while Gecko's callback completes.
+
+## Avoid retaining a finished AirPlay session in profile selection
+
+Store the connection token as a weak reference and clear the split selection when the active AirPlay session ends or the split exits. Do not clear it unconditionally on Activity destruction because configuration recreation may reuse the same live session.
+
+## Mark Pair Verify identity resolved after final-state processing
+
+Set identity resolution in `finally` after processing Pair Verify state 3, and publish the verified controller ID before the verified flag. A fallback decision cannot observe an incomplete final-state transition.

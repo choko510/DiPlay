@@ -92,12 +92,19 @@ class AirPlaySession(
     private val eventWriteLock = Any()
     private val eventThreads = CopyOnWriteArrayList<Thread>()
 
+    @Volatile
+    var deviceInfo: AirPlayDeviceInfo? = null
+        private set
+
     val host: String = socket.inetAddress?.hostAddress ?: ""
     val localAddress: InetAddress? = socket.localAddress
     private val peerAddress: InetAddress? = socket.inetAddress
     internal val remoteAddress: InetAddress?
         get() = (socket.remoteSocketAddress as? InetSocketAddress)?.address
     val controllerId: String? get() = pairVerify.verifiedControllerId
+    val isControllerIdentityVerified: Boolean get() = pairVerify.isVerified
+    val isControllerIdentityResolved: Boolean get() = pairVerify.isIdentityVerificationResolved
+    val isClosed: Boolean get() = closed.get()
     val sharedSecret: ByteArray? get() = pairVerify.shared?.copyOf()
 
     fun syncedNtp(): BigInteger = ntp.syncedNtp()
@@ -477,7 +484,10 @@ class AirPlaySession(
         debugLog(AirPlayPeerDiagnostics.summary(model, string(dict["osVersion"]), string(dict["sourceVersion"])))
         if (deviceId.isNotEmpty()) deviceBtMac = deviceId
         if (name.isNotEmpty() || deviceId.isNotEmpty() || wifiMac.isNotEmpty()) {
-            listener.onDeviceInfo(this, AirPlayDeviceInfo(name, deviceId, wifiMac, model))
+            AirPlayDeviceInfo(name, deviceId, wifiMac, model).also {
+                deviceInfo = it
+                listener.onDeviceInfo(this, it)
+            }
         }
 
         val peerTimingPort = long(dict["timingPort"])?.toInt() ?: 0

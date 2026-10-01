@@ -73,6 +73,27 @@ USB session creation can finish after a manual reconnect or shutdown. Bind each 
 
 When deleting an application-specific RouteGuidance consumer, keep the generic iAP2 advertisement, subscription endpoints, and regression test. Remove only its callback hookup and let the transport's existing default handler discard frames.
 
+## Pin GeckoView to its tested stable artifact and matching toolchain
+
+GeckoView 156.0.20260921121718 resolves from Mozilla Maven, requires compile SDK 37.1 and brings Kotlin 2.4.10 metadata. This project uses Kotlin Gradle plugin 2.4.20 and Java 17 compatibility; do not suppress the compiler's metadata-version check or force an older Kotlin runtime.
+
+`GeckoSessionSettings.Builder.contextId` partitions cookies and web storage, and GeckoView retains data per context after a session closes. A deterministic context ID is sufficient for returning to the same device; app-owned Google credentials or a raw-ID profile index are unnecessary.
+
+## Preserve all native ABIs while controlling GeckoView package size
+
+The GeckoView AAR includes arm64-v8a, armeabi-v7a and x86_64 native libraries. A universal APK exceeds 570 MB in this build; ABI-specific outputs preserve the existing support while avoiding unrelated libraries in each download.
+
+## Treat a restart handoff claim as provisional until publication
+
+An Activity may claim a resize restart and then wait on permission or transport readiness. Keep the handoff pending until `CarPlayBackgroundSession.store()` publishes the replacement controller; if the Activity is destroyed first, return ownership to the next host. Transfer its stop callback at claim time.
+
+## Treat Gecko's new-session URI as policy input, not a load command
+
+The pinned GeckoView 156 source asserts that the returned session is unopened, then opens it on the parent runtime with its generated session ID. A closed GeckoSession can be attached to GeckoView before return. `onLoadRequest` and `onNewSession` should each validate policy independently; callback order and URL equality are not reliable gate state.
+
+## Delay UI-thread runtime creation until after the first split frame
+
+`View.postOnAnimation` runs before that frame's traversal. A second animation callback lets the split's first traversal draw before the synchronous portion of Gecko warm-up can consume UI time. Keep both callbacks named and cancel them on split exit and Activity teardown.
 ## Preserve AAC bytes unless RFC 3640 is fully validated
 
 Do not classify AAC as RFC 3640 from the leading length field alone. Validate 16-bit alignment, header bounds, nonzero AU sizes, and exact aggregate data length; otherwise pass the complete payload through as raw AAC.
@@ -108,3 +129,11 @@ A track that builds but fails immediately on the next HAL operation is not a rec
 ## Treat nonblocking zero writes as backpressure until they stall
 
 `WRITE_NON_BLOCKING` may return zero temporarily. Measure the continuous zero interval rather than retry count, then release and back off if no frame is accepted within the stall bound.
+
+## Keep IME resize separate from negotiated CarPlay size
+
+With `adjustResize`, filtering only surface callbacks is insufficient if a debounce is already pending. Cancel pending size work as soon as IME animation begins, update the restart handoff with the stable size, and refresh the settled view after IME animation ends. Retain `adjustResize` so login fields remain usable.
+
+## Recheck privacy-sensitive logs after merging main
+
+Later main changes can reintroduce raw controller or device identifiers into debug logs even when the PR branch had sanitized them. Search logging expressions after each merge and log availability or hashed identifiers instead.

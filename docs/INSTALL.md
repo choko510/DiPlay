@@ -5,6 +5,8 @@
 3. Open DiPlay. Grant the permissions requested for the features you use: Bluetooth/Nearby devices, Wi-Fi/Location on older Android, and microphone for Siri/calls. Allow notifications for connection controls.
 4. Close other phone-projection apps before connecting.
 
+The existing v0.2.0 release is a universal APK. Builds from this source produce one APK per ABI to keep GeckoView's native libraries out of downloads for other CPU architectures. For ABI-split releases, install the package matching the head unit: `arm64-v8a`, `armeabi-v7a` or `x86_64`.
+
 ## Wireless
 
 Android 10+ and functioning Wi-Fi Direct are required. Pair your iPhone through the car's Bluetooth settings, keep Bluetooth and Wi-Fi enabled, then choose **Connect phone** in DiPlay. Select your paired iPhone and allow CarPlay on the phone if prompted. **Choose iPhone** changes the selected paired device. No manual MAC address entry or ADB setup is needed.

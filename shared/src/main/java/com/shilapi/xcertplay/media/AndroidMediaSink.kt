@@ -49,13 +49,13 @@ class AndroidMediaSink(
     onScreenStreamActiveChanged: ((Int, Boolean) -> Unit)? = null,
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
     private val onAudioDiagnostic: (String) -> Unit = {},
-    onVideoFrameRendered: ((Int) -> Unit)? = null,
+    onVideoFrameSubmittedToSurface: ((Int) -> Unit)? = null,
 ) : MediaSink {
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
     private val defaultSurface = surface
     @Volatile private var screenStreamActiveChanged = onScreenStreamActiveChanged
-    @Volatile private var videoFrameRendered = onVideoFrameRendered
+    @Volatile private var videoFrameSubmittedToSurface = onVideoFrameSubmittedToSurface
     private val surfaces = ConcurrentHashMap<Int, Surface>()
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRenderer>()
@@ -103,8 +103,8 @@ class AndroidMediaSink(
         }
     }
 
-    fun setVideoFrameRenderedListener(listener: ((Int) -> Unit)?) {
-        videoFrameRendered = listener
+    fun setVideoFrameSubmittedToSurfaceListener(listener: ((Int) -> Unit)?) {
+        videoFrameSubmittedToSurface = listener
     }
 
     override fun onVideoCodec(type: Int, codec: VideoCodec) {
@@ -183,7 +183,7 @@ class AndroidMediaSink(
                 preferSoftwareHevcDecoder,
                 requestKeyFrame = { requestVideoRecovery(type) },
                 report = { videoDiagnosticHandlers[type]?.invoke(it) },
-                onFirstFrameRendered = { videoFrameRendered?.invoke(type) },
+                onFirstFrameSubmittedToSurface = { videoFrameSubmittedToSurface?.invoke(type) },
             )
         }
 
@@ -212,14 +212,14 @@ private class VideoDecoder(
     private val preferSoftwareHevcDecoder: Boolean,
     private val requestKeyFrame: () -> Unit,
     private val report: (String) -> Unit,
-    private val onFirstFrameRendered: () -> Unit,
+    private val onFirstFrameSubmittedToSurface: () -> Unit,
 ) : Closeable {
     private val queue = VideoDecodeQueue()
     @Volatile private var running = true
     @Volatile private var decoder: MediaCodec? = null
     private var outputSurface: Surface? = surface
     private var lastConfig: VideoJob.Config? = null
-    private var renderedFrameLogged = false
+    private var submittedFrameToSurfaceLogged = false
     private var submittedFrameLogged = false
     private var duplicateConfigLogged = false
     private val referenceChain = VideoReferenceChain()
@@ -319,7 +319,7 @@ private class VideoDecoder(
             report("decoder configuration failed mime=$mime size=${width}x$height")
         }
         decoder = next
-        renderedFrameLogged = false
+        submittedFrameToSurfaceLogged = false
         submittedFrameLogged = false
         if (next != null) {
             report("decoder=${next.name} mime=$mime size=${width}x$height")
@@ -487,14 +487,14 @@ private class VideoDecoder(
                 index == MediaCodec.INFO_TRY_AGAIN_LATER -> return
                 index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> logOutputFormat(codec.outputFormat)
                 index >= 0 -> {
-                    val render = outputSurface != null
-                    codec.releaseOutputBuffer(index, render)
-                    if (render) stats.onRendered()
-                    if (render && !renderedFrameLogged) {
-                        renderedFrameLogged = true
-                        onFirstFrameRendered()
-                        report("first frame rendered")
-                        Log.i(TAG, "video decoder rendered first frame bytes=${info.size}")
+                    val submitToSurface = outputSurface != null
+                    codec.releaseOutputBuffer(index, submitToSurface)
+                    if (submitToSurface) stats.onSubmittedToSurface()
+                    if (submitToSurface && !submittedFrameToSurfaceLogged) {
+                        submittedFrameToSurfaceLogged = true
+                        onFirstFrameSubmittedToSurface()
+                        report("first frame submitted to surface")
+                        Log.i(TAG, "video decoder submitted first frame to surface bytes=${info.size}")
                     }
                     if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
                 }

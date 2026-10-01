@@ -22,6 +22,11 @@ internal enum class SplitPerformanceCounter(val label: String) {
     PROFILE_RESOLUTIONS("profile_resolutions"),
     SHARED_PREFERENCES_WRITES("youtube_profile_preferences_writes"),
     WARM_SESSION_REOPENS("warm_session_reopens"),
+    GECKO_PAINT_STATUS_RESETS("paint_status_reset_count"),
+    GECKO_FIRST_COMPOSITES("first_composite_count"),
+    GECKO_FIRST_CONTENTFUL_PAINTS("first_contentful_paint_count"),
+    SPLIT_VISIBLE_PAINT_COMPLETIONS("visible_paint_completed_count"),
+    SPLIT_VISIBLE_PAINT_TIMEOUTS("visible_paint_timeout_count"),
 }
 
 internal object SplitPerformanceTracer {

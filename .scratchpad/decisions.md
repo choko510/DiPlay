@@ -203,4 +203,8 @@ Benchmark build types inherit release, use debug signing and are profileable wit
 
 ## Keep warm-reopen instrumentation aligned with actual activation
 
-Start the warm-reopen span around `GeckoSession.setActive(true)` after the view has been made visible, not during identity resolution or an inactive call. Keep Gecko page-load stop, visible Gecko paint and first rendered CarPlay video frame as separate endpoints.
+Start the warm-reopen span around `GeckoSession.setActive(true)` after the view has been made visible, not during identity resolution or an inactive call. Keep Gecko page-load stop, visible Gecko paint and first main CarPlay output submission as separate endpoints.
+
+## Gate Gecko UI updates on the current active presentation
+
+Keep progress and navigation state from the current suspended session internally, but publish to the Activity only when the controller is active and the callback's session is still current. Publish the latest cached state once after `setActive(true)` succeeds. Treat MediaCodec `releaseOutputBuffer(true)` as submission to a render surface, and close a missing-paint trace as a diagnostic timeout rather than success.

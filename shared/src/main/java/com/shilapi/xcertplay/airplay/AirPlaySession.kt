@@ -28,7 +28,7 @@ data class AirPlayDeviceInfo(
 interface AirPlaySessionListener {
     fun onSessionActive(session: AirPlaySession) {}
     fun onSessionEnded(session: AirPlaySession) {}
-    fun onVideoFrameRendered(session: AirPlaySession) {}
+    fun onVideoFrameSubmittedToSurface(session: AirPlaySession) {}
     fun onTransportStopping(message: String) {}
     fun onTransportError(message: String) {}
     fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {}
@@ -83,7 +83,7 @@ class AirPlaySession(
     private var eventCseq = 0
     private var pendingNightMode: Boolean? = null
     private val firstTouchSendLogged = AtomicBoolean(false)
-    private val firstVideoFrameRendered = AtomicBoolean(false)
+    private val firstVideoFrameSubmittedToSurface = AtomicBoolean(false)
     private val touchSendFailureLogged = AtomicBoolean(false)
     private val controlEncryptionObserved = AtomicBoolean(false)
     private val ntp = NtpClock()
@@ -111,12 +111,12 @@ class AirPlaySession(
 
     internal fun logDebug(message: String) = debugLog(message)
 
-    internal fun videoFrameRendered() {
+    internal fun videoFrameSubmittedToSurface() {
         if (!closed.get()) {
-            if (firstVideoFrameRendered.compareAndSet(false, true)) {
-                runCatching { listener.onConnectionTrace(ConnectionTraceStage.FIRST_FRAME_RENDERED) }
+            if (firstVideoFrameSubmittedToSurface.compareAndSet(false, true)) {
+                runCatching { listener.onConnectionTrace(ConnectionTraceStage.FIRST_FRAME_SUBMITTED_TO_SURFACE) }
             }
-            listener.onVideoFrameRendered(this)
+            listener.onVideoFrameSubmittedToSurface(this)
         }
     }
 

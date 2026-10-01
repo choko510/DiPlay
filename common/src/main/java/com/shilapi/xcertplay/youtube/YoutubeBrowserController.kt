@@ -29,6 +29,7 @@ internal class YoutubeBrowserController(
     private val onCanGoBackChanged: (Boolean) -> Unit,
     private val onFullscreenChanged: (Boolean) -> Unit,
     private val onFirstVisiblePaint: () -> Unit,
+    private val onVisiblePaintTimeout: () -> Unit,
 ) {
     val view = GeckoView(context)
 
@@ -37,7 +38,12 @@ internal class YoutubeBrowserController(
     private var popupSession: GeckoSession? = null
     private var session: GeckoSession? = null
     private var profile: YoutubeDeviceProfile? = null
-    private var canGoBack = false
+    private val uiStatePublisher = YoutubeBrowserUiStatePublisher(
+        onLoadStateChanged = onLoadStateChanged,
+        onCanGoBackChanged = onCanGoBackChanged,
+    )
+    private val canGoBack: Boolean
+        get() = uiStatePublisher.canGoBack
     private var primaryCanGoBack = false
     private var popupCanGoBack = false
     private var primaryLoadState = YoutubeLoadState.LOADING
@@ -51,6 +57,9 @@ internal class YoutubeBrowserController(
     private var paintStatusResetObserved = false
     private var resumedFromSuspendedSession = false
 
+    val isSuspendedForReuse: Boolean
+        get() = lifecycle == YoutubeBrowserLifecycle.SUSPENDED
+
     fun open(deviceProfile: YoutubeDeviceProfile) {
         when (
             YoutubeBrowserSessionReusePolicy.decide(
@@ -62,16 +71,13 @@ internal class YoutubeBrowserController(
             )
         ) {
             YoutubeBrowserOpenDecision.PRESERVE_ACTIVE_SESSION -> {
-                session?.setActive(active)
+                setActive(active)
                 return
             }
             YoutubeBrowserOpenDecision.REACTIVATE_SUSPENDED_SESSION -> {
-                lifecycle = YoutubeBrowserLifecycle.ACTIVE
+                setLifecycle(YoutubeBrowserLifecycle.ACTIVE)
                 warmSessionReopenPending = true
                 awaitingVisiblePaint = true
-                SplitPerformanceTracer.increment(SplitPerformanceCounter.WARM_SESSION_REOPENS)
-                onCanGoBackChanged(primaryCanGoBack)
-                onLoadStateChanged(primaryLoadState)
                 return
             }
             YoutubeBrowserOpenDecision.CREATE_SESSION -> Unit
@@ -79,7 +85,8 @@ internal class YoutubeBrowserController(
         }
 
         closeSession()
-        lifecycle = YoutubeBrowserLifecycle.ACTIVE
+        setLifecycle(YoutubeBrowserLifecycle.ACTIVE)
+        uiStatePublisher.invalidatePublishedState()
         warmSessionReopenPending = false
         profile = deviceProfile
         crashed = false
@@ -88,7 +95,7 @@ internal class YoutubeBrowserController(
         resumedFromSuspendedSession = false
         setCanGoBack(false)
         primaryLoadState = YoutubeLoadState.LOADING
-        onLoadStateChanged(YoutubeLoadState.LOADING)
+        uiStatePublisher.updateLoadState(YoutubeLoadState.LOADING)
         try {
             val geckoRuntime = runtime ?: YoutubeGeckoRuntimeProvider.get(view.context).also {
                 runtime = it
@@ -116,7 +123,7 @@ internal class YoutubeBrowserController(
 
     fun suspendForReuse() {
         if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
-        lifecycle = YoutubeBrowserLifecycle.SUSPENDED
+        setLifecycle(YoutubeBrowserLifecycle.SUSPENDED)
         warmSessionReopenPending = false
         resumedFromSuspendedSession = true
         active = false
@@ -137,16 +144,38 @@ internal class YoutubeBrowserController(
         }
         if (isActive && !active && primarySession != null) awaitingVisiblePaint = true
         val traceWarmReopen = isActive && warmSessionReopenPending
-        active = isActive
+        val wasActive = active
+        if (!isActive) {
+            active = false
+            uiStatePublisher.setActive(false)
+        }
         val activateSessions = {
             primarySession?.setActive(isActive && popupSession == null)
             popupSession?.setActive(isActive)
         }
-        if (traceWarmReopen) {
-            SplitPerformanceTracer.section("diplay.split.warm_reopen", activateSessions)
-            warmSessionReopenPending = false
+        try {
+            if (traceWarmReopen) {
+                SplitPerformanceTracer.section("diplay.split.warm_reopen", activateSessions)
+            } else {
+                activateSessions()
+            }
+        } catch (_: RuntimeException) {
+            Log.w(TAG, "Gecko session activation failed")
+            return
+        } catch (_: LinkageError) {
+            Log.w(TAG, "Gecko session activation failed")
+            return
+        }
+        if (isActive) {
+            active = true
+            uiStatePublisher.setActive(true)
+            if (traceWarmReopen) {
+                warmSessionReopenPending = false
+                SplitPerformanceTracer.increment(SplitPerformanceCounter.WARM_SESSION_REOPENS)
+            }
+            if (!wasActive || awaitingVisiblePaint) scheduleVisiblePaintTimeout()
         } else {
-            activateSessions()
+            cancelVisiblePaintTimeout()
         }
     }
 
@@ -175,12 +204,13 @@ internal class YoutubeBrowserController(
 
     fun destroy() {
         if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
-        lifecycle = YoutubeBrowserLifecycle.DESTROYED
+        setLifecycle(YoutubeBrowserLifecycle.DESTROYED)
         warmSessionReopenPending = false
         active = false
+        uiStatePublisher.setActive(false)
+        cancelVisiblePaintTimeout()
         closeSession()
         profile = null
-        onCanGoBackChanged(false)
     }
 
     private fun createSession(deviceProfile: YoutubeDeviceProfile): GeckoSession {
@@ -197,6 +227,7 @@ internal class YoutubeBrowserController(
     private fun configureDelegates(geckoSession: GeckoSession) {
         geckoSession.setContentDelegate(object : GeckoSession.ContentDelegate {
             override fun onFirstComposite(session: GeckoSession) {
+                SplitPerformanceTracer.increment(SplitPerformanceCounter.GECKO_FIRST_COMPOSITES)
                 if (
                     session === primarySession &&
                     primaryLoadState == YoutubeLoadState.READY &&
@@ -207,15 +238,19 @@ internal class YoutubeBrowserController(
             }
 
             override fun onFirstContentfulPaint(session: GeckoSession) {
+                SplitPerformanceTracer.increment(SplitPerformanceCounter.GECKO_FIRST_CONTENTFUL_PAINTS)
                 completeVisiblePaint(session)
             }
 
             override fun onPaintStatusReset(session: GeckoSession) {
+                SplitPerformanceTracer.increment(SplitPerformanceCounter.GECKO_PAINT_STATUS_RESETS)
                 if (session === primarySession) paintStatusResetObserved = true
             }
 
             override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
-                if (isCurrentSession(session)) onFullscreenChanged(fullScreen)
+                if (isCurrentSession(session) && canPublishUiState(isCurrentSession(session))) {
+                    onFullscreenChanged(fullScreen)
+                }
             }
 
             override fun onCrash(session: GeckoSession) {
@@ -292,7 +327,7 @@ internal class YoutubeBrowserController(
                     primarySession -> primaryCanGoBack = canGoBack
                     popupSession -> popupCanGoBack = canGoBack
                 }
-                if (isCurrentSession(session)) setCanGoBack(canGoBack)
+                if (isCurrentSession(session)) setCanGoBack(canGoBack, session)
             }
 
             override fun onNewSession(session: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
@@ -378,30 +413,38 @@ internal class YoutubeBrowserController(
                 }
             }
             setCanGoBack(primaryCanGoBack)
-            onFullscreenChanged(false)
+            if (canPublishUiState(isCurrentSession = true)) onFullscreenChanged(false)
             if (restoreLoadState) {
-                if (primarySession != null) {
-                    onLoadStateChanged(primaryLoadState)
-                } else {
-                    onLoadStateChanged(YoutubeLoadState.ERROR)
-                }
+                uiStatePublisher.updateLoadState(
+                    if (primarySession != null) primaryLoadState else YoutubeLoadState.ERROR,
+                    isCurrentSession = true,
+                )
             }
         }
     }
 
     private fun onSessionCrashed(crashedSession: GeckoSession) {
+        val wasCurrent = isCurrentSession(crashedSession)
         when {
             popupSession === crashedSession -> {
                 closePopupSession(crashedSession, restoreLoadState = false)
-                onLoadStateChanged(YoutubeCrashLoadStatePolicy.afterPopupCrash(primaryLoadState))
+                uiStatePublisher.updateLoadState(
+                    YoutubeCrashLoadStatePolicy.afterPopupCrash(primaryLoadState),
+                    isCurrentSession = wasCurrent,
+                )
                 Log.w(TAG, "Gecko popup content process stopped")
             }
             primarySession === crashedSession -> {
+                val presentationActive = canPublishUiState(isCurrentSession = true)
                 closeSession()
                 crashed = true
+                primaryLoadState = YoutubeCrashLoadStatePolicy.afterPrimaryCrash()
                 setCanGoBack(false)
-                onFullscreenChanged(false)
-                onLoadStateChanged(YoutubeCrashLoadStatePolicy.afterPrimaryCrash())
+                if (presentationActive) onFullscreenChanged(false)
+                uiStatePublisher.updateLoadState(
+                    primaryLoadState,
+                    isCurrentSession = wasCurrent || presentationActive,
+                )
                 Log.w(TAG, "Gecko content process stopped")
             }
         }
@@ -412,27 +455,36 @@ internal class YoutubeBrowserController(
     private fun isKnownSession(candidate: GeckoSession): Boolean =
         primarySession === candidate || popupSession === candidate
 
-    private fun setCanGoBack(value: Boolean) {
-        if (canGoBack == value) return
-        canGoBack = value
-        onCanGoBackChanged(value)
+    private fun setCanGoBack(value: Boolean, owner: GeckoSession? = null) {
+        if (owner != null && !isKnownSession(owner)) return
+        uiStatePublisher.updateCanGoBack(
+            value,
+            isCurrentSession = owner == null || isCurrentSession(owner),
+        )
     }
 
     private fun setSessionLoadState(owner: GeckoSession, state: YoutubeLoadState) {
         when (owner) {
-            primarySession -> primaryLoadState = state
+            primarySession -> {
+                primaryLoadState = state
+                if (state == YoutubeLoadState.ERROR) cancelVisiblePaintTimeout()
+            }
             popupSession -> Unit
+            else -> return
         }
-        if (isCurrentSession(owner)) onLoadStateChanged(state)
+        uiStatePublisher.updateLoadState(state, isCurrentSession(owner))
     }
 
     private fun onOpenFailed() {
         closeSession()
-        onLoadStateChanged(YoutubeLoadState.ERROR)
+        primaryLoadState = YoutubeLoadState.ERROR
+        uiStatePublisher.updateCanGoBack(false)
+        uiStatePublisher.updateLoadState(YoutubeLoadState.ERROR)
         Log.w(TAG, "Gecko session could not open")
     }
 
     private fun closeSession() {
+        cancelVisiblePaintTimeout()
         finishPageReadyTrace()
         val sessions = listOfNotNull(primarySession, popupSession).distinct()
         primarySession = null
@@ -478,10 +530,42 @@ internal class YoutubeBrowserController(
         ) {
             return
         }
+        cancelVisiblePaintTimeout()
         awaitingVisiblePaint = false
         paintStatusResetObserved = false
         resumedFromSuspendedSession = false
+        SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_VISIBLE_PAINT_COMPLETIONS)
         onFirstVisiblePaint()
+    }
+
+    private fun canPublishUiState(isCurrentSession: Boolean): Boolean =
+        uiStatePublisher.shouldPublish(isCurrentSession)
+
+    private fun setLifecycle(value: YoutubeBrowserLifecycle) {
+        lifecycle = value
+        uiStatePublisher.setLifecycle(value)
+    }
+
+    private fun scheduleVisiblePaintTimeout() {
+        cancelVisiblePaintTimeout()
+        if (
+            !SplitPerformanceTracer.enabled || !awaitingVisiblePaint ||
+            lifecycle != YoutubeBrowserLifecycle.ACTIVE || !active || session == null
+        ) {
+            return
+        }
+        view.postDelayed(visiblePaintTimeout, VISIBLE_PAINT_TIMEOUT_MILLIS)
+    }
+
+    fun cancelVisiblePaintTimeout() {
+        view.removeCallbacks(visiblePaintTimeout)
+    }
+
+    private val visiblePaintTimeout = Runnable {
+        if (!awaitingVisiblePaint || lifecycle != YoutubeBrowserLifecycle.ACTIVE || !active || session == null) return@Runnable
+        SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_VISIBLE_PAINT_TIMEOUTS)
+        SplitPerformanceTracer.section("diplay.split.total.paint_missing") {}
+        onVisiblePaintTimeout()
     }
 
     private inline fun cleanup(operation: String, action: () -> Unit) {
@@ -497,6 +581,7 @@ internal class YoutubeBrowserController(
     private companion object {
         const val YOUTUBE_URL = "https://m.youtube.com/"
         const val LOG_PROFILE_PREFIX_LENGTH = 12
+        const val VISIBLE_PAINT_TIMEOUT_MILLIS = 10_000L
         const val TAG = "DiPlayYouTube"
     }
 }

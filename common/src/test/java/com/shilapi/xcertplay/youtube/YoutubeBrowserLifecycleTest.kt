@@ -13,7 +13,7 @@ class YoutubeBrowserLifecycleTest {
     }
 
     @Test
-    fun activePopupSameProfileKeepsCurrentSessionAndBackState() {
+    fun activeOpenDecisionPreservesTheSelectedSession() {
         assertEquals(
             YoutubeBrowserOpenDecision.PRESERVE_ACTIVE_SESSION,
             decide(lifecycle = YoutubeBrowserLifecycle.ACTIVE),

@@ -177,3 +177,7 @@ Native string lookups are invisible to R8. Ship a targeted consumer rule from th
 ## Do not time a UI or transport milestone at request submission
 
 Use Gecko's content paint/compositor callbacks after activation for split presentation and the decoder's first main-output submission for CarPlay recovery. Keep page-load stop and controller `start()` request as separate earlier milestones.
+
+## Suppress stale Gecko UI callbacks during profile revalidation
+
+Gecko can deliver page-stop and process-crash callbacks after a session becomes inactive. Session identity alone does not protect the host UI; also gate on controller lifecycle and activation, cache valid current-session state, and republish it only after successful reactivation.

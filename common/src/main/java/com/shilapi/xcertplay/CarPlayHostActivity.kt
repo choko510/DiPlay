@@ -844,6 +844,18 @@ class CarPlayHostActivity : ComponentActivity() {
         super.onPause()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (
+            level >= TRIM_MEMORY_RUNNING_CRITICAL_LEVEL &&
+            hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT &&
+            youtubeBrowser?.isSuspendedForReuse == true
+        ) {
+            Log.i(TAG, "Discarding suspended YouTube session under memory pressure")
+            destroyYoutubeBrowser()
+        }
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
@@ -898,7 +910,7 @@ class CarPlayHostActivity : ComponentActivity() {
             CarPlayBackgroundSession.releaseRestartOwner(this)
             restartHandoffToken = null
         }
-        sink?.setVideoFrameRenderedListener(null)
+        sink?.setVideoFrameSubmittedToSurfaceListener(null)
         destroyYoutubeBrowser()
         currentSurface?.let { surface ->
             sink?.clearSurface(SCREEN_TYPE_MAIN, surface)
@@ -1285,6 +1297,7 @@ class CarPlayHostActivity : ComponentActivity() {
             onCanGoBackChanged = { canGoBack -> youtubeBackButton?.isEnabled = canGoBack },
             onFullscreenChanged = ::setYoutubeFullscreen,
             onFirstVisiblePaint = ::onYoutubeFirstVisiblePaint,
+            onVisiblePaintTimeout = ::onYoutubeVisiblePaintTimedOut,
         )
     } catch (_: RuntimeException) {
         showYoutubeStatus(R.string.youtube_load_error)
@@ -1324,7 +1337,14 @@ class CarPlayHostActivity : ComponentActivity() {
         finishSplitTrace()
     }
 
+    private fun onYoutubeVisiblePaintTimedOut() {
+        if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) return
+        Log.w(TAG, "YouTube split visible paint was not observed before the diagnostic timeout")
+        finishSplitTrace()
+    }
+
     private fun finishSplitTrace() {
+        youtubeBrowser?.cancelVisiblePaintTimeout()
         SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
         splitTraceCookie = null
     }
@@ -3746,8 +3766,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 onScreenStreamStateChanged(controllerGeneration, type, active)
             },
             mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this),
-            onVideoFrameRendered = { type ->
-                onVideoFrameRendered(controllerGeneration, type)
+            onVideoFrameSubmittedToSurface = { type ->
+                onVideoFrameSubmittedToSurface(controllerGeneration, type)
             },
             onAudioDiagnostic = { message ->
                 diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
@@ -3949,8 +3969,8 @@ class CarPlayHostActivity : ComponentActivity() {
         snapshot.sink.setScreenStreamActiveChangedListener { type, active ->
             onScreenStreamStateChanged(restartGeneration, type, active)
         }
-        snapshot.sink.setVideoFrameRenderedListener { type ->
-            onVideoFrameRendered(generation, type)
+        snapshot.sink.setVideoFrameSubmittedToSurfaceListener { type ->
+            onVideoFrameSubmittedToSurface(generation, type)
         }
         currentSurface?.let(::attachSurface)
         val serviceReused = snapshot.controller.hasActiveAirPlayAttachment()
@@ -4260,7 +4280,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val generation = ++restartGeneration
         handshakeResetInProgress = true
         val oldSink = sink
-        oldSink?.setVideoFrameRenderedListener(null)
+        oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
         controller = null
         sink = null
         teardownExecutor.execute {
@@ -4384,7 +4404,7 @@ class CarPlayHostActivity : ComponentActivity() {
         scheduledReconnectReason = null
         val oldController = controller
         val oldSink = sink
-        oldSink?.setVideoFrameRenderedListener(null)
+        oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
         CarPlayBackgroundSession.clear(oldController)
         controller = null
         sink = null
@@ -4498,7 +4518,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
-    private fun onVideoFrameRendered(generation: Int, type: Int) {
+    private fun onVideoFrameSubmittedToSurface(generation: Int, type: Int) {
         if (type != SCREEN_TYPE_MAIN) return
         runOnUiThread {
             if (shuttingDown.get() || generation != restartGeneration) return@runOnUiThread
@@ -4650,6 +4670,8 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private companion object {
         const val TAG = "xcertplay-usb"
+        // Android's running-critical trim level stays 15, though the SDK constant is deprecated.
+        private const val TRIM_MEMORY_RUNNING_CRITICAL_LEVEL = 15
         private const val STATE_YOUTUBE_SPLIT = "host.youtube_split"
         private const val STATE_CARPLAY_FRACTION = "host.carplay_fraction"
         private const val PROFILE_IDENTITY_TIMEOUT_MILLIS = 5_000L

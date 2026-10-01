@@ -24,6 +24,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Unit tests, lint and debug/optimized builds
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --stacktrace
+      - name: Verify JNI names survive R8
+        run: python3 scripts/check_jni_mapping.py
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4

@@ -1,34 +1,47 @@
 package com.shilapi.xcertplay.youtube
 
 internal class YoutubeVisiblePaintResumeState {
-    private var primaryWasSuspended = false
+    private var suspensionGeneration = 0L
+    private var resetGeneration: Long? = null
+    private var requiredResetGeneration: Long? = null
+    private var suspended = false
 
-    var paintStatusResetObserved = false
-        private set
+    val paintStatusResetObserved: Boolean
+        get() = resetGeneration == suspensionGeneration
 
     fun startNewSession() {
-        primaryWasSuspended = false
-        paintStatusResetObserved = false
+        suspensionGeneration = 0L
+        resetGeneration = null
+        requiredResetGeneration = null
+        suspended = false
     }
 
     fun markSuspended() {
-        if (!primaryWasSuspended) paintStatusResetObserved = false
-        primaryWasSuspended = true
+        if (suspended) return
+        suspensionGeneration += 1
+        requiredResetGeneration = suspensionGeneration
+        suspended = true
     }
 
     fun beginWarmReopen() {
-        primaryWasSuspended = true
+        requiredResetGeneration = suspensionGeneration
+    }
+
+    fun markActive() {
+        suspended = false
     }
 
     fun observePaintStatusReset() {
-        paintStatusResetObserved = true
+        resetGeneration = suspensionGeneration
     }
 
-    fun allowsPaint(isPrimarySession: Boolean): Boolean =
-        !isPrimarySession || !primaryWasSuspended || paintStatusResetObserved
+    fun allowsPaint(isPrimarySession: Boolean): Boolean {
+        if (!isPrimarySession) return true
+        val requiredGeneration = requiredResetGeneration ?: return true
+        return resetGeneration == requiredGeneration
+    }
 
     fun finishMeasurement() {
-        primaryWasSuspended = false
-        paintStatusResetObserved = false
+        requiredResetGeneration = null
     }
 }

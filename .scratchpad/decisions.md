@@ -215,4 +215,4 @@ Treat paint completion, timeout and cancellation as mutually exclusive terminal 
 
 ## Preserve paint-reset evidence through warm activation
 
-Keep a primary-session `onPaintStatusReset()` observed while suspended through the matching warm reopen; clear that evidence only on a new session, a completed/canceled measurement, or the start of a distinct suspension. Start the timeout deadline on first activation and carry its absolute elapsed-realtime value across pause/resume and repeated same-profile opens.
+Tag each primary-session `onPaintStatusReset()` with the current suspension generation. A measurement ending must not erase session evidence; a new distinct suspension advances the generation so older reset events cannot authorize its paint. Cold session creation starts a fresh generation. Start the timeout deadline on first activation and carry its absolute elapsed-realtime value across pause/resume and repeated same-profile opens.

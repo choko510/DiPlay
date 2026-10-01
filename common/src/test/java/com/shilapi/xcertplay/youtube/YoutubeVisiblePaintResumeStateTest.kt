@@ -6,12 +6,13 @@ import org.junit.Test
 
 class YoutubeVisiblePaintResumeStateTest {
     @Test
-    fun resetDuringSuspensionIsPreservedForWarmActivation() {
+    fun profileTimeoutWhileSuspendedPreservesResetEvidence() {
         val state = YoutubeVisiblePaintResumeState()
         state.startNewSession()
         state.markSuspended()
         state.observePaintStatusReset()
 
+        state.finishMeasurement()
         state.beginWarmReopen()
 
         assertTrue(state.paintStatusResetObserved)
@@ -19,14 +20,16 @@ class YoutubeVisiblePaintResumeStateTest {
     }
 
     @Test
-    fun warmPaintAfterSuspensionResetCompletesMeasurement() {
+    fun lateProfileResolutionAfterTimeoutCanUseSuspensionReset() {
         val state = YoutubeVisiblePaintResumeState()
-        val measurement = YoutubeVisiblePaintMeasurement()
         state.startNewSession()
         state.markSuspended()
         state.observePaintStatusReset()
-        measurement.begin()
+        state.finishMeasurement()
+        val measurement = YoutubeVisiblePaintMeasurement()
+
         state.beginWarmReopen()
+        measurement.begin()
 
         val completed = state.allowsPaint(isPrimarySession = true) && measurement.complete()
 
@@ -34,17 +37,54 @@ class YoutubeVisiblePaintResumeStateTest {
     }
 
     @Test
-    fun warmPaintWithoutResetIsRejected() {
+    fun resumeWithoutMeasurementConsumesOldSuspensionEvidence() {
         val state = YoutubeVisiblePaintResumeState()
         state.startNewSession()
         state.markSuspended()
-        state.beginWarmReopen()
+        state.observePaintStatusReset()
+        state.finishMeasurement()
+        state.markActive()
 
+        state.markSuspended()
+
+        assertFalse(state.paintStatusResetObserved)
         assertFalse(state.allowsPaint(isPrimarySession = true))
     }
 
     @Test
-    fun resetArrivingAfterWarmBeginThenPaintCompletes() {
+    fun secondSuspensionRequiresANewReset() {
+        val state = YoutubeVisiblePaintResumeState()
+        state.startNewSession()
+        state.markSuspended()
+        state.observePaintStatusReset()
+        state.beginWarmReopen()
+        state.markActive()
+
+        state.markSuspended()
+
+        assertFalse(state.paintStatusResetObserved)
+        assertFalse(state.allowsPaint(isPrimarySession = true))
+    }
+
+    @Test
+    fun oldResetCannotAuthorizePaintForNewSuspension() {
+        val state = YoutubeVisiblePaintResumeState()
+        state.startNewSession()
+        state.markSuspended()
+        state.observePaintStatusReset()
+        state.beginWarmReopen()
+        state.markActive()
+        state.markSuspended()
+
+        assertFalse(state.allowsPaint(isPrimarySession = true))
+
+        state.observePaintStatusReset()
+
+        assertTrue(state.allowsPaint(isPrimarySession = true))
+    }
+
+    @Test
+    fun currentSuspensionResetAuthorizesWarmPaint() {
         val state = YoutubeVisiblePaintResumeState()
         state.startNewSession()
         state.markSuspended()
@@ -59,23 +99,12 @@ class YoutubeVisiblePaintResumeStateTest {
     @Test
     fun coldSessionDoesNotInheritPreviousReset() {
         val state = YoutubeVisiblePaintResumeState()
-        state.markSuspended()
+        state.startNewSession()
         state.observePaintStatusReset()
 
         state.startNewSession()
 
         assertFalse(state.paintStatusResetObserved)
-        assertTrue(state.allowsPaint(isPrimarySession = true))
-    }
-
-    @Test
-    fun paintStatusResetInColdSessionRemainsAvailableForComposite() {
-        val state = YoutubeVisiblePaintResumeState()
-        state.startNewSession()
-
-        state.observePaintStatusReset()
-
-        assertTrue(state.paintStatusResetObserved)
         assertTrue(state.allowsPaint(isPrimarySession = true))
     }
 }

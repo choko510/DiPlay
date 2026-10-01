@@ -165,6 +165,7 @@ internal class YoutubeBrowserController(
             return
         }
         if (isActive) {
+            visiblePaintResumeState.markActive()
             active = true
             uiStatePublisher.setActive(true)
             if (traceWarmReopen) {

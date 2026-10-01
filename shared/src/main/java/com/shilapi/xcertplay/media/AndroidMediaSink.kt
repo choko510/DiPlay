@@ -49,11 +49,13 @@ class AndroidMediaSink(
     onScreenStreamActiveChanged: ((Int, Boolean) -> Unit)? = null,
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
     private val onAudioDiagnostic: (String) -> Unit = {},
+    onVideoFrameRendered: ((Int) -> Unit)? = null,
 ) : MediaSink {
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
     private val defaultSurface = surface
     @Volatile private var screenStreamActiveChanged = onScreenStreamActiveChanged
+    @Volatile private var videoFrameRendered = onVideoFrameRendered
     private val surfaces = ConcurrentHashMap<Int, Surface>()
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRenderer>()
@@ -99,6 +101,10 @@ class AndroidMediaSink(
             screenStreamActiveChanged = listener
             activeScreenTypes.forEach { listener?.invoke(it, true) }
         }
+    }
+
+    fun setVideoFrameRenderedListener(listener: ((Int) -> Unit)?) {
+        videoFrameRendered = listener
     }
 
     override fun onVideoCodec(type: Int, codec: VideoCodec) {
@@ -177,6 +183,7 @@ class AndroidMediaSink(
                 preferSoftwareHevcDecoder,
                 requestKeyFrame = { requestVideoRecovery(type) },
                 report = { videoDiagnosticHandlers[type]?.invoke(it) },
+                onFirstFrameRendered = { videoFrameRendered?.invoke(type) },
             )
         }
 
@@ -205,6 +212,7 @@ private class VideoDecoder(
     private val preferSoftwareHevcDecoder: Boolean,
     private val requestKeyFrame: () -> Unit,
     private val report: (String) -> Unit,
+    private val onFirstFrameRendered: () -> Unit,
 ) : Closeable {
     private val queue = VideoDecodeQueue()
     @Volatile private var running = true
@@ -484,6 +492,7 @@ private class VideoDecoder(
                     if (render) stats.onRendered()
                     if (render && !renderedFrameLogged) {
                         renderedFrameLogged = true
+                        onFirstFrameRendered()
                         report("first frame rendered")
                         Log.i(TAG, "video decoder rendered first frame bytes=${info.size}")
                     }

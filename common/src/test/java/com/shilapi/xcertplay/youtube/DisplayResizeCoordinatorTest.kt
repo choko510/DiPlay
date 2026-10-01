@@ -49,4 +49,36 @@ class DisplayResizeCoordinatorTest {
         coordinator.observe(settledAfterKeyboard, imeVisible = false)
         assertEquals(settledAfterKeyboard, coordinator.latestDesiredSize(negotiated))
     }
+
+    @Test
+    fun resumedActivitySettlesSuppressedResizeOnlyWhenImeIsHidden() {
+        assertTrue(
+            ImeResizeResumePolicy.shouldScheduleSettleCheck(
+                imeVisible = false,
+                animationInProgress = false,
+                resizeSuppressed = true,
+            ),
+        )
+        assertTrue(
+            ImeResizeResumePolicy.shouldScheduleSettleCheck(
+                imeVisible = false,
+                animationInProgress = true,
+                resizeSuppressed = false,
+            ),
+        )
+        assertFalse(
+            ImeResizeResumePolicy.shouldScheduleSettleCheck(
+                imeVisible = true,
+                animationInProgress = true,
+                resizeSuppressed = true,
+            ),
+        )
+        assertFalse(
+            ImeResizeResumePolicy.shouldScheduleSettleCheck(
+                imeVisible = false,
+                animationInProgress = false,
+                resizeSuppressed = false,
+            ),
+        )
+    }
 }

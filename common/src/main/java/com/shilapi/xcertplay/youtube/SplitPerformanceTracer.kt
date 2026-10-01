@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.youtube
 
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Trace
 import java.util.concurrent.atomic.AtomicInteger
@@ -29,13 +30,38 @@ internal object SplitPerformanceTracer {
     private val nextCookie = AtomicInteger()
     private val counters = AtomicLongArray(SplitPerformanceCounter.entries.size)
 
+    @Volatile
+    private var configuredPackageName: String? = null
+
     @PublishedApi
     @Volatile
     internal var enabled = false
 
     fun configure(context: Context) {
-        enabled = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+        val packageName = context.packageName
+        if (configuredPackageName == packageName) return
+        synchronized(this) {
+            if (configuredPackageName == packageName) return
+            val debuggable = context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
+            val benchmarkOptIn = if (debuggable) {
+                false
+            } else {
+                try {
+                    context.packageManager
+                        .getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+                        .metaData
+                        ?.getBoolean(BENCHMARK_TRACE_METADATA, false) == true
+                } catch (_: PackageManager.NameNotFoundException) {
+                    false
+                }
+            }
+            enabled = shouldEnable(debuggable, benchmarkOptIn)
+            configuredPackageName = packageName
+        }
     }
+
+    internal fun shouldEnable(debuggable: Boolean, benchmarkOptIn: Boolean): Boolean =
+        debuggable || benchmarkOptIn
 
     fun increment(counter: SplitPerformanceCounter) {
         if (enabled) counters.incrementAndGet(counter.ordinal)
@@ -70,4 +96,7 @@ internal object SplitPerformanceTracer {
             "${counter.label}=${counters.get(counter.ordinal)}"
         }
     }
+
+    private const val BENCHMARK_TRACE_METADATA =
+        "com.shilapi.xcertplay.host.SPLIT_PERFORMANCE_TRACING"
 }

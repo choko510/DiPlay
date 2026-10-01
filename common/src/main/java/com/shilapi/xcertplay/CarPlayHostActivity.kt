@@ -91,6 +91,7 @@ import com.shilapi.xcertplay.youtube.DisplayResizeCoordinator
 import com.shilapi.xcertplay.youtube.DisplaySize
 import com.shilapi.xcertplay.youtube.HostLayoutMode
 import com.shilapi.xcertplay.youtube.HostLayoutState
+import com.shilapi.xcertplay.youtube.ImeResizeResumePolicy
 import com.shilapi.xcertplay.youtube.IphoneIdentityResolver
 import com.shilapi.xcertplay.youtube.SplitLayoutConfig
 import com.shilapi.xcertplay.youtube.SplitPerformanceCounter
@@ -510,6 +511,7 @@ class CarPlayHostActivity : ComponentActivity() {
             if (SystemClock.elapsedRealtime() - profileResolutionStartedElapsed >= PROFILE_IDENTITY_TIMEOUT_MILLIS) {
                 profileResolutionTimedOut = true
                 showYoutubeStatus(R.string.youtube_identity_error)
+                finishSplitTrace()
             } else {
                 mainHandler.postDelayed(this, PROFILE_IDENTITY_RETRY_INTERVAL_MILLIS)
             }
@@ -828,6 +830,7 @@ class CarPlayHostActivity : ComponentActivity() {
         wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
         maybeStartCarPlay()
         applyFullscreenMode()
+        reconcileImeResizeState()
         youtubeBrowser?.setActive(
             hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT &&
                 youtubeProfile != null &&
@@ -843,7 +846,10 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) applyFullscreenMode()
+        if (hasFocus) {
+            applyFullscreenMode()
+            reconcileImeResizeState()
+        }
     }
 
     override fun onStop() {
@@ -871,7 +877,7 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onDestroy() {
         SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
         SplitPerformanceTracer.endAsync("diplay.split.carplay_teardown", carPlayTeardownTraceCookie)
-        SplitPerformanceTracer.endAsync("diplay.split.carplay_restart", carPlayRestartTraceCookie)
+        finishCarPlayRestartTrace()
         splitTraceCookie = null
         carPlayTeardownTraceCookie = null
         carPlayRestartTraceCookie = null
@@ -892,6 +898,7 @@ class CarPlayHostActivity : ComponentActivity() {
             CarPlayBackgroundSession.releaseRestartOwner(this)
             restartHandoffToken = null
         }
+        sink?.setVideoFrameRenderedListener(null)
         destroyYoutubeBrowser()
         currentSurface?.let { surface ->
             sink?.clearSurface(SCREEN_TYPE_MAIN, surface)
@@ -1102,8 +1109,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val wasSplit = hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT
         if (wasSplit) {
             SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_EXITS)
-            SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
-            splitTraceCookie = null
+            finishSplitTrace()
         }
         splitCarPlayReadyForYoutube = false
         mainHandler.removeCallbacks(finishSplitYoutubeStartup)
@@ -1111,7 +1117,7 @@ class CarPlayHostActivity : ComponentActivity() {
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
         mainHandler.removeCallbacks(retryYoutubeProfileResolution)
         if (youtubeFullscreen) exitYoutubeFullscreen()
-        youtubeBrowser?.suspendForSplitExit()
+        youtubeBrowser?.suspendForReuse()
         profileResolutionTimedOut = false
         youtubeProfile = null
         YoutubeDeviceProfileManager.clearSplitSelection()
@@ -1278,23 +1284,22 @@ class CarPlayHostActivity : ComponentActivity() {
             onLoadStateChanged = ::onYoutubeLoadStateChanged,
             onCanGoBackChanged = { canGoBack -> youtubeBackButton?.isEnabled = canGoBack },
             onFullscreenChanged = ::setYoutubeFullscreen,
+            onFirstVisiblePaint = ::onYoutubeFirstVisiblePaint,
         )
     } catch (_: RuntimeException) {
         showYoutubeStatus(R.string.youtube_load_error)
+        finishSplitTrace()
         Log.w(TAG, "GeckoView could not be created")
         null
     } catch (_: LinkageError) {
         showYoutubeStatus(R.string.youtube_load_error)
+        finishSplitTrace()
         Log.w(TAG, "GeckoView could not be created")
         null
     }
 
     private fun onYoutubeLoadStateChanged(state: YoutubeLoadState) {
         if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) return
-        if (state == YoutubeLoadState.READY || state == YoutubeLoadState.ERROR) {
-            SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
-            splitTraceCookie = null
-        }
         if (youtubeFullscreen && YoutubeFullscreenStatusPolicy.shouldExitFullscreen(state)) {
             exitYoutubeFullscreen()
         }
@@ -1307,8 +1312,26 @@ class CarPlayHostActivity : ComponentActivity() {
                 logYoutubeStartup("youtube-page-ready")
                 youtubeStatusView?.visibility = View.GONE
             }
-            YoutubeLoadState.ERROR -> showYoutubeStatus(R.string.youtube_load_error)
+            YoutubeLoadState.ERROR -> {
+                showYoutubeStatus(R.string.youtube_load_error)
+                finishSplitTrace()
+            }
         }
+    }
+
+    private fun onYoutubeFirstVisiblePaint() {
+        if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) return
+        finishSplitTrace()
+    }
+
+    private fun finishSplitTrace() {
+        SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
+        splitTraceCookie = null
+    }
+
+    private fun finishCarPlayRestartTrace() {
+        SplitPerformanceTracer.endAsync("diplay.split.carplay_restart", carPlayRestartTraceCookie)
+        carPlayRestartTraceCookie = null
     }
 
     private fun showYoutubeStatus(resourceId: Int) {
@@ -1367,6 +1390,23 @@ class CarPlayHostActivity : ComponentActivity() {
             showYoutubeStatus(R.string.youtube_waiting_for_iphone_profile)
             if (retryForCurrentSession) startYoutubeProfileResolution(resetTimeout = true)
         }
+    }
+
+    private fun suspendYoutubeForProfileRevalidation(previousSession: AirPlaySession?) {
+        if (youtubeFullscreen) exitYoutubeFullscreen()
+        youtubeBrowser?.let { browser ->
+            browser.view.visibility = View.GONE
+            browser.suspendForReuse()
+        }
+        youtubeProfile = null
+        profileResolutionTimedOut = false
+        YoutubeDeviceProfileManager.clearSplitSelection()
+        if (previousSession == null) {
+            YoutubeDeviceProfileManager.clearSessionCache()
+        } else {
+            YoutubeDeviceProfileManager.clearSessionCache(previousSession)
+        }
+        showYoutubeStatus(R.string.youtube_waiting_for_iphone_profile)
     }
 
     private fun destroyYoutubeBrowser() {
@@ -3627,6 +3667,22 @@ class CarPlayHostActivity : ComponentActivity() {
         return ViewCompat.getRootWindowInsets(window.decorView)?.let(::hasImeInsets) == true
     }
 
+    private fun reconcileImeResizeState() {
+        val insets = ViewCompat.getRootWindowInsets(window.decorView) ?: return
+        imeVisible = hasImeInsets(insets)
+        if (
+            ImeResizeResumePolicy.shouldScheduleSettleCheck(
+                imeVisible,
+                imeAnimationInProgress,
+                imeResizeSuppressed,
+            )
+        ) {
+            if (imeAnimationInProgress && !imeResizeSuppressed) ignoreImeDisplayResize()
+            imeAnimationInProgress = false
+            scheduleImeResizeCheck()
+        }
+    }
+
     private fun hasImeInsets(insets: WindowInsetsCompat): Boolean =
         insets.isVisible(WindowInsetsCompat.Type.ime()) ||
             insets.getInsets(WindowInsetsCompat.Type.ime()).bottom > 0
@@ -3690,6 +3746,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 onScreenStreamStateChanged(controllerGeneration, type, active)
             },
             mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this),
+            onVideoFrameRendered = { type ->
+                onVideoFrameRendered(controllerGeneration, type)
+            },
             onAudioDiagnostic = { message ->
                 diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
             },
@@ -3714,7 +3773,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     ) {
                         return@runOnUiThread
                     }
-                    val sessionChanged = activeAirPlaySession !== session
+                    val previousSession = activeAirPlaySession
+                    val sessionChanged = previousSession !== session
                     activeAirPlaySession = session
                     deviceInfoSession = session
                     connectedDeviceInfo = session.deviceInfo
@@ -3722,7 +3782,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     reconnectAttempts = 0
                     syncAirPlayDarkMode()
                     if (sessionChanged && hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
-                        disconnectYoutubeProfile(retryForCurrentSession = false)
+                        suspendYoutubeForProfileRevalidation(previousSession)
                         startYoutubeProfileResolution(resetTimeout = true)
                     } else {
                         resolveYoutubeProfile()
@@ -3742,6 +3802,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     ) {
                         return@runOnUiThread
                     }
+                    finishCarPlayRestartTrace()
                     activeAirPlaySession = null
                     if (deviceInfoSession === session) {
                         deviceInfoSession = null
@@ -3840,6 +3901,7 @@ class CarPlayHostActivity : ComponentActivity() {
             updateHotspotStatus(status)
             val description = status.describe()
             setConnectionStage(description)
+            if (status is CarPlayStatus.Failed) finishCarPlayRestartTrace()
             when (status) {
                 is CarPlayStatus.Failed -> if (status.wifiResetRequired) {
                     wifiRecoveryButton?.visibility = View.VISIBLE
@@ -3886,6 +3948,9 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         snapshot.sink.setScreenStreamActiveChangedListener { type, active ->
             onScreenStreamStateChanged(restartGeneration, type, active)
+        }
+        snapshot.sink.setVideoFrameRenderedListener { type ->
+            onVideoFrameRendered(generation, type)
         }
         currentSurface?.let(::attachSurface)
         val serviceReused = snapshot.controller.hasActiveAirPlayAttachment()
@@ -3984,8 +4049,6 @@ class CarPlayHostActivity : ComponentActivity() {
             startForegroundService(Intent(this, DiPlaySessionService::class.java))
             next.start()
             SplitPerformanceTracer.increment(SplitPerformanceCounter.CARPLAY_CONTROLLER_STARTS)
-            SplitPerformanceTracer.endAsync("diplay.split.carplay_restart", carPlayRestartTraceCookie)
-            carPlayRestartTraceCookie = null
             if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
                 logYoutubeStartup("carplay-controller-start")
             }
@@ -4182,6 +4245,7 @@ class CarPlayHostActivity : ComponentActivity() {
             return
         }
         if (displayResize) SplitPerformanceTracer.increment(SplitPerformanceCounter.CARPLAY_DISPLAY_RESTARTS)
+        finishCarPlayRestartTrace()
         restartHandoffToken = restartToken
         carPlayTeardownTraceCookie = SplitPerformanceTracer.beginAsync("diplay.split.carplay_teardown")
         carPlayRestartTraceCookie = SplitPerformanceTracer.beginAsync("diplay.split.carplay_restart")
@@ -4196,6 +4260,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val generation = ++restartGeneration
         handshakeResetInProgress = true
         val oldSink = sink
+        oldSink?.setVideoFrameRenderedListener(null)
         controller = null
         sink = null
         teardownExecutor.execute {
@@ -4245,8 +4310,6 @@ class CarPlayHostActivity : ComponentActivity() {
             logYoutubeStartup("resize-settled")
         }
         startCarPlay(size)
-        SplitPerformanceTracer.endAsync("diplay.split.carplay_restart", carPlayRestartTraceCookie)
-        carPlayRestartTraceCookie = null
     }
 
     private fun showDiPlayHome(page: String = "home") {
@@ -4302,6 +4365,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
         if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
+        finishCarPlayRestartTrace()
         destroyYoutubeBrowser()
         youtubeProfile = null
         YoutubeDeviceProfileManager.clearSplitSelection()
@@ -4320,6 +4384,7 @@ class CarPlayHostActivity : ComponentActivity() {
         scheduledReconnectReason = null
         val oldController = controller
         val oldSink = sink
+        oldSink?.setVideoFrameRenderedListener(null)
         CarPlayBackgroundSession.clear(oldController)
         controller = null
         sink = null
@@ -4430,6 +4495,14 @@ class CarPlayHostActivity : ComponentActivity() {
                 activeScreenStreamTypes.remove(type)
             }
             updateDebugOverlays()
+        }
+    }
+
+    private fun onVideoFrameRendered(generation: Int, type: Int) {
+        if (type != SCREEN_TYPE_MAIN) return
+        runOnUiThread {
+            if (shuttingDown.get() || generation != restartGeneration) return@runOnUiThread
+            finishCarPlayRestartTrace()
         }
     }
 

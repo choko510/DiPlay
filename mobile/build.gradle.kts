@@ -60,11 +60,11 @@ android {
             signingConfig = signingConfigs.getByName("release")
         }
         create("benchmark") {
-            initWith(getByName("debug"))
+            initWith(getByName("release"))
             applicationIdSuffix = ".benchmark"
             versionNameSuffix = "-benchmark"
             matchingFallbacks += listOf("release")
-            isDebuggable = true
+            isDebuggable = false
             signingConfig = signingConfigs.getByName("debug")
             optimization {
                 enable = true

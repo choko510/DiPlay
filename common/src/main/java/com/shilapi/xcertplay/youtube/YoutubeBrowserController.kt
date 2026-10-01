@@ -28,6 +28,7 @@ internal class YoutubeBrowserController(
     private val onLoadStateChanged: (YoutubeLoadState) -> Unit,
     private val onCanGoBackChanged: (Boolean) -> Unit,
     private val onFullscreenChanged: (Boolean) -> Unit,
+    private val onFirstVisiblePaint: () -> Unit,
 ) {
     val view = GeckoView(context)
 
@@ -45,10 +46,14 @@ internal class YoutubeBrowserController(
     private var crashed = false
     private var lifecycle = YoutubeBrowserLifecycle.ACTIVE
     private var pageReadyTraceCookie: Int? = null
+    private var warmSessionReopenPending = false
+    private var awaitingVisiblePaint = false
+    private var paintStatusResetObserved = false
+    private var resumedFromSuspendedSession = false
 
     fun open(deviceProfile: YoutubeDeviceProfile) {
-        if (
-            YoutubeBrowserSessionReusePolicy.canReuse(
+        when (
+            YoutubeBrowserSessionReusePolicy.decide(
                 lifecycle = lifecycle,
                 currentContextId = profile?.youtubeContextId,
                 requestedContextId = deviceProfile.youtubeContextId,
@@ -56,21 +61,31 @@ internal class YoutubeBrowserController(
                 crashed = crashed,
             )
         ) {
-            lifecycle = YoutubeBrowserLifecycle.ACTIVE
-            SplitPerformanceTracer.increment(SplitPerformanceCounter.WARM_SESSION_REOPENS)
-            SplitPerformanceTracer.section("diplay.split.warm_reopen") {
-                primarySession?.setActive(active && popupSession == null)
+            YoutubeBrowserOpenDecision.PRESERVE_ACTIVE_SESSION -> {
+                session?.setActive(active)
+                return
             }
-            onCanGoBackChanged(primaryCanGoBack)
-            onLoadStateChanged(primaryLoadState)
-            return
+            YoutubeBrowserOpenDecision.REACTIVATE_SUSPENDED_SESSION -> {
+                lifecycle = YoutubeBrowserLifecycle.ACTIVE
+                warmSessionReopenPending = true
+                awaitingVisiblePaint = true
+                SplitPerformanceTracer.increment(SplitPerformanceCounter.WARM_SESSION_REOPENS)
+                onCanGoBackChanged(primaryCanGoBack)
+                onLoadStateChanged(primaryLoadState)
+                return
+            }
+            YoutubeBrowserOpenDecision.CREATE_SESSION -> Unit
+            YoutubeBrowserOpenDecision.IGNORE_DESTROYED_CONTROLLER -> return
         }
-        if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
 
         closeSession()
         lifecycle = YoutubeBrowserLifecycle.ACTIVE
+        warmSessionReopenPending = false
         profile = deviceProfile
         crashed = false
+        awaitingVisiblePaint = true
+        paintStatusResetObserved = false
+        resumedFromSuspendedSession = false
         setCanGoBack(false)
         primaryLoadState = YoutubeLoadState.LOADING
         onLoadStateChanged(YoutubeLoadState.LOADING)
@@ -99,9 +114,11 @@ internal class YoutubeBrowserController(
         }
     }
 
-    fun suspendForSplitExit() {
+    fun suspendForReuse() {
         if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
         lifecycle = YoutubeBrowserLifecycle.SUSPENDED
+        warmSessionReopenPending = false
+        resumedFromSuspendedSession = true
         active = false
         popupSession?.let(::closePopupSession)
         primarySession?.let { primary ->
@@ -114,9 +131,23 @@ internal class YoutubeBrowserController(
 
     fun setActive(isActive: Boolean) {
         if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
+        if (!isActive && active && primarySession != null) {
+            awaitingVisiblePaint = true
+            resumedFromSuspendedSession = true
+        }
+        if (isActive && !active && primarySession != null) awaitingVisiblePaint = true
+        val traceWarmReopen = isActive && warmSessionReopenPending
         active = isActive
-        primarySession?.setActive(isActive && popupSession == null)
-        popupSession?.setActive(isActive)
+        val activateSessions = {
+            primarySession?.setActive(isActive && popupSession == null)
+            popupSession?.setActive(isActive)
+        }
+        if (traceWarmReopen) {
+            SplitPerformanceTracer.section("diplay.split.warm_reopen", activateSessions)
+            warmSessionReopenPending = false
+        } else {
+            activateSessions()
+        }
     }
 
     fun reload() {
@@ -145,6 +176,7 @@ internal class YoutubeBrowserController(
     fun destroy() {
         if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
         lifecycle = YoutubeBrowserLifecycle.DESTROYED
+        warmSessionReopenPending = false
         active = false
         closeSession()
         profile = null
@@ -164,6 +196,24 @@ internal class YoutubeBrowserController(
 
     private fun configureDelegates(geckoSession: GeckoSession) {
         geckoSession.setContentDelegate(object : GeckoSession.ContentDelegate {
+            override fun onFirstComposite(session: GeckoSession) {
+                if (
+                    session === primarySession &&
+                    primaryLoadState == YoutubeLoadState.READY &&
+                    paintStatusResetObserved
+                ) {
+                    completeVisiblePaint(session)
+                }
+            }
+
+            override fun onFirstContentfulPaint(session: GeckoSession) {
+                completeVisiblePaint(session)
+            }
+
+            override fun onPaintStatusReset(session: GeckoSession) {
+                if (session === primarySession) paintStatusResetObserved = true
+            }
+
             override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
                 if (isCurrentSession(session)) onFullscreenChanged(fullScreen)
             }
@@ -414,6 +464,24 @@ internal class YoutubeBrowserController(
     private fun finishPageReadyTrace() {
         SplitPerformanceTracer.endAsync("diplay.gecko.page_ready", pageReadyTraceCookie)
         pageReadyTraceCookie = null
+    }
+
+    private fun completeVisiblePaint(paintedSession: GeckoSession) {
+        if (
+            !awaitingVisiblePaint ||
+            paintedSession !== session ||
+            !isCurrentSession(paintedSession) ||
+            !active ||
+            (resumedFromSuspendedSession && paintedSession === primarySession && !paintStatusResetObserved) ||
+            view.visibility != android.view.View.VISIBLE ||
+            !view.isAttachedToWindow
+        ) {
+            return
+        }
+        awaitingVisiblePaint = false
+        paintStatusResetObserved = false
+        resumedFromSuspendedSession = false
+        onFirstVisiblePaint()
     }
 
     private inline fun cleanup(operation: String, action: () -> Unit) {

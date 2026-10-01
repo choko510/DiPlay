@@ -175,4 +175,32 @@ On a normal split exit, close any popup, leave the primary `GeckoSession` inacti
 
 ## Keep CarPlay resize on the verified restart fallback
 
-Advertise the existing single ViewArea but do not invent a runtime switch payload. Keep the full controller restart path until the command, dimensions and decoder behavior are verified. Enable R8 through the AGP 9.3 optimization DSL and use a debuggable, debug-signed benchmark build for optimized CI coverage without production credentials.
+Advertise the existing single ViewArea but do not invent a runtime switch payload. Keep the full controller restart path until the command, dimensions and decoder behavior are verified. Enable R8 through the AGP 9.3 optimization DSL and use a non-debuggable, profileable benchmark build signed with the debug key; opt in trace collection through its benchmark manifest metadata.
+
+## Revalidate profile identity before discarding a warm GeckoSession
+
+A replacement AirPlaySession does not by itself mean the iPhone profile changed. Hide and suspend the retained browser, resolve the new `youtubeContextId`, then reuse on a match or close/create on a mismatch. For an already active same-profile `open()`, preserve the current session (including a popup) and do not republish primary-session navigation state.
+
+## Keep JNI string lookups in shared consumer rules
+
+The Linux I2C native bridge resolves `LinuxI2cNativeException` and its constructor by name. Preserve only that class and `(int, String)` constructor in the shared AAR's consumer rules so both apps retain the JNI ABI without broad app keep rules.
+
+## Measure presentation and restart completion at their user-visible endpoints
+
+Keep page network readiness separate from visible Gecko paint. End split presentation after a visible primary/popup FCP or a post-reset composite, and end CarPlay restart after the first main video output is submitted for rendering. Release-like profiling builds must be non-debuggable and profileable.
+
+## Reuse across AirPlaySession replacement only after profile resolution
+
+Do not tie GeckoSession lifetime to AirPlaySession object identity. During split-mode controller restarts, hide/deactivate the existing browser and resolve the replacement session's profile; keep the old GeckoSession only for a matching `youtubeContextId`, otherwise let `open()` replace it.
+
+## Separate active same-profile open from suspended warm reopen
+
+An active `open()` request targets the currently selected GeckoSession, which may be a Google popup. Preserve that session and its UI state. Only the explicit SUSPENDED lifecycle path reactivates the primary session and increments the warm-reopen counter.
+
+## Opt into benchmark tracing without making the app debuggable
+
+Benchmark build types inherit release, use debug signing and are profileable with shell access. A variant-only manifest metadata flag enables custom tracing; production release stays non-debuggable with tracing disabled.
+
+## Keep warm-reopen instrumentation aligned with actual activation
+
+Start the warm-reopen span around `GeckoSession.setActive(true)` after the view has been made visible, not during identity resolution or an inactive call. Keep Gecko page-load stop, visible Gecko paint and first rendered CarPlay video frame as separate endpoints.

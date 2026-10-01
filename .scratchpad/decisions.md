@@ -205,6 +205,10 @@ Split Low/Mid/High with complementary LR4 filters made from two cascaded second-
 
 Use at most five band-pass detector plus static peaking-filter pairs. Each band selects CUT or BOOST around its threshold and clamps to its configured maximum. Smooth the mix between dry and the fixed, stable filter output over 16 samples; never interpolate changing biquad coefficients. Keep the stage disabled by default, include active boost limits in Auto Headroom, and store the fields under profile schema v3.
 
+## Prepare live DSP snapshots off the audio worker
+
+The config provider publishes an immutable generation with each snapshot. Its observer only queues preparation on the dedicated control executor; the audio worker adopts a ready pipeline through an atomic slot and crossfades PCM16 for 20 ms. Adopt only when sample rate, channel count, and algorithmic latency match. Defer latency-changing convolver profiles to the next renderer, and retire replaced pipelines on the control thread after the fade.
+
 ## Stage and token-fence audio replacement
 
 Bind and validate a new audio stream before changing its owner so failed SETUP leaves the current stream intact. Commit a per-type generation token only after prepare succeeds, then pass that token through engine callbacks, renderer/microphone entries, stop operations, and playback-clock reads; this closes check-then-act races without putting a shared lock on RTP delivery. Derive `/info` output masks and SETUP acceptance from the same transport/type/audioType policy. Keep the last successfully activated state separately from a pending logical owner, and retire it only after the replacement receiver starts; a failed start can then restore that state. Check session closure during the locked commit and read/detach owner state under the same slot lock. Derive Opus microphone PCM frames, encoder configuration, and RTP timestamp increments from the negotiated sample rate. Make sink start success observable to the engine so a failed renderer start does not permanently suppress future retries; record microphone state only when the sink reports a successful start.

@@ -9,6 +9,7 @@ internal class DspPcmPipeline(
     private val processor: DspProcessor = IdentityDspProcessor(format),
     private val processingChunkFrames: Int = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
     seed: Long = System.nanoTime(),
+    private val forceInitialLatencySilence: Boolean = true,
 ) : Closeable {
     private val diagnostics = DspDiagnostics()
     private val dither = DspTpdfDither(seed)
@@ -17,7 +18,8 @@ internal class DspPcmPipeline(
     private val outputFloat = ByteBuffer.allocateDirect(floatBufferBytes).order(ByteOrder.nativeOrder())
     private var processedPcm16 = ByteArray(DspBufferSizing.pcm16ByteCount(processingChunkFrames, format.channels))
     private var processedLength = 0
-    private var startupLatencyRemainingFrames = processor.latencyFrames.coerceAtLeast(0)
+    private var startupLatencyRemainingFrames =
+        if (forceInitialLatencySilence) processor.latencyFrames.coerceAtLeast(0) else 0
 
     init {
         require(processingChunkFrames > 0)
@@ -109,7 +111,7 @@ internal class DspPcmPipeline(
         processor.reset()
         dither.reset()
         processedLength = 0
-        startupLatencyRemainingFrames = processor.latencyFrames.coerceAtLeast(0)
+        startupLatencyRemainingFrames = if (forceInitialLatencySilence) processor.latencyFrames.coerceAtLeast(0) else 0
     }
 
     fun diagnostics(): DspDiagnosticsSnapshot {

@@ -15,6 +15,7 @@ class DspRuntimeConfig(
     val monoBass: DspMonoBassConfig = DspMonoBassConfig(),
     val convolver: DspConvolverConfig = DspConvolverConfig(),
     val multiband: DspMultibandConfig = DspMultibandConfig(),
+    val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double

@@ -3,6 +3,9 @@ package com.shilapi.xcertplay.dsp
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
@@ -50,6 +53,23 @@ class DspProfileRepositoryTest {
                 mid = DspCompressorConfig(enabled = true, thresholdDb = -22.0, ratio = 3.0),
                 high = DspCompressorConfig(enabled = true, thresholdDb = -18.0, ratio = 2.0),
             ),
+            dynamicEq = DspDynamicEqConfig(
+                enabled = true,
+                bands = listOf(
+                    DspDynamicEqBandConfig(
+                        enabled = true,
+                        frequencyHz = 2_000.0,
+                        q = 1.5,
+                        thresholdDb = -28.0,
+                        ratio = 3.0,
+                        attackMs = 5.0,
+                        releaseMs = 120.0,
+                        maxBoostDb = 4.0,
+                        maxCutDb = 8.0,
+                        mode = DspDynamicEqMode.BOOST,
+                    ),
+                ),
+            ),
             limiter = DspSafetyLimiterConfig(enabled = true, thresholdDb = -2.0, releaseMs = 80.0),
         )
 
@@ -70,6 +90,7 @@ class DspProfileRepositoryTest {
             monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 100),
             convolver = DspConvolverConfig(enabled = true, impulseResponseId = "room1"),
             multiband = DspMultibandConfig(enabled = true, low = DspCompressorConfig(enabled = true)),
+            dynamicEq = DspDynamicEqConfig(enabled = true),
         )
 
         val disabled = profile.toRuntimeConfig(masterEnabled = false)
@@ -84,6 +105,7 @@ class DspProfileRepositoryTest {
         assertEquals(profile.monoBass, enabled.monoBass)
         assertEquals(profile.convolver, enabled.convolver)
         assertEquals(profile.multiband, enabled.multiband)
+        assertEquals(profile.dynamicEq, enabled.dynamicEq)
         assertTrue(runCatching { (enabled.peqBands as MutableList).clear() }.isFailure)
     }
 
@@ -103,6 +125,10 @@ class DspProfileRepositoryTest {
 
         profileFile.writeText(
             """{"schemaVersion":1,"id":"custom1","peq":[{"type":"NOT_A_FILTER","frequencyHz":1000}]}""",
+        )
+        assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
+        profileFile.writeText(
+            """{"schemaVersion":3,"id":"custom1","dynamicEq":{"bands":[{"mode":"NOT_A_MODE"}]}}""",
         )
         assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
     }
@@ -139,7 +165,25 @@ class DspProfileRepositoryTest {
         assertFalse(loaded.profile.multiband.enabled)
         assertEquals(DspMultibandConfig.DEFAULT_LOW_MID_CROSSOVER_HZ, loaded.profile.multiband.lowMidCrossoverHz, 0.0)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
-        assertTrue(profileFile.readText().contains("\"schemaVersion\":2"))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":3"))
+    }
+
+    @Test
+    fun versionTwoProfileMigratesWithDynamicEqDisabledByDefault() {
+        val repository = repository()
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        assertTrue(profileFile.parentFile!!.mkdirs())
+        profileFile.writeText(
+            """{"schemaVersion":2,"id":"custom1","name":"Existing","enabled":true,"preampDb":-2.0}""",
+        )
+
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertEquals(2, loaded.migratedFromVersion)
+        assertFalse(loaded.profile.dynamicEq.enabled)
+        assertEquals(DspDynamicEqConfig.MAX_BANDS, loaded.profile.dynamicEq.bands.size)
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":3"))
     }
 
     @Test

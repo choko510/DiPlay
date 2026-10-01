@@ -49,6 +49,9 @@ import com.shilapi.xcertplay.dsp.DspProfileSaveResult
 import com.shilapi.xcertplay.dsp.DspImpulseImportResult
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
@@ -291,6 +294,29 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         )
                     }
                 }
+                SectionCard(title = stringResource(R.string.dsp_dynamic_eq)) {
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_dynamic_eq),
+                        checked = profile.dynamicEq.enabled,
+                        onCheckedChange = {
+                            profile = profile.copy(
+                                dynamicEq = DspDynamicEqConfig(enabled = it, bands = profile.dynamicEq.bands),
+                            )
+                        },
+                    )
+                    if (profile.dynamicEq.enabled) {
+                        profile.dynamicEq.bands.forEachIndexed { index, band ->
+                            DynamicEqBandControl(index, band) { changed ->
+                                profile = profile.copy(
+                                    dynamicEq = DspDynamicEqConfig(
+                                        enabled = true,
+                                        bands = profile.dynamicEq.bands.toMutableList().apply { set(index, changed) },
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                }
                 SectionCard(title = stringResource(R.string.dsp_limiter)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_limiter),
@@ -488,6 +514,56 @@ private fun MultibandCompressorControl(
     }
     DspValueSlider(stringResource(R.string.dsp_makeup), config.makeupDb, -24.0..24.0, "dB") {
         onChange(config.copy(makeupDb = it))
+    }
+}
+
+@Composable
+private fun DynamicEqBandControl(
+    index: Int,
+    band: DspDynamicEqBandConfig,
+    onChange: (DspDynamicEqBandConfig) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            DspSwitchRow(
+                title = stringResource(R.string.dsp_eq_band, index + 1),
+                checked = band.enabled,
+                onCheckedChange = { onChange(band.copy(enabled = it)) },
+            )
+            val cutLabel = stringResource(R.string.dsp_dynamic_eq_cut)
+            val boostLabel = stringResource(R.string.dsp_dynamic_eq_boost)
+            val modes = listOf(cutLabel to DspDynamicEqMode.CUT, boostLabel to DspDynamicEqMode.BOOST)
+            ChoiceField(
+                title = stringResource(R.string.dsp_dynamic_eq_mode),
+                selected = modes.first { it.second == band.mode }.first,
+                choices = modes.map { it.first },
+                onSelect = { selected -> onChange(band.copy(mode = modes.first { it.first == selected }.second)) },
+            )
+            DspValueSlider(stringResource(R.string.dsp_frequency), band.frequencyHz, 20.0..20_000.0, "Hz") {
+                onChange(band.copy(frequencyHz = it))
+            }
+            DspValueSlider(stringResource(R.string.dsp_q), band.q, 0.1..20.0, "") {
+                onChange(band.copy(q = it))
+            }
+            DspValueSlider(stringResource(R.string.dsp_threshold), band.thresholdDb, -60.0..0.0, "dB") {
+                onChange(band.copy(thresholdDb = it))
+            }
+            DspValueSlider(stringResource(R.string.dsp_ratio), band.ratio, 1.0..20.0, ":1") {
+                onChange(band.copy(ratio = it))
+            }
+            DspValueSlider(stringResource(R.string.dsp_attack), band.attackMs, 0.1..250.0, "ms") {
+                onChange(band.copy(attackMs = it))
+            }
+            DspValueSlider(stringResource(R.string.dsp_release), band.releaseMs, 1.0..500.0, "ms") {
+                onChange(band.copy(releaseMs = it))
+            }
+            DspValueSlider(stringResource(R.string.dsp_dynamic_eq_max_boost), band.maxBoostDb, 0.0..12.0, "dB") {
+                onChange(band.copy(maxBoostDb = it))
+            }
+            DspValueSlider(stringResource(R.string.dsp_dynamic_eq_max_cut), band.maxCutDb, 0.0..12.0, "dB") {
+                onChange(band.copy(maxCutDb = it))
+            }
+        }
     }
 }
 

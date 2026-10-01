@@ -11,6 +11,7 @@ int dsp_graph_prepare(
     size_t peq_count,
     const dsp_dynamics_config *dynamics_config,
     const dsp_multiband_config *multiband_config,
+    const dsp_dynamic_eq_config *dynamic_eq_config,
     const double *bass_coefficients,
     int bass_coefficient_count,
     const double *mono_bass_coefficients,
@@ -33,6 +34,9 @@ int dsp_graph_prepare(
         return 0;
     }
     if (!dsp_multiband_prepare(&graph->multiband, sample_rate, multiband_config)) {
+        return 0;
+    }
+    if (!dsp_dynamic_eq_prepare(&graph->dynamic_eq, sample_rate, dynamic_eq_config)) {
         return 0;
     }
     if (!dsp_spatial_prepare(
@@ -61,6 +65,7 @@ void dsp_graph_reset(dsp_graph *graph) {
     }
     dsp_dynamics_reset(&graph->dynamics);
     dsp_multiband_reset(&graph->multiband);
+    dsp_dynamic_eq_reset(&graph->dynamic_eq);
     dsp_spatial_reset(&graph->spatial);
     dsp_convolver_reset(&graph->convolver);
     dsp_meter_reset(&graph->input_meter);
@@ -116,6 +121,7 @@ void dsp_graph_process(
         if (channels == 2) output_right = dsp_spatial_process_bass(&graph->spatial, output_right, 1);
         dsp_dynamics_process_compressor_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
         dsp_multiband_process_frame(&graph->multiband, &output_left, &output_right, (int)channels);
+        dsp_dynamic_eq_process_frame(&graph->dynamic_eq, &output_left, &output_right, (int)channels);
         dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
         dsp_convolver_process_frame(&graph->convolver, &output_left, &output_right, (int)channels);
         dsp_dynamics_process_limiter_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
@@ -142,5 +148,6 @@ void dsp_graph_process(
     }
     dsp_spatial_flush_denormals(&graph->spatial);
     dsp_multiband_flush_denormals(&graph->multiband);
+    dsp_dynamic_eq_flush_denormals(&graph->dynamic_eq);
     dsp_convolver_flush_denormals(&graph->convolver);
 }

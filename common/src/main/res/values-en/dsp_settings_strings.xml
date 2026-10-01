@@ -43,6 +43,12 @@
     <string name="dsp_high_band">High band</string>
     <string name="dsp_low_mid_crossover">Low/Mid crossover</string>
     <string name="dsp_mid_high_crossover">Mid/High crossover</string>
+    <string name="dsp_dynamic_eq">Dynamic EQ</string>
+    <string name="dsp_dynamic_eq_mode">Dynamic mode</string>
+    <string name="dsp_dynamic_eq_cut">Cut above threshold</string>
+    <string name="dsp_dynamic_eq_boost">Boost below threshold</string>
+    <string name="dsp_dynamic_eq_max_boost">Maximum boost</string>
+    <string name="dsp_dynamic_eq_max_cut">Maximum cut</string>
     <string name="dsp_limiter">Safety limiter</string>
     <string name="dsp_convolver">Convolver</string>
     <string name="dsp_convolver_placeholder">No impulse response is selected.</string>

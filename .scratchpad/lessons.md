@@ -162,6 +162,8 @@ For a 3-band LR4 splitter, cascade identical Butterworth sections in each Low, M
 
 Every compressor band should reuse the established stereo-linked detector and reset path. Use the largest enabled positive band makeup for conservative static headroom, and increment the persisted profile schema when adding a field so earlier versions cannot silently erase it.
 
+For Dynamic EQ, process a band-pass detector and fixed-gain peaking path continuously, but change only a bounded dry/filter blend every 16 frames. This keeps detector/filter state continuous, avoids unstable coefficient interpolation, and makes arbitrary audio chunk splits deterministic when the control countdown is part of band state.
+
 ## Keep audio setup preparation separate from ownership commit
 
 Bind both UDP sockets with no receive workers first, then atomically publish the new generation and only start its workers while it is still current. Keep the previous activated owner available until that start succeeds, and make closed-session commit plus teardown owner reads linearize under the per-type slot lock. Exercise A→B→C and prepare/close interleavings with latches; token checks at the sink and map-removal boundary catch races that an engine-only owner check misses.

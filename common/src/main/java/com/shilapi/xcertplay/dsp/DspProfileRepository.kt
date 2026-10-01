@@ -4,6 +4,9 @@ import android.util.AtomicFile
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
@@ -115,6 +118,7 @@ internal class DspProfileRepository(
         val convolverJson = json.optJSONObject("convolver") ?: JSONObject()
         val limiterJson = json.optJSONObject("limiter") ?: JSONObject()
         val multibandJson = json.optJSONObject("multiband") ?: JSONObject()
+        val dynamicEqJson = json.optJSONObject("dynamicEq") ?: JSONObject()
         val monoBassJson = stereoJson.optJSONObject("monoBass") ?: JSONObject()
         fun readCompressor(values: JSONObject) = DspCompressorConfig(
             enabled = values.optBoolean("enabled", false),
@@ -163,6 +167,11 @@ internal class DspProfileRepository(
                 mid = readCompressor(multibandJson.optJSONObject("mid") ?: JSONObject()),
                 high = readCompressor(multibandJson.optJSONObject("high") ?: JSONObject()),
             ),
+            dynamicEq = DspDynamicEqConfig(
+                enabled = dynamicEqJson.optBoolean("enabled", false),
+                bands = dynamicEqJson.optJSONArray("bands")?.let(::readDynamicEqBands)
+                    ?: DspDynamicEqConfig.defaultBands(),
+            ),
             limiter = DspSafetyLimiterConfig(
                 enabled = limiterJson.optBoolean("enabled", true),
                 thresholdDb = limiterJson.readFiniteDouble("thresholdDb", -1.0),
@@ -182,6 +191,25 @@ internal class DspProfileRepository(
                 gainDb = json.readFiniteDouble("gainDb", 0.0),
                 q = json.readFiniteDouble("q", 1.0),
                 enabled = json.optBoolean("enabled", true),
+            )
+        }
+    }
+
+    private fun readDynamicEqBands(array: JSONArray): List<DspDynamicEqBandConfig> {
+        require(array.length() <= DspDynamicEqConfig.MAX_BANDS)
+        return List(array.length()) { index ->
+            val values = requireNotNull(array.optJSONObject(index))
+            DspDynamicEqBandConfig(
+                enabled = values.optBoolean("enabled", false),
+                frequencyHz = values.readFiniteDouble("frequencyHz", 1_000.0),
+                q = values.readFiniteDouble("q", 1.0),
+                thresholdDb = values.readFiniteDouble("thresholdDb", -24.0),
+                ratio = values.readFiniteDouble("ratio", 2.0),
+                attackMs = values.readFiniteDouble("attackMs", 10.0),
+                releaseMs = values.readFiniteDouble("releaseMs", 100.0),
+                maxBoostDb = values.readFiniteDouble("maxBoostDb", 6.0),
+                maxCutDb = values.readFiniteDouble("maxCutDb", 6.0),
+                mode = DspDynamicEqMode.valueOf(values.optString("mode", DspDynamicEqMode.CUT.name)),
             )
         }
     }
@@ -254,6 +282,14 @@ internal class DspProfileRepository(
                     .put("high", profile.multiband.high.toJsonObject()),
             )
             .put(
+                "dynamicEq",
+                JSONObject()
+                    .put("enabled", profile.dynamicEq.enabled)
+                    .put("bands", JSONArray().apply {
+                        profile.dynamicEq.bands.forEach { put(it.toJsonObject()) }
+                    }),
+            )
+            .put(
                 "limiter",
                 JSONObject()
                     .put("enabled", profile.limiter.enabled)
@@ -272,7 +308,7 @@ internal class DspProfileRepository(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 2
+        const val CURRENT_SCHEMA_VERSION = 3
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"
@@ -295,6 +331,18 @@ private fun DspCompressorConfig.toJsonObject(): JSONObject = JSONObject()
     .put("releaseMs", releaseMs)
     .put("kneeDb", kneeDb)
     .put("makeupDb", makeupDb)
+
+private fun DspDynamicEqBandConfig.toJsonObject(): JSONObject = JSONObject()
+    .put("enabled", enabled)
+    .put("frequencyHz", frequencyHz)
+    .put("q", q)
+    .put("thresholdDb", thresholdDb)
+    .put("ratio", ratio)
+    .put("attackMs", attackMs)
+    .put("releaseMs", releaseMs)
+    .put("maxBoostDb", maxBoostDb)
+    .put("maxCutDb", maxCutDb)
+    .put("mode", mode.name)
 
 private fun writeProfileAtomically(file: File, contents: ByteArray) {
     val atomicFile = AtomicFile(file)

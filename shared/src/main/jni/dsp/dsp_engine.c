@@ -53,6 +53,7 @@ dsp_engine *dsp_engine_create(
     int peq_band_count,
     const dsp_dynamics_config *dynamics_config,
     const dsp_multiband_config *multiband_config,
+    const dsp_dynamic_eq_config *dynamic_eq_config,
     const double *bass_coefficients,
     int bass_coefficient_count,
     const double *mono_bass_coefficients,
@@ -62,7 +63,7 @@ dsp_engine *dsp_engine_create(
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
         peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
-        dynamics_config == NULL || multiband_config == NULL ||
+        dynamics_config == NULL || multiband_config == NULL || dynamic_eq_config == NULL ||
         bass_coefficient_count < 0 || bass_coefficient_count > 1 ||
         (bass_coefficient_count > 0 && bass_coefficients == NULL) ||
         mono_bass_coefficient_count < 0 || mono_bass_coefficient_count > 1 ||
@@ -96,6 +97,7 @@ dsp_engine *dsp_engine_create(
             (size_t)peq_band_count,
             dynamics_config,
             multiband_config,
+            dynamic_eq_config,
             bass_coefficients,
             bass_coefficient_count,
             mono_bass_coefficients,

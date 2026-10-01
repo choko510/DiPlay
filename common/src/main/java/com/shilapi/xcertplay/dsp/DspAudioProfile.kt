@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.dsp
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
@@ -25,6 +26,7 @@ data class DspAudioProfile(
     val monoBass: DspMonoBassConfig = DspMonoBassConfig(),
     val convolver: DspConvolverConfig = DspConvolverConfig(),
     val multiband: DspMultibandConfig = DspMultibandConfig(),
+    val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
     val limiter: DspSafetyLimiterConfig = DspSafetyLimiterConfig(),
 ) {
     init {
@@ -52,6 +54,7 @@ data class DspAudioProfile(
         monoBass = monoBass,
         convolver = convolver.copy(impulseResponse = impulseResponse),
         multiband = multiband,
+        dynamicEq = dynamicEq,
     )
 
     companion object {

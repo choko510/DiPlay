@@ -36,6 +36,7 @@ fi
   "$source_dir/dsp_biquad.c" \
   "$source_dir/dsp_dynamics.c" \
   "$source_dir/dsp_multiband.c" \
+  "$source_dir/dsp_dynamic_eq.c" \
   "$source_dir/dsp_spatial.c" \
   "$source_dir/dsp_convolver.c" \
   "$source_dir/dsp_gain.c" \

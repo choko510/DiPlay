@@ -6,6 +6,7 @@
 #include "dsp_biquad.h"
 #include "dsp_dynamics.h"
 #include "dsp_multiband.h"
+#include "dsp_dynamic_eq.h"
 #include "dsp_spatial.h"
 #include "dsp_convolver.h"
 
@@ -40,6 +41,7 @@ dsp_engine *dsp_engine_create(
     int peq_band_count,
     const dsp_dynamics_config *dynamics_config,
     const dsp_multiband_config *multiband_config,
+    const dsp_dynamic_eq_config *dynamic_eq_config,
     const double *bass_coefficients,
     int bass_coefficient_count,
     const double *mono_bass_coefficients,

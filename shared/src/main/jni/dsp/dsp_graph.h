@@ -6,6 +6,7 @@
 #include "dsp_biquad.h"
 #include "dsp_dynamics.h"
 #include "dsp_multiband.h"
+#include "dsp_dynamic_eq.h"
 #include "dsp_spatial.h"
 #include "dsp_convolver.h"
 
@@ -18,6 +19,7 @@ typedef struct {
     size_t peq_count;
     dsp_dynamics dynamics;
     dsp_multiband multiband;
+    dsp_dynamic_eq dynamic_eq;
     dsp_spatial spatial;
     dsp_convolver convolver;
     dsp_meter input_meter;
@@ -33,6 +35,7 @@ int dsp_graph_prepare(
     size_t peq_count,
     const dsp_dynamics_config *dynamics_config,
     const dsp_multiband_config *multiband_config,
+    const dsp_dynamic_eq_config *dynamic_eq_config,
     const double *bass_coefficients,
     int bass_coefficient_count,
     const double *mono_bass_coefficients,

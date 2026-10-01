@@ -163,6 +163,7 @@ internal object DspAutoHeadroom {
         peqBands: List<DspEqBand>,
         compressorMakeupDb: Double = 0.0,
         maxBandMakeupDb: Double = 0.0,
+        dynamicBoostDb: Double = 0.0,
         stereoWidth: Double = 1.0,
         marginDb: Double = 1.0,
         staticBassBands: List<DspEqBand> = emptyList(),
@@ -171,6 +172,7 @@ internal object DspAutoHeadroom {
         require(preampDb.isFinite())
         require(compressorMakeupDb.isFinite())
         require(maxBandMakeupDb.isFinite())
+        require(dynamicBoostDb.isFinite())
         require(stereoWidth.isFinite() && stereoWidth in 0.0..2.0)
         require(marginDb.isFinite() && marginDb >= 0.0)
         require(peqBands.size <= DspEqDesigner.MAX_BANDS)
@@ -193,7 +195,7 @@ internal object DspAutoHeadroom {
         if (filters.isEmpty()) peakDb = 0.0
         val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth))
         val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
-            max(0.0, maxBandMakeupDb) + widthWorstCaseDb
+            max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) + widthWorstCaseDb
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
@@ -211,6 +213,7 @@ internal data class DspPreparedConfig(
     val convolverConfig: DoubleArray,
     val convolverSamples: FloatArray,
     val multiband: DoubleArray,
+    val dynamicEq: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -254,6 +257,10 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         require(multiband.midHighCrossoverHz < format.sampleRate * 0.45)
     }
     val multibandNativeValues = multiband.toNativeValues()
+    if (dynamicEq.enabled) {
+        require(dynamicEq.bands.filter(DspDynamicEqBandConfig::enabled).all { it.frequencyHz < format.sampleRate * 0.45 })
+    }
+    val dynamicEqNativeValues = dynamicEq.toNativeValues()
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
@@ -266,6 +273,11 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
                     if (multiband.mid.enabled) multiband.mid.makeupDb else 0.0,
                     if (multiband.high.enabled) multiband.high.makeupDb else 0.0,
                 )
+            } else {
+                0.0
+            },
+            dynamicBoostDb = if (dynamicEq.enabled) {
+                dynamicEq.bands.filter { it.enabled && it.mode == DspDynamicEqMode.BOOST }.sumOf(DspDynamicEqBandConfig::maxBoostDb)
             } else {
                 0.0
             },
@@ -317,6 +329,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         ),
         convolverSamples = convolverSamples,
         multiband = multibandNativeValues,
+        dynamicEq = dynamicEqNativeValues,
         headroom = headroom,
     )
 }

@@ -103,6 +103,23 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun dynamicBoostHeadroomIncludesEveryEnabledBoostBandMaximum() {
+        val bands = DspDynamicEqConfig.defaultBands().toMutableList()
+        bands[0] = DspDynamicEqBandConfig(enabled = true, maxBoostDb = 3.0, mode = DspDynamicEqMode.BOOST)
+        bands[1] = DspDynamicEqBandConfig(enabled = true, maxBoostDb = 4.0, mode = DspDynamicEqMode.BOOST)
+        bands[2] = DspDynamicEqBandConfig(enabled = true, maxBoostDb = 12.0, mode = DspDynamicEqMode.CUT)
+        val config = DspRuntimeConfig(
+            enabled = true,
+            dynamicEq = DspDynamicEqConfig(enabled = true, bands = bands),
+        )
+
+        val prepared = config.prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals(8.0, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-8.0, prepared.appliedPreampDb, 0.02)
+    }
+
+    @Test
     fun frequencyScanAcceptsAnExactNotchZeroAtItsUpperEndpoint() {
         val result = DspAutoHeadroom.calculate(
             sampleRate = 48_000,

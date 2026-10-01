@@ -16,6 +16,16 @@ static const dsp_multiband_config bypass_multiband = {
         {0, -20.0, 4.0, 10.0, 100.0, 0.0, 0.0},
     },
 };
+static const dsp_dynamic_eq_config bypass_dynamic_eq = {
+    0,
+    {
+        {0, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -24.0, 2.0, 10.0, 100.0, 6.0, 6.0},
+        {0, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -24.0, 2.0, 10.0, 100.0, 6.0, 6.0},
+        {0, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -24.0, 2.0, 10.0, 100.0, 6.0, 6.0},
+        {0, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -24.0, 2.0, 10.0, 100.0, 6.0, 6.0},
+        {0, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -24.0, 2.0, 10.0, 100.0, 6.0, 6.0},
+    },
+};
 static const dsp_spatial_config bypass_spatial = {1.0, 0, 120};
 static const dsp_convolver_config bypass_convolver = {0, 0, 0, 0, 0, 0.0f, NULL};
 
@@ -40,6 +50,7 @@ static dsp_engine *create_test_engine(
         peq_band_count,
         &bypass_dynamics,
         &bypass_multiband,
+        &bypass_dynamic_eq,
         NULL,
         0,
         NULL,
@@ -62,6 +73,7 @@ static dsp_engine *create_test_engine_with_dynamics(
         0,
         dynamics_config,
         &bypass_multiband,
+        &bypass_dynamic_eq,
         NULL,
         0,
         NULL,
@@ -84,6 +96,7 @@ static dsp_engine *create_test_engine_with_multiband(
         0,
         &bypass_dynamics,
         multiband_config,
+        &bypass_dynamic_eq,
         NULL,
         0,
         NULL,
@@ -110,6 +123,7 @@ static dsp_engine *create_test_engine_with_spatial(
         0,
         &bypass_dynamics,
         &bypass_multiband,
+        &bypass_dynamic_eq,
         bass_coefficients,
         bass_coefficient_count,
         mono_bass_coefficients,
@@ -132,12 +146,36 @@ static dsp_engine *create_test_engine_with_convolver(
         0,
         &bypass_dynamics,
         &bypass_multiband,
+        &bypass_dynamic_eq,
         NULL,
         0,
         NULL,
         0,
         &bypass_spatial,
         convolver_config);
+}
+
+static dsp_engine *create_test_engine_with_dynamic_eq(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_dynamic_eq_config *dynamic_eq_config) {
+    return dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        dynamic_eq_config,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        &bypass_convolver);
 }
 
 static void assert_true(int condition, const char *message) {
@@ -215,7 +253,7 @@ static void test_bad_handles_arguments_and_capacities(void) {
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 1) == NULL, "missing filter coefficients are rejected");
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 16) == NULL, "too many filters are rejected");
     assert_true(
-        dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL, &bypass_multiband, NULL, 0, NULL, 0,
+        dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL, &bypass_multiband, &bypass_dynamic_eq, NULL, 0, NULL, 0,
             &bypass_spatial, &bypass_convolver) == NULL,
         "missing dynamics configuration is rejected");
 }
@@ -567,7 +605,7 @@ static void design_high_pass(double sample_rate, double frequency, double q, dou
     coefficients[4] = (1.0 - alpha) / a0;
 }
 
-static double measure_sine_gain(dsp_engine *engine, double frequency, int channels) {
+static double measure_sine_gain_with_amplitude(dsp_engine *engine, double frequency, int channels, double amplitude) {
     double input_square = 0.0;
     double output_square = 0.0;
     size_t frame = 0;
@@ -576,7 +614,7 @@ static double measure_sine_gain(dsp_engine *engine, double frequency, int channe
         float input[1024];
         float output[1024];
         for (size_t index = 0; index < frames; index++) {
-            const float sample = (float)(0.1 * sin(2.0 * 3.14159265358979323846 * frequency *
+            const float sample = (float)(amplitude * sin(2.0 * 3.14159265358979323846 * frequency *
                 (double)(frame + index) / 48000.0));
             input[index * (size_t)channels] = sample;
             if (channels == 2) input[index * 2 + 1] = -sample;
@@ -601,6 +639,10 @@ static double measure_sine_gain(dsp_engine *engine, double frequency, int channe
         frame += frames;
     }
     return sqrt(output_square / input_square);
+}
+
+static double measure_sine_gain(dsp_engine *engine, double frequency, int channels) {
+    return measure_sine_gain_with_amplitude(engine, frequency, channels, 0.1);
 }
 
 static void test_spatial_width_and_mono_input_behavior(void) {
@@ -918,6 +960,212 @@ static void test_multiband_randomized_configurations_remain_finite(void) {
     }
 }
 
+static double process_tone_block(dsp_engine *engine, double frequency, int channels, double amplitude, size_t start_frame) {
+    float input[1024];
+    float output[1024];
+    double input_square = 0.0;
+    double output_square = 0.0;
+    for (size_t frame = 0; frame < 512; frame++) {
+        const float sample = (float)(amplitude * sin(2.0 * 3.14159265358979323846 * frequency *
+            (double)(start_frame + frame) / 48000.0));
+        input[frame * (size_t)channels] = sample;
+        if (channels == 2) input[frame * 2 + 1] = -sample;
+    }
+    assert_true(
+        dsp_engine_process(engine, input, 512 * (size_t)channels, output, 512 * (size_t)channels, 512, channels) ==
+            DSP_STATUS_OK,
+        "dynamic EQ tone block processes");
+    for (size_t frame = 0; frame < 512; frame++) {
+        const double source = input[frame * (size_t)channels];
+        const double result = output[frame * (size_t)channels];
+        input_square += source * source;
+        output_square += result * result;
+    }
+    return sqrt(output_square / input_square);
+}
+
+static void process_silence(dsp_engine *engine, int channels, size_t total_frames) {
+    float input[1024] = {0.0f};
+    float output[1024] = {0.0f};
+    size_t processed = 0;
+    while (processed < total_frames) {
+        const size_t frames = total_frames - processed < 512 ? total_frames - processed : 512;
+        assert_true(
+            dsp_engine_process(
+                engine,
+                input,
+                frames * (size_t)channels,
+                output,
+                frames * (size_t)channels,
+                (int)frames,
+                channels) == DSP_STATUS_OK,
+            "dynamic EQ silence block processes");
+        processed += frames;
+    }
+}
+
+static void test_dynamic_eq_threshold_modes_and_band_selectivity(void) {
+    dsp_engine *engine = create_test_engine_with_dynamic_eq(48000, 1, 512, &bypass_dynamic_eq);
+    assert_true(engine != NULL, "disabled dynamic EQ graph creates");
+    assert_near(measure_sine_gain(engine, 1000.0, 1), 1.0, 1e-6, "disabled dynamic EQ is an identity");
+    dsp_engine_destroy(engine);
+
+    dsp_dynamic_eq_config cut = bypass_dynamic_eq;
+    cut.enabled = 1;
+    cut.bands[0] = (dsp_dynamic_eq_band_config){1, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -30.0, 4.0, 0.1, 80.0, 6.0, 3.0};
+    engine = create_test_engine_with_dynamic_eq(48000, 1, 512, &cut);
+    assert_true(engine != NULL, "dynamic EQ cut graph creates");
+    assert_near(
+        measure_sine_gain_with_amplitude(engine, 1000.0, 1, 0.001),
+        1.0,
+        0.01,
+        "below-threshold dynamic cut leaves audio unchanged");
+    assert_true(
+        measure_sine_gain(engine, 1000.0, 1) < 0.75,
+        "above-threshold dynamic cut changes the selected band gain");
+    dsp_engine_destroy(engine);
+
+    cut.bands[0].threshold_db = -50.0;
+    engine = create_test_engine_with_dynamic_eq(48000, 1, 512, &cut);
+    assert_true(engine != NULL, "dynamic EQ maximum-cut graph creates");
+    assert_near(
+        measure_sine_gain(engine, 1000.0, 1),
+        pow(10.0, -3.0 / 20.0),
+        0.03,
+        "dynamic cut never exceeds its configured maximum cut");
+    dsp_engine_destroy(engine);
+
+    cut.bands[0].threshold_db = -30.0;
+    engine = create_test_engine_with_dynamic_eq(48000, 1, 512, &cut);
+    assert_true(engine != NULL, "dynamic EQ detector selectivity graph creates");
+    assert_true(measure_sine_gain(engine, 10000.0, 1) > 0.97,
+        "the bandpass detector leaves frequencies outside its target band unchanged");
+    dsp_engine_destroy(engine);
+
+    dsp_dynamic_eq_config boost = bypass_dynamic_eq;
+    boost.enabled = 1;
+    boost.bands[0] = (dsp_dynamic_eq_band_config){1, DSP_DYNAMIC_EQ_BOOST, 1000.0, 1.0, -35.0, 4.0, 0.1, 80.0, 3.0, 6.0};
+    engine = create_test_engine_with_dynamic_eq(48000, 1, 512, &boost);
+    assert_true(engine != NULL, "dynamic EQ boost graph creates");
+    assert_near(
+        measure_sine_gain_with_amplitude(engine, 1000.0, 1, 0.001),
+        pow(10.0, 3.0 / 20.0),
+        0.03,
+        "dynamic boost is capped at its configured maximum");
+    dsp_engine_destroy(engine);
+}
+
+static void test_dynamic_eq_attack_release_reset_and_chunk_invariance(void) {
+    dsp_dynamic_eq_config config = bypass_dynamic_eq;
+    config.enabled = 1;
+    config.bands[0] = (dsp_dynamic_eq_band_config){1, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -30.0, 4.0, 100.0, 100.0, 6.0, 6.0};
+    dsp_engine *whole = create_test_engine_with_dynamic_eq(48000, 1, 512, &config);
+    assert_true(whole != NULL, "dynamic EQ attack graph creates");
+    const double first_block_gain = process_tone_block(whole, 1000.0, 1, 0.1, 0);
+    const double steady_gain = measure_sine_gain(whole, 1000.0, 1);
+    assert_true(first_block_gain > steady_gain + 0.1, "dynamic EQ attack ramps into the requested cut");
+    process_silence(whole, 1, 48000);
+    const double after_release = process_tone_block(whole, 1000.0, 1, 0.1, 0);
+    assert_true(after_release > 0.9, "dynamic EQ release restores the dry level after silence");
+
+    dsp_engine *reset = create_test_engine_with_dynamic_eq(48000, 1, 512, &config);
+    dsp_engine *fresh = create_test_engine_with_dynamic_eq(48000, 1, 512, &config);
+    assert_true(reset != NULL && fresh != NULL, "dynamic EQ reset comparison graphs create");
+    (void)measure_sine_gain(reset, 1000.0, 1);
+    assert_true(dsp_engine_reset(reset) == DSP_STATUS_OK, "dynamic EQ graph reset succeeds");
+    float input[512];
+    float reset_output[512];
+    float fresh_output[512];
+    for (size_t frame = 0; frame < 512; frame++) {
+        input[frame] = (float)(0.1 * sin(2.0 * 3.14159265358979323846 * 1000.0 * (double)frame / 48000.0));
+    }
+    assert_true(dsp_engine_process(reset, input, 512, reset_output, 512, 512, 1) == DSP_STATUS_OK,
+        "reset dynamic EQ graph processes after reset");
+    assert_true(dsp_engine_process(fresh, input, 512, fresh_output, 512, 512, 1) == DSP_STATUS_OK,
+        "fresh dynamic EQ graph processes the same block");
+    for (size_t frame = 0; frame < 512; frame++) {
+        assert_near(reset_output[frame], fresh_output[frame], 1e-6,
+            "dynamic EQ reset matches a fresh graph");
+    }
+    dsp_engine_destroy(whole);
+    dsp_engine_destroy(reset);
+    dsp_engine_destroy(fresh);
+
+    config.bands[0].attack_ms = 0.1;
+    dsp_engine *chunked = create_test_engine_with_dynamic_eq(48000, 2, 512, &config);
+    dsp_engine *unbroken = create_test_engine_with_dynamic_eq(48000, 2, 512, &config);
+    assert_true(chunked != NULL && unbroken != NULL, "dynamic EQ chunk-comparison graphs create");
+    float stereo_input[1024];
+    float chunked_output[1024];
+    float unbroken_output[1024];
+    for (size_t sample = 0; sample < 1024; sample++) {
+        stereo_input[sample] = (float)(0.2 * sin((double)sample * 0.053) + 0.1 * cos((double)sample * 0.017));
+    }
+    assert_true(dsp_engine_process(unbroken, stereo_input, 1024, unbroken_output, 1024, 512, 2) == DSP_STATUS_OK,
+        "one dynamic EQ block processes");
+    const size_t chunks[] = {1, 15, 16, 127, 353};
+    size_t offset = 0;
+    for (size_t chunk = 0; chunk < sizeof(chunks) / sizeof(chunks[0]); chunk++) {
+        const size_t frames = chunks[chunk];
+        assert_true(
+            dsp_engine_process(
+                chunked,
+                stereo_input + offset * 2,
+                frames * 2,
+                chunked_output + offset * 2,
+                frames * 2,
+                (int)frames,
+                2) == DSP_STATUS_OK,
+            "split dynamic EQ block processes");
+        offset += frames;
+    }
+    assert_true(offset == 512, "dynamic EQ split chunks cover the same frames");
+    for (size_t sample = 0; sample < 1024; sample++) {
+        assert_near(chunked_output[sample], unbroken_output[sample], 1e-6,
+            "dynamic EQ control updates are chunk invariant");
+    }
+    dsp_engine_destroy(chunked);
+    dsp_engine_destroy(unbroken);
+}
+
+static void test_dynamic_eq_randomized_configs_stay_bounded_and_finite(void) {
+    unsigned int random_state = 0x92d68ca5U;
+    for (size_t iteration = 0; iteration < 1000; iteration++) {
+        dsp_dynamic_eq_config config = bypass_dynamic_eq;
+        config.enabled = 1;
+        for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
+            config.bands[band] = (dsp_dynamic_eq_band_config) {
+                .enabled = (int)(next_random(&random_state) & 1U),
+                .mode = (int)(next_random(&random_state) & 1U),
+                .frequency_hz = 20.0 + (double)(next_random(&random_state) % 18000U),
+                .q = 0.1 + (double)(next_random(&random_state) % 1991U) / 100.0,
+                .threshold_db = -60.0 + (double)(next_random(&random_state) % 6001U) / 100.0,
+                .ratio = 1.0 + (double)(next_random(&random_state) % 1901U) / 100.0,
+                .attack_ms = 0.1 + (double)(next_random(&random_state) % 1000U) / 10.0,
+                .release_ms = 0.1 + (double)(next_random(&random_state) % 2000U) / 10.0,
+                .max_boost_db = (double)(next_random(&random_state) % 401U) / 100.0,
+                .max_cut_db = (double)(next_random(&random_state) % 801U) / 100.0,
+            };
+        }
+        const int sample_rates[] = {44100, 48000, 96000};
+        const int sample_rate = sample_rates[iteration % 3];
+        dsp_engine *engine = create_test_engine_with_dynamic_eq(sample_rate, 2, 64, &config);
+        assert_true(engine != NULL, "randomized dynamic EQ config prepares");
+        float input[128];
+        float output[128] = {0.0f};
+        for (size_t sample = 0; sample < 128; sample++) {
+            input[sample] = (float)((int)(next_random(&random_state) % 2001U) - 1000) / 20000.0f;
+        }
+        assert_true(dsp_engine_process(engine, input, 128, output, 128, 64, 2) == DSP_STATUS_OK,
+            "randomized dynamic EQ block processes");
+        for (size_t sample = 0; sample < 128; sample++) {
+            assert_true(isfinite(output[sample]), "randomized dynamic EQ output remains finite");
+            assert_true(fabsf(output[sample]) < 2.0f, "randomized dynamic EQ output does not run away");
+        }
+        dsp_engine_destroy(engine);
+    }
+}
+
 static void test_kiss_fft_round_trip(void) {
     kiss_fftr_cfg forward = kiss_fftr_alloc(256, 0, NULL, NULL);
     kiss_fftr_cfg inverse = kiss_fftr_alloc(256, 1, NULL, NULL);
@@ -1094,6 +1342,7 @@ static void test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass(voi
         0,
         &bypass_dynamics,
         &bypass_multiband,
+        &bypass_dynamic_eq,
         NULL,
         0,
         NULL,
@@ -1161,6 +1410,9 @@ int main(void) {
     test_multiband_compression_is_band_selective();
     test_multiband_chunk_invariance_reset_and_validation();
     test_multiband_randomized_configurations_remain_finite();
+    test_dynamic_eq_threshold_modes_and_band_selectivity();
+    test_dynamic_eq_attack_release_reset_and_chunk_invariance();
+    test_dynamic_eq_randomized_configs_stay_bounded_and_finite();
     test_kiss_fft_round_trip();
     test_convolver_impulse_direct_convolution_and_latency();
     test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass();

@@ -40,6 +40,17 @@ class NativeDspProcessorTest {
                     midHighCrossoverHz = 2_000.0,
                     high = DspCompressorConfig(enabled = true, thresholdDb = -18.0, ratio = 2.0),
                 ),
+                dynamicEq = DspDynamicEqConfig(
+                    enabled = true,
+                    bands = listOf(
+                        DspDynamicEqBandConfig(
+                            enabled = true,
+                            frequencyHz = 2_000.0,
+                            mode = DspDynamicEqMode.CUT,
+                            maxCutDb = 4.0,
+                        ),
+                    ),
+                ),
             ),
             loadLibrary = { true },
             bindings = bindings,
@@ -55,6 +66,12 @@ class NativeDspProcessorTest {
         assertEquals(160.0, bindings.createdMultiband?.get(1) ?: 0.0, 0.0)
         assertEquals(2_000.0, bindings.createdMultiband?.get(2) ?: 0.0, 0.0)
         assertEquals(1.0, bindings.createdMultiband?.get(17) ?: 0.0, 0.0)
+        assertEquals(DspDynamicEqConfig.NATIVE_VALUE_COUNT, bindings.createdDynamicEq?.size)
+        assertEquals(1.0, bindings.createdDynamicEq?.get(0) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdDynamicEq?.get(1) ?: 0.0, 0.0)
+        assertEquals(0.0, bindings.createdDynamicEq?.get(2) ?: 1.0, 0.0)
+        assertEquals(2_000.0, bindings.createdDynamicEq?.get(3) ?: 0.0, 0.0)
+        assertEquals(4.0, bindings.createdDynamicEq?.get(10) ?: 0.0, 0.0)
         assertEquals(0.0, bindings.createdDynamics?.get(0) ?: -1.0, 0.0)
         assertEquals(1.0, bindings.createdDynamics?.get(7) ?: -1.0, 0.0)
         assertEquals(0, bindings.createdBassCoefficients?.size)
@@ -171,6 +188,7 @@ class NativeDspProcessorTest {
         var createdEqCoefficients: DoubleArray? = null
         var createdDynamics: DoubleArray? = null
         var createdMultiband: DoubleArray? = null
+        var createdDynamicEq: DoubleArray? = null
         var createdBassCoefficients: DoubleArray? = null
         var createdMonoBassCoefficients: DoubleArray? = null
         var createdSpatial: DoubleArray? = null
@@ -185,6 +203,7 @@ class NativeDspProcessorTest {
             eqCoefficients: DoubleArray,
             dynamics: DoubleArray,
             multiband: DoubleArray,
+            dynamicEq: DoubleArray,
             bassCoefficients: DoubleArray,
             monoBassCoefficients: DoubleArray,
             spatial: DoubleArray,
@@ -195,6 +214,7 @@ class NativeDspProcessorTest {
             createdEqCoefficients = eqCoefficients.copyOf()
             createdDynamics = dynamics.copyOf()
             createdMultiband = multiband.copyOf()
+            createdDynamicEq = dynamicEq.copyOf()
             createdBassCoefficients = bassCoefficients.copyOf()
             createdMonoBassCoefficients = monoBassCoefficients.copyOf()
             createdSpatial = spatial.copyOf()

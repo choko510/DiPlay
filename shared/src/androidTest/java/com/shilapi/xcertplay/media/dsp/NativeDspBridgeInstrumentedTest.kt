@@ -167,6 +167,55 @@ class NativeDspBridgeInstrumentedTest {
     }
 
     @Test
+    fun nativeDynamicEqTracksThresholdModeAndBandSelectivity() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val cut = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            dynamicEq = DspDynamicEqConfig(
+                enabled = true,
+                bands = listOf(
+                    DspDynamicEqBandConfig(
+                        enabled = true,
+                        frequencyHz = 1_000.0,
+                        thresholdDb = -30.0,
+                        ratio = 4.0,
+                        attackMs = 0.1,
+                        maxCutDb = 6.0,
+                        mode = DspDynamicEqMode.CUT,
+                    ),
+                ),
+            ),
+        )
+        assertEquals(1.0, measureNativeToneGain(cut, 1, 1_000.0, amplitude = 0.001), 0.02)
+        assertTrue(measureNativeToneGain(cut, 1, 1_000.0) < 0.65)
+        assertTrue(measureNativeToneGain(cut, 1, 10_000.0) > 0.95)
+        assertTrue(measureNativeToneGain(cut, 2, 1_000.0, antiPhase = true) < 0.65)
+
+        val boost = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            dynamicEq = DspDynamicEqConfig(
+                enabled = true,
+                bands = listOf(
+                    DspDynamicEqBandConfig(
+                        enabled = true,
+                        frequencyHz = 1_000.0,
+                        thresholdDb = -35.0,
+                        ratio = 4.0,
+                        maxBoostDb = 3.0,
+                        maxCutDb = 6.0,
+                        mode = DspDynamicEqMode.BOOST,
+                    ),
+                ),
+            ),
+        )
+        assertEquals(10.0.pow(3.0 / 20.0), measureNativeToneGain(boost, 1, 1_000.0, amplitude = 0.001), 0.03)
+    }
+
+    @Test
     fun nativeLinkedLimiterCapsAntiPhaseStereoSamples() {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val processor = NativeDspProcessor.createOrNull(
@@ -353,6 +402,7 @@ class NativeDspBridgeInstrumentedTest {
         channels: Int,
         frequencyHz: Double,
         antiPhase: Boolean = false,
+        amplitude: Double = 0.1,
     ): Double {
         val sampleRate = 48_000
         val processor = NativeDspProcessor.createOrNull(DspAudioFormat(sampleRate, channels), config)
@@ -373,7 +423,7 @@ class NativeDspBridgeInstrumentedTest {
                 input.clear()
                 output.clear()
                 repeat(frames) { index ->
-                    val sample = (0.1 * sin(2.0 * PI * frequencyHz * (frame + index) / sampleRate)).toFloat()
+                    val sample = (amplitude * sin(2.0 * PI * frequencyHz * (frame + index) / sampleRate)).toFloat()
                     input.putFloat(sample)
                     if (channels == 2) input.putFloat(if (antiPhase) -sample else sample)
                 }

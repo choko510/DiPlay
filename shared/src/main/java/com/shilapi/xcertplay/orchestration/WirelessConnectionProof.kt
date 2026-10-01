@@ -42,8 +42,8 @@ internal class WirelessConnectionProof<S : Any> {
     private var liveTunnelAuthenticated = false
     private var pendingTunnelAuthenticationBeforeSession = false
     private var hasActivatedSession = false
-    private var rendered = false
-    private var lastRenderedFrameNanos: Long? = null
+    private var surfaceSubmitted = false
+    private var lastSurfaceSubmissionNanos: Long? = null
     private var confirmation: (() -> Unit)? = null
     private var controlMode = WirelessControlMode.INACTIVE
     private var bluetoothBootstrapOpen = false
@@ -75,8 +75,8 @@ internal class WirelessConnectionProof<S : Any> {
         authenticated = authenticatedIndependently || authenticatedByTunnel
         pendingAuthenticationBeforeSession = false
         pendingTunnelAuthenticationBeforeSession = false
-        rendered = false
-        lastRenderedFrameNanos = null
+        surfaceSubmitted = false
+        lastSurfaceSubmissionNanos = null
         return true
     }
 
@@ -91,26 +91,26 @@ internal class WirelessConnectionProof<S : Any> {
         confirmIfReady()
     }
 
-    @Synchronized fun rendered(
+    @Synchronized fun submittedToSurface(
         generation: Int,
         session: S,
         nowNanos: Long = System.nanoTime(),
     ) {
         if (this.generation != generation || this.session !== session) return
-        rendered = true
-        lastRenderedFrameNanos = nowNanos
+        surfaceSubmitted = true
+        lastSurfaceSubmissionNanos = nowNanos
         confirmIfReady()
     }
 
-    @Synchronized fun hasRecentRenderedFrame(
+    @Synchronized fun hasRecentSurfaceSubmission(
         generation: Int,
         nowNanos: Long,
         maxAgeNanos: Long,
     ): Boolean {
         require(maxAgeNanos >= 0) { "maxAgeNanos must not be negative" }
-        if (this.generation != generation || session == null || !rendered) return false
-        val lastRendered = lastRenderedFrameNanos ?: return false
-        val ageNanos = nowNanos - lastRendered
+        if (this.generation != generation || session == null || !surfaceSubmitted) return false
+        val lastSubmitted = lastSurfaceSubmissionNanos ?: return false
+        val ageNanos = nowNanos - lastSubmitted
         return ageNanos in 0..maxAgeNanos
     }
 
@@ -239,7 +239,7 @@ internal class WirelessConnectionProof<S : Any> {
         ) {
             return transition(WirelessControlTransitionKind.IGNORED)
         }
-        val hasRecentVideo = hasRecentRenderedFrame(generation, nowNanos, maxFrameAgeNanos)
+        val hasRecentVideo = hasRecentSurfaceSubmission(generation, nowNanos, maxFrameAgeNanos)
         if (bluetoothBootstrapOpen && hasRecentVideo) {
             controlMode = WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL
             val reportActive = !activeStatusReported
@@ -257,7 +257,7 @@ internal class WirelessConnectionProof<S : Any> {
             session == null ->
                 "AirPlay session ended before the wireless iAP2 tunnel became ready"
             else ->
-                "Wireless handoff timed out without a recently rendered video frame"
+                "Wireless handoff timed out without a recent video frame submission"
         }
         return transition(WirelessControlTransitionKind.FAILED, failureReason = reason)
     }
@@ -301,7 +301,7 @@ internal class WirelessConnectionProof<S : Any> {
         if (
             this.generation != generation ||
             controlMode != WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL ||
-            hasRecentRenderedFrame(generation, nowNanos, maxFrameAgeNanos)
+            hasRecentSurfaceSubmission(generation, nowNanos, maxFrameAgeNanos)
         ) {
             return transition(WirelessControlTransitionKind.IGNORED)
         }
@@ -320,8 +320,8 @@ internal class WirelessConnectionProof<S : Any> {
         authenticated = false
         authenticatedIndependently = false
         authenticatedByTunnel = false
-        rendered = false
-        lastRenderedFrameNanos = null
+        surfaceSubmitted = false
+        lastSurfaceSubmissionNanos = null
         if (controlMode == WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL) {
             controlMode = WirelessControlMode.FAILED
             return transition(
@@ -342,8 +342,8 @@ internal class WirelessConnectionProof<S : Any> {
         liveTunnelAuthenticated = false
         pendingTunnelAuthenticationBeforeSession = false
         hasActivatedSession = false
-        rendered = false
-        lastRenderedFrameNanos = null
+        surfaceSubmitted = false
+        lastSurfaceSubmissionNanos = null
         confirmation = null
         controlMode = WirelessControlMode.INACTIVE
         bluetoothBootstrapOpen = false
@@ -361,7 +361,7 @@ internal class WirelessConnectionProof<S : Any> {
         if (
             this.generation != generation ||
             session == null ||
-            !hasRecentRenderedFrame(generation, nowNanos, maxFrameAgeNanos)
+            !hasRecentSurfaceSubmission(generation, nowNanos, maxFrameAgeNanos)
         ) {
             return false
         }
@@ -408,7 +408,7 @@ internal class WirelessConnectionProof<S : Any> {
     )
 
     private fun confirmIfReady() {
-        if (!authenticated || !rendered) return
+        if (!authenticated || !surfaceSubmitted) return
         val callback = confirmation ?: return
         confirmation = null
         callback()

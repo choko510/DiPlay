@@ -55,7 +55,7 @@ class WirelessHandoffTest {
         assertFalse(
             state.hasOperationalCarPlayControl(1, nowNanos = 100, maxFrameAgeNanos = 10),
         )
-        state.rendered(1, defaultSession, nowNanos = 100)
+        state.submittedToSurface(1, defaultSession, nowNanos = 100)
         assertTrue(
             state.hasOperationalCarPlayControl(1, nowNanos = 100, maxFrameAgeNanos = 10),
         )
@@ -79,7 +79,7 @@ class WirelessHandoffTest {
         val session = Any()
         state.activate(1, session)
         state.requestHandoff(1, session)
-        state.rendered(1, session, nowNanos = 100)
+        state.submittedToSurface(1, session, nowNanos = 100)
 
         assertEquals(
             WirelessControlTransitionKind.WAITING_FOR_TUNNEL,
@@ -110,7 +110,7 @@ class WirelessHandoffTest {
         val session = Any()
         val state = state(session)
         state.requestHandoff(1, session)
-        state.rendered(1, session, nowNanos = 100)
+        state.submittedToSurface(1, session, nowNanos = 100)
 
         val transition = state.handoffTimedOut(1, nowNanos = 110, maxFrameAgeNanos = 10)
 
@@ -131,7 +131,7 @@ class WirelessHandoffTest {
             state.hasOperationalCarPlayControl(1, nowNanos = 100, maxFrameAgeNanos = 10),
         )
         state.requestHandoff(1, session)
-        state.rendered(1, session, nowNanos = 100)
+        state.submittedToSurface(1, session, nowNanos = 100)
         state.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
 
         assertTrue(
@@ -148,7 +148,7 @@ class WirelessHandoffTest {
         val state = state(session)
         state.requestHandoff(1, session)
         state.bootstrapEnded(1)
-        state.rendered(1, session, nowNanos = 100)
+        state.submittedToSurface(1, session, nowNanos = 100)
 
         assertFalse(
             state.hasOperationalCarPlayControl(1, nowNanos = 101, maxFrameAgeNanos = 10),
@@ -190,7 +190,7 @@ class WirelessHandoffTest {
         val session = Any()
         val state = state(session)
         state.requestHandoff(1, session)
-        state.rendered(1, session, nowNanos = 100)
+        state.submittedToSurface(1, session, nowNanos = 100)
         state.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
 
         val ended = state.tunnelEnded(1)
@@ -205,7 +205,7 @@ class WirelessHandoffTest {
         val session = Any()
         val state = state(session)
         state.requestHandoff(1, session)
-        state.rendered(1, session, nowNanos = 100)
+        state.submittedToSurface(1, session, nowNanos = 100)
         state.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
 
         val candidate = state.tunnelAuthenticated(1)
@@ -225,7 +225,7 @@ class WirelessHandoffTest {
         val session = Any()
         val state = state(session)
         state.requestHandoff(1, session)
-        state.rendered(1, session, nowNanos = 100)
+        state.submittedToSurface(1, session, nowNanos = 100)
 
         val candidate = state.tunnelAuthenticated(1)
 
@@ -327,7 +327,7 @@ class WirelessHandoffTest {
 
         val staleFrame = state(session)
         staleFrame.requestHandoff(1, session)
-        staleFrame.rendered(1, session, nowNanos = 100)
+        staleFrame.submittedToSurface(1, session, nowNanos = 100)
         assertEquals(
             WirelessControlTransitionKind.FAILED,
             staleFrame.handoffTimedOut(1, nowNanos = 111, maxFrameAgeNanos = 10).kind,
@@ -339,7 +339,7 @@ class WirelessHandoffTest {
         val session = Any()
         val state = state(session)
         state.requestHandoff(1, session)
-        state.rendered(1, session, nowNanos = 100)
+        state.submittedToSurface(1, session, nowNanos = 100)
         state.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
 
         val transition = state.bootstrapEnded(1)
@@ -354,7 +354,7 @@ class WirelessHandoffTest {
         val recent = Any()
         val activeFallback = state(recent)
         activeFallback.requestHandoff(1, recent)
-        activeFallback.rendered(1, recent, nowNanos = 100)
+        activeFallback.submittedToSurface(1, recent, nowNanos = 100)
         activeFallback.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
         assertEquals(
             WirelessControlTransitionKind.IGNORED,
@@ -364,7 +364,7 @@ class WirelessHandoffTest {
         val stalled = Any()
         val stalledFallback = state(stalled)
         stalledFallback.requestHandoff(1, stalled)
-        stalledFallback.rendered(1, stalled, nowNanos = 100)
+        stalledFallback.submittedToSurface(1, stalled, nowNanos = 100)
         stalledFallback.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
         val failure = stalledFallback.fallbackVideoTimedOut(
             1,
@@ -377,7 +377,7 @@ class WirelessHandoffTest {
         val handedOff = Any()
         val tunneled = state(handedOff)
         tunneled.requestHandoff(1, handedOff)
-        tunneled.rendered(1, handedOff, nowNanos = 100)
+        tunneled.submittedToSurface(1, handedOff, nowNanos = 100)
         tunneled.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
         assertEquals(
             WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED,
@@ -395,14 +395,14 @@ class WirelessHandoffTest {
         val session = Any()
         val state = state(session)
         state.requestHandoff(1, session)
-        state.rendered(1, session, nowNanos = 100)
+        state.submittedToSurface(1, session, nowNanos = 100)
         state.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
 
         val transition = state.end(1, session)
 
         assertEquals(WirelessControlTransitionKind.FAILED, transition.kind)
         assertEquals(WirelessControlMode.FAILED, transition.mode)
-        assertFalse(state.hasRecentRenderedFrame(1, 102, 10))
+        assertFalse(state.hasRecentSurfaceSubmission(1, 102, 10))
     }
 
     @Test
@@ -411,9 +411,9 @@ class WirelessHandoffTest {
         val current = Any()
         val state = state(old)
         state.requestHandoff(1, old)
-        state.rendered(1, old, nowNanos = 100)
+        state.submittedToSurface(1, old, nowNanos = 100)
         state.activate(1, current)
-        state.rendered(1, current, nowNanos = 101)
+        state.submittedToSurface(1, current, nowNanos = 101)
         state.handoffTimedOut(1, nowNanos = 102, maxFrameAgeNanos = 10)
 
         assertEquals(WirelessControlTransitionKind.IGNORED, state.end(1, old).kind)
@@ -421,7 +421,7 @@ class WirelessHandoffTest {
             WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL,
             state.mode(1),
         )
-        assertTrue(state.hasRecentRenderedFrame(1, nowNanos = 103, maxAgeNanos = 10))
+        assertTrue(state.hasRecentSurfaceSubmission(1, nowNanos = 103, maxAgeNanos = 10))
     }
 
     @Test
@@ -460,7 +460,7 @@ class WirelessHandoffTest {
         val session = Any()
         val tunnelFirst = state(session)
         tunnelFirst.requestHandoff(1, session)
-        tunnelFirst.rendered(1, session, nowNanos = 100)
+        tunnelFirst.submittedToSurface(1, session, nowNanos = 100)
         assertEquals(
             WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED,
             tunnelFirst.tunnelAuthenticated(1).kind,
@@ -473,7 +473,7 @@ class WirelessHandoffTest {
 
         val watchdogFirst = state(session)
         watchdogFirst.requestHandoff(1, session)
-        watchdogFirst.rendered(1, session, nowNanos = 100)
+        watchdogFirst.submittedToSurface(1, session, nowNanos = 100)
         assertEquals(
             WirelessControlTransitionKind.BOOTSTRAP_CONTROL_ACTIVE,
             watchdogFirst.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10).kind,

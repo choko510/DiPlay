@@ -9,7 +9,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Reject credential files in public source
@@ -22,8 +22,10 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973
       - uses: gradle/actions/setup-gradle@v4
-      - name: Unit tests, lint and source-only debug build
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug --stacktrace
+      - name: Unit tests, lint and debug/optimized builds
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --stacktrace
+      - name: Verify JNI names survive R8
+        run: python3 scripts/check_jni_mapping.py
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4

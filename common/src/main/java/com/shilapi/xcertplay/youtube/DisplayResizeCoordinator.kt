@@ -27,3 +27,11 @@ internal class DisplayResizeCoordinator {
         return latestDesiredSize(fallback)
     }
 }
+
+internal object ImeResizeResumePolicy {
+    fun shouldScheduleSettleCheck(
+        imeVisible: Boolean,
+        animationInProgress: Boolean,
+        resizeSuppressed: Boolean,
+    ): Boolean = !imeVisible && (animationInProgress || resizeSuppressed)
+}

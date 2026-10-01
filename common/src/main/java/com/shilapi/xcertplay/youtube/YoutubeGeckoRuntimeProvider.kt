@@ -10,19 +10,29 @@ internal object YoutubeGeckoRuntimeProvider {
     @Volatile
     private var runtime: GeckoRuntime? = null
 
-    fun get(context: Context): GeckoRuntime = runtime ?: synchronized(this) {
-        runtime ?: GeckoRuntime.create(
-            context.applicationContext,
-            GeckoRuntimeSettings.Builder().debugLogging(false).build(),
-        ).also {
-            runtime = it
-            Log.i(TAG, "Gecko runtime initialized")
+    fun get(context: Context): GeckoRuntime {
+        SplitPerformanceTracer.configure(context)
+        return runtime ?: synchronized(this) {
+            runtime ?: SplitPerformanceTracer.section("diplay.gecko.runtime_create") {
+                GeckoRuntime.create(
+                    context.applicationContext,
+                    GeckoRuntimeSettings.Builder().debugLogging(false).build(),
+                ).also {
+                    runtime = it
+                    SplitPerformanceTracer.increment(SplitPerformanceCounter.GECKO_RUNTIME_CREATIONS)
+                    Log.i(TAG, "Gecko runtime initialized")
+                }
+            }
         }
     }
 
     fun warmUp(context: Context) {
+        SplitPerformanceTracer.configure(context)
+        SplitPerformanceTracer.increment(SplitPerformanceCounter.GECKO_WARMUPS)
         try {
-            get(context).warmUp()
+            SplitPerformanceTracer.section("diplay.gecko.warmup") {
+                get(context).warmUp()
+            }
         } catch (_: RuntimeException) {
             Log.w(TAG, "Gecko runtime warm-up failed")
         } catch (_: LinkageError) {

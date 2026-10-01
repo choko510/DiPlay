@@ -153,3 +153,53 @@ If a sink swallows a synchronous renderer-start failure, the engine can mark an 
 ## Keep microphone recovery independent from downlink startup
 
 After the downlink renderer succeeds, microphone startup still needs its own retry path. Rate-limit retries and liveness checks with a monotonic deadline, and replace an inactive same-token uplink so a capture thread that exits cannot leave a permanent dead entry.
+
+## Resolve the current iPhone before reactivating a warm YouTube view
+
+A retained GeckoView can still display the prior account while inactive. Hide it and keep its session inactive as split mode opens; re-show it only after the current connection's profile is resolved. Same-profile reuse must not call `open()` or `loadUri()` again.
+
+## Keep IME resize suppression through layout settling
+
+Suppress pending display-size work once at the IME edge, then use the existing two stable frames to distinguish a real pane/orientation change. Clearing suppression at animation end can let the keyboard's final transient size restart CarPlay.
+
+## Revalidate profile identity across a CarPlay controller restart
+
+The AirPlaySession object changes during a full display restart even when the same iPhone reconnects. Hide and suspend the retained GeckoSession until identity resolution; only the resolved `youtubeContextId` decides whether it can be reused.
+
+## Keep JNI upcall names in the shared library's consumer rules
+
+Native `FindClass()` and `GetMethodID()` string lookups are invisible to R8. Preserve the exact class name and constructor in the module that owns the JNI code so all consuming apps receive the rule.
+
+## Measure the rendered path with a profileable non-debuggable APK
+
+R8 success is a packaging check. Use a non-debuggable profileable variant for runtime measurements, keep tracing opt-in for that variant, and treat page-load completion separately from the first visible paint or decoded CarPlay frame.
+
+## Reconcile IME suppression after Activity resume
+
+If an Activity misses the keyboard hide animation while backgrounded, read current insets on resume/focus and restart the stable-frame settle check when the keyboard is hidden.
+
+## Keep the previous phone's browser suspended during reconnect
+
+A display restart can replace the AirPlaySession while split mode remains visible. Retain the GeckoSession temporarily, but hide its view and keep it inactive until the new session resolves; the resolved profile context, not the session object's identity, decides reuse.
+
+## Profile optimized benchmark builds instead of making them debuggable
+
+Use release-derived R8 settings, a debug signature and `<profileable android:shell="true" />`. Enable app trace sections through variant-specific metadata so release-like timing isn't measured under debugger instrumentation.
+
+## Verify JNI symbol retention from the optimized mapping
+
+Native string lookups are invisible to R8. Ship a targeted consumer rule from the native-owning library, then inspect both optimized app mappings for the unchanged class name and constructor descriptor; a successful R8 build alone doesn't exercise the JNI failure path.
+
+## Do not time a UI or transport milestone at request submission
+
+Use Gecko's content paint/compositor callbacks after activation for split presentation and the decoder's first main-output submission for CarPlay recovery. Keep page-load stop and controller `start()` request as separate earlier milestones.
+
+## Suppress stale Gecko UI callbacks during profile revalidation
+
+Gecko can deliver page-stop and process-crash callbacks after a session becomes inactive. Session identity alone does not protect the host UI; also gate on controller lifecycle and activation, cache valid current-session state, and republish it only after successful reactivation.
+
+## Make paint timeout a terminal result
+
+If a paint timeout closes a trace but leaves its pending flag set, later callbacks or Activity resume can count both timeout and success or schedule repeated timeouts. Store completion, timeout and cancellation as mutually exclusive measurement outcomes; clear the Back affordance explicitly when destroying its controller.
+
+When Gecko reports paint-status reset during `setActive(false)`, retain it through profile-resolution timeout and warm reopen. Associate it with a suspension generation instead of clearing a boolean on measurement end; a later suspension must observe its own reset before primary paint is accepted.

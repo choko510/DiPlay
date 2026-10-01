@@ -44,9 +44,20 @@ android {
     buildTypes {
         release {
             optimization {
-                enable = false
+                enable = true
             }
             signingConfig = signingConfigs.getByName("release")
+        }
+        create("benchmark") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".benchmark"
+            versionNameSuffix = "-benchmark"
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
+            optimization {
+                enable = true
+            }
         }
     }
     compileOptions {

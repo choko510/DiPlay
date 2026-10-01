@@ -10,27 +10,19 @@
 - `.scratchpad/lessons.md`
 - `.scratchpad/quirks.md`
 - `.scratchpad/backlog.md`
+- `.scratchpad/optimization.md`（性能最適化に関する作業の場合）
+
+`optimization.md` は性能最適化専用のWorking Memoryです。性能に関して「何を最適化したか」という完了内容と、後続の作業でも再利用できる性能上の知見を一緒に蓄積します。通常の機能追加、バグ修正、一般的な設計判断は記録しません。
 
 作業完了時は、Working Memoryを次のように整理します。
 
 1. `completed.md` が存在しなければ作成し、完了内容を一行または二行で記録する。
 2. 設計上の理由を `decisions.md` に残す。
 3. 再利用可能な知見を `lessons.md` に残す。
-4. 実行環境固有の問題や回避策を `quirks.md` に残す。
-5. 完了した内容を `current.md` から削除する。
-6. 対応済みの項目を `backlog.md` から削除する。
-
----
-
-## Performance Optimization
-
-性能最適化に関する作業では、実装や調査を始める前にリポジトリルートの `optimization.md` を読みます。
-
-- 性能に関係する変更だけを `optimization.md` に記録する。
-- 最適化候補、進行状態、実施内容、測定条件、Before / After、PRまたはcommitを更新する。
-- 実測していない改善を確定的な性能向上として扱わず、`DONE_UNMEASURED` として残す。
-- 効果がなかった案も `NO_GAIN` として残し、同じ検証を繰り返さない。
-- 機能追加、通常のバグ修正、一般的な設計判断や作業履歴は `optimization.md` に混ぜない。
+4. 性能最適化を行った場合は、実施した最適化と性能面で再利用できる知見を `optimization.md` に残す。
+5. 実行環境固有の問題や回避策を `quirks.md` に残す。
+6. 完了した内容を `current.md` から削除する。
+7. 対応済みの項目を `backlog.md` から削除する。
 
 ---
 

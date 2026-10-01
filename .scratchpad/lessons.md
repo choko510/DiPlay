@@ -185,3 +185,5 @@ Gecko can deliver page-stop and process-crash callbacks after a session becomes 
 ## Make paint timeout a terminal result
 
 If a paint timeout closes a trace but leaves its pending flag set, later callbacks or Activity resume can count both timeout and success or schedule repeated timeouts. Store completion, timeout and cancellation as mutually exclusive measurement outcomes; clear the Back affordance explicitly when destroying its controller.
+
+When Gecko reports paint-status reset during `setActive(false)`, retain it until the matching warm reopen is measured. Reset it when a new session starts or when a later suspension begins, not in the warm-open branch.

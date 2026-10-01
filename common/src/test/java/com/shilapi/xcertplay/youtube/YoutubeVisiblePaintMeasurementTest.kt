@@ -10,11 +10,32 @@ class YoutubeVisiblePaintMeasurementTest {
     fun timeoutIsTerminalAndRejectsLateCompletion() {
         val measurement = YoutubeVisiblePaintMeasurement()
         measurement.begin()
+        measurement.remainingTimeoutMillis(nowElapsedRealtimeMillis = 1_000L, timeoutMillis = 10_000L)
 
-        assertTrue(measurement.timeout())
+        assertFalse(measurement.timeout(nowElapsedRealtimeMillis = 10_999L))
+        assertTrue(measurement.timeout(nowElapsedRealtimeMillis = 11_000L))
         assertFalse(measurement.complete())
-        assertFalse(measurement.timeout())
+        assertFalse(measurement.timeout(nowElapsedRealtimeMillis = 12_000L))
         assertEquals(YoutubeVisiblePaintOutcome.TIMED_OUT, measurement.outcome)
+    }
+
+    @Test
+    fun reschedulingUsesTheOriginalActivationDeadline() {
+        val measurement = YoutubeVisiblePaintMeasurement()
+        measurement.begin()
+
+        assertEquals(
+            10_000L,
+            measurement.remainingTimeoutMillis(nowElapsedRealtimeMillis = 1_000L, timeoutMillis = 10_000L),
+        )
+        assertEquals(
+            7_000L,
+            measurement.remainingTimeoutMillis(nowElapsedRealtimeMillis = 4_000L, timeoutMillis = 10_000L),
+        )
+        assertEquals(
+            0L,
+            measurement.remainingTimeoutMillis(nowElapsedRealtimeMillis = 12_000L, timeoutMillis = 10_000L),
+        )
     }
 
     @Test
@@ -23,7 +44,7 @@ class YoutubeVisiblePaintMeasurementTest {
         measurement.begin()
 
         assertTrue(measurement.complete())
-        assertFalse(measurement.timeout())
+        assertFalse(measurement.timeout(nowElapsedRealtimeMillis = 10_000L))
         assertEquals(YoutubeVisiblePaintOutcome.COMPLETED, measurement.outcome)
     }
 

@@ -9,6 +9,8 @@ internal enum class YoutubeVisiblePaintOutcome {
 }
 
 internal class YoutubeVisiblePaintMeasurement {
+    private var deadlineElapsedRealtimeMillis: Long? = null
+
     var outcome = YoutubeVisiblePaintOutcome.IDLE
         private set
 
@@ -17,19 +19,32 @@ internal class YoutubeVisiblePaintMeasurement {
 
     fun begin() {
         outcome = YoutubeVisiblePaintOutcome.WAITING
+        deadlineElapsedRealtimeMillis = null
     }
 
     fun complete(): Boolean = finish(YoutubeVisiblePaintOutcome.COMPLETED)
 
-    fun timeout(): Boolean = finish(YoutubeVisiblePaintOutcome.TIMED_OUT)
+    fun remainingTimeoutMillis(nowElapsedRealtimeMillis: Long, timeoutMillis: Long): Long {
+        if (!isWaiting) return 0L
+        val deadline = deadlineElapsedRealtimeMillis
+            ?: (nowElapsedRealtimeMillis + timeoutMillis).also { deadlineElapsedRealtimeMillis = it }
+        return (deadline - nowElapsedRealtimeMillis).coerceAtLeast(0L)
+    }
+
+    fun timeout(nowElapsedRealtimeMillis: Long): Boolean {
+        val deadline = deadlineElapsedRealtimeMillis ?: return false
+        if (nowElapsedRealtimeMillis < deadline) return false
+        return finish(YoutubeVisiblePaintOutcome.TIMED_OUT)
+    }
 
     fun cancel() {
-        if (isWaiting) outcome = YoutubeVisiblePaintOutcome.CANCELED
+        finish(YoutubeVisiblePaintOutcome.CANCELED)
     }
 
     private fun finish(result: YoutubeVisiblePaintOutcome): Boolean {
         if (!isWaiting) return false
         outcome = result
+        deadlineElapsedRealtimeMillis = null
         return true
     }
 }

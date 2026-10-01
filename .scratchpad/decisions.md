@@ -212,3 +212,7 @@ Keep progress and navigation state from the current suspended session internally
 ## Keep Gecko paint outcomes terminal and memory trims specific
 
 Treat paint completion, timeout and cancellation as mutually exclusive terminal outcomes for one activation measurement. On Android versions that deliver `TRIM_MEMORY_RUNNING_CRITICAL`, evict a suspended session only for running-critical levels below `TRIM_MEMORY_UI_HIDDEN`; Android 14 and later do not deliver the running levels, and UI-hidden alone keeps the warm session.
+
+## Preserve paint-reset evidence through warm activation
+
+Keep a primary-session `onPaintStatusReset()` observed while suspended through the matching warm reopen; clear that evidence only on a new session, a completed/canceled measurement, or the start of a distinct suspension. Start the timeout deadline on first activation and carry its absolute elapsed-realtime value across pause/resume and repeated same-profile opens.

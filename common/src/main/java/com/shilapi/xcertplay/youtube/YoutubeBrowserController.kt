@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.youtube
 
 import android.content.Context
 import android.graphics.Color
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.net.toUri
 import org.mozilla.geckoview.AllowOrDeny
@@ -54,8 +55,7 @@ internal class YoutubeBrowserController(
     private var pageReadyTraceCookie: Int? = null
     private var warmSessionReopenPending = false
     private val visiblePaintMeasurement = YoutubeVisiblePaintMeasurement()
-    private var paintStatusResetObserved = false
-    private var resumedFromSuspendedSession = false
+    private val visiblePaintResumeState = YoutubeVisiblePaintResumeState()
 
     val isSuspendedForReuse: Boolean
         get() = lifecycle == YoutubeBrowserLifecycle.SUSPENDED
@@ -78,7 +78,7 @@ internal class YoutubeBrowserController(
                 setLifecycle(YoutubeBrowserLifecycle.ACTIVE)
                 warmSessionReopenPending = true
                 visiblePaintMeasurement.begin()
-                paintStatusResetObserved = false
+                visiblePaintResumeState.beginWarmReopen()
                 return
             }
             YoutubeBrowserOpenDecision.CREATE_SESSION -> Unit
@@ -92,8 +92,7 @@ internal class YoutubeBrowserController(
         profile = deviceProfile
         crashed = false
         visiblePaintMeasurement.begin()
-        paintStatusResetObserved = false
-        resumedFromSuspendedSession = false
+        visiblePaintResumeState.startNewSession()
         setCanGoBack(false)
         primaryLoadState = YoutubeLoadState.LOADING
         uiStatePublisher.updateLoadState(YoutubeLoadState.LOADING)
@@ -126,7 +125,7 @@ internal class YoutubeBrowserController(
         if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
         setLifecycle(YoutubeBrowserLifecycle.SUSPENDED)
         warmSessionReopenPending = false
-        resumedFromSuspendedSession = true
+        visiblePaintResumeState.markSuspended()
         active = false
         popupSession?.let(::closePopupSession)
         primarySession?.let { primary ->
@@ -140,7 +139,7 @@ internal class YoutubeBrowserController(
     fun setActive(isActive: Boolean) {
         if (lifecycle == YoutubeBrowserLifecycle.DESTROYED) return
         if (!isActive && active && primarySession != null) {
-            resumedFromSuspendedSession = true
+            visiblePaintResumeState.markSuspended()
         }
         val traceWarmReopen = isActive && warmSessionReopenPending
         val wasActive = active
@@ -227,11 +226,11 @@ internal class YoutubeBrowserController(
     private fun configureDelegates(geckoSession: GeckoSession) {
         geckoSession.setContentDelegate(object : GeckoSession.ContentDelegate {
             override fun onFirstComposite(session: GeckoSession) {
-                SplitPerformanceTracer.increment(SplitPerformanceCounter.GECKO_FIRST_COMPOSITES)
+            SplitPerformanceTracer.increment(SplitPerformanceCounter.GECKO_FIRST_COMPOSITES)
                 if (
                     session === primarySession &&
                     primaryLoadState == YoutubeLoadState.READY &&
-                    paintStatusResetObserved
+                    visiblePaintResumeState.paintStatusResetObserved
                 ) {
                     completeVisiblePaint(session)
                 }
@@ -244,7 +243,7 @@ internal class YoutubeBrowserController(
 
             override fun onPaintStatusReset(session: GeckoSession) {
                 SplitPerformanceTracer.increment(SplitPerformanceCounter.GECKO_PAINT_STATUS_RESETS)
-                if (session === primarySession) paintStatusResetObserved = true
+                if (session === primarySession) visiblePaintResumeState.observePaintStatusReset()
             }
 
             override fun onFullScreen(session: GeckoSession, fullScreen: Boolean) {
@@ -521,7 +520,7 @@ internal class YoutubeBrowserController(
             paintedSession !== session ||
             !isCurrentSession(paintedSession) ||
             !active ||
-            (resumedFromSuspendedSession && paintedSession === primarySession && !paintStatusResetObserved) ||
+            !visiblePaintResumeState.allowsPaint(isPrimarySession = paintedSession === primarySession) ||
             view.visibility != android.view.View.VISIBLE ||
             !view.isAttachedToWindow
         ) {
@@ -529,8 +528,7 @@ internal class YoutubeBrowserController(
         }
         if (!visiblePaintMeasurement.complete()) return
         cancelVisiblePaintTimeout()
-        paintStatusResetObserved = false
-        resumedFromSuspendedSession = false
+        visiblePaintResumeState.finishMeasurement()
         SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_VISIBLE_PAINT_COMPLETIONS)
         onFirstVisiblePaint()
     }
@@ -551,7 +549,15 @@ internal class YoutubeBrowserController(
         ) {
             return
         }
-        view.postDelayed(visiblePaintTimeout, VISIBLE_PAINT_TIMEOUT_MILLIS)
+        val remainingTimeoutMillis = visiblePaintMeasurement.remainingTimeoutMillis(
+            SystemClock.elapsedRealtime(),
+            VISIBLE_PAINT_TIMEOUT_MILLIS,
+        )
+        if (remainingTimeoutMillis == 0L) {
+            visiblePaintTimeout.run()
+        } else {
+            view.postDelayed(visiblePaintTimeout, remainingTimeoutMillis)
+        }
     }
 
     fun cancelVisiblePaintTimeout() {
@@ -561,20 +567,22 @@ internal class YoutubeBrowserController(
     fun finishVisiblePaintMeasurement() {
         cancelVisiblePaintTimeout()
         visiblePaintMeasurement.cancel()
-        paintStatusResetObserved = false
-        resumedFromSuspendedSession = false
+        visiblePaintResumeState.finishMeasurement()
     }
 
     private val visiblePaintTimeout = Runnable {
         if (
             !visiblePaintMeasurement.isWaiting || lifecycle != YoutubeBrowserLifecycle.ACTIVE ||
-            !active || session == null || !visiblePaintMeasurement.timeout()
+            !active || session == null
         ) {
             return@Runnable
         }
+        if (!visiblePaintMeasurement.timeout(SystemClock.elapsedRealtime())) {
+            scheduleVisiblePaintTimeout()
+            return@Runnable
+        }
         cancelVisiblePaintTimeout()
-        paintStatusResetObserved = false
-        resumedFromSuspendedSession = false
+        visiblePaintResumeState.finishMeasurement()
         SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_VISIBLE_PAINT_TIMEOUTS)
         SplitPerformanceTracer.section("diplay.split.total.paint_missing") {}
         onVisiblePaintTimeout()

@@ -156,6 +156,19 @@ class CarPlayController(
         val hotspot: WirelessHotspotManager?,
     )
 
+    private data class WirelessBootstrapResources(
+        val csm: Iap2Session?,
+        val stream: BluetoothRfcommDuplexStream?,
+        val socket: BluetoothSocket?,
+    )
+
+    private data class WirelessControlUpdate(
+        val transition: WirelessControlTransition,
+        val bootstrapResources: WirelessBootstrapResources? = null,
+        val endedTunnel: Iap2Session? = null,
+        val previousMode: WirelessControlMode? = null,
+    )
+
     private enum class WirelessTunnelPublishResult { ACCEPTED, DUPLICATE, STALE }
 
     init {
@@ -1029,6 +1042,19 @@ class CarPlayController(
                 endpoint = endpoint,
                 timeoutMillis = controlLoopTimeoutMillis(),
                 locationProvider = locationProvider,
+                onReady = {
+                    val accepted = synchronized(wirelessLifecycleLock) {
+                        if (isStaleWirelessRun(generation) || csm !== channel) {
+                            false
+                        } else {
+                            wirelessConnectionProof.authenticated(generation)
+                            true
+                        }
+                    }
+                    if (accepted) {
+                        debugLog("wireless Bluetooth iAP2 authentication proof recorded generation=$generation")
+                    }
+                },
                 onProgress = ::debugLog,
                 isConnectionEstablished = {
                     wirelessConnectionProof.hasOperationalCarPlayControl(
@@ -1307,34 +1333,45 @@ class CarPlayController(
             activeSession === session &&
             isBluetoothHandoffCommand(type)
         ) {
-            val transition = synchronized(wirelessLifecycleLock) {
+            val (generation, update) = synchronized(wirelessLifecycleLock) {
                 val generation = wirelessGeneration.get()
                 if (
                     expectedWirelessGeneration != null &&
                     (expectedWirelessGeneration != generation || isStaleWirelessRun(generation))
                 ) {
-                    WirelessControlTransition(
-                        WirelessControlTransitionKind.IGNORED,
-                        wirelessConnectionProof.mode(generation) ?: WirelessControlMode.INACTIVE,
+                    generation to WirelessControlUpdate(
+                        WirelessControlTransition(
+                            WirelessControlTransitionKind.IGNORED,
+                            wirelessConnectionProof.mode(generation) ?: WirelessControlMode.INACTIVE,
+                        ),
                     )
                 } else {
-                    wirelessConnectionProof.requestHandoff(generation, session)
+                    var update = WirelessControlUpdate(
+                        wirelessConnectionProof.requestHandoff(generation, session),
+                    )
+                    if (update.transition.kind == WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED) {
+                        update = commitTunnelHandoffLocked(generation, wirelessTunnelChannel)
+                        if (
+                            update.transition.kind == WirelessControlTransitionKind.TUNNEL_ENDED &&
+                            wirelessConnectionProof.mode(generation) == WirelessControlMode.BOOTSTRAP
+                        ) {
+                            update = update.copy(
+                                transition = wirelessConnectionProof.requestHandoff(generation, session),
+                            )
+                        }
+                    }
+                    generation to update
                 }
             }
-            when (transition.kind) {
+            handleWirelessControlUpdate(generation, update)
+            when (update.transition.kind) {
                 WirelessControlTransitionKind.HANDOFF_REQUESTED -> {
-                    val generation = expectedWirelessGeneration ?: wirelessGeneration.get()
                     debugLog(
                         "wireless control mode=HANDOFF_REQUESTED generation=$generation; " +
                             "Bluetooth bootstrap retained while waiting for authenticated tunnel iAP2",
                     )
                     armWirelessHandoffWatchdog(generation)
                 }
-                WirelessControlTransitionKind.TUNNEL_ACTIVE ->
-                    handleWirelessControlTransition(
-                        expectedWirelessGeneration ?: wirelessGeneration.get(),
-                        transition,
-                    )
                 else -> Unit
             }
         }
@@ -1342,46 +1379,133 @@ class CarPlayController(
     }
 
     private fun onWirelessTunnelReady(generation: Int, channel: Iap2Session) {
-        val state = synchronized(wirelessLifecycleLock) {
+        val update = synchronized(wirelessLifecycleLock) {
             if (isStaleWirelessRun(generation) || wirelessTunnelChannel !== channel) return
+            val previousMode = wirelessConnectionProof.mode(generation)
             if (channel.isClosed) {
-                null
+                wirelessTunnelChannel = null
+                WirelessControlUpdate(
+                    transition = wirelessConnectionProof.tunnelEnded(generation),
+                    endedTunnel = channel,
+                    previousMode = previousMode,
+                )
             } else {
-                val previous = wirelessConnectionProof.mode(generation)
-                previous to wirelessConnectionProof.tunnelAuthenticated(generation)
+                val authenticated = wirelessConnectionProof.tunnelAuthenticated(generation)
+                val update = if (
+                    authenticated.kind == WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED
+                ) {
+                    commitTunnelHandoffLocked(generation, channel)
+                } else {
+                    WirelessControlUpdate(authenticated)
+                }
+                update.copy(previousMode = previousMode)
             }
         }
-        if (state == null) {
-            onWirelessTunnelControlEnded(generation, channel, "Tunnel closed before readiness was recorded")
-            return
-        }
-        val (previousMode, transition) = state
-        if (previousMode == WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL) {
+        if (
+            update.previousMode == WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL &&
+            update.transition.kind == WirelessControlTransitionKind.TUNNEL_ACTIVE
+        ) {
             debugLog("wireless control transition=fallback_to_tunnel generation=$generation")
         }
-        debugLog("wireless control mode=${transition.mode} generation=$generation tunnel authenticated")
-        handleWirelessControlTransition(generation, transition)
+        if (
+            update.transition.kind == WirelessControlTransitionKind.TUNNEL_READY ||
+            update.transition.kind == WirelessControlTransitionKind.TUNNEL_ACTIVE
+        ) {
+            debugLog("wireless control mode=${update.transition.mode} generation=$generation tunnel authenticated")
+        }
+        handleWirelessControlUpdate(generation, update)
+    }
+
+    private fun commitTunnelHandoffLocked(
+        generation: Int,
+        expectedChannel: Iap2Session?,
+    ): WirelessControlUpdate {
+        if (isStaleWirelessRun(generation)) {
+            return WirelessControlUpdate(
+                WirelessControlTransition(
+                    WirelessControlTransitionKind.IGNORED,
+                    wirelessConnectionProof.mode(generation) ?: WirelessControlMode.INACTIVE,
+                ),
+            )
+        }
+        val channel = wirelessTunnelChannel
+        if (channel == null) {
+            if (expectedChannel != null) {
+                return WirelessControlUpdate(
+                    WirelessControlTransition(
+                        WirelessControlTransitionKind.IGNORED,
+                        wirelessConnectionProof.mode(generation) ?: WirelessControlMode.INACTIVE,
+                    ),
+                )
+            }
+            return WirelessControlUpdate(wirelessConnectionProof.tunnelEnded(generation))
+        }
+        if (channel !== expectedChannel) {
+            return WirelessControlUpdate(
+                WirelessControlTransition(
+                    WirelessControlTransitionKind.IGNORED,
+                    wirelessConnectionProof.mode(generation) ?: WirelessControlMode.INACTIVE,
+                ),
+            )
+        }
+        if (channel.isClosed) {
+            wirelessTunnelChannel = null
+            return WirelessControlUpdate(
+                transition = wirelessConnectionProof.tunnelEnded(generation),
+                endedTunnel = channel,
+            )
+        }
+
+        val transition = wirelessConnectionProof.commitTunnelHandoff(generation)
+        if (transition.kind != WirelessControlTransitionKind.TUNNEL_ACTIVE) {
+            return WirelessControlUpdate(transition)
+        }
+        val bootstrapResources = WirelessBootstrapResources(csm, bluetoothStream, bluetoothSocket)
+        csm = null
+        bluetoothStream = null
+        bluetoothSocket = null
+        return WirelessControlUpdate(transition, bootstrapResources = bootstrapResources)
+    }
+
+    private fun handleWirelessControlUpdate(generation: Int, update: WirelessControlUpdate) {
+        update.endedTunnel?.let { channel ->
+            wirelessTeardownDispatcher.dispatch {
+                closeBestEffort("tunnel ended before takeover commit") { channel.close() }
+            }
+        }
+        handleWirelessControlTransition(
+            generation = generation,
+            transition = update.transition,
+            bootstrapResources = update.bootstrapResources,
+        )
     }
 
     private fun handleWirelessControlTransition(
         generation: Int,
         transition: WirelessControlTransition,
+        bootstrapResources: WirelessBootstrapResources? = null,
     ) {
         if (transition.kind == WirelessControlTransitionKind.IGNORED) return
         when (transition.kind) {
             WirelessControlTransitionKind.TUNNEL_ACTIVE -> {
-                dispatchWirelessTeardown(generation) {
-                    if (!confirmTunnelAndReleaseBootstrap(
-                            generation,
-                            transition.closeBluetoothBootstrap,
-                        )
-                    ) {
-                        return@dispatchWirelessTeardown
+                val claimedResources = checkNotNull(bootstrapResources) {
+                    "Tunnel takeover must claim Bluetooth resources with its state commit"
+                }
+                wirelessTeardownDispatcher.dispatch {
+                    closeBluetoothBootstrapResources(
+                        claimedResources.csm,
+                        claimedResources.stream,
+                        claimedResources.socket,
+                    )
+                    val stillCurrentTunnelControl = synchronized(wirelessLifecycleLock) {
+                        !isStaleWirelessRun(generation) &&
+                            wirelessConnectionProof.mode(generation) == WirelessControlMode.TUNNEL_CONTROL &&
+                            wirelessTunnelChannel?.isClosed == false
                     }
-                    if (!isStaleWirelessRun(generation)) {
+                    if (stillCurrentTunnelControl) {
                         debugLog(
                             "wireless control mode=TUNNEL_CONTROL generation=$generation; " +
-                                "live tunnel confirmed; Bluetooth bootstrap released",
+                                "tunnel committed; Bluetooth bootstrap resources released",
                         )
                         onStatus(CarPlayStatus.WirelessActive)
                     }
@@ -1409,6 +1533,8 @@ class CarPlayController(
                         "Bluetooth bootstrap retained when available generation=$generation",
                 )
             }
+            WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED ->
+                debugLog("wireless tunnel takeover candidate was not committed generation=$generation")
             else -> Unit
         }
     }
@@ -1444,53 +1570,6 @@ class CarPlayController(
         closeWirelessStack(expectedGeneration = teardownGeneration)
         if (closed || teardownGeneration != wirelessGeneration.get()) return
         fail(error)
-    }
-
-    private fun confirmTunnelAndReleaseBootstrap(
-        generation: Int,
-        releaseBluetoothBootstrap: Boolean,
-    ): Boolean {
-        var endedChannel: Iap2Session? = null
-        var transition: WirelessControlTransition? = null
-        var bootstrapResources: Triple<
-            Iap2Session?,
-            BluetoothRfcommDuplexStream?,
-            BluetoothSocket?,
-        >? = null
-        val tunnelIsLive = synchronized(wirelessLifecycleLock) {
-            if (
-                isStaleWirelessRun(generation) ||
-                wirelessConnectionProof.mode(generation) != WirelessControlMode.TUNNEL_CONTROL
-            ) {
-                return false
-            }
-            val channel = wirelessTunnelChannel
-            if (channel != null && !channel.isClosed) {
-                if (releaseBluetoothBootstrap) {
-                    bootstrapResources = Triple(csm, bluetoothStream, bluetoothSocket)
-                    csm = null
-                    bluetoothStream = null
-                    bluetoothSocket = null
-                }
-                true
-            } else {
-                endedChannel = channel
-                wirelessTunnelChannel = null
-                transition = wirelessConnectionProof.tunnelEnded(generation)
-                false
-            }
-        }
-        if (!tunnelIsLive) {
-            endedChannel?.let { channel ->
-                closeBestEffort("ended tunneled iAP2 link") { channel.close() }
-            }
-            transition?.let { handleWirelessControlTransition(generation, it) }
-            return false
-        }
-        bootstrapResources?.let { (activeCsm, activeStream, activeSocket) ->
-            closeBluetoothBootstrapResources(activeCsm, activeStream, activeSocket)
-        }
-        return tunnelIsLive
     }
 
     private fun dispatchWirelessTeardown(generation: Int, action: () -> Unit) {

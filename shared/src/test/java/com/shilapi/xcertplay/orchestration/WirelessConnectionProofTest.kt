@@ -40,6 +40,39 @@ class WirelessConnectionProofTest {
         assertEquals(0, saves)
     }
 
+    @Test fun independentBluetoothAuthenticationConfirmsFallbackSessionExactlyOnce() {
+        var saves = 0
+        val session = Any()
+        val proof = WirelessConnectionProof<Any>()
+        proof.begin(1) { saves++ }
+        proof.activate(1, session)
+        proof.rendered(1, session, nowNanos = 100)
+        proof.requestHandoff(1, session)
+        proof.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
+        assertEquals(0, saves)
+        proof.authenticated(1)
+
+        assertEquals(1, saves)
+        proof.rendered(1, session, nowNanos = 102)
+        proof.tunnelAuthenticated(1)
+        proof.tunnelEnded(1)
+        assertEquals(1, saves)
+    }
+
+    @Test fun independentBluetoothAuthenticationSurvivesTunnelLossBeforeTheFirstFrame() {
+        var saves = 0
+        val session = Any()
+        val proof = WirelessConnectionProof<Any>()
+        proof.begin(1) { saves++ }
+        proof.authenticated(1)
+        proof.tunnelAuthenticated(1)
+        proof.tunnelEnded(1)
+        proof.activate(1, session)
+        proof.rendered(1, session, nowNanos = 100)
+
+        assertEquals(1, saves)
+    }
+
     @Test fun bothEventsAreRequiredInEitherOrderAndOnlySaveOnce() {
         for (videoFirst in listOf(true, false)) {
             var saves = 0

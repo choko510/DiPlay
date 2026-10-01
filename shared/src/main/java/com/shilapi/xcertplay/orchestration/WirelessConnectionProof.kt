@@ -14,6 +14,7 @@ internal enum class WirelessControlTransitionKind {
     IGNORED,
     HANDOFF_REQUESTED,
     TUNNEL_READY,
+    TUNNEL_TAKEOVER_REQUESTED,
     TUNNEL_ACTIVE,
     BOOTSTRAP_CONTROL_ACTIVE,
     WAITING_FOR_TUNNEL,
@@ -124,7 +125,7 @@ internal class WirelessConnectionProof<S : Any> {
             }
             WirelessControlMode.TUNNEL_READY -> {
                 check(liveTunnelAuthenticated) { "TUNNEL_READY requires a live authenticated tunnel" }
-                completeTunnelHandoff()
+                transition(WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED)
             }
             else -> transition(WirelessControlTransitionKind.IGNORED)
         }
@@ -161,20 +162,32 @@ internal class WirelessConnectionProof<S : Any> {
                     authenticated = true
                     confirmIfReady()
                 }
-                completeTunnelHandoff()
+                transition(WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED)
             }
             WirelessControlMode.TUNNEL_READY,
             WirelessControlMode.TUNNEL_CONTROL -> {
-                liveTunnelAuthenticated = true
-                if (session != null) {
-                    authenticatedByTunnel = true
-                    authenticated = true
-                    confirmIfReady()
-                }
                 transition(WirelessControlTransitionKind.IGNORED)
             }
             else -> transition(WirelessControlTransitionKind.IGNORED)
         }
+    }
+
+    @Synchronized fun commitTunnelHandoff(generation: Int): WirelessControlTransition {
+        if (
+            this.generation != generation ||
+            controlMode !in setOf(
+                WirelessControlMode.HANDOFF_REQUESTED,
+                WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL,
+                WirelessControlMode.TUNNEL_READY,
+            )
+        ) {
+            return transition(WirelessControlTransitionKind.IGNORED)
+        }
+        if (controlMode == WirelessControlMode.TUNNEL_READY) {
+            check(liveTunnelAuthenticated) { "TUNNEL_READY requires a live authenticated tunnel" }
+        }
+        if (!liveTunnelAuthenticated) return transition(WirelessControlTransitionKind.IGNORED)
+        return completeTunnelHandoff()
     }
 
     @Synchronized fun tunnelEnded(generation: Int): WirelessControlTransition {

@@ -32,8 +32,11 @@ class WirelessHandoffTest {
         val state = state()
         state.requestHandoff(1, defaultSession)
 
-        val transition = state.tunnelAuthenticated(1)
+        val takeover = state.tunnelAuthenticated(1)
 
+        assertEquals(WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED, takeover.kind)
+        assertEquals(WirelessControlMode.HANDOFF_REQUESTED, state.mode(1))
+        val transition = state.commitTunnelHandoff(1)
         assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, transition.kind)
         assertEquals(WirelessControlMode.TUNNEL_CONTROL, transition.mode)
         assertTrue(transition.closeBluetoothBootstrap)
@@ -60,10 +63,14 @@ class WirelessHandoffTest {
 
         val transition = state.requestHandoff(1, defaultSession)
 
-        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, transition.kind)
-        assertEquals(WirelessControlMode.TUNNEL_CONTROL, transition.mode)
-        assertTrue(transition.closeBluetoothBootstrap)
-        assertTrue(transition.reportActive)
+        assertEquals(WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED, transition.kind)
+        assertEquals(WirelessControlMode.TUNNEL_READY, state.mode(1))
+        assertFalse(transition.closeBluetoothBootstrap)
+        val committed = state.commitTunnelHandoff(1)
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, committed.kind)
+        assertEquals(WirelessControlMode.TUNNEL_CONTROL, committed.mode)
+        assertTrue(committed.closeBluetoothBootstrap)
+        assertTrue(committed.reportActive)
     }
 
     @Test
@@ -89,8 +96,10 @@ class WirelessHandoffTest {
         state.requestHandoff(1, defaultSession)
         state.bootstrapEnded(1)
 
-        val transition = state.tunnelAuthenticated(1)
+        val takeover = state.tunnelAuthenticated(1)
 
+        assertEquals(WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED, takeover.kind)
+        val transition = state.commitTunnelHandoff(1)
         assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, transition.kind)
         assertEquals(WirelessControlMode.TUNNEL_CONTROL, transition.mode)
         assertFalse(transition.closeBluetoothBootstrap)
@@ -192,10 +201,57 @@ class WirelessHandoffTest {
     }
 
     @Test
+    fun tunnelLossBeforeTakeoverCommitKeepsBluetoothOwnedFallback() {
+        val session = Any()
+        val state = state(session)
+        state.requestHandoff(1, session)
+        state.rendered(1, session, nowNanos = 100)
+        state.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
+
+        val candidate = state.tunnelAuthenticated(1)
+        assertEquals(WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED, candidate.kind)
+        assertEquals(WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL, state.mode(1))
+
+        val ended = state.tunnelEnded(1)
+
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ENDED, ended.kind)
+        assertEquals(WirelessControlMode.AIRPLAY_ACTIVE_WITH_BOOTSTRAP_CONTROL, state.mode(1))
+        assertEquals(WirelessControlTransitionKind.IGNORED, state.commitTunnelHandoff(1).kind)
+        assertTrue(state.hasOperationalCarPlayControl(1, nowNanos = 102, maxFrameAgeNanos = 10))
+    }
+
+    @Test
+    fun tunnelLossBeforePendingHandoffCommitLeavesBluetoothAvailable() {
+        val session = Any()
+        val state = state(session)
+        state.requestHandoff(1, session)
+        state.rendered(1, session, nowNanos = 100)
+
+        val candidate = state.tunnelAuthenticated(1)
+
+        assertEquals(WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED, candidate.kind)
+        assertEquals(WirelessControlMode.HANDOFF_REQUESTED, state.mode(1))
+        val ended = state.tunnelEnded(1)
+
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ENDED, ended.kind)
+        assertEquals(WirelessControlMode.HANDOFF_REQUESTED, state.mode(1))
+        assertFalse(ended.closeBluetoothBootstrap)
+        assertEquals(WirelessControlTransitionKind.IGNORED, state.commitTunnelHandoff(1).kind)
+        assertEquals(
+            WirelessControlTransitionKind.BOOTSTRAP_CONTROL_ACTIVE,
+            state.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10).kind,
+        )
+    }
+
+    @Test
     fun activeTunnelLossFailsAndCannotRemainTunnelControl() {
         val state = state()
         state.requestHandoff(1, defaultSession)
-        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, state.tunnelAuthenticated(1).kind)
+        assertEquals(
+            WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED,
+            state.tunnelAuthenticated(1).kind,
+        )
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, state.commitTunnelHandoff(1).kind)
 
         val ended = state.tunnelEnded(1)
 
@@ -215,12 +271,35 @@ class WirelessHandoffTest {
         )
         assertEquals(WirelessControlMode.HANDOFF_REQUESTED, tunnelEndsFirst.mode(1))
 
+        val handoffCandidateFirst = state()
+        handoffCandidateFirst.tunnelAuthenticated(1)
+        assertEquals(
+            WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED,
+            handoffCandidateFirst.requestHandoff(1, defaultSession).kind,
+        )
+        assertEquals(WirelessControlMode.TUNNEL_READY, handoffCandidateFirst.mode(1))
+        assertEquals(
+            WirelessControlTransitionKind.TUNNEL_ENDED,
+            handoffCandidateFirst.tunnelEnded(1).kind,
+        )
+        assertEquals(WirelessControlMode.BOOTSTRAP, handoffCandidateFirst.mode(1))
+        assertEquals(
+            WirelessControlTransitionKind.IGNORED,
+            handoffCandidateFirst.commitTunnelHandoff(1).kind,
+        )
+        assertEquals(
+            WirelessControlTransitionKind.HANDOFF_REQUESTED,
+            handoffCandidateFirst.requestHandoff(1, defaultSession).kind,
+        )
+        assertEquals(WirelessControlMode.HANDOFF_REQUESTED, handoffCandidateFirst.mode(1))
+
         val handoffWinsFirst = state()
         handoffWinsFirst.tunnelAuthenticated(1)
         assertEquals(
-            WirelessControlTransitionKind.TUNNEL_ACTIVE,
+            WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED,
             handoffWinsFirst.requestHandoff(1, defaultSession).kind,
         )
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, handoffWinsFirst.commitTunnelHandoff(1).kind)
         assertEquals(WirelessControlTransitionKind.FAILED, handoffWinsFirst.tunnelEnded(1).kind)
         assertEquals(WirelessControlMode.FAILED, handoffWinsFirst.mode(1))
     }
@@ -300,7 +379,11 @@ class WirelessHandoffTest {
         tunneled.requestHandoff(1, handedOff)
         tunneled.rendered(1, handedOff, nowNanos = 100)
         tunneled.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10)
-        tunneled.tunnelAuthenticated(1)
+        assertEquals(
+            WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED,
+            tunneled.tunnelAuthenticated(1).kind,
+        )
+        tunneled.commitTunnelHandoff(1)
         assertEquals(
             WirelessControlTransitionKind.IGNORED,
             tunneled.fallbackVideoTimedOut(1, nowNanos = 111, maxFrameAgeNanos = 10).kind,
@@ -378,7 +461,11 @@ class WirelessHandoffTest {
         val tunnelFirst = state(session)
         tunnelFirst.requestHandoff(1, session)
         tunnelFirst.rendered(1, session, nowNanos = 100)
-        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, tunnelFirst.tunnelAuthenticated(1).kind)
+        assertEquals(
+            WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED,
+            tunnelFirst.tunnelAuthenticated(1).kind,
+        )
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, tunnelFirst.commitTunnelHandoff(1).kind)
         assertEquals(
             WirelessControlTransitionKind.IGNORED,
             tunnelFirst.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10).kind,
@@ -392,9 +479,11 @@ class WirelessHandoffTest {
             watchdogFirst.handoffTimedOut(1, nowNanos = 101, maxFrameAgeNanos = 10).kind,
         )
         val lateTunnel = watchdogFirst.tunnelAuthenticated(1)
-        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, lateTunnel.kind)
-        assertTrue(lateTunnel.closeBluetoothBootstrap)
-        assertFalse(lateTunnel.reportActive)
+        assertEquals(WirelessControlTransitionKind.TUNNEL_TAKEOVER_REQUESTED, lateTunnel.kind)
+        val takeover = watchdogFirst.commitTunnelHandoff(1)
+        assertEquals(WirelessControlTransitionKind.TUNNEL_ACTIVE, takeover.kind)
+        assertTrue(takeover.closeBluetoothBootstrap)
+        assertFalse(takeover.reportActive)
     }
 
     @Test
@@ -402,6 +491,7 @@ class WirelessHandoffTest {
         val state = state(defaultSession)
         state.requestHandoff(1, defaultSession)
         state.tunnelAuthenticated(1)
+        state.commitTunnelHandoff(1)
 
         assertEquals(
             WirelessControlTransitionKind.BOOTSTRAP_ENDED,

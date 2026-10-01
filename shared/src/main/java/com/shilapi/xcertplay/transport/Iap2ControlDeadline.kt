@@ -18,7 +18,7 @@ internal class Iap2ControlDeadline(
     /** Completes protocol authentication; this only releases the NO_TIMEOUT handshake budget. */
     fun authenticated() { authenticated = true }
 
-    /** Promotes the deadline only after actual CarPlay session, rendered-video, and live-control proof. */
+    /** Operational proof observed at expiry wins the timeout race; absent proof, the finite deadline remains. */
     fun establishIfOperational(proven: Boolean): Boolean {
         if (established || !proven) return false
         established = true

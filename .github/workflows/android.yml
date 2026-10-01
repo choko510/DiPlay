@@ -35,7 +35,11 @@ jobs:
           test -x "$ANDROID_HOME/emulator/emulator"
       - name: JNI DSP smoke test
         run: |
+          mkdir -p "$HOME/.android/avd"
+          export ANDROID_AVD_HOME="$HOME/.android/avd"
           avdmanager create avd -f -n dsp-x86_64 -k "system-images;android-35;google_apis;x86_64" -d pixel_7_pro
+          avdmanager list avd
+          test -f "$ANDROID_AVD_HOME/dsp-x86_64.ini"
           "$ANDROID_HOME/emulator/emulator" -avd dsp-x86_64 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect &
           timeout 180s adb wait-for-device
           booted=false

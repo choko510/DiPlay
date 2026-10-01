@@ -33,6 +33,11 @@ jobs:
           curl --fail --location --retry 3 "https://dl.google.com/android/repository/emulator-linux_x64-16433917.zip" -o "$RUNNER_TEMP/emulator.zip"
           unzip -o -q "$RUNNER_TEMP/emulator.zip" -d "$ANDROID_HOME"
           test -x "$ANDROID_HOME/emulator/emulator"
+      - name: Enable KVM for x86_64 emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
       - name: JNI DSP smoke test
         uses: reactivecircus/android-emulator-runner@v2
         with:

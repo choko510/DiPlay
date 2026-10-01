@@ -137,3 +137,7 @@ With `adjustResize`, filtering only surface callbacks is insufficient if a debou
 ## Recheck privacy-sensitive logs after merging main
 
 Later main changes can reintroduce raw controller or device identifiers into debug logs even when the PR branch had sanitized them. Search logging expressions after each merge and log availability or hashed identifiers instead.
+
+## Keep audio setup preparation separate from ownership commit
+
+Bind both UDP sockets with no receive workers first, then atomically publish the new generation and only start its workers while it is still current. Exercise A→B→C with latches so delayed B rollback proves it cannot clear C; token checks at the sink and map-removal boundary catch races that an engine-only owner check misses.

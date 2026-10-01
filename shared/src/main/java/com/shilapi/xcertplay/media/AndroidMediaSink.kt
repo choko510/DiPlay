@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.Surface
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioFormat
+import com.shilapi.xcertplay.airplay.AudioOwnerToken
 import com.shilapi.xcertplay.airplay.AudioPlaybackClock
 import com.shilapi.xcertplay.airplay.AudioPlaybackClockMapper
 import com.shilapi.xcertplay.airplay.MediaSink
@@ -50,14 +51,20 @@ class AndroidMediaSink(
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
     private val onAudioDiagnostic: (String) -> Unit = {},
 ) : MediaSink {
+    private data class AudioRendererEntry(val token: AudioOwnerToken, val renderer: AudioRenderer)
+    private data class MicrophoneEntry(val token: AudioOwnerToken, val uplink: MicrophoneUplink)
+
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
     private val defaultSurface = surface
     @Volatile private var screenStreamActiveChanged = onScreenStreamActiveChanged
     private val surfaces = ConcurrentHashMap<Int, Surface>()
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
-    private val audioRenderers = ConcurrentHashMap<Int, AudioRenderer>()
-    private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneUplink>()
+    private val audioTypeLocks = ConcurrentHashMap<Int, Any>()
+    private val activeAudioOwners = ConcurrentHashMap<Int, AudioOwnerToken>()
+    private val audioRenderers = ConcurrentHashMap<Int, AudioRendererEntry>()
+    private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneEntry>()
+    private val closed = AtomicBoolean(false)
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, () -> Unit>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
@@ -127,31 +134,120 @@ class AndroidMediaSink(
         }
     }
 
-    override fun onAudioStarted(type: Int, format: AudioFormat, firstSample: Int) {
-        audioRenderer(type, format).start()
+    override fun claimAudioOwner(token: AudioOwnerToken) {
+        if (closed.get()) return
+        activeAudioOwners[token.type] = token
+        if (closed.get()) activeAudioOwners.remove(token.type, token)
     }
 
-    override fun onAudioRtp(type: Int, format: AudioFormat, rtp: ByteArray, sample: Int) {
-        audioRenderer(type, format).submit(rtp, sample)
+    override fun releaseAudioOwner(token: AudioOwnerToken) {
+        activeAudioOwners.remove(token.type, token)
     }
 
-    override fun onAudioStopped(type: Int) {
-        audioRenderers.remove(type)?.close()
+    override fun onAudioStarted(token: AudioOwnerToken, format: AudioFormat, firstSample: Int) {
+        if (closed.get()) return
+        val retired = mutableListOf<AudioRenderer>()
+        synchronized(audioTypeLock(token.type)) {
+            if (closed.get() || activeAudioOwners[token.type] != token) return
+            val existing = audioRenderers[token.type]
+            if (existing?.token == token && existing.renderer.format == format) {
+                existing.renderer.start()
+                return
+            }
+            val renderer = createAudioRenderer(format)
+            val entry = AudioRendererEntry(token, renderer)
+            val previous = audioRenderers.put(token.type, entry)
+            try {
+                renderer.start()
+            } catch (error: Exception) {
+                audioRenderers.remove(token.type, entry)
+                retired.add(renderer)
+                previous?.let { retired.add(it.renderer) }
+                Log.w("xcertplay-usb", "Audio renderer start failed type=${token.type}", error)
+                return@synchronized
+            }
+            if (activeAudioOwners[token.type] != token) {
+                audioRenderers.remove(token.type, entry)
+                retired.add(renderer)
+            }
+            previous?.let { retired.add(it.renderer) }
+        }
+        retired.forEach(AudioRenderer::close)
     }
 
-    override fun audioPlaybackClock(type: Int): AudioPlaybackClock? =
-        audioRenderers[type]?.playbackClock()
-
-    override fun onMicrophoneStarted(type: Int, config: MicrophoneConfig) {
-        val uplink = microphoneUplinks.computeIfAbsent(type) { MicrophoneUplink(config) }
-        if (!uplink.start()) microphoneUplinks.remove(type, uplink)
+    override fun onAudioRtp(token: AudioOwnerToken, format: AudioFormat, rtp: ByteArray, sample: Int) {
+        if (closed.get() || activeAudioOwners[token.type] != token) return
+        val entry = audioRenderers[token.type] ?: return
+        if (entry.token == token && entry.renderer.format == format) entry.renderer.submit(rtp, sample)
     }
 
-    override fun onMicrophoneStopped(type: Int) {
-        microphoneUplinks.remove(type)?.close()
+    override fun audioPlaybackClock(token: AudioOwnerToken): AudioPlaybackClock? {
+        if (closed.get() || activeAudioOwners[token.type] != token) return null
+        val entry = audioRenderers[token.type] ?: return null
+        return if (entry.token == token) entry.renderer.playbackClock() else null
+    }
+
+    override fun onAudioStopped(token: AudioOwnerToken) {
+        val lock = audioTypeLock(token.type)
+        var renderer: AudioRenderer? = null
+        var microphone: MicrophoneUplink? = null
+        synchronized(lock) {
+            audioRenderers[token.type]?.takeIf { it.token == token }?.let { entry ->
+                if (audioRenderers.remove(token.type, entry)) renderer = entry.renderer
+            }
+            microphoneUplinks[token.type]?.takeIf { it.token == token }?.let { entry ->
+                if (microphoneUplinks.remove(token.type, entry)) microphone = entry.uplink
+            }
+        }
+        renderer?.close()
+        microphone?.close()
+    }
+
+    override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig) {
+        if (closed.get()) return
+        val lock = audioTypeLock(token.type)
+        lateinit var entry: MicrophoneEntry
+        var previous: MicrophoneEntry? = null
+        synchronized(lock) {
+            if (closed.get() || activeAudioOwners[token.type] != token) return
+            val current = microphoneUplinks[token.type]
+            if (current?.token == token) return
+            val uplink = MicrophoneUplink(config) {
+                !closed.get() && activeAudioOwners[token.type] == token
+            }
+            entry = MicrophoneEntry(token, uplink)
+            previous = microphoneUplinks.put(token.type, entry)
+        }
+        previous?.uplink?.close()
+        if (!entry.uplink.start()) {
+            synchronized(lock) { microphoneUplinks.remove(token.type, entry) }
+            entry.uplink.close()
+            return
+        }
+        val activated = synchronized(lock) {
+            if (!closed.get() && activeAudioOwners[token.type] == token && microphoneUplinks[token.type] === entry) {
+                entry.uplink.activate()
+                true
+            } else {
+                microphoneUplinks.remove(token.type, entry)
+                false
+            }
+        }
+        if (!activated) entry.uplink.close()
+    }
+
+    override fun onMicrophoneStopped(token: AudioOwnerToken) {
+        val lock = audioTypeLock(token.type)
+        val microphone = synchronized(lock) {
+            microphoneUplinks[token.type]?.takeIf { it.token == token }?.let { entry ->
+                if (microphoneUplinks.remove(token.type, entry)) entry.uplink else null
+            }
+        }
+        microphone?.close()
     }
 
     fun close() {
+        if (!closed.compareAndSet(false, true)) return
         synchronized(screenStateLock) {
             activeScreenTypes.forEach { screenStreamActiveChanged?.invoke(it, false) }
             activeScreenTypes.clear()
@@ -162,10 +258,18 @@ class AndroidMediaSink(
         videoRecoveryHandlers.clear()
         videoDiagnosticHandlers.clear()
         recoveryExecutor.shutdownNow()
-        audioRenderers.values.forEach(AudioRenderer::close)
-        audioRenderers.clear()
-        microphoneUplinks.values.forEach(MicrophoneUplink::close)
-        microphoneUplinks.clear()
+        val types = (audioTypeLocks.keys + activeAudioOwners.keys + audioRenderers.keys + microphoneUplinks.keys).toSet()
+        val renderers = mutableListOf<AudioRenderer>()
+        val microphones = mutableListOf<MicrophoneUplink>()
+        types.forEach { type ->
+            synchronized(audioTypeLock(type)) {
+                activeAudioOwners.remove(type)
+                audioRenderers.remove(type)?.let { renderers.add(it.renderer) }
+                microphoneUplinks.remove(type)?.let { microphones.add(it.uplink) }
+            }
+        }
+        renderers.forEach(AudioRenderer::close)
+        microphones.forEach(MicrophoneUplink::close)
     }
 
     private fun videoDecoder(type: Int): VideoDecoder =
@@ -180,21 +284,18 @@ class AndroidMediaSink(
             )
         }
 
-    @Synchronized
-    private fun audioRenderer(type: Int, format: AudioFormat): AudioRenderer {
-        val existing = audioRenderers[type]
-        if (existing?.format == format) return existing
-        existing?.close()
-        return AudioRenderer(
-            format = format,
-            advancedAudioChannelMapping = advancedAudioChannelMapping,
-            navigationAudioRoute = navigationAudioRoute,
-            transport = transport,
-            audioManager = audioManager,
-            mediaBufferMillis = mediaBufferMillis,
-            report = onAudioDiagnostic,
-        ).also { audioRenderers[type] = it }
-    }
+    private fun createAudioRenderer(format: AudioFormat): AudioRenderer = AudioRenderer(
+        format = format,
+        advancedAudioChannelMapping = advancedAudioChannelMapping,
+        navigationAudioRoute = navigationAudioRoute,
+        transport = transport,
+        audioManager = audioManager,
+        mediaBufferMillis = mediaBufferMillis,
+        report = onAudioDiagnostic,
+    )
+
+    private fun audioTypeLock(type: Int): Any = audioTypeLocks.computeIfAbsent(type) { Any() }
+
 }
 
 /** Serial MediaCodec video decoder: one worker owns configure and frame feeding. */
@@ -205,7 +306,7 @@ private class VideoDecoder(
     private val preferSoftwareHevcDecoder: Boolean,
     private val requestKeyFrame: () -> Unit,
     private val report: (String) -> Unit,
-) : Closeable {
+    ) : Closeable {
     private val queue = VideoDecodeQueue()
     @Volatile private var running = true
     @Volatile private var decoder: MediaCodec? = null
@@ -576,8 +677,7 @@ private class AudioRenderer(
         IllegalStateException("AudioTrack.write accepted no frames for ${stalledForNs / 1_000_000L} ms")
 
     private val queue = LinkedBlockingQueue<AudioPacket>(MAX_QUEUED_PACKETS)
-    @Volatile private var running = true
-    @Volatile private var started = false
+    private val lifecycle = AudioRendererLifecycle()
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
     private var pcm = ByteArray(64 * 1024)
@@ -654,26 +754,29 @@ private class AudioRenderer(
     fun playbackClock(): AudioPlaybackClock? = playbackClockSnapshot
 
     fun start() {
-        if (started) return
-        started = true
-        report(
-            "Audio: stream start transport=$transport type=${format.payloadType} audioType=${format.audioType} " +
-                "codec=${format.codec} sampleRate=${format.sampleRate} channels=${format.channels} " +
-                "routingPolicy=${if (advancedAudioChannelMapping) "AUTOMOTIVE_BUS" else navigationAudioRoute}",
-        )
-        thread.start()
+        lifecycle.start(thread) {
+            report(
+                "Audio: stream start transport=$transport type=${format.payloadType} audioType=${format.audioType} " +
+                    "codec=${format.codec} sampleRate=${format.sampleRate} channels=${format.channels} " +
+                    "routingPolicy=${if (advancedAudioChannelMapping) "AUTOMOTIVE_BUS" else navigationAudioRoute}",
+            )
+        }
     }
 
     fun submit(rtp: ByteArray, sample: Int) {
-        if (started) {
-            packetsReceived.incrementAndGet()
-            val now = System.nanoTime()
-            val previous = lastArrivalNs.getAndSet(now)
-            if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
+        if (!lifecycle.isRunning) return
+        packetsReceived.incrementAndGet()
+        val now = System.nanoTime()
+        val previous = lastArrivalNs.getAndSet(now)
+        if (previous != 0L) maxArrivalGapMs.accumulateAndGet((now - previous) / 1_000_000L, ::maxOf)
+        val packet = AudioPacket(rtp, sample)
+        if (queue.offer(packet)) {
+            if (!lifecycle.isRunning) queue.remove(packet)
+            return
         }
-        if (!started || !queue.offer(AudioPacket(rtp, sample))) {
-            if (started) packetsDropped.incrementAndGet()
-            if (started && !droppedPacketsLogged) {
+        if (lifecycle.isRunning) {
+            packetsDropped.incrementAndGet()
+            if (!droppedPacketsLogged) {
                 droppedPacketsLogged = true
                 Log.w(TAG, "audio queue full; dropping newest packets to bound latency")
                 report("Audio: queue full audioType=${format.audioType}")
@@ -682,8 +785,7 @@ private class AudioRenderer(
     }
 
     override fun close() {
-        running = false
-        thread.interrupt()
+        lifecycle.close(thread) { queue.clear() }
     }
 
     private fun run() {
@@ -699,7 +801,7 @@ private class AudioRenderer(
                     ),
                 )
             }
-            while (running) {
+            while (lifecycle.isRunning) {
                 queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
                 // Output becomes ready asynchronously, including after the last packet of a burst.
                 // Waiting for the next UDP packet can strand decoded sound for hundreds of ms.
@@ -713,13 +815,14 @@ private class AudioRenderer(
         } catch (_: InterruptedException) {
             // Worker shut down.
         } catch (error: Exception) {
-            if (running) {
+            if (lifecycle.isRunning) {
                 Log.e(TAG, "audio renderer worker failed", error)
                 report("Audio: renderer failed audioType=${format.audioType} error=${error.javaClass.simpleName}")
             }
         } finally {
             runCatching { logStatsIfDue(force = true) }
             release()
+            lifecycle.stopped()
         }
     }
 
@@ -1206,7 +1309,7 @@ private class AudioRenderer(
 
     private fun drainCodec(codec: MediaCodec) {
         val info = MediaCodec.BufferInfo()
-        while (running) {
+        while (lifecycle.isRunning) {
             var outputIndex = -1
             try {
                 val index = codec.dequeueOutputBuffer(info, 0)
@@ -1270,7 +1373,7 @@ private class AudioRenderer(
                 }
             } catch (error: Exception) {
                 if (outputIndex >= 0) runCatching { codec.releaseOutputBuffer(outputIndex, false) }
-                if (running && !decoderOutputFailureLogged) {
+                if (lifecycle.isRunning && !decoderOutputFailureLogged) {
                     decoderOutputFailureLogged = true
                     Log.w(TAG, "audio decoder output failed codec=${format.codec}", error)
                     report("Audio: decoder output failed codec=${format.codec} error=${error.javaClass.simpleName}")
@@ -1454,7 +1557,7 @@ private class AudioRenderer(
             applyFadeIn(data, offset, completeLength)
         }
         var written = 0
-        while (written < completeLength && running) {
+        while (written < completeLength && lifecycle.isRunning) {
             val writeLength = if (playbackStarted) {
                 completeLength - written
             } else {
@@ -1776,7 +1879,7 @@ private class AudioRenderer(
             return
         }
         for (accessUnit in replay) {
-            if (!running) break
+            if (!lifecycle.isRunning) break
             feedCodec(
                 MediaCodecSupport.adtsFrame(accessUnit.bytes, format.sampleRate, format.channels),
                 accessUnit.presentationTimeUs,

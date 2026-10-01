@@ -28,25 +28,15 @@ jobs:
         run: bash scripts/test_dsp_native.sh --sanitize
       - name: Unit tests, lint and source-only debug build
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug --stacktrace
-      - name: Start x86_64 emulator
-        run: |
-          echo no | avdmanager create avd -f -n dsp-x86_64 -k "system-images;android-35;google_apis;x86_64"
-          emulator -avd dsp-x86_64 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect &
-          timeout 180s adb wait-for-device
-          booted=false
-          for attempt in $(seq 1 180); do
-            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
-              booted=true
-              break
-            fi
-            sleep 2
-          done
-          if [[ "$booted" != "true" ]]; then
-            echo "x86_64 emulator failed to boot" >&2
-            exit 1
-          fi
       - name: JNI DSP smoke test
-        run: ./gradlew :shared:connectedDebugAndroidTest --stacktrace
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: ./gradlew :shared:connectedDebugAndroidTest --stacktrace
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4

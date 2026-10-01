@@ -138,6 +138,22 @@ With `adjustResize`, filtering only surface callbacks is insufficient if a debou
 
 Later main changes can reintroduce raw controller or device identifiers into debug logs even when the PR branch had sanitized them. Search logging expressions after each merge and log availability or hashed identifiers instead.
 
+## Keep audio setup preparation separate from ownership commit
+
+Bind both UDP sockets with no receive workers first, then atomically publish the new generation and only start its workers while it is still current. Keep the previous activated owner available until that start succeeds, and make closed-session commit plus teardown owner reads linearize under the per-type slot lock. Exercise A→B→C and prepare/close interleavings with latches; token checks at the sink and map-removal boundary catch races that an engine-only owner check misses.
+
+## Keep microphone Opus frames in the negotiated sample domain
+
+For 20 ms Opus uplink frames, derive samples and PCM bytes from the negotiated sample rate: 16 kHz is 320 samples/640 mono S16 bytes, 24 kHz is 480/960, and 48 kHz is 960/1920. Configure MediaCodec with that same rate and advance RTP timestamps by the same sample count; 960 samples is not a rate-independent frame size.
+
+## Propagate renderer and microphone start outcomes
+
+If a sink swallows a synchronous renderer-start failure, the engine can mark an absent renderer as started and drop every later RTP packet. Return success only after the worker has started; likewise mark microphone state started only after its uplink is active, and test that the next RTP retries after a failed renderer start.
+
+## Keep microphone recovery independent from downlink startup
+
+After the downlink renderer succeeds, microphone startup still needs its own retry path. Rate-limit retries and liveness checks with a monotonic deadline, and replace an inactive same-token uplink so a capture thread that exits cannot leave a permanent dead entry.
+
 ## Resolve the current iPhone before reactivating a warm YouTube view
 
 A retained GeckoView can still display the prior account while inactive. Hide it and keep its session inactive as split mode opens; re-show it only after the current connection's profile is resolved. Same-profile reuse must not call `open()` or `loadUri()` again.

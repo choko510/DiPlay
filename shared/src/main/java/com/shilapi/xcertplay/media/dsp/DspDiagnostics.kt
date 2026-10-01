@@ -7,6 +7,15 @@ internal data class DspDiagnosticsSnapshot(
     val nonFiniteInputSamples: Long = 0,
     val nonFiniteOutputSamples: Long = 0,
     val processorFailures: Long = 0,
+    val nativeErrorCount: Long = 0,
+    val inputPeakL: Double = 0.0,
+    val inputPeakR: Double = 0.0,
+    val inputRmsL: Double = 0.0,
+    val inputRmsR: Double = 0.0,
+    val outputPeakL: Double = 0.0,
+    val outputPeakR: Double = 0.0,
+    val outputRmsL: Double = 0.0,
+    val outputRmsR: Double = 0.0,
 ) {
     companion object {
         val EMPTY = DspDiagnosticsSnapshot()
@@ -14,14 +23,20 @@ internal data class DspDiagnosticsSnapshot(
 }
 
 internal class DspDiagnostics {
+    @Volatile
     var processedFrames = 0L
         private set
+    @Volatile
     var processedBlocks = 0L
         private set
+    @Volatile
     var incompleteFrameBytes = 0L
         private set
+    @Volatile
     var nonFiniteInputSamples = 0L
+    @Volatile
     var nonFiniteOutputSamples = 0L
+    @Volatile
     var processorFailures = 0L
         private set
 

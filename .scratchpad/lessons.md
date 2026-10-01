@@ -145,3 +145,7 @@ Navigation may intentionally use the media route. Keep stream semantics explicit
 ## Validate audio buffers with frames, channels and encoding together
 
 Compute complete frames from the source encoding before decoding, then require exactly `frames × channels × sizeof(float)` at the processor boundary. Drop and count incomplete trailing frames, keep conversion scratch buffers across chunks, and retain independent dither state so decoder chunk splits do not change output.
+
+## Pass direct-buffer positions into JNI explicitly
+
+JNI direct-buffer addresses point at the allocation base. Send position and remaining-byte counts with the block, validate both capacities and reject overlapping input/output ranges before calling the core, then advance Kotlin buffer positions only after native success.

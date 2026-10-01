@@ -104,7 +104,25 @@ internal class DspPcmPipeline(
         processedLength = 0
     }
 
-    fun diagnostics(): DspDiagnosticsSnapshot = diagnostics.snapshot()
+    fun diagnostics(): DspDiagnosticsSnapshot {
+        val pipelineSnapshot = diagnostics.snapshot()
+        val processorSnapshot = processor.diagnostics()
+        return pipelineSnapshot.copy(
+            nonFiniteInputSamples =
+                pipelineSnapshot.nonFiniteInputSamples + processorSnapshot.nonFiniteInputSamples,
+            nonFiniteOutputSamples =
+                pipelineSnapshot.nonFiniteOutputSamples + processorSnapshot.nonFiniteOutputSamples,
+            nativeErrorCount = processorSnapshot.nativeErrorCount,
+            inputPeakL = processorSnapshot.inputPeakL,
+            inputPeakR = processorSnapshot.inputPeakR,
+            inputRmsL = processorSnapshot.inputRmsL,
+            inputRmsR = processorSnapshot.inputRmsR,
+            outputPeakL = processorSnapshot.outputPeakL,
+            outputPeakR = processorSnapshot.outputPeakR,
+            outputRmsL = processorSnapshot.outputRmsL,
+            outputRmsR = processorSnapshot.outputRmsR,
+        )
+    }
 
     override fun close() {
         processor.close()

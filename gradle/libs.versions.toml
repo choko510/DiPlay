@@ -10,6 +10,8 @@ appProjected = "1.4.0"
 appAutomotive = "1.7.0"
 app = "1.4.0"
 junit = "4.13.2"
+androidxTestExtJunit = "1.3.0"
+androidxTestRunner = "1.7.0"
 bouncycastle = "1.79"
 jmdns = "3.6.3"
 geckoview = "156.0.20260921121718"
@@ -29,6 +31,8 @@ androidx-app-projected = { group = "androidx.car.app", name = "app-projected", v
 androidx-app-automotive = { group = "androidx.car.app", name = "app-automotive", version.ref = "appAutomotive" }
 androidx-app = { group = "androidx.car.app", name = "app", version.ref = "app" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExtJunit" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
 bouncycastle = { group = "org.bouncycastle", name = "bcprov-jdk18on", version.ref = "bouncycastle" }
 jmdns = { group = "org.jmdns", name = "jmdns", version.ref = "jmdns" }
 mozilla-geckoview = { group = "org.mozilla.geckoview", name = "geckoview", version.ref = "geckoview" }

@@ -26,6 +26,7 @@ import com.shilapi.xcertplay.media.dsp.DspConfigProvider
 import com.shilapi.xcertplay.media.dsp.DspAudioFormat
 import com.shilapi.xcertplay.media.dsp.DspPcmEncoding
 import com.shilapi.xcertplay.media.dsp.DspPcmPipeline
+import com.shilapi.xcertplay.media.dsp.NativeDspProcessor
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
 import java.io.Closeable
@@ -640,7 +641,7 @@ internal class AudioRenderer(
     @Volatile private var started = false
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
-    private var dspPipeline: DspPcmPipeline? = null
+    internal var dspPipeline: DspPcmPipeline? = null
     private var pcm = ByteArray(64 * 1024)
     private var normalizedPcm = ByteArray(64 * 1024)
     private var activeDecoderPcmFormat: DecoderPcmFormat? = null
@@ -717,6 +718,13 @@ internal class AudioRenderer(
     fun start() {
         if (started) return
         started = true
+        prepareDspPipeline(
+            DecoderPcmFormat(
+                sampleRate = format.sampleRate,
+                channels = format.channels.coerceIn(1, 2),
+                encoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+            ),
+        )
         report(
             "Audio: stream start transport=$transport type=${format.payloadType} audioType=${format.audioType} " +
                 "codec=${format.codec} sampleRate=${format.sampleRate} channels=${format.channels} " +
@@ -1436,17 +1444,24 @@ internal class AudioRenderer(
         }
         if (dspPipeline?.format == nextFormat) return
         runCatching { dspPipeline?.close() }
+        val processor = NativeDspProcessor.createOrNull(nextFormat, dspRuntimeConfig.gainDb)
+        if (processor == null) {
+            dspPipeline = null
+            reportDsp("DSP unavailable: reason=NATIVE_CREATE_FAILED fallback=LEGACY_PCM")
+            return
+        }
         dspPipeline = try {
-            DspPcmPipeline(nextFormat).also {
+            DspPcmPipeline(nextFormat, processor).also {
                 reportDsp("DSP: Float32 pipeline ready sampleRate=${nextFormat.sampleRate} channels=${nextFormat.channels}")
             }
         } catch (_: Exception) {
+            runCatching { processor.close() }
             reportDsp("DSP unavailable: reason=PIPELINE_PREPARE_FAILED fallback=LEGACY_PCM")
             null
         }
     }
 
-    private fun writeDspIfAvailable(
+    internal fun writeDspIfAvailable(
         source: ByteArray,
         offset: Int,
         length: Int,

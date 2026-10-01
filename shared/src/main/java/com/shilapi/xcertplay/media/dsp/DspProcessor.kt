@@ -10,6 +10,7 @@ internal enum class DspProcessStatus {
 
 internal enum class DspBypassReason {
     INVALID_BUFFER,
+    NATIVE_FAILURE,
 }
 
 internal class DspProcessResult {

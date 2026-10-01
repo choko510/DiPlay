@@ -180,3 +180,7 @@ Expose only the immutable runtime config and snapshot provider across `shared` a
 ## Keep the native core portable and failure-isolated
 
 Keep DSP math independent of JNI and Android logging, allocate engine state during preparation, and validate opaque generation handles before dereferencing engine memory. DSP library load/create/process errors disable the renderer pipeline and route the current PCM block through the legacy path.
+
+## Prepare RBJ filters off the audio path and retain double coefficients
+
+Calculate normalized RBJ coefficients in double precision when preparing a format/config snapshot, then copy at most 15 sections into the native graph. Process float samples/states with TDFII and no per-block allocation. Auto Headroom scans the product of PEQ and optional static-bass responses at the same 1024 log-spaced frequencies, then applies its reduction to preamp before EQ; later bass/compressor/width stages supply their config inputs as they are implemented.

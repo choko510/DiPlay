@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "dsp_biquad.h"
+#include "dsp_dynamics.h"
 
 typedef struct dsp_engine dsp_engine;
 
@@ -33,7 +34,8 @@ dsp_engine *dsp_engine_create(
     int max_frames,
     double gain_db,
     const double *peq_coefficients,
-    int peq_band_count);
+    int peq_band_count,
+    const dsp_dynamics_config *dynamics_config);
 dsp_status dsp_engine_process(
     dsp_engine *engine,
     const float *input,

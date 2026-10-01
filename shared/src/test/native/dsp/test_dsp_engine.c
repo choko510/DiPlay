@@ -5,9 +5,45 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static const dsp_dynamics_config bypass_dynamics = {
+    0, -20.0, 4.0, 10.0, 100.0, 0.0, 0.0, 0, -1.0, 60.0,
+};
+
 static void fail(const char *message) {
     fprintf(stderr, "FAIL: %s\n", message);
     exit(1);
+}
+
+static dsp_engine *create_test_engine(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const double *peq_coefficients,
+    int peq_band_count) {
+    return dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        gain_db,
+        peq_coefficients,
+        peq_band_count,
+        &bypass_dynamics);
+}
+
+static dsp_engine *create_test_engine_with_dynamics(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_dynamics_config *dynamics_config) {
+    return dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        dynamics_config);
 }
 
 static void assert_true(int condition, const char *message) {
@@ -25,7 +61,7 @@ static void assert_near(double actual, double expected, double tolerance, const 
 
 static void test_gain_and_meter(void) {
     const double gain_db = 6.020599913279624;
-    dsp_engine *engine = dsp_engine_create(48000, 2, 512, gain_db, NULL, 0);
+    dsp_engine *engine = create_test_engine(48000, 2, 512, gain_db, NULL, 0);
     assert_true(engine != NULL, "engine create for gain test");
 
     const float input[] = {0.25f, -0.5f, -0.75f, 1.0f};
@@ -60,7 +96,7 @@ static void test_bad_handles_arguments_and_capacities(void) {
         dsp_engine_process(NULL, input, 2, output, 2, 1, 2) == DSP_STATUS_INVALID_HANDLE,
         "null handle is rejected");
 
-    dsp_engine *engine = dsp_engine_create(48000, 2, 2, 0.0, NULL, 0);
+    dsp_engine *engine = create_test_engine(48000, 2, 2, 0.0, NULL, 0);
     assert_true(engine != NULL, "engine create for validation tests");
     assert_true(
         dsp_engine_process(engine, input, 1, output, 4, 1, 2) == DSP_STATUS_INVALID_BUFFER,
@@ -78,12 +114,15 @@ static void test_bad_handles_arguments_and_capacities(void) {
         "channel mismatch is rejected");
     dsp_engine_destroy(engine);
 
-    assert_true(dsp_engine_create(7999, 2, 512, 0.0, NULL, 0) == NULL, "low sample rate is rejected");
-    assert_true(dsp_engine_create(48000, 3, 512, 0.0, NULL, 0) == NULL, "multichannel output is rejected");
-    assert_true(dsp_engine_create(48000, 2, 512, INFINITY, NULL, 0) == NULL, "non-finite gain is rejected");
-    assert_true(dsp_engine_create(48000, 2, 512, 25.0, NULL, 0) == NULL, "out-of-range gain is rejected");
-    assert_true(dsp_engine_create(48000, 2, 512, 0.0, NULL, 1) == NULL, "missing filter coefficients are rejected");
-    assert_true(dsp_engine_create(48000, 2, 512, 0.0, NULL, 16) == NULL, "too many filters are rejected");
+    assert_true(create_test_engine(7999, 2, 512, 0.0, NULL, 0) == NULL, "low sample rate is rejected");
+    assert_true(create_test_engine(48000, 3, 512, 0.0, NULL, 0) == NULL, "multichannel output is rejected");
+    assert_true(create_test_engine(48000, 2, 512, INFINITY, NULL, 0) == NULL, "non-finite gain is rejected");
+    assert_true(create_test_engine(48000, 2, 512, 25.0, NULL, 0) == NULL, "out-of-range gain is rejected");
+    assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 1) == NULL, "missing filter coefficients are rejected");
+    assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 16) == NULL, "too many filters are rejected");
+    assert_true(
+        dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL) == NULL,
+        "missing dynamics configuration is rejected");
 }
 
 static void test_chunk_invariance_and_buffer_canaries(void) {
@@ -97,8 +136,8 @@ static void test_chunk_invariance_and_buffer_canaries(void) {
         whole_storage[index] = 77.0f;
     }
 
-    dsp_engine *whole = dsp_engine_create(44100, 2, 8, -3.0, NULL, 0);
-    dsp_engine *split = dsp_engine_create(44100, 2, 8, -3.0, NULL, 0);
+    dsp_engine *whole = create_test_engine(44100, 2, 8, -3.0, NULL, 0);
+    dsp_engine *split = create_test_engine(44100, 2, 8, -3.0, NULL, 0);
     assert_true(whole != NULL && split != NULL, "engines create for chunk test");
     assert_true(
         dsp_engine_process(whole, input, 16, whole_storage + 1, 16, 8, 2) == DSP_STATUS_OK,
@@ -119,7 +158,7 @@ static void test_chunk_invariance_and_buffer_canaries(void) {
 }
 
 static void test_nonfinite_samples_and_reset(void) {
-    dsp_engine *engine = dsp_engine_create(48000, 1, 4, 24.0, NULL, 0);
+    dsp_engine *engine = create_test_engine(48000, 1, 4, 24.0, NULL, 0);
     assert_true(engine != NULL, "engine create for non-finite test");
     const float input[] = {NAN, INFINITY, -INFINITY, 1.0f};
     float output[4] = {9.0f, 9.0f, 9.0f, 9.0f};
@@ -161,7 +200,7 @@ static void design_peak(double sample_rate, double frequency, double q, double g
 static void test_peq_frequency_response_and_reset(void) {
     double coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
     design_peak(48000.0, 1000.0, 1.0, 6.0, coefficients);
-    dsp_engine *engine = dsp_engine_create(48000, 1, 512, 0.0, coefficients, 1);
+    dsp_engine *engine = create_test_engine(48000, 1, 512, 0.0, coefficients, 1);
     assert_true(engine != NULL, "engine creates with peak EQ coefficients");
 
     double input_square = 0.0;
@@ -204,15 +243,15 @@ static void test_peq_stereo_state_and_denormal_flush(void) {
     for (size_t index = 0; index < DSP_BIQUAD_MAX_BANDS; index++) {
         fifteen_filters[index * DSP_BIQUAD_COEFFICIENT_COUNT] = 1.0;
     }
-    dsp_engine *maximum = dsp_engine_create(48000, 1, 1, 0.0, fifteen_filters, DSP_BIQUAD_MAX_BANDS);
+    dsp_engine *maximum = create_test_engine(48000, 1, 1, 0.0, fifteen_filters, DSP_BIQUAD_MAX_BANDS);
     assert_true(maximum != NULL, "maximum supported EQ band count creates");
     dsp_engine_destroy(maximum);
     const double invalid[DSP_BIQUAD_COEFFICIENT_COUNT] = {NAN, 0.0, 0.0, 0.0, 0.0};
     assert_true(
-        dsp_engine_create(48000, 1, 1, 0.0, invalid, 1) == NULL,
+        create_test_engine(48000, 1, 1, 0.0, invalid, 1) == NULL,
         "non-finite EQ coefficients are rejected");
 
-    dsp_engine *stereo = dsp_engine_create(48000, 2, 2, 0.0, identity, 1);
+    dsp_engine *stereo = create_test_engine(48000, 2, 2, 0.0, identity, 1);
     assert_true(stereo != NULL, "identity EQ creates");
     const float impulse[] = {1.0f, 0.0f, 0.0f, 0.0f};
     float output[4] = {0};
@@ -226,7 +265,7 @@ static void test_peq_stereo_state_and_denormal_flush(void) {
     dsp_engine_destroy(stereo);
 
     const double slow_state[DSP_BIQUAD_COEFFICIENT_COUNT] = {1.0, 0.0, 0.0, -1e-25, 0.0};
-    dsp_engine *denormal = dsp_engine_create(48000, 1, 1, 0.0, slow_state, 1);
+    dsp_engine *denormal = create_test_engine(48000, 1, 1, 0.0, slow_state, 1);
     assert_true(denormal != NULL, "stable small-state EQ creates");
     const float one[] = {1.0f};
     float first_output[] = {0.0f};
@@ -242,6 +281,168 @@ static void test_peq_stereo_state_and_denormal_flush(void) {
     dsp_engine_destroy(denormal);
 }
 
+static void test_compressor_transfer_curve(void) {
+    const double input_db[] = {-40.0, -20.0, -10.0, 0.0};
+    dsp_dynamics_config config = bypass_dynamics;
+    config.compressor_enabled = 1;
+    config.compressor_threshold_db = -20.0;
+    config.compressor_ratio = 4.0;
+    config.compressor_attack_ms = 10.0;
+    config.compressor_release_ms = 100.0;
+    config.compressor_knee_db = 0.0;
+    config.compressor_makeup_db = 0.0;
+
+    for (size_t level = 0; level < sizeof(input_db) / sizeof(input_db[0]); level++) {
+        const float input_level = (float)pow(10.0, input_db[level] / 20.0);
+        const float expected = input_db[level] <= -20.0
+            ? input_level
+            : (float)pow(10.0, (-20.0 + (input_db[level] + 20.0) / 4.0) / 20.0);
+        dsp_engine *engine = create_test_engine_with_dynamics(48000, 1, 512, &config);
+        assert_true(engine != NULL, "compressor config creates");
+        assert_true(dsp_engine_get_latency_frames(engine) == 0, "compressor has zero algorithmic latency");
+
+        float output[512] = {0};
+        size_t remaining = 48000;
+        while (remaining > 0) {
+            const size_t frames = remaining < 512 ? remaining : 512;
+            float input[512];
+            for (size_t index = 0; index < frames; index++) input[index] = input_level;
+            assert_true(
+                dsp_engine_process(engine, input, frames, output, frames, (int)frames, 1) == DSP_STATUS_OK,
+                "compressor steady level processes");
+            remaining -= frames;
+        }
+        assert_near(output[511], expected, 0.001, "compressor follows the 4:1 transfer curve");
+        dsp_engine_destroy(engine);
+    }
+}
+
+static void test_compressor_attack_and_release_steps(void) {
+    dsp_dynamics_config config = bypass_dynamics;
+    config.compressor_enabled = 1;
+    config.compressor_threshold_db = -20.0;
+    config.compressor_ratio = 4.0;
+    config.compressor_attack_ms = 100.0;
+    config.compressor_release_ms = 300.0;
+    dsp_engine *engine = create_test_engine_with_dynamics(48000, 1, 512, &config);
+    assert_true(engine != NULL, "attack/release compressor creates");
+
+    const float high[] = {1.0f};
+    float output[512] = {0};
+    assert_true(
+        dsp_engine_process(engine, high, 1, output, 1, 1, 1) == DSP_STATUS_OK,
+        "compressor first high sample processes");
+    assert_near(output[0], 1.0, 1e-5, "compressor attack does not look ahead");
+
+    size_t remaining = 48000;
+    while (remaining > 0) {
+        const size_t frames = remaining < 512 ? remaining : 512;
+        float input[512];
+        for (size_t index = 0; index < frames; index++) input[index] = 1.0f;
+        assert_true(
+            dsp_engine_process(engine, input, frames, output, frames, (int)frames, 1) == DSP_STATUS_OK,
+            "compressor attack step processes");
+        remaining -= frames;
+    }
+    assert_true(output[511] < 0.2f, "compressor gain reaches steady-state reduction");
+
+    const float low[] = {0.01f};
+    assert_true(
+        dsp_engine_process(engine, low, 1, output, 1, 1, 1) == DSP_STATUS_OK,
+        "compressor release step begins");
+    const float initial_release = output[0];
+    assert_true(initial_release < 0.01f, "release holds gain reduction after a downward step");
+
+    remaining = 96000;
+    while (remaining > 0) {
+        const size_t frames = remaining < 512 ? remaining : 512;
+        float input[512];
+        for (size_t index = 0; index < frames; index++) input[index] = 0.01f;
+        assert_true(
+            dsp_engine_process(engine, input, frames, output, frames, (int)frames, 1) == DSP_STATUS_OK,
+            "compressor release recovers");
+        remaining -= frames;
+    }
+    assert_near(output[511], 0.01, 0.0001, "compressor release restores low-level gain");
+    dsp_engine_destroy(engine);
+}
+
+static void test_stereo_limiter_caps_sample_peaks_and_preserves_image(void) {
+    dsp_dynamics_config config = bypass_dynamics;
+    config.limiter_enabled = 1;
+    config.limiter_threshold_db = -1.0;
+    config.limiter_release_ms = 60.0;
+    dsp_engine *engine = create_test_engine_with_dynamics(48000, 2, 512, &config);
+    assert_true(engine != NULL, "safety limiter creates");
+    assert_true(dsp_engine_get_latency_frames(engine) == 0, "limiter has zero lookahead latency");
+
+    float input[512] = {0};
+    float output[512] = {0};
+    for (size_t frame = 0; frame < 4; frame++) {
+        input[frame * 2] = 1.2f;
+        input[frame * 2 + 1] = -1.2f;
+    }
+    assert_true(
+        dsp_engine_process(engine, input, 8, output, 8, 4, 2) == DSP_STATUS_OK,
+        "linked limiter handles stereo DC");
+    const double threshold = pow(10.0, -1.0 / 20.0);
+    for (size_t index = 0; index < 8; index++) {
+        assert_true(isfinite(output[index]), "limiter output remains finite");
+        assert_true(fabs(output[index]) <= threshold + 1e-6, "sample peak stays below limiter threshold");
+    }
+    assert_near(output[0], -output[1], 1e-6, "linked limiter preserves anti-phase image");
+
+    assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "limiter reset succeeds");
+    for (size_t index = 0; index < 512; index++) {
+        input[index] = 0.0f;
+        output[index] = 0.0f;
+    }
+    input[0] = 1.2f;
+    assert_true(
+        dsp_engine_process(engine, input, 16, output, 16, 8, 2) == DSP_STATUS_OK,
+        "limiter processes an impulse");
+    assert_true(fabs(output[0]) <= threshold + 1e-6, "limiter caps impulse sample peak");
+    for (size_t index = 1; index < 16; index++) {
+        assert_near(output[index], 0.0, 0.0, "limiter impulse tail stays silent");
+    }
+
+    const float low_signal[] = {0.8f, -0.8f, 0.8f, -0.8f};
+    assert_true(
+        dsp_engine_process(engine, low_signal, 4, output, 4, 2, 2) == DSP_STATUS_OK,
+        "limiter release begins below the threshold");
+    assert_true(output[0] < 0.8f, "limiter release does not jump immediately to unity gain");
+    assert_near(output[0], -output[1], 1e-6, "limiter release preserves stereo image");
+    for (size_t block = 0; block < 64; block++) {
+        float steady_input[512];
+        for (size_t frame = 0; frame < 256; frame++) {
+            steady_input[frame * 2] = 0.8f;
+            steady_input[frame * 2 + 1] = -0.8f;
+        }
+        assert_true(
+            dsp_engine_process(engine, steady_input, 512, output, 512, 256, 2) == DSP_STATUS_OK,
+            "limiter release continues smoothly");
+    }
+    assert_near(output[510], 0.8, 0.001, "limiter release restores sub-threshold level");
+    assert_near(output[511], -0.8, 0.001, "limiter release uses the same gain for both channels");
+
+    assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "limiter resets before noise");
+    uint32_t random_state = 0x12345678u;
+    for (size_t frame = 0; frame < 256; frame++) {
+        random_state = random_state * 1664525u + 1013904223u;
+        input[frame * 2] = (float)(((int32_t)(random_state >> 8) - 8388608) / 2000000.0);
+        random_state = random_state * 1664525u + 1013904223u;
+        input[frame * 2 + 1] = (float)(((int32_t)(random_state >> 8) - 8388608) / 2000000.0);
+    }
+    assert_true(
+        dsp_engine_process(engine, input, 512, output, 512, 256, 2) == DSP_STATUS_OK,
+        "limiter processes deterministic noise");
+    for (size_t index = 0; index < 512; index++) {
+        assert_true(isfinite(output[index]), "noise output remains finite");
+        assert_true(fabs(output[index]) <= threshold + 1e-6, "noise sample peak stays below threshold");
+    }
+    dsp_engine_destroy(engine);
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
@@ -249,6 +450,9 @@ int main(void) {
     test_nonfinite_samples_and_reset();
     test_peq_frequency_response_and_reset();
     test_peq_stereo_state_and_denormal_flush();
+    test_compressor_transfer_curve();
+    test_compressor_attack_and_release_steps();
+    test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     puts("native DSP tests passed");
     return 0;
 }

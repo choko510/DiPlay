@@ -129,32 +129,53 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jint channels,
     jint max_frames,
     jdouble gain_db,
-    jdoubleArray peq_coefficients) {
+    jdoubleArray peq_coefficients,
+    jdoubleArray dynamics_values) {
     (void)env;
     (void)receiver;
-    if (peq_coefficients == NULL) {
+    if (peq_coefficients == NULL || dynamics_values == NULL) {
         return 0;
     }
     const jsize coefficient_count = (*env)->GetArrayLength(env, peq_coefficients);
+    const jsize dynamics_count = (*env)->GetArrayLength(env, dynamics_values);
     if (coefficient_count < 0 || coefficient_count >
             DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
-        coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0) {
+        coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10) {
         return 0;
     }
     double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT];
+    double dynamic_values[10];
     if (coefficient_count > 0) {
         (*env)->GetDoubleArrayRegion(env, peq_coefficients, 0, coefficient_count, coefficients);
         if ((*env)->ExceptionCheck(env)) {
             return 0;
         }
     }
+    (*env)->GetDoubleArrayRegion(env, dynamics_values, 0, dynamics_count, dynamic_values);
+    if ((*env)->ExceptionCheck(env) || (dynamic_values[0] != 0.0 && dynamic_values[0] != 1.0) ||
+        (dynamic_values[7] != 0.0 && dynamic_values[7] != 1.0)) {
+        return 0;
+    }
+    const dsp_dynamics_config dynamics_config = {
+        .compressor_enabled = (int)dynamic_values[0],
+        .compressor_threshold_db = dynamic_values[1],
+        .compressor_ratio = dynamic_values[2],
+        .compressor_attack_ms = dynamic_values[3],
+        .compressor_release_ms = dynamic_values[4],
+        .compressor_knee_db = dynamic_values[5],
+        .compressor_makeup_db = dynamic_values[6],
+        .limiter_enabled = (int)dynamic_values[7],
+        .limiter_threshold_db = dynamic_values[8],
+        .limiter_release_ms = dynamic_values[9],
+    };
     return register_engine(dsp_engine_create(
         sample_rate,
         channels,
         max_frames,
         gain_db,
         coefficient_count > 0 ? coefficients : NULL,
-        coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT));
+        coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
+        &dynamics_config));
 }
 
 JNIEXPORT jint JNICALL

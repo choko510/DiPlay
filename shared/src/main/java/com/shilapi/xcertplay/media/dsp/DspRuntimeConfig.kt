@@ -8,7 +8,8 @@ class DspRuntimeConfig(
     peqBands: List<DspEqBand> = emptyList(),
     val autoHeadroomEnabled: Boolean = true,
     val autoHeadroomMarginDb: Double = 1.0,
-    val compressorMakeupDb: Double = 0.0,
+    val compressor: DspCompressorConfig = DspCompressorConfig(),
+    val safetyLimiter: DspSafetyLimiterConfig = DspSafetyLimiterConfig(),
     val stereoWidth: Double = 1.0,
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
@@ -19,7 +20,6 @@ class DspRuntimeConfig(
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)
         require(this.peqBands.size <= DspEqDesigner.MAX_BANDS)
         require(autoHeadroomMarginDb.isFinite() && autoHeadroomMarginDb in 0.0..MAX_HEADROOM_MARGIN_DB)
-        require(compressorMakeupDb.isFinite() && compressorMakeupDb in MIN_GAIN_DB..MAX_GAIN_DB)
         require(stereoWidth.isFinite() && stereoWidth in 0.0..MAX_STEREO_WIDTH)
     }
 

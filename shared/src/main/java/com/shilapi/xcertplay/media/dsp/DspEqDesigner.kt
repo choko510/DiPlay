@@ -201,6 +201,7 @@ internal object DspAutoHeadroom {
 internal data class DspPreparedConfig(
     val appliedPreampDb: Double,
     val eqCoefficients: DoubleArray,
+    val dynamics: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -216,7 +217,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             sampleRate = format.sampleRate,
             preampDb = gainDb,
             peqBands = peqBands,
-            compressorMakeupDb = compressorMakeupDb,
+            compressorMakeupDb = if (compressor.enabled) compressor.makeupDb else 0.0,
             stereoWidth = stereoWidth,
             marginDb = autoHeadroomMarginDb,
         )
@@ -226,6 +227,18 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     return DspPreparedConfig(
         appliedPreampDb = (gainDb - headroom.reductionDb).coerceAtLeast(MIN_APPLIED_PREAMP_DB),
         eqCoefficients = coefficients,
+        dynamics = doubleArrayOf(
+            if (compressor.enabled) 1.0 else 0.0,
+            compressor.thresholdDb,
+            compressor.ratio,
+            compressor.attackMs,
+            compressor.releaseMs,
+            compressor.kneeDb,
+            compressor.makeupDb,
+            if (safetyLimiter.enabled) 1.0 else 0.0,
+            safetyLimiter.thresholdDb,
+            safetyLimiter.releaseMs,
+        ),
         headroom = headroom,
     )
 }

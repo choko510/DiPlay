@@ -50,10 +50,12 @@ dsp_engine *dsp_engine_create(
     int max_frames,
     double gain_db,
     const double *peq_coefficients,
-    int peq_band_count) {
+    int peq_band_count,
+    const dsp_dynamics_config *dynamics_config) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
-        peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL)) {
+        peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
+        dynamics_config == NULL) {
         return NULL;
     }
 
@@ -75,9 +77,11 @@ dsp_engine *dsp_engine_create(
     engine->max_frames = max_frames;
     if (!dsp_graph_prepare(
             &engine->graph,
+            sample_rate,
             gain_db,
             peq_coefficients,
-            (size_t)peq_band_count)) {
+            (size_t)peq_band_count,
+            dynamics_config)) {
         free(engine);
         return NULL;
     }

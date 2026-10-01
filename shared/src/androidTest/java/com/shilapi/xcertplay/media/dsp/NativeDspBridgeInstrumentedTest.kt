@@ -22,7 +22,11 @@ class NativeDspBridgeInstrumentedTest {
         val format = DspAudioFormat(sampleRate = 48_000, channels = 2)
         val processor = NativeDspProcessor.createOrNull(
             format,
-            DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false),
+            DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            ),
         )
         assertNotNull(processor)
         processor ?: return
@@ -61,6 +65,7 @@ class NativeDspBridgeInstrumentedTest {
         val config = DspRuntimeConfig(
             enabled = true,
             autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
             peqBands = listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 6.0, q = 1.0)),
         )
         val processor = NativeDspProcessor.createOrNull(DspAudioFormat(sampleRate, 1), config)
@@ -93,6 +98,80 @@ class NativeDspBridgeInstrumentedTest {
                 }
             }
             assertEquals(10.0.pow(6.0 / 20.0), sqrt(outputSquare / inputSquare), 0.01)
+        } finally {
+            processor.close()
+        }
+    }
+
+    @Test
+    fun nativeCompressorFollowsSteadyStateFourToOneTransferCurve() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val sampleRate = 48_000
+        val config = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            compressor = DspCompressorConfig(
+                enabled = true,
+                thresholdDb = -20.0,
+                ratio = 4.0,
+                attackMs = 10.0,
+                releaseMs = 100.0,
+            ),
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+        )
+        val processor = NativeDspProcessor.createOrNull(DspAudioFormat(sampleRate, 1), config)
+        assertNotNull(processor)
+        processor ?: return
+
+        try {
+            var finalSample = 0.0f
+            repeat(94) {
+                val input = ByteBuffer.allocateDirect(512 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+                    .apply { repeat(512) { putFloat(1.0f) }; flip() }
+                val output = ByteBuffer.allocateDirect(512 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+                val result = processor.process(input, output, frames = 512)
+                assertEquals(DspProcessStatus.SUCCESS, result.status)
+                finalSample = output.getFloat(511 * Float.SIZE_BYTES)
+            }
+            assertEquals(10.0.pow(-15.0 / 20.0).toFloat(), finalSample, 0.002f)
+            assertEquals(0, processor.latencyFrames)
+        } finally {
+            processor.close()
+        }
+    }
+
+    @Test
+    fun nativeLinkedLimiterCapsAntiPhaseStereoSamples() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val processor = NativeDspProcessor.createOrNull(
+            DspAudioFormat(48_000, 2),
+            DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false),
+        )
+        assertNotNull(processor)
+        processor ?: return
+
+        try {
+            val input = ByteBuffer.allocateDirect(4 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder()).apply {
+                putFloat(1.2f)
+                putFloat(-1.2f)
+                putFloat(-1.3f)
+                putFloat(1.3f)
+                flip()
+            }
+            val output = ByteBuffer.allocateDirect(4 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames = 2).status)
+            output.flip()
+            val leftFirst = output.float
+            val rightFirst = output.float
+            val leftSecond = output.float
+            val rightSecond = output.float
+            val threshold = 10.0.pow(-1.0 / 20.0).toFloat()
+            assertTrue(kotlin.math.abs(leftFirst) <= threshold + 1e-6f)
+            assertTrue(kotlin.math.abs(rightFirst) <= threshold + 1e-6f)
+            assertTrue(kotlin.math.abs(leftSecond) <= threshold + 1e-6f)
+            assertTrue(kotlin.math.abs(rightSecond) <= threshold + 1e-6f)
+            assertEquals(leftFirst, -rightFirst, 1e-6f)
+            assertEquals(leftSecond, -rightSecond, 1e-6f)
         } finally {
             processor.close()
         }

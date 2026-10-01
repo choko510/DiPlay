@@ -43,6 +43,9 @@ class NativeDspProcessorTest {
         assertEquals(-7.0, requireNotNull(bindings.createdGainDb), 0.02)
         assertEquals(5, bindings.createdEqCoefficients?.size)
         assertTrue(bindings.createdEqCoefficients?.all(Double::isFinite) == true)
+        assertEquals(10, bindings.createdDynamics?.size)
+        assertEquals(0.0, bindings.createdDynamics?.get(0) ?: -1.0, 0.0)
+        assertEquals(1.0, bindings.createdDynamics?.get(7) ?: -1.0, 0.0)
         processor?.close()
     }
 
@@ -121,6 +124,7 @@ class NativeDspProcessorTest {
         var destroyedHandle: Long? = null
         var createdGainDb: Double? = null
         var createdEqCoefficients: DoubleArray? = null
+        var createdDynamics: DoubleArray? = null
 
         override fun create(
             sampleRate: Int,
@@ -128,9 +132,11 @@ class NativeDspProcessorTest {
             maxFrames: Int,
             gainDb: Double,
             eqCoefficients: DoubleArray,
+            dynamics: DoubleArray,
         ): Long {
             createdGainDb = gainDb
             createdEqCoefficients = eqCoefficients.copyOf()
+            createdDynamics = dynamics.copyOf()
             return createHandle
         }
 

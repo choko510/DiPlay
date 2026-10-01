@@ -9,6 +9,7 @@ internal interface NativeDspBindings {
         maxFrames: Int,
         gainDb: Double,
         eqCoefficients: DoubleArray,
+        dynamics: DoubleArray,
     ): Long
     fun process(
         handle: Long,
@@ -34,7 +35,8 @@ internal object NativeDspJni : NativeDspBindings {
         maxFrames: Int,
         gainDb: Double,
         eqCoefficients: DoubleArray,
-    ): Long = nativeCreate(sampleRate, channels, maxFrames, gainDb, eqCoefficients)
+        dynamics: DoubleArray,
+    ): Long = nativeCreate(sampleRate, channels, maxFrames, gainDb, eqCoefficients, dynamics)
 
     override fun process(
         handle: Long,
@@ -70,6 +72,7 @@ internal object NativeDspJni : NativeDspBindings {
         maxFrames: Int,
         gainDb: Double,
         eqCoefficients: DoubleArray,
+        dynamics: DoubleArray,
     ): Long
     private external fun nativeProcess(
         handle: Long,
@@ -247,6 +250,7 @@ internal class NativeDspProcessor internal constructor(
                     maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
                     gainDb = prepared.appliedPreampDb,
                     eqCoefficients = prepared.eqCoefficients,
+                    dynamics = prepared.dynamics,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

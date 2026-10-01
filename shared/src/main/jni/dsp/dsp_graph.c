@@ -4,9 +4,11 @@
 
 int dsp_graph_prepare(
     dsp_graph *graph,
+    int sample_rate,
     double gain_db,
     const double *peq_coefficients,
-    size_t peq_count) {
+    size_t peq_count,
+    const dsp_dynamics_config *dynamics_config) {
     if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
@@ -18,6 +20,9 @@ int dsp_graph_prepare(
                 peq_coefficients + index * DSP_BIQUAD_COEFFICIENT_COUNT)) {
             return 0;
         }
+    }
+    if (!dsp_dynamics_prepare(&graph->dynamics, sample_rate, dynamics_config)) {
+        return 0;
     }
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
@@ -31,6 +36,7 @@ void dsp_graph_reset(dsp_graph *graph) {
     for (size_t index = 0; index < graph->peq_count; index++) {
         dsp_biquad_reset(&graph->peq[index]);
     }
+    dsp_dynamics_reset(&graph->dynamics);
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
 }
@@ -75,6 +81,7 @@ void dsp_graph_process(
                 output_right = dsp_biquad_process_sample(&graph->peq[index], output_right, 1);
             }
         }
+        dsp_dynamics_process_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
         if (!isfinite(output_left)) {
             output_left = 0.0f;
             if (non_finite_output != NULL) {

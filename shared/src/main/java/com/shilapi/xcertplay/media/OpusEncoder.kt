@@ -5,19 +5,27 @@ import android.media.MediaFormat
 import android.util.Log
 import java.io.Closeable
 
-/**
- * Encodes 20 ms chunks of 48 kHz mono PCM into raw Opus access units for the CarPlay
- * microphone uplink.
- */
-internal class OpusEncoder(bitrate: Int) : Closeable {
+internal data class OpusEncoderConfiguration(
+    val sampleRate: Int,
+    val channels: Int,
+    val bitrate: Int,
+    val frameMillis: Int,
+) {
+    val samplesPerFrame: Int = maxOf(1, sampleRate * frameMillis / 1000)
+    val frameBytes: Int = samplesPerFrame * channels * 2
+    val frameDurationUs: Long = frameMillis * 1_000L
+}
+
+/** Encodes fixed-duration PCM frames at the negotiated rate into raw Opus access units. */
+internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) : Closeable {
     private val codec: MediaCodec? = try {
         val format = MediaFormat.createAudioFormat(
             MediaFormat.MIMETYPE_AUDIO_OPUS,
-            SAMPLE_RATE,
-            CHANNELS,
+            configuration.sampleRate,
+            configuration.channels,
         ).apply {
-            setInteger(MediaFormat.KEY_BIT_RATE, bitrate)
-            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_INPUT_BYTES)
+            setInteger(MediaFormat.KEY_BIT_RATE, configuration.bitrate)
+            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxOf(configuration.frameBytes, MAX_INPUT_BYTES))
         }
         MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).also {
             it.configure(
@@ -27,7 +35,11 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
                 MediaCodec.CONFIGURE_FLAG_ENCODE,
             )
             it.start()
-            Log.i(TAG, "Opus microphone encoder started bitrate=$bitrate")
+            Log.i(
+                TAG,
+                "Opus microphone encoder started rate=${configuration.sampleRate} " +
+                    "channels=${configuration.channels} bitrate=${configuration.bitrate}",
+            )
         }
     } catch (error: Exception) {
         Log.w(TAG, "Opus microphone encoder unavailable", error)
@@ -46,6 +58,10 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
     fun encode(pcm: ByteArray): List<ByteArray> {
         val codec = codec ?: return emptyList()
         if (closed) return emptyList()
+        if (pcm.size != configuration.frameBytes) {
+            Log.w(TAG, "Opus microphone frame size mismatch expected=${configuration.frameBytes} actual=${pcm.size}")
+            return emptyList()
+        }
         val inputIndex = try {
             codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
         } catch (error: Exception) {
@@ -66,7 +82,7 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
                     presentationTimeUs,
                     0,
                 )
-                presentationTimeUs += INPUT_DURATION_US
+                presentationTimeUs += configuration.frameDurationUs
             }
         }
         return drain()
@@ -131,10 +147,7 @@ internal class OpusEncoder(bitrate: Int) : Closeable {
 
     private companion object {
         const val TAG = "xcertplay-usb"
-        const val SAMPLE_RATE = 48_000
-        const val CHANNELS = 1
         const val INPUT_TIMEOUT_US = 10_000L
-        const val INPUT_DURATION_US = 20_000L
         const val MAX_INPUT_BYTES = 4_096
         const val FIRST_PACKET_LOG_COUNT = 3
     }

@@ -24,22 +24,6 @@ object AirPlayInfoPlist {
     private const val PRIORITY_NICE_TO_HAVE = 100
     private const val CONSTRAINT_ANYTIME = 100
 
-    private const val PCM_8_KHZ_MONO = 0x4
-    private const val PCM_8_KHZ_STEREO = 0x8
-    private const val PCM_16_KHZ_MONO = 0x10
-    private const val PCM_16_KHZ_STEREO = 0x20
-    private const val PCM_24_KHZ_MONO = 0x40
-    private const val PCM_24_KHZ_STEREO = 0x80
-    private const val PCM_32_KHZ_MONO = 0x100
-    private const val PCM_32_KHZ_STEREO = 0x200
-    private const val PCM_44_1_KHZ_MONO = 0x400
-    private const val PCM_44_1_KHZ_STEREO = 0x800
-    private const val PCM_48_KHZ_MONO = 0x4000
-    private const val PCM_48_KHZ_STEREO = 0x8000
-    private const val OPUS_FORMATS = 0x70000000
-    private const val AAC_LC_44_1_KHZ_STEREO = 0x400000
-    private const val AAC_LC_48_KHZ_STEREO = 0x800000
-
     fun build(config: AirPlayConfig): Map<String, Any?> {
         val displays = arrayListOf<Any?>(
             displayEntry(config.main, STREAM_TYPE_MAIN_SCREEN, MAIN_UUID),
@@ -143,41 +127,21 @@ object AirPlayInfoPlist {
             return entry
         }
 
-        val is48 = entertainmentRate == 48000
-        val lowRatePcmFormats = PCM_8_KHZ_MONO or PCM_8_KHZ_STEREO or
-            PCM_16_KHZ_MONO or PCM_16_KHZ_STEREO or
-            PCM_24_KHZ_MONO or PCM_24_KHZ_STEREO or
-            PCM_32_KHZ_MONO or PCM_32_KHZ_STEREO
-        val highRatePcm = if (is48) {
-            PCM_48_KHZ_MONO or PCM_48_KHZ_STEREO
-        } else {
-            PCM_44_1_KHZ_MONO or PCM_44_1_KHZ_STEREO
-        }
-        val highRateStereoPcm = if (is48) PCM_48_KHZ_STEREO else PCM_44_1_KHZ_STEREO
-        val pcm = lowRatePcmFormats or highRatePcm
-        // Wired low-latency streams use PCM; wireless sessions also support Opus.
-        val opus = if (wirelessAudio) OPUS_FORMATS else 0
-        val navigationOutputFormats = highRatePcm
-        val pcmMono = PCM_8_KHZ_MONO or PCM_16_KHZ_MONO or
-            PCM_24_KHZ_MONO or PCM_32_KHZ_MONO or
-            (if (is48) PCM_48_KHZ_MONO else PCM_44_1_KHZ_MONO)
-        val voiceOutputFormats = pcmMono or opus
-        val aacLc = if (is48) AAC_LC_48_KHZ_STEREO else AAC_LC_44_1_KHZ_STEREO
-        val pcmInput = if (microphone) pcmMono else null
-        val inputFormats = if (microphone) pcmMono or opus else null
-
-        val entries = mutableListOf(
-            format(100, "compatibility", pcm, pcmInput),
-            format(101, "compatibility", navigationOutputFormats),
-            format(100, "default", pcm or opus, inputFormats),
-            format(100, "alert", pcm or opus),
-            format(100, "media", if (wirelessAudio) pcm else highRateStereoPcm),
-            format(100, "telephony", voiceOutputFormats, inputFormats),
-            format(100, "speechRecognition", voiceOutputFormats, inputFormats),
-            format(101, "default", navigationOutputFormats or opus),
-        )
-        if (wirelessAudio) entries.add(format(102, "media", aacLc))
-        return entries
+        return AirPlayAudioCapabilities.advertisedOutputFormats(entertainmentRate, wirelessAudio)
+            .map { capability ->
+                format(
+                    capability.type,
+                    capability.audioType,
+                    capability.outputFormats.toInt(),
+                    AirPlayAudioCapabilities.inputFormatMask(
+                        microphone = microphone,
+                        entertainmentSampleRate = entertainmentRate,
+                        wirelessAudio = wirelessAudio,
+                        type = capability.type,
+                        audioType = capability.audioType,
+                    )?.toInt(),
+                )
+            }
     }
 
     private fun displayEntry(display: AirPlayDisplayConfig, type: Int, uuid: String): Map<String, Any?> {

@@ -1,3 +1,3 @@
 # Current Work
 
-- No active work.
+No active work.

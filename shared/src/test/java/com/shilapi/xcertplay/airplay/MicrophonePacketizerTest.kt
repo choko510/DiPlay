@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.airplay
 
+import java.net.InetAddress
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -49,4 +50,65 @@ class MicrophonePacketizerTest {
             ),
         )
     }
+
+    @Test
+    fun opusMicrophoneFramesAndRtpTimestampsUseTheNegotiatedSampleRate() {
+        listOf(
+            Triple(16_000, 320, 640),
+            Triple(24_000, 480, 960),
+            Triple(48_000, 960, 1_920),
+        ).forEach { (rate, samples, bytes) ->
+            val config = MicrophoneConfig(
+                audioType = "telephony",
+                sampleRate = rate,
+                channels = 1,
+                payloadType = 100,
+                frameMillis = 20,
+                host = InetAddress.getLoopbackAddress(),
+                port = 1,
+                key = ByteArray(32),
+                codec = AudioCodecKind.OPUS,
+            )
+            val encoder = com.shilapi.xcertplay.media.OpusEncoderConfiguration(
+                sampleRate = rate,
+                channels = 1,
+                bitrate = 48_000,
+                frameMillis = 20,
+            )
+            val counters = MicrophoneCounters()
+
+            assertEquals(samples, config.samplesPerPacket)
+            assertEquals(bytes, config.frameBytes)
+            assertEquals(rate, encoder.sampleRate)
+            assertEquals(1, encoder.channels)
+            assertEquals(samples, encoder.samplesPerFrame)
+            assertEquals(bytes, encoder.frameBytes)
+            assertEquals(20_000L, encoder.frameDurationUs)
+
+            val first = MicrophonePacketizer.sealPacket(
+                config.key,
+                config.payloadType,
+                counters,
+                byteArrayOf(0x01),
+                config.samplesPerPacket,
+            )
+            val second = MicrophonePacketizer.sealPacket(
+                config.key,
+                config.payloadType,
+                counters,
+                byteArrayOf(0x02),
+                config.samplesPerPacket,
+            )
+
+            assertEquals(0, rtpTimestamp(first))
+            assertEquals(samples, rtpTimestamp(second))
+            assertEquals(samples * 2, counters.timestamp)
+        }
+    }
+
+    private fun rtpTimestamp(packet: ByteArray): Int =
+        ((packet[4].toInt() and 0xff) shl 24) or
+            ((packet[5].toInt() and 0xff) shl 16) or
+            ((packet[6].toInt() and 0xff) shl 8) or
+            (packet[7].toInt() and 0xff)
 }

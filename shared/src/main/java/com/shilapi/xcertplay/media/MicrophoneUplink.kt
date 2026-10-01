@@ -15,6 +15,15 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.CountDownLatch
+
+internal interface MicrophoneUplinkController : Closeable {
+    val isActive: Boolean
+
+    fun start(): Boolean
+
+    fun activate()
+}
 
 /**
  * Captures one PCM microphone stream and sends it back to the phone as sealed CarPlay RTP.
@@ -22,15 +31,26 @@ import java.util.concurrent.atomic.AtomicBoolean
  * The recorder runs only while the matching audio stream is active, so callers start this after
  * the first downlink audio packet and close it on stream teardown.
  */
-internal class MicrophoneUplink(private val config: MicrophoneConfig) : Closeable {
+internal class MicrophoneUplink(
+    private val config: MicrophoneConfig,
+    private val isCurrentOwner: () -> Boolean = { true },
+) : MicrophoneUplinkController {
     private val running = AtomicBoolean(false)
+    private val closed = AtomicBoolean(false)
     private val firstPacketLogged = AtomicBoolean(false)
+    private val activation = CountDownLatch(1)
+    @Volatile private var activated = false
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var opusEncoder: OpusEncoder? = null
     private var thread: Thread? = null
 
-    fun start(): Boolean {
+    override val isActive: Boolean
+        get() = running.get() && activated && !closed.get()
+
+    @Synchronized
+    override fun start(): Boolean {
+        if (closed.get()) return false
         if (!running.compareAndSet(false, true)) return true
 
         val channelMask = if (config.channels >= 2) {
@@ -55,7 +75,14 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig) : Closeabl
             else -> MediaRecorder.AudioSource.MIC
         }
         val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
-            OpusEncoder(config.bitrate ?: 48_000).takeIf { it.available }
+            OpusEncoder(
+                OpusEncoderConfiguration(
+                    sampleRate = config.sampleRate,
+                    channels = config.channels,
+                    bitrate = config.bitrate ?: 48_000,
+                    frameMillis = config.frameMillis,
+                ),
+            ).takeIf { it.available }
         } else {
             null
         }
@@ -127,13 +154,19 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig) : Closeabl
         }
     }
 
+    override fun activate() {
+        activated = true
+        activation.countDown()
+    }
+
     private fun capture(recorder: AudioRecord, socket: DatagramSocket) {
         val frame = ByteArray(config.frameBytes)
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
         val counters = MicrophoneCounters()
         var filled = 0
         try {
-            while (running.get()) {
+            activation.await()
+            while (running.get() && isCurrentOwner()) {
                 val count = recorder.read(readBuffer, 0, readBuffer.size, AudioRecord.READ_BLOCKING)
                 if (count < 0) {
                     if (running.get()) Log.e(TAG, "microphone read failed code=$count")
@@ -149,6 +182,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig) : Closeabl
                     filled += copied
                     offset += copied
                     if (filled == frame.size) {
+                        if (!isCurrentOwner()) return
                         sendFrame(socket, counters, frame)
                         filled = 0
                     }
@@ -184,6 +218,7 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig) : Closeabl
         body: ByteArray,
         samples: Int,
     ) {
+        if (!isCurrentOwner()) return
         val packet = MicrophonePacketizer.sealPacket(
             key = config.key,
             payloadType = config.payloadType,
@@ -207,21 +242,26 @@ internal class MicrophoneUplink(private val config: MicrophoneConfig) : Closeabl
     }
 
     override fun close() {
-        if (!running.compareAndSet(true, false)) {
-            release()
-            return
+        val worker = synchronized(this) {
+            activation.countDown()
+            if (!closed.compareAndSet(false, true) || !running.compareAndSet(true, false)) {
+                release()
+                null
+            } else {
+                try {
+                    recorder?.stop()
+                } catch (_: Exception) {
+                    // Best effort; release below is authoritative.
+                }
+                try {
+                    socket?.close()
+                } catch (_: Exception) {
+                    // Best effort.
+                }
+                thread
+            }
         }
-        try {
-            recorder?.stop()
-        } catch (_: Exception) {
-            // Best effort; release below is authoritative.
-        }
-        try {
-            socket?.close()
-        } catch (_: Exception) {
-            // Best effort.
-        }
-        thread?.let { worker ->
+        if (worker !== null && worker !== Thread.currentThread()) {
             try {
                 worker.join(CLOSE_JOIN_MILLIS)
             } catch (_: InterruptedException) {

@@ -168,3 +168,7 @@ Store the connection token as a weak reference and clear the split selection whe
 ## Mark Pair Verify identity resolved after final-state processing
 
 Set identity resolution in `finally` after processing Pair Verify state 3, and publish the verified controller ID before the verified flag. A fallback decision cannot observe an incomplete final-state transition.
+
+## Keep DSP semantic role separate from Android audio routing
+
+Classify each stream once when its `AudioRenderer` is created, deriving the Android route through `AudioChannelMapper` and the DSP role from CarPlay metadata. Only the `MEDIA` role may use the full DSP chain, even when navigation audio is routed through `USAGE_MEDIA`; snapshot DSP config per renderer and default provider failures to the disabled legacy path.

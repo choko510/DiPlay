@@ -137,3 +137,7 @@ With `adjustResize`, filtering only surface callbacks is insufficient if a debou
 ## Recheck privacy-sensitive logs after merging main
 
 Later main changes can reintroduce raw controller or device identifiers into debug logs even when the PR branch had sanitized them. Search logging expressions after each merge and log availability or hashed identifiers instead.
+
+## Do not infer DSP eligibility from Android usage
+
+Navigation may intentionally use the media route. Keep stream semantics explicit in one classification snapshot and base full-DSP eligibility on that role rather than on the selected Android route.

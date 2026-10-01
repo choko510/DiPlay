@@ -22,6 +22,9 @@ import com.shilapi.xcertplay.airplay.Unsigned32FrameTracker
 import com.shilapi.xcertplay.airplay.framesToNanos
 import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
+import com.shilapi.xcertplay.media.dsp.DspConfigProvider
+import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -37,7 +40,8 @@ import java.util.concurrent.TimeUnit
  * decoded with MediaCodec onto a Surface; audio streams are decoded to PCM and
  * played through AudioTrack. Call [close] when the session tears down.
  */
-class AndroidMediaSink(
+class AndroidMediaSink internal constructor(
+    private val dspConfigProvider: DspConfigProvider,
     surface: Surface? = null,
     private val videoWidth: Int = 1280,
     private val videoHeight: Int = 720,
@@ -50,6 +54,33 @@ class AndroidMediaSink(
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
     private val onAudioDiagnostic: (String) -> Unit = {},
 ) : MediaSink {
+    constructor(
+        surface: Surface? = null,
+        videoWidth: Int = 1280,
+        videoHeight: Int = 720,
+        preferSoftwareHevcDecoder: Boolean = false,
+        advancedAudioChannelMapping: Boolean = false,
+        navigationAudioRoute: NavigationAudioRoute = NavigationAudioRoute.FULL_BAND,
+        transport: String = "wired",
+        audioManager: AudioManager? = null,
+        onScreenStreamActiveChanged: ((Int, Boolean) -> Unit)? = null,
+        mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
+        onAudioDiagnostic: (String) -> Unit = {},
+    ) : this(
+        dspConfigProvider = DspConfigProvider { DspRuntimeConfig.disabled() },
+        surface = surface,
+        videoWidth = videoWidth,
+        videoHeight = videoHeight,
+        preferSoftwareHevcDecoder = preferSoftwareHevcDecoder,
+        advancedAudioChannelMapping = advancedAudioChannelMapping,
+        navigationAudioRoute = navigationAudioRoute,
+        transport = transport,
+        audioManager = audioManager,
+        onScreenStreamActiveChanged = onScreenStreamActiveChanged,
+        mediaBufferMillis = mediaBufferMillis,
+        onAudioDiagnostic = onAudioDiagnostic,
+    )
+
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
     private val defaultSurface = surface
@@ -185,8 +216,21 @@ class AndroidMediaSink(
         val existing = audioRenderers[type]
         if (existing?.format == format) return existing
         existing?.close()
+        val mappingMode = if (advancedAudioChannelMapping) {
+            AudioChannelMappingMode.AUTOMOTIVE_BUS
+        } else {
+            AudioChannelMappingMode.MOBILE_COMPATIBLE
+        }
+        val classification = AudioStreamClassifier.classify(
+            audioType = format.audioType,
+            payloadType = format.payloadType,
+            mappingMode = mappingMode,
+            navigationRoute = navigationAudioRoute,
+        )
         return AudioRenderer(
             format = format,
+            classification = classification,
+            dspRuntimeConfig = snapshotDspConfig(),
             advancedAudioChannelMapping = advancedAudioChannelMapping,
             navigationAudioRoute = navigationAudioRoute,
             transport = transport,
@@ -194,6 +238,17 @@ class AndroidMediaSink(
             mediaBufferMillis = mediaBufferMillis,
             report = onAudioDiagnostic,
         ).also { audioRenderers[type] = it }
+    }
+
+    private fun snapshotDspConfig(): DspRuntimeConfig = try {
+        dspConfigProvider.snapshot()
+    } catch (_: Exception) {
+        runCatching {
+            onAudioDiagnostic(
+                "DSP unavailable: reason=CONFIG_SNAPSHOT_FAILED fallback=LEGACY_PCM",
+            )
+        }
+        DspRuntimeConfig.disabled()
     }
 }
 
@@ -555,6 +610,8 @@ private fun MediaFormat.intOrNull(key: String): Int? =
 /** Decodes AAC-LC/Opus to PCM and plays it, or plays wired LPCM directly. */
 private class AudioRenderer(
     val format: AudioFormat,
+    private val classification: AudioStreamClassification,
+    private val dspRuntimeConfig: DspRuntimeConfig,
     private val advancedAudioChannelMapping: Boolean,
     private val navigationAudioRoute: NavigationAudioRoute,
     private val transport: String,
@@ -660,6 +717,10 @@ private class AudioRenderer(
             "Audio: stream start transport=$transport type=${format.payloadType} audioType=${format.audioType} " +
                 "codec=${format.codec} sampleRate=${format.sampleRate} channels=${format.channels} " +
                 "routingPolicy=${if (advancedAudioChannelMapping) "AUTOMOTIVE_BUS" else navigationAudioRoute}",
+        )
+        report(
+            "DSP: configuredEnabled=${dspRuntimeConfig.enabled} role=${classification.dspRole} " +
+                "fullDspAllowed=${DspStreamPolicy.allowsFullDsp(classification.dspRole)} active=false",
         )
         thread.start()
     }
@@ -967,12 +1028,7 @@ private class AudioRenderer(
         } else {
             AudioChannelMappingMode.MOBILE_COMPATIBLE
         }
-        val selection = AudioChannelMapper.map(
-            audioType = format.audioType,
-            payloadType = format.payloadType,
-            mode = mode,
-            navigationRoute = navigationAudioRoute,
-        )
+        val selection = classification.route
         val usage = usageFor(selection.channel)
         val contentType = contentTypeFor(selection.contentType)
         val builder = AudioAttributes.Builder()

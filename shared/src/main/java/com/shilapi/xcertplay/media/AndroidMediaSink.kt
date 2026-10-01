@@ -529,6 +529,10 @@ private class AudioRenderer(
         val fallbackReason: String? = null,
     )
     private data class TimestampAnchor(val framePosition: Long, val nanoTime: Long)
+    private class AudioTrackWriteException(val result: Int) :
+        IllegalStateException("AudioTrack.write returned $result")
+    private class AudioTrackWriteStallException(val stalledForNs: Long) :
+        IllegalStateException("AudioTrack.write accepted no frames for ${stalledForNs / 1_000_000L} ms")
 
     private val queue = LinkedBlockingQueue<AudioPacket>(MAX_QUEUED_PACKETS)
     @Volatile private var running = true
@@ -546,6 +550,8 @@ private class AudioRenderer(
     private var lastTrackRetryLogNs: Long? = null
     private var lastTrackOperationFailureLogNs = 0L
     private var lastTrackOperationFailureLogKey: String? = null
+    private val trackOperationRecovery = TrackOperationRecoveryPolicy()
+    private val writeStallPolicy = AudioTrackWriteStallPolicy()
     private var lastAudioRouteLogNs = 0L
     private var lastAudioRouteDiagnostic: String? = null
     private var activeTrackAttributes: AudioAttributes? = null
@@ -556,6 +562,7 @@ private class AudioRenderer(
     private val playbackHeadTracker = Unsigned32FrameTracker()
     private val timestampFrameTracker = Unsigned32FrameTracker()
     private val timestampPollPolicy = AudioTimestampPollPolicy()
+    private var lastObservedPlaybackFrame: Long? = null
     private var timestampAnchor: TimestampAnchor? = null
     private var timestampAcquiredLogged = false
     private var timestampQueryFailureLogged = false
@@ -585,7 +592,6 @@ private class AudioRenderer(
     private var outputBuffers = 0
     private var decoderOutputFailureLogged = false
     private var firstPcmLogged = false
-    private var trackWriteFailureLogged = false
     private var unalignedPcmLogged = false
     private val packetsReceived = AtomicInteger()
     private val packetsDropped = AtomicInteger()
@@ -824,7 +830,6 @@ private class AudioRenderer(
         activeTrackAttributes = attributes
         playbackRouteLogged = false
         statsLastUnderruns = runCatching { built.underrunCount }.getOrDefault(0)
-        trackWriteFailureLogged = false
         frameBytes = nextFrameBytes
         bytesPerSecond = sampleRate.toLong() * frameBytes
         val capacityBytes = runCatching { built.bufferSizeInFrames * frameBytes }
@@ -842,6 +847,7 @@ private class AudioRenderer(
         playbackClockMapper.reset(format.sampleRate, sampleRate)
         playbackHeadTracker.reset()
         timestampFrameTracker.reset()
+        lastObservedPlaybackFrame = null
         timestampAnchor = null
         timestampPollPolicy.reset(System.nanoTime())
         timestampAcquiredLogged = false
@@ -902,6 +908,7 @@ private class AudioRenderer(
 
     private fun maybeRetryTrackCreation() {
         if (track != null) return
+        if (!trackOperationRecovery.shouldAttempt(System.nanoTime())) return
         pendingDecoderPcmFormat?.let(::createTrack)
     }
 
@@ -1279,6 +1286,7 @@ private class AudioRenderer(
             fallbackReason = reasons.takeIf { it.isNotEmpty() }?.joinToString(",") ?: "none",
         )
         if (pendingDecoderPcmFormat?.hasSameTrackFormat(next) == true) return
+        trackOperationRecovery.reset()
         pendingDecoderPcmFormat = next
         rejectedDecoderOutputFormat = null
         val message = "Audio: decoder output format sampleRate=$sampleRate channels=$channels " +
@@ -1415,24 +1423,27 @@ private class AudioRenderer(
             val count = try {
                 track.write(data, offset + written, writeLength, AudioTrack.WRITE_NON_BLOCKING)
             } catch (error: Exception) {
+                writeStallPolicy.reset()
                 recoverTrackAfterOperationFailure(track, "write", error)
                 break
             }
-            maxWriteMs = maxOf(maxWriteMs, (System.nanoTime() - writeStarted) / 1_000_000L)
+            val writeFinishedNs = System.nanoTime()
+            maxWriteMs = maxOf(maxWriteMs, (writeFinishedNs - writeStarted) / 1_000_000L)
+            val writeStalled = writeStallPolicy.onWriteResult(count, writeFinishedNs)
             if (count == 0) {
+                if (writeStalled) {
+                    recoverTrackAfterOperationFailure(
+                        track,
+                        "write",
+                        AudioTrackWriteStallException(TRACK_WRITE_STALL_TIMEOUT_NS),
+                    )
+                    break
+                }
                 Thread.sleep(AUDIO_WRITE_RETRY_MILLIS)
                 continue
             }
             if (count < 0) {
-                val failedFormat = activeDecoderPcmFormat
-                if (count == AudioTrack.ERROR_DEAD_OBJECT) {
-                    report("Audio: AudioTrack died during write; recreating output track")
-                    releaseTrack()
-                    failedFormat?.let(::createTrack)
-                } else if (!trackWriteFailureLogged) {
-                    trackWriteFailureLogged = true
-                    report("Audio: AudioTrack write failed result=$count")
-                }
+                recoverTrackAfterOperationFailure(track, "write", AudioTrackWriteException(count))
                 break
             }
             if (!fadeApplied) fadeApplied = true
@@ -1459,6 +1470,7 @@ private class AudioRenderer(
             return false
         }
         playbackStarted = true
+        trackOperationRecovery.onPlaybackStarted(System.nanoTime())
         reportPlaybackRoute(track)
         Log.i(TAG, "audio playback started type=${format.payloadType}")
         return true
@@ -1487,6 +1499,7 @@ private class AudioRenderer(
                 recoverTrackAfterOperationFailure(track, "pause", error)
                 return
             }
+            trackOperationRecovery.onPlaybackPaused()
             playbackStarted = false
             prebufferBytes = 0
             rebufferCount++
@@ -1502,22 +1515,36 @@ private class AudioRenderer(
         if (this.track !== track) return
         val failedFormat = activeDecoderPcmFormat ?: pendingDecoderPcmFormat
         val nowNs = System.nanoTime()
-        val logKey = "$operation:${error.javaClass.simpleName}"
+        val retryInMs = trackOperationRecovery.recordFailure(nowNs)
+        val failureDetail = when (error) {
+            is AudioTrackWriteException ->
+                "result=${error.result} code=${audioTrackWriteErrorName(error.result)}"
+            is AudioTrackWriteStallException -> "writeStalledMs=${error.stalledForNs / 1_000_000L}"
+            else -> "error=${error.javaClass.simpleName}"
+        }
+        val logKey = "$operation:${error.javaClass.simpleName}:$failureDetail"
         if (logKey != lastTrackOperationFailureLogKey ||
             nowNs - lastTrackOperationFailureLogNs >= TRACK_RETRY_LOG_INTERVAL_NS
         ) {
             lastTrackOperationFailureLogKey = logKey
             lastTrackOperationFailureLogNs = nowNs
             val message = "Audio: AudioTrack $operation failed; recreating output track " +
-                "error=${error.javaClass.simpleName}"
+                "$failureDetail retryInMs=$retryInMs"
             Log.w(TAG, message, error)
             report(message)
         }
         releaseTrack()
         if (failedFormat != null) {
             pendingDecoderPcmFormat = failedFormat
-            createTrack(failedFormat)
         }
+    }
+
+    private fun audioTrackWriteErrorName(result: Int): String = when (result) {
+        AudioTrack.ERROR_DEAD_OBJECT -> "ERROR_DEAD_OBJECT"
+        AudioTrack.ERROR_INVALID_OPERATION -> "ERROR_INVALID_OPERATION"
+        AudioTrack.ERROR_BAD_VALUE -> "ERROR_BAD_VALUE"
+        AudioTrack.ERROR -> "ERROR"
+        else -> "UNKNOWN"
     }
 
     private fun reportPlaybackRoute(track: AudioTrack) {
@@ -1596,7 +1623,13 @@ private class AudioRenderer(
         if (!playbackStarted) {
             timestampAnchor = null
             timestampPollPolicy.reset(nowNs)
+        } else {
+            val lastFrame = lastObservedPlaybackFrame
+            if (lastFrame != null && headFrame > lastFrame) {
+                trackOperationRecovery.onPlaybackProgress(nowNs)
+            }
         }
+        lastObservedPlaybackFrame = headFrame
         if (timestampPollPolicy.shouldQuery(nowNs)) {
             val timestampAvailable = try {
                 currentTrack.getTimestamp(audioTimestamp)
@@ -1755,6 +1788,8 @@ private class AudioRenderer(
         playbackRouteLogged = false
         playbackClockSnapshot = null
         playbackStarted = false
+        trackOperationRecovery.onPlaybackPaused()
+        writeStallPolicy.reset()
         prebufferBytes = 0
         startThresholdBytes = 0
         fadeApplied = false
@@ -1784,6 +1819,7 @@ private class AudioRenderer(
         playbackClockMapper.reset(format.sampleRate, format.sampleRate)
         playbackHeadTracker.reset()
         timestampFrameTracker.reset()
+        lastObservedPlaybackFrame = null
         timestampAnchor = null
         timestampPollPolicy.reset(System.nanoTime())
         timestampAcquiredLogged = false

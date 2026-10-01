@@ -110,7 +110,7 @@ Keep a newly created MediaCodec local until both configure and start succeed. On
 
 ## Probe unavailable or stale AudioTimestamp routes sparsely
 
-Use a 250 ms startup delay, 500 ms warm-up, and switch to 10-second probes after five false results or ten warm-up queries. Enter 10-second stable polling only after three advancing frame positions; repeated stale frames also return to probing. A probe result returns to warm-up, and only an advancing result can become a clock anchor.
+Use a 250 ms startup delay, 500 ms warm-up, and switch to 10-second probes after five false results or ten warm-up queries. Enter 10-second stable polling only after three advancing frame positions; repeated stale frames also return to probing. A probe only returns to warm-up when its frame position advances.
 
 ## Start AAC no-output timing at the first queued access unit
 
@@ -121,3 +121,9 @@ Treat any real raw AAC PCM output as decoder success and clear its compressed st
 ## Recover AudioTrack operation failures on its owner thread
 
 Catch playback, pause, and write exceptions on the audio worker, then release the failed generation and recreate from the retained pending decoder format. Record underrun baselines per initialized track and query the routed device once after playback starts.
+
+Keep operation-failure backoff separate from successful track creation so repeated play/pause/write failures keep increasing the delay. Apply it to every negative nonblocking write result as well as exceptions. Reset it only after five seconds of advancing playback; keep an independent 500 ms watchdog for continuous nonblocking writes that return zero.
+
+## Require advancing timestamps during sparse probes
+
+A probe that returns `true` with a stale extended frame position is still unavailable. Keep the 10-second probe interval until the frame advances, then resume 500 ms warm-up.

@@ -100,3 +100,11 @@ A duplicate still has positive sequence distance from the next expected packet. 
 ## Separate decoded output from rendered PCM
 
 If MediaCodec emits real PCM while AudioTrack setup is failing, that still disproves an AAC no-output failure. Clear the compressed startup cache then, and avoid copying/normalizing PCM until an initialized output track is available.
+
+## Keep recovery backoff across successful construction
+
+A track that builds but fails immediately on the next HAL operation is not a recovery success. Track operation failures separately from builder failures, and only reset operation backoff after sustained advancing playback; bound zero-write waits by elapsed time.
+
+## Treat nonblocking zero writes as backpressure until they stall
+
+`WRITE_NON_BLOCKING` may return zero temporarily. Measure the continuous zero interval rather than retry count, then release and back off if no frame is accepted within the stall bound.

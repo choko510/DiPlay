@@ -63,6 +63,101 @@ internal class TrackCreationRetryPolicy<T : Any>(
     }
 }
 
+/** Keeps failures of a successfully built track from creating a fast release/recreate loop. */
+internal class TrackOperationRecoveryPolicy(
+    private val initialDelayMs: Long = TRACK_RETRY_INITIAL_MS,
+    private val maximumDelayMs: Long = TRACK_RETRY_MAX_MS,
+    private val stablePlaybackResetNs: Long = TRACK_OPERATION_STABLE_RESET_NS,
+    private val maximumProgressGapNs: Long = TRACK_OPERATION_PROGRESS_GAP_NS,
+) {
+    private var failureCount = 0
+    private var retryAfterNs = 0L
+    private var stablePlaybackSinceNs: Long? = null
+    private var lastPlaybackProgressNs: Long? = null
+
+    fun shouldAttempt(nowNs: Long): Boolean = failureCount == 0 || retryAfterNs - nowNs <= 0L
+
+    fun recordFailure(nowNs: Long): Long {
+        resetAfterStablePlayback(nowNs)
+        failureCount++
+        val shift = (failureCount - 1).coerceAtMost(MAX_BACKOFF_SHIFT)
+        val delayMs = (initialDelayMs * (1L shl shift)).coerceAtMost(maximumDelayMs)
+        retryAfterNs = nowNs + delayMs * 1_000_000L
+        stablePlaybackSinceNs = null
+        return delayMs
+    }
+
+    fun onPlaybackStarted(nowNs: Long) {
+        if (stablePlaybackSinceNs == null) {
+            stablePlaybackSinceNs = nowNs
+            lastPlaybackProgressNs = nowNs
+        }
+    }
+
+    fun onPlaybackPaused() {
+        stablePlaybackSinceNs = null
+        lastPlaybackProgressNs = null
+    }
+
+    fun onPlaybackProgress(nowNs: Long) {
+        val stableSince = stablePlaybackSinceNs ?: return
+        val lastProgress = lastPlaybackProgressNs ?: nowNs
+        if (nowNs - lastProgress > maximumProgressGapNs) {
+            stablePlaybackSinceNs = nowNs
+            lastPlaybackProgressNs = nowNs
+            return
+        }
+        lastPlaybackProgressNs = nowNs
+        if (nowNs - stableSince >= stablePlaybackResetNs) {
+            failureCount = 0
+            retryAfterNs = 0L
+            stablePlaybackSinceNs = null
+            lastPlaybackProgressNs = null
+        }
+    }
+
+    fun reset() {
+        failureCount = 0
+        retryAfterNs = 0L
+        stablePlaybackSinceNs = null
+        lastPlaybackProgressNs = null
+    }
+
+    private fun resetAfterStablePlayback(nowNs: Long) {
+        val stableSince = stablePlaybackSinceNs ?: return
+        val lastProgress = lastPlaybackProgressNs ?: return
+        if (nowNs - stableSince < stablePlaybackResetNs || nowNs - lastProgress > maximumProgressGapNs) return
+        failureCount = 0
+        retryAfterNs = 0L
+        stablePlaybackSinceNs = null
+        lastPlaybackProgressNs = null
+    }
+
+    private companion object {
+        const val MAX_BACKOFF_SHIFT = 8
+    }
+}
+
+/** Bounds a continuous run of nonblocking writes that accept no frames. */
+internal class AudioTrackWriteStallPolicy(
+    private val stallTimeoutNs: Long = TRACK_WRITE_STALL_TIMEOUT_NS,
+) {
+    private var zeroWriteSinceNs: Long? = null
+
+    fun onWriteResult(result: Int, nowNs: Long): Boolean {
+        if (result != 0) {
+            zeroWriteSinceNs = null
+            return false
+        }
+        val zeroSince = zeroWriteSinceNs ?: nowNs.also { zeroWriteSinceNs = it }
+        return nowNs - zeroSince >= stallTimeoutNs
+    }
+
+    fun reset() {
+        zeroWriteSinceNs = null
+    }
+}
+
 internal enum class AudioTimestampPollMode { STARTUP, WARMUP, STABLE, PROBE }
 
 internal data class AudioTimestampPollUpdate(
@@ -183,11 +278,12 @@ internal class AudioTimestampPollPolicy(
         if (!timestampAvailable || framePosition == null) return AudioTimestampPollUpdate()
         val previous = lastFramePosition
         val advancing = previous == null || framePosition > previous
-        if (advancing) lastFramePosition = framePosition
+        if (!advancing) return AudioTimestampPollUpdate()
+        lastFramePosition = framePosition
         mode = AudioTimestampPollMode.WARMUP
         falseQueries = 0
         warmupQueries = 1
-        advancingSamples = if (advancing) 1 else 0
+        advancingSamples = 1
         staleQueries = 0
         return AudioTimestampPollUpdate(acceptAnchor = advancing, recoveredFromProbe = true)
     }
@@ -211,6 +307,9 @@ internal class AudioTimestampPollPolicy(
 internal const val TRACK_RETRY_INITIAL_MS = 250L
 internal const val TRACK_RETRY_MAX_MS = 5_000L
 internal const val TRACK_RETRY_LOG_INTERVAL_NS = 1_000_000_000L
+internal const val TRACK_OPERATION_STABLE_RESET_NS = 5_000_000_000L
+internal const val TRACK_OPERATION_PROGRESS_GAP_NS = 1_000_000_000L
+internal const val TRACK_WRITE_STALL_TIMEOUT_NS = 500_000_000L
 internal const val TIMESTAMP_FIRST_QUERY_NS = 250_000_000L
 internal const val TIMESTAMP_WARMUP_INTERVAL_NS = 500_000_000L
 internal const val TIMESTAMP_STABLE_INTERVAL_NS = 10_000_000_000L

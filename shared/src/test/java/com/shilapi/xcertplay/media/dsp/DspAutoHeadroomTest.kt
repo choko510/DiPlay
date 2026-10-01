@@ -85,6 +85,24 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun enabledMultibandMakeupUsesTheLargestPositiveBandGainForHeadroom() {
+        val config = DspRuntimeConfig(
+            enabled = true,
+            multiband = DspMultibandConfig(
+                enabled = true,
+                low = DspCompressorConfig(enabled = true, makeupDb = 2.0),
+                mid = DspCompressorConfig(enabled = true, makeupDb = 5.0),
+                high = DspCompressorConfig(enabled = true, makeupDb = 3.0),
+            ),
+        )
+
+        val prepared = config.prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals(6.0, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-6.0, prepared.appliedPreampDb, 0.02)
+    }
+
+    @Test
     fun frequencyScanAcceptsAnExactNotchZeroAtItsUpperEndpoint() {
         val result = DspAutoHeadroom.calculate(
             sampleRate = 48_000,

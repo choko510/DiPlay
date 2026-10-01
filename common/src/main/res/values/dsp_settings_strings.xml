@@ -37,6 +37,12 @@
     <string name="dsp_release">Release</string>
     <string name="dsp_knee">Knee</string>
     <string name="dsp_makeup">Makeup gain</string>
+    <string name="dsp_multiband">3-band dynamics</string>
+    <string name="dsp_low_band">Low band</string>
+    <string name="dsp_mid_band">Mid band</string>
+    <string name="dsp_high_band">High band</string>
+    <string name="dsp_low_mid_crossover">Low/Mid crossover</string>
+    <string name="dsp_mid_high_crossover">Mid/High crossover</string>
     <string name="dsp_limiter">Safety limiter</string>
     <string name="dsp_convolver">Convolver</string>
     <string name="dsp_convolver_placeholder">No impulse response is selected.</string>

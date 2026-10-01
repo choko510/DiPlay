@@ -7,6 +7,7 @@ import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
+import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import java.io.File
 import java.nio.charset.StandardCharsets
@@ -113,7 +114,17 @@ internal class DspProfileRepository(
         val stereoJson = json.optJSONObject("stereo") ?: JSONObject()
         val convolverJson = json.optJSONObject("convolver") ?: JSONObject()
         val limiterJson = json.optJSONObject("limiter") ?: JSONObject()
+        val multibandJson = json.optJSONObject("multiband") ?: JSONObject()
         val monoBassJson = stereoJson.optJSONObject("monoBass") ?: JSONObject()
+        fun readCompressor(values: JSONObject) = DspCompressorConfig(
+            enabled = values.optBoolean("enabled", false),
+            thresholdDb = values.readFiniteDouble("thresholdDb", -20.0),
+            ratio = values.readFiniteDouble("ratio", 4.0),
+            attackMs = values.readFiniteDouble("attackMs", 10.0),
+            releaseMs = values.readFiniteDouble("releaseMs", 100.0),
+            kneeDb = values.readFiniteDouble("kneeDb", 0.0),
+            makeupDb = values.readFiniteDouble("makeupDb", 0.0),
+        )
         return DspAudioProfile(
             id = profileId,
             name = json.optString(KEY_NAME, profileId),
@@ -127,15 +138,7 @@ internal class DspProfileRepository(
                 gainDb = bassJson.readFiniteDouble("gainDb", 0.0),
                 frequencyHz = bassJson.readFiniteDouble("frequencyHz", 80.0),
             ),
-            compressor = DspCompressorConfig(
-                enabled = compressorJson.optBoolean("enabled", false),
-                thresholdDb = compressorJson.readFiniteDouble("thresholdDb", -20.0),
-                ratio = compressorJson.readFiniteDouble("ratio", 4.0),
-                attackMs = compressorJson.readFiniteDouble("attackMs", 10.0),
-                releaseMs = compressorJson.readFiniteDouble("releaseMs", 100.0),
-                kneeDb = compressorJson.readFiniteDouble("kneeDb", 0.0),
-                makeupDb = compressorJson.readFiniteDouble("makeupDb", 0.0),
-            ),
+            compressor = readCompressor(compressorJson),
             stereoWidth = stereoJson.readFiniteDouble("width", 1.0),
             monoBass = DspMonoBassConfig(
                 enabled = monoBassJson.optBoolean("enabled", false),
@@ -145,6 +148,20 @@ internal class DspProfileRepository(
                 enabled = convolverJson.optBoolean("enabled", false),
                 impulseResponseId = convolverJson.optString("impulseResponseId").takeIf { it.isNotEmpty() },
                 wet = convolverJson.readFiniteDouble("wet", 1.0),
+            ),
+            multiband = DspMultibandConfig(
+                enabled = multibandJson.optBoolean("enabled", false),
+                lowMidCrossoverHz = multibandJson.readFiniteDouble(
+                    "lowMidCrossoverHz",
+                    DspMultibandConfig.DEFAULT_LOW_MID_CROSSOVER_HZ,
+                ),
+                midHighCrossoverHz = multibandJson.readFiniteDouble(
+                    "midHighCrossoverHz",
+                    DspMultibandConfig.DEFAULT_MID_HIGH_CROSSOVER_HZ,
+                ),
+                low = readCompressor(multibandJson.optJSONObject("low") ?: JSONObject()),
+                mid = readCompressor(multibandJson.optJSONObject("mid") ?: JSONObject()),
+                high = readCompressor(multibandJson.optJSONObject("high") ?: JSONObject()),
             ),
             limiter = DspSafetyLimiterConfig(
                 enabled = limiterJson.optBoolean("enabled", true),
@@ -227,6 +244,16 @@ internal class DspProfileRepository(
                     .put("wet", profile.convolver.wet),
             )
             .put(
+                "multiband",
+                JSONObject()
+                    .put("enabled", profile.multiband.enabled)
+                    .put("lowMidCrossoverHz", profile.multiband.lowMidCrossoverHz)
+                    .put("midHighCrossoverHz", profile.multiband.midHighCrossoverHz)
+                    .put("low", profile.multiband.low.toJsonObject())
+                    .put("mid", profile.multiband.mid.toJsonObject())
+                    .put("high", profile.multiband.high.toJsonObject()),
+            )
+            .put(
                 "limiter",
                 JSONObject()
                     .put("enabled", profile.limiter.enabled)
@@ -245,7 +272,7 @@ internal class DspProfileRepository(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 1
+        const val CURRENT_SCHEMA_VERSION = 2
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"
@@ -259,6 +286,15 @@ internal class DspProfileRepository(
         )
     }
 }
+
+private fun DspCompressorConfig.toJsonObject(): JSONObject = JSONObject()
+    .put("enabled", enabled)
+    .put("thresholdDb", thresholdDb)
+    .put("ratio", ratio)
+    .put("attackMs", attackMs)
+    .put("releaseMs", releaseMs)
+    .put("kneeDb", kneeDb)
+    .put("makeupDb", makeupDb)
 
 private fun writeProfileAtomically(file: File, contents: ByteArray) {
     val atomicFile = AtomicFile(file)

@@ -158,6 +158,10 @@ Validate profile numbers and enum names while decoding, then construct the same 
 
 M/S width must bypass mono buffers rather than synthesizing a second channel. For stereo, use a single linked transform; apply mono-bass HPF to the Side signal, not to Left and Right independently.
 
+For a 3-band LR4 splitter, cascade identical Butterworth sections in each Low, Mid, and High branch and keep independent state for both channels. Measure recombination through steady sine response and impulse energy; chunk comparisons catch state/order mistakes. Cap the highest crossover at 3.5 kHz so the configuration remains below 0.45 Nyquist even at the minimum supported 8 kHz rate.
+
+Every compressor band should reuse the established stereo-linked detector and reset path. Use the largest enabled positive band makeup for conservative static headroom, and increment the persisted profile schema when adding a field so earlier versions cannot silently erase it.
+
 ## Keep audio setup preparation separate from ownership commit
 
 Bind both UDP sockets with no receive workers first, then atomically publish the new generation and only start its workers while it is still current. Keep the previous activated owner available until that start succeeds, and make closed-session commit plus teardown owner reads linearize under the per-type slot lock. Exercise A→B→C and prepare/close interleavings with latches; token checks at the sink and map-removal boundary catch races that an engine-only owner check misses.

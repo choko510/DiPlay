@@ -162,6 +162,7 @@ internal object DspAutoHeadroom {
         preampDb: Double,
         peqBands: List<DspEqBand>,
         compressorMakeupDb: Double = 0.0,
+        maxBandMakeupDb: Double = 0.0,
         stereoWidth: Double = 1.0,
         marginDb: Double = 1.0,
         staticBassBands: List<DspEqBand> = emptyList(),
@@ -169,6 +170,7 @@ internal object DspAutoHeadroom {
         require(sampleRate in 8_000..192_000)
         require(preampDb.isFinite())
         require(compressorMakeupDb.isFinite())
+        require(maxBandMakeupDb.isFinite())
         require(stereoWidth.isFinite() && stereoWidth in 0.0..2.0)
         require(marginDb.isFinite() && marginDb >= 0.0)
         require(peqBands.size <= DspEqDesigner.MAX_BANDS)
@@ -190,7 +192,8 @@ internal object DspAutoHeadroom {
         }
         if (filters.isEmpty()) peakDb = 0.0
         val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth))
-        val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) + widthWorstCaseDb
+        val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
+            max(0.0, maxBandMakeupDb) + widthWorstCaseDb
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
@@ -207,6 +210,7 @@ internal data class DspPreparedConfig(
     val spatial: DoubleArray,
     val convolverConfig: DoubleArray,
     val convolverSamples: FloatArray,
+    val multiband: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -245,12 +249,26 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     val activeImpulseResponse = impulseResponse?.takeIf { convolver.enabled && convolver.wet > 0.0 }
     val convolverEnabled = activeImpulseResponse != null
     val convolverSamples = activeImpulseResponse?.copySamples() ?: FloatArray(0)
+    if (multiband.enabled) {
+        require(multiband.lowMidCrossoverHz < format.sampleRate * 0.45)
+        require(multiband.midHighCrossoverHz < format.sampleRate * 0.45)
+    }
+    val multibandNativeValues = multiband.toNativeValues()
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
             preampDb = gainDb,
             peqBands = peqBands,
             compressorMakeupDb = if (compressor.enabled) compressor.makeupDb else 0.0,
+            maxBandMakeupDb = if (multiband.enabled) {
+                maxOf(
+                    if (multiband.low.enabled) multiband.low.makeupDb else 0.0,
+                    if (multiband.mid.enabled) multiband.mid.makeupDb else 0.0,
+                    if (multiband.high.enabled) multiband.high.makeupDb else 0.0,
+                )
+            } else {
+                0.0
+            },
             stereoWidth = stereoWidth,
             marginDb = autoHeadroomMarginDb,
             staticBassBands = if (bass.enabled) {
@@ -298,6 +316,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             convolver.wet,
         ),
         convolverSamples = convolverSamples,
+        multiband = multibandNativeValues,
         headroom = headroom,
     )
 }

@@ -52,6 +52,7 @@ import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
+import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import com.shilapi.xcertplay.shared.AppLanguage
 import java.util.Locale
@@ -251,6 +252,45 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         profile = profile.copy(compressor = profile.compressor.copy(makeupDb = it))
                     }
                 }
+                SectionCard(title = stringResource(R.string.dsp_multiband)) {
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_multiband),
+                        checked = profile.multiband.enabled,
+                        onCheckedChange = { profile = profile.copy(multiband = profile.multiband.copy(enabled = it)) },
+                    )
+                    if (profile.multiband.enabled) {
+                        DspValueSlider(
+                            stringResource(R.string.dsp_low_mid_crossover),
+                            profile.multiband.lowMidCrossoverHz,
+                            20.0..minOf(1_000.0, profile.multiband.midHighCrossoverHz - 20.0),
+                            "Hz",
+                        ) { profile = profile.copy(multiband = profile.multiband.copy(lowMidCrossoverHz = it)) }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_mid_high_crossover),
+                            profile.multiband.midHighCrossoverHz,
+                            maxOf(
+                                DspMultibandConfig.MIN_MID_HIGH_CROSSOVER_HZ,
+                                profile.multiband.lowMidCrossoverHz + 20.0,
+                            )..DspMultibandConfig.MAX_MID_HIGH_CROSSOVER_HZ,
+                            "Hz",
+                        ) { profile = profile.copy(multiband = profile.multiband.copy(midHighCrossoverHz = it)) }
+                        MultibandCompressorControl(
+                            title = stringResource(R.string.dsp_low_band),
+                            config = profile.multiband.low,
+                            onChange = { profile = profile.copy(multiband = profile.multiband.copy(low = it)) },
+                        )
+                        MultibandCompressorControl(
+                            title = stringResource(R.string.dsp_mid_band),
+                            config = profile.multiband.mid,
+                            onChange = { profile = profile.copy(multiband = profile.multiband.copy(mid = it)) },
+                        )
+                        MultibandCompressorControl(
+                            title = stringResource(R.string.dsp_high_band),
+                            config = profile.multiband.high,
+                            onChange = { profile = profile.copy(multiband = profile.multiband.copy(high = it)) },
+                        )
+                    }
+                }
                 SectionCard(title = stringResource(R.string.dsp_limiter)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_limiter),
@@ -421,6 +461,33 @@ private fun DspValueSlider(
             onValueChange = { onChange(it.toDouble()) },
             valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
         )
+    }
+}
+
+@Composable
+private fun MultibandCompressorControl(
+    title: String,
+    config: DspCompressorConfig,
+    onChange: (DspCompressorConfig) -> Unit,
+) {
+    DspSwitchRow(title = title, checked = config.enabled, onCheckedChange = { onChange(config.copy(enabled = it)) })
+    DspValueSlider(stringResource(R.string.dsp_threshold), config.thresholdDb, -60.0..0.0, "dB") {
+        onChange(config.copy(thresholdDb = it))
+    }
+    DspValueSlider(stringResource(R.string.dsp_ratio), config.ratio, 1.0..20.0, ":1") {
+        onChange(config.copy(ratio = it))
+    }
+    DspValueSlider(stringResource(R.string.dsp_attack), config.attackMs, 0.1..250.0, "ms") {
+        onChange(config.copy(attackMs = it))
+    }
+    DspValueSlider(stringResource(R.string.dsp_release), config.releaseMs, 1.0..500.0, "ms") {
+        onChange(config.copy(releaseMs = it))
+    }
+    DspValueSlider(stringResource(R.string.dsp_knee), config.kneeDb, 0.0..24.0, "dB") {
+        onChange(config.copy(kneeDb = it))
+    }
+    DspValueSlider(stringResource(R.string.dsp_makeup), config.makeupDb, -24.0..24.0, "dB") {
+        onChange(config.copy(makeupDb = it))
     }
 }
 

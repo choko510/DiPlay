@@ -6,6 +6,7 @@ import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
+import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import java.io.File
 import java.io.IOException
@@ -41,6 +42,14 @@ class DspProfileRepositoryTest {
             stereoWidth = 1.4,
             monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 100),
             convolver = DspConvolverConfig(enabled = true, impulseResponseId = "ir_a", wet = 0.75),
+            multiband = DspMultibandConfig(
+                enabled = true,
+                lowMidCrossoverHz = 150.0,
+                midHighCrossoverHz = 2_200.0,
+                low = DspCompressorConfig(enabled = true, thresholdDb = -30.0, ratio = 5.0, makeupDb = 1.0),
+                mid = DspCompressorConfig(enabled = true, thresholdDb = -22.0, ratio = 3.0),
+                high = DspCompressorConfig(enabled = true, thresholdDb = -18.0, ratio = 2.0),
+            ),
             limiter = DspSafetyLimiterConfig(enabled = true, thresholdDb = -2.0, releaseMs = 80.0),
         )
 
@@ -60,6 +69,7 @@ class DspProfileRepositoryTest {
             stereoWidth = 1.5,
             monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 100),
             convolver = DspConvolverConfig(enabled = true, impulseResponseId = "room1"),
+            multiband = DspMultibandConfig(enabled = true, low = DspCompressorConfig(enabled = true)),
         )
 
         val disabled = profile.toRuntimeConfig(masterEnabled = false)
@@ -73,6 +83,7 @@ class DspProfileRepositoryTest {
         assertEquals(profile.stereoWidth, enabled.stereoWidth, 0.0)
         assertEquals(profile.monoBass, enabled.monoBass)
         assertEquals(profile.convolver, enabled.convolver)
+        assertEquals(profile.multiband, enabled.multiband)
         assertTrue(runCatching { (enabled.peqBands as MutableList).clear() }.isFailure)
     }
 
@@ -111,6 +122,24 @@ class DspProfileRepositoryTest {
         assertEquals(3.0, loaded.profile.preampDb, 0.0)
         assertFalse(loaded.profile.autoHeadroomEnabled)
         assertEquals(15, loaded.profile.eqBands.size)
+    }
+
+    @Test
+    fun versionOneProfileMigratesWithMultibandDisabledByDefault() {
+        val repository = repository()
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        assertTrue(profileFile.parentFile!!.mkdirs())
+        profileFile.writeText(
+            """{"schemaVersion":1,"id":"custom1","name":"Existing","enabled":true,"preampDb":-2.0}""",
+        )
+
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertEquals(1, loaded.migratedFromVersion)
+        assertFalse(loaded.profile.multiband.enabled)
+        assertEquals(DspMultibandConfig.DEFAULT_LOW_MID_CROSSOVER_HZ, loaded.profile.multiband.lowMidCrossoverHz, 0.0)
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":2"))
     }
 
     @Test

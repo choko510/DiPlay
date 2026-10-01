@@ -34,6 +34,12 @@ class NativeDspProcessorTest {
                 enabled = true,
                 gainDb = 4.0,
                 peqBands = listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 6.0, q = 2.0)),
+                multiband = DspMultibandConfig(
+                    enabled = true,
+                    lowMidCrossoverHz = 160.0,
+                    midHighCrossoverHz = 2_000.0,
+                    high = DspCompressorConfig(enabled = true, thresholdDb = -18.0, ratio = 2.0),
+                ),
             ),
             loadLibrary = { true },
             bindings = bindings,
@@ -44,6 +50,11 @@ class NativeDspProcessorTest {
         assertEquals(5, bindings.createdEqCoefficients?.size)
         assertTrue(bindings.createdEqCoefficients?.all(Double::isFinite) == true)
         assertEquals(10, bindings.createdDynamics?.size)
+        assertEquals(DspMultibandConfig.NATIVE_VALUE_COUNT, bindings.createdMultiband?.size)
+        assertEquals(1.0, bindings.createdMultiband?.get(0) ?: 0.0, 0.0)
+        assertEquals(160.0, bindings.createdMultiband?.get(1) ?: 0.0, 0.0)
+        assertEquals(2_000.0, bindings.createdMultiband?.get(2) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdMultiband?.get(17) ?: 0.0, 0.0)
         assertEquals(0.0, bindings.createdDynamics?.get(0) ?: -1.0, 0.0)
         assertEquals(1.0, bindings.createdDynamics?.get(7) ?: -1.0, 0.0)
         assertEquals(0, bindings.createdBassCoefficients?.size)
@@ -159,6 +170,7 @@ class NativeDspProcessorTest {
         var createdGainDb: Double? = null
         var createdEqCoefficients: DoubleArray? = null
         var createdDynamics: DoubleArray? = null
+        var createdMultiband: DoubleArray? = null
         var createdBassCoefficients: DoubleArray? = null
         var createdMonoBassCoefficients: DoubleArray? = null
         var createdSpatial: DoubleArray? = null
@@ -172,6 +184,7 @@ class NativeDspProcessorTest {
             gainDb: Double,
             eqCoefficients: DoubleArray,
             dynamics: DoubleArray,
+            multiband: DoubleArray,
             bassCoefficients: DoubleArray,
             monoBassCoefficients: DoubleArray,
             spatial: DoubleArray,
@@ -181,6 +194,7 @@ class NativeDspProcessorTest {
             createdGainDb = gainDb
             createdEqCoefficients = eqCoefficients.copyOf()
             createdDynamics = dynamics.copyOf()
+            createdMultiband = multiband.copyOf()
             createdBassCoefficients = bassCoefficients.copyOf()
             createdMonoBassCoefficients = monoBassCoefficients.copyOf()
             createdSpatial = spatial.copyOf()

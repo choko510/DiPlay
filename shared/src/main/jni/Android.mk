@@ -12,6 +12,7 @@ LOCAL_SRC_FILES := \
     dsp/dsp_graph.c \
     dsp/dsp_biquad.c \
     dsp/dsp_dynamics.c \
+    dsp/dsp_multiband.c \
     dsp/dsp_spatial.c \
     dsp/dsp_convolver.c \
     dsp/dsp_gain.c \

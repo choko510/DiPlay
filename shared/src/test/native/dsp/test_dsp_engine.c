@@ -8,6 +8,14 @@
 static const dsp_dynamics_config bypass_dynamics = {
     0, -20.0, 4.0, 10.0, 100.0, 0.0, 0.0, 0, -1.0, 60.0,
 };
+static const dsp_multiband_config bypass_multiband = {
+    0, 120.0, 2500.0,
+    {
+        {0, -20.0, 4.0, 10.0, 100.0, 0.0, 0.0},
+        {0, -20.0, 4.0, 10.0, 100.0, 0.0, 0.0},
+        {0, -20.0, 4.0, 10.0, 100.0, 0.0, 0.0},
+    },
+};
 static const dsp_spatial_config bypass_spatial = {1.0, 0, 120};
 static const dsp_convolver_config bypass_convolver = {0, 0, 0, 0, 0, 0.0f, NULL};
 
@@ -31,6 +39,7 @@ static dsp_engine *create_test_engine(
         peq_coefficients,
         peq_band_count,
         &bypass_dynamics,
+        &bypass_multiband,
         NULL,
         0,
         NULL,
@@ -52,6 +61,29 @@ static dsp_engine *create_test_engine_with_dynamics(
         NULL,
         0,
         dynamics_config,
+        &bypass_multiband,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        &bypass_convolver);
+}
+
+static dsp_engine *create_test_engine_with_multiband(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_multiband_config *multiband_config) {
+    return dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        multiband_config,
         NULL,
         0,
         NULL,
@@ -77,6 +109,7 @@ static dsp_engine *create_test_engine_with_spatial(
         NULL,
         0,
         &bypass_dynamics,
+        &bypass_multiband,
         bass_coefficients,
         bass_coefficient_count,
         mono_bass_coefficients,
@@ -98,6 +131,7 @@ static dsp_engine *create_test_engine_with_convolver(
         NULL,
         0,
         &bypass_dynamics,
+        &bypass_multiband,
         NULL,
         0,
         NULL,
@@ -181,7 +215,7 @@ static void test_bad_handles_arguments_and_capacities(void) {
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 1) == NULL, "missing filter coefficients are rejected");
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 16) == NULL, "too many filters are rejected");
     assert_true(
-        dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL, NULL, 0, NULL, 0,
+        dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL, &bypass_multiband, NULL, 0, NULL, 0,
             &bypass_spatial, &bypass_convolver) == NULL,
         "missing dynamics configuration is rejected");
 }
@@ -691,6 +725,199 @@ static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
     }
 }
 
+static void test_multiband_unity_reconstruction_and_phase(void) {
+    dsp_multiband_config config = bypass_multiband;
+    config.enabled = 1;
+    dsp_engine *engine = create_test_engine_with_multiband(48000, 1, 512, &config);
+    assert_true(engine != NULL, "three-band unity graph creates");
+    const double frequencies[] = {30.0, 60.0, 120.0, 250.0, 1000.0, 2500.0, 5000.0, 10000.0, 20000.0};
+    for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
+        assert_near(
+            measure_sine_gain(engine, frequencies[index], 1),
+            1.0,
+            0.025,
+            "unity bands recombine with a flat frequency response");
+        assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "unity crossover state resets between tones");
+    }
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_multiband(48000, 1, 512, &config);
+    assert_true(engine != NULL, "three-band impulse graph creates");
+    double impulse_energy = 0.0;
+    for (size_t block = 0; block < 32; block++) {
+        float input[512] = {0.0f};
+        float output[512] = {0.0f};
+        if (block == 0) input[0] = 1.0f;
+        assert_true(
+            dsp_engine_process(engine, input, 512, output, 512, 512, 1) == DSP_STATUS_OK,
+            "multiband impulse response block processes");
+        for (size_t frame = 0; frame < 512; frame++) {
+            assert_true(isfinite(output[frame]), "multiband impulse response stays finite");
+            impulse_energy += (double)output[frame] * (double)output[frame];
+        }
+    }
+    assert_near(impulse_energy, 1.0, 0.03, "unity LR4 crossover preserves impulse energy");
+    dsp_engine_destroy(engine);
+}
+
+static void test_multiband_compression_is_band_selective(void) {
+    dsp_multiband_config low_only = bypass_multiband;
+    low_only.enabled = 1;
+    low_only.bands[0] = (dsp_multiband_compressor_config){1, -30.0, 4.0, 0.1, 80.0, 0.0, 0.0};
+    dsp_engine *engine = create_test_engine_with_multiband(48000, 1, 512, &low_only);
+    assert_true(engine != NULL, "low-band compressor graph creates");
+    assert_true(measure_sine_gain(engine, 60.0, 1) < 0.75, "low compressor reduces the low band");
+    assert_true(measure_sine_gain(engine, 5000.0, 1) > 0.95, "low compressor leaves the high band unchanged");
+    dsp_engine_destroy(engine);
+
+    dsp_multiband_config mid_only = bypass_multiband;
+    mid_only.enabled = 1;
+    mid_only.bands[1] = (dsp_multiband_compressor_config){1, -30.0, 4.0, 0.1, 80.0, 0.0, 0.0};
+    engine = create_test_engine_with_multiband(48000, 1, 512, &mid_only);
+    assert_true(engine != NULL, "mid-band compressor graph creates");
+    assert_true(measure_sine_gain(engine, 1000.0, 1) < 0.75, "mid compressor reduces the mid band");
+    assert_true(measure_sine_gain(engine, 60.0, 1) > 0.95, "mid compressor leaves the low band unchanged");
+    dsp_engine_destroy(engine);
+
+    dsp_multiband_config high_only = bypass_multiband;
+    high_only.enabled = 1;
+    high_only.bands[2] = (dsp_multiband_compressor_config){1, -30.0, 4.0, 0.1, 80.0, 0.0, 0.0};
+    engine = create_test_engine_with_multiband(48000, 1, 512, &high_only);
+    assert_true(engine != NULL, "high-band compressor graph creates");
+    assert_true(measure_sine_gain(engine, 10000.0, 1) < 0.75, "high compressor reduces the high band");
+    assert_true(measure_sine_gain(engine, 1000.0, 1) > 0.95, "high compressor leaves the mid band unchanged");
+    dsp_engine_destroy(engine);
+}
+
+static void test_multiband_chunk_invariance_reset_and_validation(void) {
+    dsp_multiband_config config = bypass_multiband;
+    config.enabled = 1;
+    config.bands[0] = (dsp_multiband_compressor_config){1, -24.0, 3.0, 3.0, 90.0, 3.0, 1.0};
+    dsp_engine *whole = create_test_engine_with_multiband(48000, 2, 512, &config);
+    dsp_engine *split = create_test_engine_with_multiband(48000, 2, 512, &config);
+    assert_true(whole != NULL && split != NULL, "chunk comparison multiband engines create");
+    float input[1024];
+    float whole_output[1024] = {0};
+    float split_output[1024] = {0};
+    for (size_t index = 0; index < 1024; index++) {
+        input[index] = (float)(0.3 * sin((double)index * 0.071) + 0.15 * cos((double)index * 0.023));
+    }
+    assert_true(
+        dsp_engine_process(whole, input, 1024, whole_output, 1024, 512, 2) == DSP_STATUS_OK,
+        "whole multiband block processes");
+    const size_t chunks[] = {97, 1, 127, 64, 191, 32};
+    size_t offset = 0;
+    for (size_t chunk = 0; chunk < sizeof(chunks) / sizeof(chunks[0]); chunk++) {
+        const size_t frames = chunks[chunk];
+        assert_true(
+            dsp_engine_process(
+                split,
+                input + offset * 2,
+                frames * 2,
+                split_output + offset * 2,
+                frames * 2,
+                (int)frames,
+                2) == DSP_STATUS_OK,
+            "split multiband block processes");
+        offset += frames;
+    }
+    assert_true(offset == 512, "multiband chunks cover the same source frames");
+    for (size_t index = 0; index < 1024; index++) {
+        assert_near(whole_output[index], split_output[index], 1e-6, "multiband compressor is chunk invariant");
+    }
+
+    float burst[512];
+    float output[512];
+    for (size_t index = 0; index < 256; index++) {
+        burst[index * 2] = index % 2 == 0 ? 0.8f : -0.8f;
+        burst[index * 2 + 1] = -burst[index * 2];
+    }
+    assert_true(dsp_engine_process(whole, burst, 512, output, 512, 256, 2) == DSP_STATUS_OK,
+        "multiband detector state is primed");
+    assert_true(dsp_engine_reset(whole) == DSP_STATUS_OK, "multiband graph reset succeeds");
+    dsp_engine *fresh = create_test_engine_with_multiband(48000, 2, 512, &config);
+    assert_true(fresh != NULL, "fresh multiband graph creates");
+    const float mono_test[] = {0.25f, -0.25f, 0.1f, -0.1f};
+    float reset_output[4] = {0.0f};
+    float fresh_output[4] = {0.0f};
+    assert_true(dsp_engine_process(whole, mono_test, 4, reset_output, 4, 2, 2) == DSP_STATUS_OK,
+        "reset multiband graph processes a fresh block");
+    assert_true(dsp_engine_process(fresh, mono_test, 4, fresh_output, 4, 2, 2) == DSP_STATUS_OK,
+        "fresh multiband graph processes a fresh block");
+    for (size_t index = 0; index < 4; index++) {
+        assert_near(reset_output[index], fresh_output[index], 1e-6,
+            "multiband reset matches a freshly prepared graph");
+    }
+    dsp_engine_destroy(whole);
+    dsp_engine_destroy(split);
+    dsp_engine_destroy(fresh);
+
+    config.low_mid_crossover_hz = 3000.0;
+    config.mid_high_crossover_hz = 2500.0;
+    assert_true(create_test_engine_with_multiband(48000, 1, 64, &config) == NULL,
+        "reversed multiband crossovers are rejected");
+    config = bypass_multiband;
+    config.enabled = 1;
+    config.mid_high_crossover_hz = 22000.0;
+    assert_true(create_test_engine_with_multiband(48000, 1, 64, &config) == NULL,
+        "multiband crossovers above the Nyquist safety margin are rejected");
+    config = bypass_multiband;
+    config.low_mid_crossover_hz = 900.0;
+    config.mid_high_crossover_hz = 3500.0;
+    dsp_engine *disabled = create_test_engine_with_multiband(8000, 1, 64, &config);
+    assert_true(disabled != NULL,
+        "disabled multiband does not invalidate an otherwise supported low-rate DSP engine");
+    dsp_engine_destroy(disabled);
+    config.enabled = 1;
+    config.low_mid_crossover_hz = 1000.0;
+    dsp_engine *lowest_rate = create_test_engine_with_multiband(8000, 1, 64, &config);
+    assert_true(lowest_rate != NULL, "safe multiband cutoffs prepare at the lowest supported sample rate");
+    dsp_engine_destroy(lowest_rate);
+}
+
+static unsigned int next_random(unsigned int *state) {
+    *state ^= *state << 13;
+    *state ^= *state >> 17;
+    *state ^= *state << 5;
+    return *state;
+}
+
+static void test_multiband_randomized_configurations_remain_finite(void) {
+    unsigned int random_state = 0x5d31a9b7U;
+    for (size_t iteration = 0; iteration < 1000; iteration++) {
+        dsp_multiband_config config = bypass_multiband;
+        config.enabled = 1;
+        config.low_mid_crossover_hz = 30.0 + (double)(next_random(&random_state) % 450U);
+        config.mid_high_crossover_hz = 1200.0 + (double)(next_random(&random_state) % 2300U);
+        for (size_t band = 0; band < DSP_MULTIBAND_COUNT; band++) {
+            const double threshold = -60.0 + (double)(next_random(&random_state) % 6001U) / 100.0;
+            const double ratio = 1.0 + (double)(next_random(&random_state) % 1901U) / 100.0;
+            const double attack = 0.1 + (double)(next_random(&random_state) % 1000U) / 10.0;
+            const double release = 0.1 + (double)(next_random(&random_state) % 2000U) / 10.0;
+            const double knee = (double)(next_random(&random_state) % 2401U) / 100.0;
+            const double makeup = -24.0 + (double)(next_random(&random_state) % 4801U) / 100.0;
+            config.bands[band] = (dsp_multiband_compressor_config) {
+                (int)(next_random(&random_state) & 1U), threshold, ratio, attack, release, knee, makeup,
+            };
+        }
+        const int sample_rates[] = {44100, 48000, 96000};
+        const int sample_rate = sample_rates[iteration % 3];
+        dsp_engine *engine = create_test_engine_with_multiband(sample_rate, 2, 64, &config);
+        assert_true(engine != NULL, "randomized multiband configuration prepares");
+        float input[128];
+        float output[128] = {0.0f};
+        for (size_t index = 0; index < 128; index++) {
+            input[index] = (float)((int)(next_random(&random_state) % 2001U) - 1000) / 4000.0f;
+        }
+        assert_true(dsp_engine_process(engine, input, 128, output, 128, 64, 2) == DSP_STATUS_OK,
+            "randomized multiband block processes");
+        for (size_t index = 0; index < 128; index++) {
+            assert_true(isfinite(output[index]), "randomized multiband output remains finite");
+        }
+        dsp_engine_destroy(engine);
+    }
+}
+
 static void test_kiss_fft_round_trip(void) {
     kiss_fftr_cfg forward = kiss_fftr_alloc(256, 0, NULL, NULL);
     kiss_fftr_cfg inverse = kiss_fftr_alloc(256, 1, NULL, NULL);
@@ -866,6 +1093,7 @@ static void test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass(voi
         NULL,
         0,
         &bypass_dynamics,
+        &bypass_multiband,
         NULL,
         0,
         NULL,
@@ -929,6 +1157,10 @@ int main(void) {
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
+    test_multiband_unity_reconstruction_and_phase();
+    test_multiband_compression_is_band_selective();
+    test_multiband_chunk_invariance_reset_and_validation();
+    test_multiband_randomized_configurations_remain_finite();
     test_kiss_fft_round_trip();
     test_convolver_impulse_direct_convolution_and_latency();
     test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass();

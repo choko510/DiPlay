@@ -132,6 +132,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jdouble gain_db,
     jdoubleArray peq_coefficients,
     jdoubleArray dynamics_values,
+    jdoubleArray multiband_values,
     jdoubleArray bass_coefficients,
     jdoubleArray mono_bass_coefficients,
     jdoubleArray spatial_values,
@@ -139,13 +140,14 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jfloatArray convolver_samples) {
     (void)env;
     (void)receiver;
-    if (peq_coefficients == NULL || dynamics_values == NULL || bass_coefficients == NULL ||
+    if (peq_coefficients == NULL || dynamics_values == NULL || multiband_values == NULL || bass_coefficients == NULL ||
         mono_bass_coefficients == NULL || spatial_values == NULL || convolver_values == NULL ||
         convolver_samples == NULL) {
         return 0;
     }
     const jsize coefficient_count = (*env)->GetArrayLength(env, peq_coefficients);
     const jsize dynamics_count = (*env)->GetArrayLength(env, dynamics_values);
+    const jsize multiband_count = (*env)->GetArrayLength(env, multiband_values);
     const jsize bass_coefficient_count = (*env)->GetArrayLength(env, bass_coefficients);
     const jsize mono_bass_coefficient_count = (*env)->GetArrayLength(env, mono_bass_coefficients);
     const jsize spatial_count = (*env)->GetArrayLength(env, spatial_values);
@@ -154,6 +156,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     if (coefficient_count < 0 || coefficient_count >
             DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
         coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10 ||
+        multiband_count != DSP_MULTIBAND_VALUES_COUNT ||
         (bass_coefficient_count != 0 && bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         (mono_bass_coefficient_count != 0 && mono_bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         spatial_count != 3 || convolver_value_count != 5 || convolver_sample_count < 0 ||
@@ -161,6 +164,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         return 0;
     }
     double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT];
+    double multiband_values_data[DSP_MULTIBAND_VALUES_COUNT];
     double bass_coefficients_values[DSP_BIQUAD_COEFFICIENT_COUNT];
     double mono_bass_coefficients_values[DSP_BIQUAD_COEFFICIENT_COUNT];
     double dynamic_values[10];
@@ -176,6 +180,21 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     if ((*env)->ExceptionCheck(env) || (dynamic_values[0] != 0.0 && dynamic_values[0] != 1.0) ||
         (dynamic_values[7] != 0.0 && dynamic_values[7] != 1.0)) {
         return 0;
+    }
+    (*env)->GetDoubleArrayRegion(env, multiband_values, 0, multiband_count, multiband_values_data);
+    if ((*env)->ExceptionCheck(env) ||
+        (multiband_values_data[0] != 0.0 && multiband_values_data[0] != 1.0) ||
+        !isfinite(multiband_values_data[1]) || !isfinite(multiband_values_data[2])) {
+        return 0;
+    }
+    for (size_t band = 0; band < DSP_MULTIBAND_COUNT; band++) {
+        const size_t start = 3 + band * 7;
+        if ((multiband_values_data[start] != 0.0 && multiband_values_data[start] != 1.0) ||
+            !isfinite(multiband_values_data[start + 1]) || !isfinite(multiband_values_data[start + 2]) ||
+            !isfinite(multiband_values_data[start + 3]) || !isfinite(multiband_values_data[start + 4]) ||
+            !isfinite(multiband_values_data[start + 5]) || !isfinite(multiband_values_data[start + 6])) {
+            return 0;
+        }
     }
     if (bass_coefficient_count > 0) {
         (*env)->GetDoubleArrayRegion(env, bass_coefficients, 0, bass_coefficient_count, bass_coefficients_values);
@@ -232,6 +251,23 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         .mono_bass_enabled = (int)spatial_values_data[1],
         .mono_bass_cutoff_hz = (int)spatial_values_data[2],
     };
+    dsp_multiband_config multiband_config = {
+        .enabled = (int)multiband_values_data[0],
+        .low_mid_crossover_hz = multiband_values_data[1],
+        .mid_high_crossover_hz = multiband_values_data[2],
+    };
+    for (size_t band = 0; band < DSP_MULTIBAND_COUNT; band++) {
+        const size_t start = 3 + band * 7;
+        multiband_config.bands[band] = (dsp_multiband_compressor_config) {
+            .enabled = (int)multiband_values_data[start],
+            .threshold_db = multiband_values_data[start + 1],
+            .ratio = multiband_values_data[start + 2],
+            .attack_ms = multiband_values_data[start + 3],
+            .release_ms = multiband_values_data[start + 4],
+            .knee_db = multiband_values_data[start + 5],
+            .makeup_db = multiband_values_data[start + 6],
+        };
+    }
     jfloat *impulse_samples = NULL;
     if (convolver_sample_count > 0) {
         impulse_samples = (*env)->GetFloatArrayElements(env, convolver_samples, NULL);
@@ -254,6 +290,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         coefficient_count > 0 ? coefficients : NULL,
         coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
         &dynamics_config,
+        &multiband_config,
         bass_coefficient_count > 0 ? bass_coefficients_values : NULL,
         bass_coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
         mono_bass_coefficient_count > 0 ? mono_bass_coefficients_values : NULL,

@@ -141,6 +141,32 @@ class NativeDspBridgeInstrumentedTest {
     }
 
     @Test
+    fun nativeMultibandReconstructsUnityAndCompressesOnlyItsSelectedBand() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val unity = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            multiband = DspMultibandConfig(enabled = true),
+        )
+        for (frequency in listOf(60.0, 1_000.0, 5_000.0, 12_000.0)) {
+            assertEquals(1.0, measureNativeToneGain(unity, 1, frequency), 0.03)
+        }
+
+        val lowBandCompression = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            multiband = DspMultibandConfig(
+                enabled = true,
+                low = DspCompressorConfig(enabled = true, thresholdDb = -30.0, ratio = 4.0, attackMs = 0.1),
+            ),
+        )
+        assertTrue(measureNativeToneGain(lowBandCompression, 1, 60.0) < 0.75)
+        assertTrue(measureNativeToneGain(lowBandCompression, 1, 5_000.0) > 0.95)
+    }
+
+    @Test
     fun nativeLinkedLimiterCapsAntiPhaseStereoSamples() {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val processor = NativeDspProcessor.createOrNull(

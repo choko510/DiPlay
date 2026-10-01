@@ -31,7 +31,7 @@ jobs:
       - name: Install Android Emulator binary
         run: |
           curl --fail --location --retry 3 "https://dl.google.com/android/repository/emulator-linux_x64-16433917.zip" -o "$RUNNER_TEMP/emulator.zip"
-          unzip -q "$RUNNER_TEMP/emulator.zip" -d "$ANDROID_HOME"
+          unzip -o -q "$RUNNER_TEMP/emulator.zip" -d "$ANDROID_HOME"
           test -x "$ANDROID_HOME/emulator/emulator"
       - name: JNI DSP smoke test
         run: |

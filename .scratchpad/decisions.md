@@ -183,4 +183,8 @@ Keep DSP math independent of JNI and Android logging, allocate engine state duri
 
 ## Prepare RBJ filters off the audio path and retain double coefficients
 
-Calculate normalized RBJ coefficients in double precision when preparing a format/config snapshot, then copy at most 15 sections into the native graph. Process float samples/states with TDFII and no per-block allocation. Auto Headroom scans the product of PEQ and optional static-bass responses at the same 1024 log-spaced frequencies, then applies its reduction to preamp before EQ; later bass/compressor/width stages supply their config inputs as they are implemented.
+Calculate normalized RBJ coefficients in double precision when preparing a format/config snapshot, then copy at most 15 sections into the native graph. Process float samples/states with TDFII and no per-block allocation. Auto Headroom scans the product of PEQ and optional static-bass responses at the same 1024 log-spaced frequencies, then applies its reduction to preamp before EQ. It uses active compressor makeup and stereo width now; PR-DSP-07 connects the static-bass profile response to the estimator and audio stage.
+
+## Link compressor and limiter gains across stereo and keep the limiter last
+
+The compressor uses one peak envelope from `max(abs(L), abs(R))`, applies one 4:1-capable gain to both channels, and adds makeup after the compression curve. The final sample-peak limiter clamps immediately whenever a frame exceeds its threshold, then releases gain only while the frame stays below threshold. This keeps linked image, zero lookahead, and a hard output ceiling without adding true-peak oversampling.

@@ -31,6 +31,17 @@ class DspDynamicsConfigTest {
     }
 
     @Test
+    fun autoHeadroomIncludesTheConfiguredStaticBassShelf() {
+        val prepared = DspRuntimeConfig(
+            enabled = true,
+            bass = DspBassConfig(enabled = true, gainDb = 6.0, frequencyHz = 80.0),
+        ).prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals(6.0, prepared.headroom.filterPeakDb, 0.05)
+        assertEquals(7.0, prepared.headroom.reductionDb, 0.05)
+    }
+
+    @Test
     fun compressorAndLimiterRejectUnsafeOrUnsupportedRanges() {
         assertTrue(runCatching { DspCompressorConfig(ratio = 0.5) }.isFailure)
         assertTrue(runCatching { DspCompressorConfig(attackMs = 0.0) }.isFailure)

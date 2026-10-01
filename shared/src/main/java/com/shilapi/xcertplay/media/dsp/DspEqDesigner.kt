@@ -220,6 +220,17 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             compressorMakeupDb = if (compressor.enabled) compressor.makeupDb else 0.0,
             stereoWidth = stereoWidth,
             marginDb = autoHeadroomMarginDb,
+            staticBassBands = if (bass.enabled) {
+                listOf(
+                    DspEqBand(
+                        type = DspEqType.LOW_SHELF,
+                        frequencyHz = bass.frequencyHz,
+                        gainDb = bass.gainDb,
+                    ),
+                )
+            } else {
+                emptyList()
+            },
         )
     } else {
         DspHeadroomResult(filterPeakDb = 0.0, reductionDb = 0.0)

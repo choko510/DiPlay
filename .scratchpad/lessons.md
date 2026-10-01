@@ -151,3 +151,5 @@ Compute complete frames from the source encoding before decoding, then require e
 JNI direct-buffer addresses point at the allocation base. Send position and remaining-byte counts with the block, validate both capacities and reject overlapping input/output ranges before calling the core, then advance Kotlin buffer positions only after native success.
 
 For combined filter headroom, multiply each section's magnitude at each shared scan frequency before selecting the peak; summing independent band boosts overstates filters at different frequencies. A notch can produce exact zero at a scan point, which is valid and must not invalidate the config. RBJ shelves use fixed S=1 and ignore Q in coefficient calculation.
+
+For a sample-peak limiter with release, recovery may advance only while the stereo-linked frame stays under the ceiling. If release advances on a repeated over-threshold DC sample, it can raise gain between identical samples and exceed the advertised threshold; clamp gain to threshold/peak on every over-threshold frame.

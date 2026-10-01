@@ -8,6 +8,7 @@
 static const dsp_dynamics_config bypass_dynamics = {
     0, -20.0, 4.0, 10.0, 100.0, 0.0, 0.0, 0, -1.0, 60.0,
 };
+static const dsp_spatial_config bypass_spatial = {1.0, 0, 120};
 
 static void fail(const char *message) {
     fprintf(stderr, "FAIL: %s\n", message);
@@ -28,7 +29,12 @@ static dsp_engine *create_test_engine(
         gain_db,
         peq_coefficients,
         peq_band_count,
-        &bypass_dynamics);
+        &bypass_dynamics,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial);
 }
 
 static dsp_engine *create_test_engine_with_dynamics(
@@ -43,7 +49,36 @@ static dsp_engine *create_test_engine_with_dynamics(
         0.0,
         NULL,
         0,
-        dynamics_config);
+        dynamics_config,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial);
+}
+
+static dsp_engine *create_test_engine_with_spatial(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_spatial_config *spatial_config,
+    const double *bass_coefficients,
+    int bass_coefficient_count,
+    const double *mono_bass_coefficients,
+    int mono_bass_coefficient_count) {
+    return dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        bass_coefficients,
+        bass_coefficient_count,
+        mono_bass_coefficients,
+        mono_bass_coefficient_count,
+        spatial_config);
 }
 
 static void assert_true(int condition, const char *message) {
@@ -121,7 +156,7 @@ static void test_bad_handles_arguments_and_capacities(void) {
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 1) == NULL, "missing filter coefficients are rejected");
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 16) == NULL, "too many filters are rejected");
     assert_true(
-        dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL) == NULL,
+        dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL, NULL, 0, NULL, 0, &bypass_spatial) == NULL,
         "missing dynamics configuration is rejected");
 }
 
@@ -443,6 +478,193 @@ static void test_stereo_limiter_caps_sample_peaks_and_preserves_image(void) {
     dsp_engine_destroy(engine);
 }
 
+static void design_low_shelf(double sample_rate, double frequency, double gain_db, double coefficients[5]) {
+    const double pi = 3.14159265358979323846;
+    const double omega = 2.0 * pi * frequency / sample_rate;
+    const double cosine = cos(omega);
+    const double sine = sin(omega);
+    const double a = pow(10.0, gain_db / 40.0);
+    const double alpha = sine / 2.0 * sqrt(2.0);
+    const double beta = 2.0 * sqrt(a) * alpha;
+    const double a0 = (a + 1.0) + (a - 1.0) * cosine + beta;
+    coefficients[0] = a * ((a + 1.0) - (a - 1.0) * cosine + beta) / a0;
+    coefficients[1] = 2.0 * a * ((a - 1.0) - (a + 1.0) * cosine) / a0;
+    coefficients[2] = a * ((a + 1.0) - (a - 1.0) * cosine - beta) / a0;
+    coefficients[3] = -2.0 * ((a - 1.0) + (a + 1.0) * cosine) / a0;
+    coefficients[4] = ((a + 1.0) + (a - 1.0) * cosine - beta) / a0;
+}
+
+static void design_high_pass(double sample_rate, double frequency, double q, double coefficients[5]) {
+    const double pi = 3.14159265358979323846;
+    const double omega = 2.0 * pi * frequency / sample_rate;
+    const double cosine = cos(omega);
+    const double alpha = sin(omega) / (2.0 * q);
+    const double a0 = 1.0 + alpha;
+    coefficients[0] = (1.0 + cosine) / (2.0 * a0);
+    coefficients[1] = -(1.0 + cosine) / a0;
+    coefficients[2] = (1.0 + cosine) / (2.0 * a0);
+    coefficients[3] = -2.0 * cosine / a0;
+    coefficients[4] = (1.0 - alpha) / a0;
+}
+
+static double measure_sine_gain(dsp_engine *engine, double frequency, int channels) {
+    double input_square = 0.0;
+    double output_square = 0.0;
+    size_t frame = 0;
+    while (frame < 48000) {
+        const size_t frames = 48000 - frame < 512 ? 48000 - frame : 512;
+        float input[1024];
+        float output[1024];
+        for (size_t index = 0; index < frames; index++) {
+            const float sample = (float)(0.1 * sin(2.0 * 3.14159265358979323846 * frequency *
+                (double)(frame + index) / 48000.0));
+            input[index * (size_t)channels] = sample;
+            if (channels == 2) input[index * 2 + 1] = -sample;
+        }
+        assert_true(
+            dsp_engine_process(
+                engine,
+                input,
+                frames * (size_t)channels,
+                output,
+                frames * (size_t)channels,
+                (int)frames,
+                channels) == DSP_STATUS_OK,
+            "spatial frequency response block processes");
+        for (size_t index = 0; index < frames; index++) {
+            if (frame + index < 4096) continue;
+            const double input_sample = input[index * (size_t)channels];
+            const double output_sample = output[index * (size_t)channels];
+            input_square += input_sample * input_sample;
+            output_square += output_sample * output_sample;
+        }
+        frame += frames;
+    }
+    return sqrt(output_square / input_square);
+}
+
+static void test_spatial_width_and_mono_input_behavior(void) {
+    const dsp_spatial_config mono_width = {0.0, 0, 120};
+    dsp_engine *mono_engine = create_test_engine_with_spatial(48000, 2, 2, &mono_width, NULL, 0, NULL, 0);
+    assert_true(mono_engine != NULL, "width zero graph creates");
+    const float stereo[] = {1.0f, -1.0f, 0.5f, 0.5f};
+    float output[4] = {0};
+    assert_true(
+        dsp_engine_process(mono_engine, stereo, 4, output, 4, 2, 2) == DSP_STATUS_OK,
+        "width zero block processes");
+    assert_near(output[0], 0.0, 0.0, "width zero removes anti-phase side");
+    assert_near(output[1], 0.0, 0.0, "width zero produces mono left/right");
+    assert_near(output[2], 0.5, 0.0, "width zero keeps mono input left");
+    assert_near(output[3], 0.5, 0.0, "width zero keeps mono input right");
+    dsp_engine_destroy(mono_engine);
+
+    const dsp_spatial_config default_width = {1.0, 0, 120};
+    dsp_engine *identity_engine = create_test_engine_with_spatial(
+        48000, 2, 1, &default_width, NULL, 0, NULL, 0);
+    assert_true(identity_engine != NULL, "width one graph creates");
+    const float identity_input[] = {0.25f, -0.5f};
+    float identity_output[2] = {0};
+    assert_true(
+        dsp_engine_process(identity_engine, identity_input, 2, identity_output, 2, 1, 2) == DSP_STATUS_OK,
+        "width one block processes");
+    assert_near(identity_output[0], identity_input[0], 0.0, "width one is identity left");
+    assert_near(identity_output[1], identity_input[1], 0.0, "width one is identity right");
+    dsp_engine_destroy(identity_engine);
+
+    const dsp_spatial_config double_width = {2.0, 0, 120};
+    dsp_engine *wide_engine = create_test_engine_with_spatial(48000, 2, 1, &double_width, NULL, 0, NULL, 0);
+    assert_true(wide_engine != NULL, "width two graph creates");
+    const float anti_phase[] = {0.5f, -0.5f};
+    float wide_output[2] = {0};
+    assert_true(
+        dsp_engine_process(wide_engine, anti_phase, 2, wide_output, 2, 1, 2) == DSP_STATUS_OK,
+        "width two anti-phase block processes");
+    assert_near(wide_output[0], 1.0, 0.0, "width two doubles side left");
+    assert_near(wide_output[1], -1.0, 0.0, "width two doubles side right");
+    dsp_engine_destroy(wide_engine);
+
+    const double high_pass[DSP_BIQUAD_COEFFICIENT_COUNT] = {
+        1.0, 0.0, 0.0, 0.0, 0.0,
+    };
+    const dsp_spatial_config wide_mono = {2.0, 1, 120};
+    dsp_engine *mono_input_engine = create_test_engine_with_spatial(
+        48000,
+        1,
+        2,
+        &wide_mono,
+        NULL,
+        0,
+        high_pass,
+        1);
+    assert_true(mono_input_engine != NULL, "mono input spatial config creates");
+    const float mono_input[] = {0.25f, -0.5f};
+    float mono_output[] = {0.0f, 0.0f};
+    assert_true(
+        dsp_engine_process(mono_input_engine, mono_input, 2, mono_output, 2, 2, 1) == DSP_STATUS_OK,
+        "mono input bypasses width and mono bass");
+    assert_near(mono_output[0], 0.25, 0.0, "mono width bypass sample zero");
+    assert_near(mono_output[1], -0.5, 0.0, "mono width bypass sample one");
+    dsp_engine_destroy(mono_input_engine);
+
+    double mono_bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_high_pass(48000.0, 120.0, 0.7071067811865476, mono_bass_coefficients);
+    dsp_engine *non_finite_engine = create_test_engine_with_spatial(
+        48000,
+        2,
+        2,
+        &wide_mono,
+        NULL,
+        0,
+        mono_bass_coefficients,
+        1);
+    assert_true(non_finite_engine != NULL, "non-finite spatial graph creates");
+    const float non_finite_input[] = {NAN, 0.5f, INFINITY, -INFINITY};
+    float finite_output[4] = {0};
+    assert_true(
+        dsp_engine_process(non_finite_engine, non_finite_input, 4, finite_output, 4, 2, 2) == DSP_STATUS_OK,
+        "spatial graph sanitizes non-finite input");
+    for (size_t index = 0; index < 4; index++) {
+        assert_true(isfinite(finite_output[index]), "spatial stage output remains finite");
+    }
+    dsp_engine_destroy(non_finite_engine);
+}
+
+static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
+    double bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_low_shelf(48000.0, 80.0, 6.0, bass_coefficients);
+    const dsp_spatial_config width_one = {1.0, 0, 120};
+    dsp_engine *low_bass = create_test_engine_with_spatial(
+        48000, 1, 512, &width_one, bass_coefficients, 1, NULL, 0);
+    assert_true(low_bass != NULL, "low shelf graph creates");
+    assert_near(measure_sine_gain(low_bass, 20.0, 1), pow(10.0, 6.0 / 20.0), 0.02,
+        "bass shelf applies its low-frequency boost");
+    dsp_engine_destroy(low_bass);
+    low_bass = create_test_engine_with_spatial(
+        48000, 1, 512, &width_one, bass_coefficients, 1, NULL, 0);
+    assert_true(low_bass != NULL, "high-frequency bass shelf graph creates");
+    assert_near(measure_sine_gain(low_bass, 20000.0, 1), 1.0, 0.02,
+        "bass shelf leaves high frequencies unchanged");
+    dsp_engine_destroy(low_bass);
+
+    double high_pass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_high_pass(48000.0, 120.0, 0.7071067811865476, high_pass_coefficients);
+    const dsp_spatial_config mono_bass = {1.0, 1, 120};
+    const double frequencies[] = {30.0, 60.0, 120.0, 1000.0};
+    for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
+        dsp_engine *engine = create_test_engine_with_spatial(
+            48000, 2, 512, &mono_bass, NULL, 0, high_pass_coefficients, 1);
+        assert_true(engine != NULL, "mono bass HPF graph creates");
+        const double ratio = 120.0 / frequencies[index];
+        const double expected = 1.0 / sqrt(1.0 + ratio * ratio * ratio * ratio);
+        assert_near(
+            measure_sine_gain(engine, frequencies[index], 2),
+            expected,
+            0.025,
+            "mono bass filters side energy with a Butterworth slope");
+        dsp_engine_destroy(engine);
+    }
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
@@ -453,6 +675,8 @@ int main(void) {
     test_compressor_transfer_curve();
     test_compressor_attack_and_release_steps();
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
+    test_spatial_width_and_mono_input_behavior();
+    test_spatial_bass_shelf_and_mono_bass_frequency_response();
     puts("native DSP tests passed");
     return 0;
 }

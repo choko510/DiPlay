@@ -74,7 +74,7 @@ static float compressor_gain(const dsp_dynamics *dynamics) {
     return (float)pow(10.0, reduction_db / 20.0) * dynamics->compressor_makeup_linear;
 }
 
-void dsp_dynamics_process_frame(dsp_dynamics *dynamics, float *left, float *right, int channels) {
+void dsp_dynamics_process_compressor_frame(dsp_dynamics *dynamics, float *left, float *right, int channels) {
     if (dynamics == NULL || left == NULL || right == NULL || channels < 1 || channels > 2) {
         return;
     }
@@ -91,7 +91,12 @@ void dsp_dynamics_process_frame(dsp_dynamics *dynamics, float *left, float *righ
         *left *= gain;
         if (channels == 2) *right *= gain;
     }
+}
 
+void dsp_dynamics_process_limiter_frame(dsp_dynamics *dynamics, float *left, float *right, int channels) {
+    if (dynamics == NULL || left == NULL || right == NULL || channels < 1 || channels > 2) {
+        return;
+    }
     if (dynamics->config.limiter_enabled) {
         float peak = fabsf(*left);
         if (channels == 2) peak = fmaxf(peak, fabsf(*right));

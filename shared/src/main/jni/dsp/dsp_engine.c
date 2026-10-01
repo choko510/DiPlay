@@ -51,11 +51,19 @@ dsp_engine *dsp_engine_create(
     double gain_db,
     const double *peq_coefficients,
     int peq_band_count,
-    const dsp_dynamics_config *dynamics_config) {
+    const dsp_dynamics_config *dynamics_config,
+    const double *bass_coefficients,
+    int bass_coefficient_count,
+    const double *mono_bass_coefficients,
+    int mono_bass_coefficient_count,
+    const dsp_spatial_config *spatial_config) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
         peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
-        dynamics_config == NULL) {
+        dynamics_config == NULL || bass_coefficient_count < 0 || bass_coefficient_count > 1 ||
+        (bass_coefficient_count > 0 && bass_coefficients == NULL) ||
+        mono_bass_coefficient_count < 0 || mono_bass_coefficient_count > 1 ||
+        (mono_bass_coefficient_count > 0 && mono_bass_coefficients == NULL) || spatial_config == NULL) {
         return NULL;
     }
 
@@ -81,7 +89,12 @@ dsp_engine *dsp_engine_create(
             gain_db,
             peq_coefficients,
             (size_t)peq_band_count,
-            dynamics_config)) {
+            dynamics_config,
+            bass_coefficients,
+            bass_coefficient_count,
+            mono_bass_coefficients,
+            mono_bass_coefficient_count,
+            spatial_config)) {
         free(engine);
         return NULL;
     }

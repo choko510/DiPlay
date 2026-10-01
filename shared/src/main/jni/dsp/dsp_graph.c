@@ -8,7 +8,12 @@ int dsp_graph_prepare(
     double gain_db,
     const double *peq_coefficients,
     size_t peq_count,
-    const dsp_dynamics_config *dynamics_config) {
+    const dsp_dynamics_config *dynamics_config,
+    const double *bass_coefficients,
+    int bass_coefficient_count,
+    const double *mono_bass_coefficients,
+    int mono_bass_coefficient_count,
+    const dsp_spatial_config *spatial_config) {
     if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
@@ -24,6 +29,15 @@ int dsp_graph_prepare(
     if (!dsp_dynamics_prepare(&graph->dynamics, sample_rate, dynamics_config)) {
         return 0;
     }
+    if (!dsp_spatial_prepare(
+            &graph->spatial,
+            spatial_config,
+            bass_coefficients,
+            bass_coefficient_count,
+            mono_bass_coefficients,
+            mono_bass_coefficient_count)) {
+        return 0;
+    }
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
     return 1;
@@ -37,6 +51,7 @@ void dsp_graph_reset(dsp_graph *graph) {
         dsp_biquad_reset(&graph->peq[index]);
     }
     dsp_dynamics_reset(&graph->dynamics);
+    dsp_spatial_reset(&graph->spatial);
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
 }
@@ -81,7 +96,11 @@ void dsp_graph_process(
                 output_right = dsp_biquad_process_sample(&graph->peq[index], output_right, 1);
             }
         }
-        dsp_dynamics_process_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
+        output_left = dsp_spatial_process_bass(&graph->spatial, output_left, 0);
+        if (channels == 2) output_right = dsp_spatial_process_bass(&graph->spatial, output_right, 1);
+        dsp_dynamics_process_compressor_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
+        dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
+        dsp_dynamics_process_limiter_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
         if (!isfinite(output_left)) {
             output_left = 0.0f;
             if (non_finite_output != NULL) {
@@ -103,4 +122,5 @@ void dsp_graph_process(
     for (size_t index = 0; index < graph->peq_count; index++) {
         dsp_biquad_flush_denormals(&graph->peq[index]);
     }
+    dsp_spatial_flush_denormals(&graph->spatial);
 }

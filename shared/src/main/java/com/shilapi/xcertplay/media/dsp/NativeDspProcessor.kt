@@ -10,6 +10,9 @@ internal interface NativeDspBindings {
         gainDb: Double,
         eqCoefficients: DoubleArray,
         dynamics: DoubleArray,
+        bassCoefficients: DoubleArray,
+        monoBassCoefficients: DoubleArray,
+        spatial: DoubleArray,
     ): Long
     fun process(
         handle: Long,
@@ -36,7 +39,20 @@ internal object NativeDspJni : NativeDspBindings {
         gainDb: Double,
         eqCoefficients: DoubleArray,
         dynamics: DoubleArray,
-    ): Long = nativeCreate(sampleRate, channels, maxFrames, gainDb, eqCoefficients, dynamics)
+        bassCoefficients: DoubleArray,
+        monoBassCoefficients: DoubleArray,
+        spatial: DoubleArray,
+    ): Long = nativeCreate(
+        sampleRate,
+        channels,
+        maxFrames,
+        gainDb,
+        eqCoefficients,
+        dynamics,
+        bassCoefficients,
+        monoBassCoefficients,
+        spatial,
+    )
 
     override fun process(
         handle: Long,
@@ -73,6 +89,9 @@ internal object NativeDspJni : NativeDspBindings {
         gainDb: Double,
         eqCoefficients: DoubleArray,
         dynamics: DoubleArray,
+        bassCoefficients: DoubleArray,
+        monoBassCoefficients: DoubleArray,
+        spatial: DoubleArray,
     ): Long
     private external fun nativeProcess(
         handle: Long,
@@ -251,6 +270,9 @@ internal class NativeDspProcessor internal constructor(
                     gainDb = prepared.appliedPreampDb,
                     eqCoefficients = prepared.eqCoefficients,
                     dynamics = prepared.dynamics,
+                    bassCoefficients = prepared.bassCoefficients,
+                    monoBassCoefficients = prepared.monoBassCoefficients,
+                    spatial = prepared.spatial,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

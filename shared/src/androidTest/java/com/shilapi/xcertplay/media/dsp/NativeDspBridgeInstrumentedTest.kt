@@ -176,4 +176,133 @@ class NativeDspBridgeInstrumentedTest {
             processor.close()
         }
     }
+
+    @Test
+    fun nativeMidsideWidthAndMonoInputRulesMatchTheConfiguredBehavior() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val widthZero = NativeDspProcessor.createOrNull(
+            DspAudioFormat(48_000, 2),
+            DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                stereoWidth = 0.0,
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            ),
+        )
+        assertNotNull(widthZero)
+        widthZero ?: return
+        try {
+            val input = floatBuffer(1.0f, -1.0f, 0.25f, 0.25f)
+            val output = ByteBuffer.allocateDirect(4 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            assertEquals(DspProcessStatus.SUCCESS, widthZero.process(input, output, frames = 2).status)
+            output.flip()
+            assertEquals(0.0f, output.float, 0f)
+            assertEquals(0.0f, output.float, 0f)
+            assertEquals(0.25f, output.float, 0f)
+            assertEquals(0.25f, output.float, 0f)
+        } finally {
+            widthZero.close()
+        }
+
+        val mono = NativeDspProcessor.createOrNull(
+            DspAudioFormat(48_000, 1),
+            DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                stereoWidth = 2.0,
+                monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 120),
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            ),
+        )
+        assertNotNull(mono)
+        mono ?: return
+        try {
+            val input = floatBuffer(0.25f, -0.5f)
+            val output = ByteBuffer.allocateDirect(2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            assertEquals(DspProcessStatus.SUCCESS, mono.process(input, output, frames = 2).status)
+            output.flip()
+            assertEquals(0.25f, output.float, 0f)
+            assertEquals(-0.5f, output.float, 0f)
+        } finally {
+            mono.close()
+        }
+    }
+
+    @Test
+    fun nativeBassShelfAndMonoBassFrequencyResponsesReachTheJniEngine() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val bassConfig = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            bass = DspBassConfig(enabled = true, gainDb = 6.0, frequencyHz = 80.0),
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+        )
+        assertEquals(10.0.pow(6.0 / 20.0), measureNativeToneGain(bassConfig, 1, 20.0), 0.03)
+        assertEquals(1.0, measureNativeToneGain(bassConfig, 1, 20_000.0), 0.03)
+
+        val monoBassConfig = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 120),
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+        )
+        for (frequency in listOf(30.0, 60.0, 120.0, 1_000.0)) {
+            val ratio = 120.0 / frequency
+            val expected = 1.0 / sqrt(1.0 + ratio * ratio * ratio * ratio)
+            assertEquals(expected, measureNativeToneGain(monoBassConfig, 2, frequency, antiPhase = true), 0.03)
+        }
+    }
+
+    private fun measureNativeToneGain(
+        config: DspRuntimeConfig,
+        channels: Int,
+        frequencyHz: Double,
+        antiPhase: Boolean = false,
+    ): Double {
+        val sampleRate = 48_000
+        val processor = NativeDspProcessor.createOrNull(DspAudioFormat(sampleRate, channels), config)
+        assertNotNull(processor)
+        processor ?: return 0.0
+        try {
+            val framesPerBlock = 512
+            val input = ByteBuffer.allocateDirect(framesPerBlock * channels * Float.SIZE_BYTES)
+                .order(ByteOrder.nativeOrder())
+            val output = ByteBuffer.allocateDirect(framesPerBlock * channels * Float.SIZE_BYTES)
+                .order(ByteOrder.nativeOrder())
+            var inputSquare = 0.0
+            var outputSquare = 0.0
+            val totalFrames = 24_000
+            var frame = 0
+            while (frame < totalFrames) {
+                val frames = minOf(framesPerBlock, totalFrames - frame)
+                input.clear()
+                output.clear()
+                repeat(frames) { index ->
+                    val sample = (0.1 * sin(2.0 * PI * frequencyHz * (frame + index) / sampleRate)).toFloat()
+                    input.putFloat(sample)
+                    if (channels == 2) input.putFloat(if (antiPhase) -sample else sample)
+                }
+                input.flip()
+                assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames).status)
+                output.flip()
+                repeat(frames) { index ->
+                    val inputSample = input.getFloat(index * channels * Float.SIZE_BYTES).toDouble()
+                    val outputSample = output.getFloat(index * channels * Float.SIZE_BYTES).toDouble()
+                    if (frame + index >= 2_048) {
+                        inputSquare += inputSample * inputSample
+                        outputSquare += outputSample * outputSample
+                    }
+                }
+                frame += frames
+            }
+            return sqrt(outputSquare / inputSquare)
+        } finally {
+            processor.close()
+        }
+    }
+
+    private fun floatBuffer(vararg samples: Float): ByteBuffer =
+        ByteBuffer.allocateDirect(samples.size * Float.SIZE_BYTES)
+            .order(ByteOrder.nativeOrder())
+            .apply { samples.forEach(::putFloat); flip() }
 }

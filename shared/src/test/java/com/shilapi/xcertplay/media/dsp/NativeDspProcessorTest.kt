@@ -46,6 +46,37 @@ class NativeDspProcessorTest {
         assertEquals(10, bindings.createdDynamics?.size)
         assertEquals(0.0, bindings.createdDynamics?.get(0) ?: -1.0, 0.0)
         assertEquals(1.0, bindings.createdDynamics?.get(7) ?: -1.0, 0.0)
+        assertEquals(0, bindings.createdBassCoefficients?.size)
+        assertEquals(0, bindings.createdMonoBassCoefficients?.size)
+        assertEquals(3, bindings.createdSpatial?.size)
+        assertEquals(1.0, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
+        assertEquals(0.0, bindings.createdSpatial?.get(1) ?: -1.0, 0.0)
+        assertEquals(120.0, bindings.createdSpatial?.get(2) ?: 0.0, 0.0)
+        processor?.close()
+    }
+
+    @Test
+    fun spatialFiltersAndMidsideSettingsArePreparedForNativeCreation() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                bass = DspBassConfig(enabled = true, gainDb = 4.0, frequencyHz = 80.0),
+                stereoWidth = 1.5,
+                monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 100),
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(5, bindings.createdBassCoefficients?.size)
+        assertEquals(5, bindings.createdMonoBassCoefficients?.size)
+        assertEquals(1.5, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdSpatial?.get(1) ?: 0.0, 0.0)
+        assertEquals(100.0, bindings.createdSpatial?.get(2) ?: 0.0, 0.0)
         processor?.close()
     }
 
@@ -125,6 +156,9 @@ class NativeDspProcessorTest {
         var createdGainDb: Double? = null
         var createdEqCoefficients: DoubleArray? = null
         var createdDynamics: DoubleArray? = null
+        var createdBassCoefficients: DoubleArray? = null
+        var createdMonoBassCoefficients: DoubleArray? = null
+        var createdSpatial: DoubleArray? = null
 
         override fun create(
             sampleRate: Int,
@@ -133,10 +167,16 @@ class NativeDspProcessorTest {
             gainDb: Double,
             eqCoefficients: DoubleArray,
             dynamics: DoubleArray,
+            bassCoefficients: DoubleArray,
+            monoBassCoefficients: DoubleArray,
+            spatial: DoubleArray,
         ): Long {
             createdGainDb = gainDb
             createdEqCoefficients = eqCoefficients.copyOf()
             createdDynamics = dynamics.copyOf()
+            createdBassCoefficients = bassCoefficients.copyOf()
+            createdMonoBassCoefficients = monoBassCoefficients.copyOf()
+            createdSpatial = spatial.copyOf()
             return createHandle
         }
 

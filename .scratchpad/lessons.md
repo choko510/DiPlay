@@ -153,3 +153,5 @@ JNI direct-buffer addresses point at the allocation base. Send position and rema
 For combined filter headroom, multiply each section's magnitude at each shared scan frequency before selecting the peak; summing independent band boosts overstates filters at different frequencies. A notch can produce exact zero at a scan point, which is valid and must not invalidate the config. RBJ shelves use fixed S=1 and ignore Q in coefficient calculation.
 
 For a sample-peak limiter with release, recovery may advance only while the stereo-linked frame stays under the ceiling. If release advances on a repeated over-threshold DC sample, it can raise gain between identical samples and exceed the advertised threshold; clamp gain to threshold/peak on every over-threshold frame.
+
+Validate profile numbers and enum names while decoding, then construct the same validated runtime config used by DSP preparation. Check the stored schema before `AtomicFile.startWrite`; a generic parse fallback must not turn an unsupported future profile into a file the older app overwrites.

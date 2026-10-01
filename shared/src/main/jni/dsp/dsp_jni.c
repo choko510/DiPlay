@@ -1,6 +1,7 @@
 #include "dsp_engine.h"
 
 #include <jni.h>
+#include <math.h>
 #include <sched.h>
 #include <stdatomic.h>
 #include <stdint.h>
@@ -130,21 +131,34 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jint max_frames,
     jdouble gain_db,
     jdoubleArray peq_coefficients,
-    jdoubleArray dynamics_values) {
+    jdoubleArray dynamics_values,
+    jdoubleArray bass_coefficients,
+    jdoubleArray mono_bass_coefficients,
+    jdoubleArray spatial_values) {
     (void)env;
     (void)receiver;
-    if (peq_coefficients == NULL || dynamics_values == NULL) {
+    if (peq_coefficients == NULL || dynamics_values == NULL || bass_coefficients == NULL ||
+        mono_bass_coefficients == NULL || spatial_values == NULL) {
         return 0;
     }
     const jsize coefficient_count = (*env)->GetArrayLength(env, peq_coefficients);
     const jsize dynamics_count = (*env)->GetArrayLength(env, dynamics_values);
+    const jsize bass_coefficient_count = (*env)->GetArrayLength(env, bass_coefficients);
+    const jsize mono_bass_coefficient_count = (*env)->GetArrayLength(env, mono_bass_coefficients);
+    const jsize spatial_count = (*env)->GetArrayLength(env, spatial_values);
     if (coefficient_count < 0 || coefficient_count >
             DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
-        coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10) {
+        coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10 ||
+        (bass_coefficient_count != 0 && bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
+        (mono_bass_coefficient_count != 0 && mono_bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
+        spatial_count != 3) {
         return 0;
     }
     double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT];
+    double bass_coefficients_values[DSP_BIQUAD_COEFFICIENT_COUNT];
+    double mono_bass_coefficients_values[DSP_BIQUAD_COEFFICIENT_COUNT];
     double dynamic_values[10];
+    double spatial_values_data[3];
     if (coefficient_count > 0) {
         (*env)->GetDoubleArrayRegion(env, peq_coefficients, 0, coefficient_count, coefficients);
         if ((*env)->ExceptionCheck(env)) {
@@ -154,6 +168,21 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     (*env)->GetDoubleArrayRegion(env, dynamics_values, 0, dynamics_count, dynamic_values);
     if ((*env)->ExceptionCheck(env) || (dynamic_values[0] != 0.0 && dynamic_values[0] != 1.0) ||
         (dynamic_values[7] != 0.0 && dynamic_values[7] != 1.0)) {
+        return 0;
+    }
+    if (bass_coefficient_count > 0) {
+        (*env)->GetDoubleArrayRegion(env, bass_coefficients, 0, bass_coefficient_count, bass_coefficients_values);
+        if ((*env)->ExceptionCheck(env)) return 0;
+    }
+    if (mono_bass_coefficient_count > 0) {
+        (*env)->GetDoubleArrayRegion(env, mono_bass_coefficients, 0, mono_bass_coefficient_count,
+            mono_bass_coefficients_values);
+        if ((*env)->ExceptionCheck(env)) return 0;
+    }
+    (*env)->GetDoubleArrayRegion(env, spatial_values, 0, spatial_count, spatial_values_data);
+    if ((*env)->ExceptionCheck(env) || (spatial_values_data[1] != 0.0 && spatial_values_data[1] != 1.0) ||
+        !isfinite(spatial_values_data[2]) || spatial_values_data[2] < 1.0 || spatial_values_data[2] > 1000.0 ||
+        (double)(int)spatial_values_data[2] != spatial_values_data[2]) {
         return 0;
     }
     const dsp_dynamics_config dynamics_config = {
@@ -168,6 +197,11 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         .limiter_threshold_db = dynamic_values[8],
         .limiter_release_ms = dynamic_values[9],
     };
+    const dsp_spatial_config spatial_config = {
+        .width = spatial_values_data[0],
+        .mono_bass_enabled = (int)spatial_values_data[1],
+        .mono_bass_cutoff_hz = (int)spatial_values_data[2],
+    };
     return register_engine(dsp_engine_create(
         sample_rate,
         channels,
@@ -175,7 +209,12 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         gain_db,
         coefficient_count > 0 ? coefficients : NULL,
         coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
-        &dynamics_config));
+        &dynamics_config,
+        bass_coefficient_count > 0 ? bass_coefficients_values : NULL,
+        bass_coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
+        mono_bass_coefficient_count > 0 ? mono_bass_coefficients_values : NULL,
+        mono_bass_coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
+        &spatial_config));
 }
 
 JNIEXPORT jint JNICALL

@@ -27,6 +27,7 @@ typedef struct {
 
 int dsp_dynamics_prepare(dsp_dynamics *dynamics, int sample_rate, const dsp_dynamics_config *config);
 void dsp_dynamics_reset(dsp_dynamics *dynamics);
-void dsp_dynamics_process_frame(dsp_dynamics *dynamics, float *left, float *right, int channels);
+void dsp_dynamics_process_compressor_frame(dsp_dynamics *dynamics, float *left, float *right, int channels);
+void dsp_dynamics_process_limiter_frame(dsp_dynamics *dynamics, float *left, float *right, int channels);
 
 #endif

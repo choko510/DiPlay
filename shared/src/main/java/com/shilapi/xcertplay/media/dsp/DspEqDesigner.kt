@@ -202,6 +202,9 @@ internal data class DspPreparedConfig(
     val appliedPreampDb: Double,
     val eqCoefficients: DoubleArray,
     val dynamics: DoubleArray,
+    val bassCoefficients: DoubleArray,
+    val monoBassCoefficients: DoubleArray,
+    val spatial: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -211,6 +214,30 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     enabledBands.forEachIndexed { index, band ->
         DspEqDesigner.design(format.sampleRate, band)
             .writeTo(coefficients, index * DspEqDesigner.COEFFICIENTS_PER_BAND)
+    }
+    val bassCoefficients = if (bass.enabled) {
+        DoubleArray(DspEqDesigner.COEFFICIENTS_PER_BAND).also { destination ->
+            DspEqDesigner.design(
+                format.sampleRate,
+                DspEqBand(DspEqType.LOW_SHELF, bass.frequencyHz, gainDb = bass.gainDb),
+            ).writeTo(destination, 0)
+        }
+    } else {
+        DoubleArray(0)
+    }
+    val monoBassCoefficients = if (monoBass.enabled) {
+        DoubleArray(DspEqDesigner.COEFFICIENTS_PER_BAND).also { destination ->
+            DspEqDesigner.design(
+                format.sampleRate,
+                DspEqBand(
+                    DspEqType.HIGH_PASS,
+                    monoBass.cutoffHz.toDouble(),
+                    q = BUTTERWORTH_Q,
+                ),
+            ).writeTo(destination, 0)
+        }
+    } else {
+        DoubleArray(0)
     }
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
@@ -250,8 +277,16 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             safetyLimiter.thresholdDb,
             safetyLimiter.releaseMs,
         ),
+        bassCoefficients = bassCoefficients,
+        monoBassCoefficients = monoBassCoefficients,
+        spatial = doubleArrayOf(
+            stereoWidth,
+            if (monoBass.enabled) 1.0 else 0.0,
+            monoBass.cutoffHz.toDouble(),
+        ),
         headroom = headroom,
     )
 }
 
 private const val MIN_APPLIED_PREAMP_DB = -700.0
+private const val BUTTERWORTH_Q = 0.7071067811865476

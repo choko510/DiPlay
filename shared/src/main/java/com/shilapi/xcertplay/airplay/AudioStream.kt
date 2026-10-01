@@ -7,6 +7,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.SocketTimeoutException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -27,13 +28,55 @@ data class AudioFormat(
  * ciphertext, a 16-byte tag, then an 8-byte little-endian nonce. The header's last eight bytes
  * (timestamp + SSRC) are the AEAD associated data.
  */
-class AudioStream(
+internal data class AudioStreamTestHooks(
+    val socketFactory: () -> DatagramSocket = { DatagramSocket(null) },
+    val threadFactory: (Runnable, String) -> Thread = { task, name -> Thread(task, name) },
+)
+
+class AudioStream private constructor(
     private val key: ByteArray,
-    private val streamType: Int = -1,
-    private val onDiagnostic: (String) -> Unit = {},
-    private val audioType: String = "media",
-    private val wirelessAudio: Boolean = false,
+    private val streamType: Int,
+    private val onDiagnostic: (String) -> Unit,
+    private val audioType: String,
+    private val wirelessAudio: Boolean,
+    private val socketFactory: () -> DatagramSocket,
+    private val threadFactory: (Runnable, String) -> Thread,
 ) : Closeable {
+    constructor(
+        key: ByteArray,
+        streamType: Int = -1,
+        onDiagnostic: (String) -> Unit = {},
+        audioType: String = "media",
+        wirelessAudio: Boolean = false,
+    ) : this(
+        key,
+        streamType,
+        onDiagnostic,
+        audioType,
+        wirelessAudio,
+        { DatagramSocket(null) },
+        { task, name -> Thread(task, name) },
+    )
+
+    internal constructor(
+        key: ByteArray,
+        streamType: Int = -1,
+        onDiagnostic: (String) -> Unit = {},
+        audioType: String = "media",
+        wirelessAudio: Boolean = false,
+        testHooks: AudioStreamTestHooks,
+    ) : this(
+        key,
+        streamType,
+        onDiagnostic,
+        audioType,
+        wirelessAudio,
+        testHooks.socketFactory,
+        testHooks.threadFactory,
+    )
+
+    data class PreparedPorts(val dataPort: Int, val controlPort: Int)
+
     interface Listener {
         fun onStarted(firstSample: Int) {}
         fun onRtp(rtp: ByteArray, sample: Int) {}
@@ -49,11 +92,13 @@ class AudioStream(
     private val receivedPackets = AtomicInteger()
     private val decryptedPackets = AtomicInteger()
     private val authenticationFailures = AtomicInteger()
+    private val lifecycleLock = Any()
+    private var lifecycleState = LifecycleState.NEW
     private var dataSocket: DatagramSocket? = null
     private var controlSocket: DatagramSocket? = null
     private var dataThread: Thread? = null
     private var controlThread: Thread? = null
-    private var started = false
+    @Volatile private var started = false
     private var packetCallbackFailureLogged = false
     private var rtpCallbackFailureLogged = false
     private val reorderBuffer = RtpReorderBuffer<OrderedRtp>(
@@ -64,31 +109,103 @@ class AudioStream(
 
     private data class OrderedRtp(val bytes: ByteArray, val sample: Int)
 
+    fun prepare(): PreparedPorts = synchronized(lifecycleLock) {
+        when (lifecycleState) {
+            LifecycleState.PREPARED -> return@synchronized PreparedPorts(
+                dataSocket?.localPort ?: error("prepared data socket is missing"),
+                controlSocket?.localPort ?: error("prepared control socket is missing"),
+            )
+            LifecycleState.NEW -> Unit
+            LifecycleState.STARTED, LifecycleState.CLOSED ->
+                throw IllegalStateException("AudioStream cannot be prepared from $lifecycleState")
+        }
+
+        var data: DatagramSocket? = null
+        var control: DatagramSocket? = null
+        try {
+            data = bindAnyPort("data", DATA_RECEIVE_BUFFER_BYTES, REORDER_POLL_MS)
+            control = bindAnyPort("control", CONTROL_RECEIVE_BUFFER_BYTES)
+            dataSocket = data
+            controlSocket = control
+            lifecycleState = LifecycleState.PREPARED
+            PreparedPorts(data.localPort, control.localPort)
+        } catch (error: Throwable) {
+            runCatching { control?.close() }
+            runCatching { data?.close() }
+            closed.set(true)
+            lifecycleState = LifecycleState.CLOSED
+            throw error
+        }
+    }
+
+    fun start(listener: Listener) {
+        var dataWorker: Thread? = null
+        var controlWorker: Thread? = null
+        var failure: Throwable? = null
+        val activation = CountDownLatch(1)
+        synchronized(lifecycleLock) {
+            when (lifecycleState) {
+                LifecycleState.STARTED, LifecycleState.CLOSED -> return
+                LifecycleState.NEW -> throw IllegalStateException("AudioStream must be prepared before start")
+                LifecycleState.PREPARED -> Unit
+            }
+            val data = dataSocket ?: throw IllegalStateException("prepared data socket is missing")
+            val control = controlSocket ?: throw IllegalStateException("prepared control socket is missing")
+            try {
+                dataWorker = threadFactory({
+                    if (awaitActivation(activation)) runData(data, listener)
+                }, "airplay-audio-rx").apply {
+                    isDaemon = true
+                }
+                controlWorker = threadFactory({
+                    if (awaitActivation(activation)) runControl(control)
+                }, "airplay-rtcp-rx").apply {
+                    isDaemon = true
+                }
+                dataThread = dataWorker
+                controlThread = controlWorker
+                dataWorker.start()
+                controlWorker.start()
+                lifecycleState = LifecycleState.STARTED
+                activation.countDown()
+            } catch (error: Throwable) {
+                failure = error
+                lifecycleState = LifecycleState.CLOSED
+                closed.set(true)
+                activation.countDown()
+                runCatching { data.close() }
+                runCatching { control.close() }
+                dataWorker?.interrupt()
+                controlWorker?.interrupt()
+            }
+        }
+        if (failure != null) {
+            joinWorker(dataWorker)
+            joinWorker(controlWorker)
+            throw requireNotNull(failure)
+        }
+    }
+
     fun listen(listener: Listener): Pair<Int, Int> {
-        val data = bindAnyPort("data", DATA_RECEIVE_BUFFER_BYTES, REORDER_POLL_MS)
-        val control = bindAnyPort("control", CONTROL_RECEIVE_BUFFER_BYTES)
-        dataSocket = data
-        controlSocket = control
-        dataThread = Thread({ runData(data, listener) }, "airplay-audio-rx").apply {
-            isDaemon = true
-            start()
-        }
-        controlThread = Thread({ runControl(control) }, "airplay-rtcp-rx").apply {
-            isDaemon = true
-            start()
-        }
-        return data.localPort to control.localPort
+        val ports = prepare()
+        start(listener)
+        return ports.dataPort to ports.controlPort
     }
 
     override fun close() {
-        if (closed.compareAndSet(false, true)) {
-            dataSocket?.close()
-            controlSocket?.close()
-            dataThread?.interrupt()
-            controlThread?.interrupt()
+        val workers = synchronized(lifecycleLock) {
+            if (lifecycleState != LifecycleState.CLOSED) {
+                lifecycleState = LifecycleState.CLOSED
+                closed.set(true)
+                dataSocket?.close()
+                controlSocket?.close()
+                dataThread?.interrupt()
+                controlThread?.interrupt()
+            }
+            dataThread to controlThread
         }
-        joinWorker(dataThread)
-        joinWorker(controlThread)
+        joinWorker(workers.first)
+        joinWorker(workers.second)
     }
 
     private fun runData(socket: DatagramSocket, listener: Listener) {
@@ -200,18 +317,23 @@ class AudioStream(
     }
 
     private fun bindAnyPort(role: String, requestedBufferBytes: Int, timeoutMs: Int = 0): DatagramSocket {
-        val socket = DatagramSocket(null)
-        socket.reuseAddress = true
-        runCatching { socket.receiveBufferSize = requestedBufferBytes }
-        socket.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
-        if (timeoutMs > 0) socket.soTimeout = timeoutMs
-        val actualBufferBytes = runCatching { socket.receiveBufferSize }.getOrDefault(-1)
-        val message = "audio UDP role=$role type=$streamType " +
-            "requestedReceiveBufferBytes=$requestedBufferBytes actualReceiveBufferBytes=$actualBufferBytes " +
-            "port=${socket.localPort}"
-        android.util.Log.i(TAG, message)
-        onDiagnostic(message)
-        return socket
+        val socket = socketFactory()
+        try {
+            socket.reuseAddress = true
+            runCatching { socket.receiveBufferSize = requestedBufferBytes }
+            socket.bind(InetSocketAddress(InetAddress.getByName("::"), 0))
+            if (timeoutMs > 0) socket.soTimeout = timeoutMs
+            val actualBufferBytes = runCatching { socket.receiveBufferSize }.getOrDefault(-1)
+            val message = "audio UDP role=$role type=$streamType " +
+                "requestedReceiveBufferBytes=$requestedBufferBytes actualReceiveBufferBytes=$actualBufferBytes " +
+                "port=${socket.localPort}"
+            android.util.Log.i(TAG, message)
+            onDiagnostic(message)
+            return socket
+        } catch (error: Throwable) {
+            runCatching { socket.close() }
+            throw error
+        }
     }
 
     private fun joinWorker(worker: Thread?) {
@@ -297,31 +419,24 @@ class AudioStream(
         const val REORDER_STATS_INTERVAL_NS = 5_000_000_000L
         const val CLOSE_JOIN_TIMEOUT_MS = 200L
     }
+
+    private fun awaitActivation(activation: CountDownLatch): Boolean = try {
+        activation.await()
+        !closed.get()
+    } catch (_: InterruptedException) {
+        Thread.currentThread().interrupt()
+        false
+    }
+
+    private enum class LifecycleState { NEW, PREPARED, STARTED, CLOSED }
 }
 
 /** Maps the phone's negotiated audioFormat bits to a decode/render format. */
 object AudioStreamCodec {
-    fun fromFormatBits(bits: Long, payloadType: Int, audioType: String = "media"): AudioFormat {
-        val isAacLc = (bits and (AAC_LC_44K_STEREO or AAC_LC_48K_STEREO)) != 0L
-        val isOpus = (bits and OPUS_MONO) != 0L
-        val pcm = PCM_FORMAT[bits]
-        return when {
-            isOpus -> AudioFormat(AudioCodecKind.OPUS, 48_000, 1, payloadType, audioType)
-            isAacLc -> AudioFormat(
-                AudioCodecKind.AAC_LC,
-                if ((bits and AAC_LC_48K_STEREO) != 0L) 48_000 else 44_100,
-                2,
-                payloadType,
-                audioType,
-            )
-            pcm != null -> AudioFormat(AudioCodecKind.LPCM, pcm.first, pcm.second, payloadType, audioType)
-            else -> AudioFormat(AudioCodecKind.LPCM, 44_100, 2, payloadType, audioType)
+    fun fromFormatBits(bits: Long, payloadType: Int, audioType: String = "media"): AudioFormat? =
+        FORMAT_BY_BITS[bits]?.let { (codec, sampleRate, channels) ->
+            AudioFormat(codec, sampleRate, channels, payloadType, normalizeAudioType(audioType))
         }
-    }
-
-    private const val AAC_LC_44K_STEREO = 0x400000L
-    private const val AAC_LC_48K_STEREO = 0x800000L
-    private const val OPUS_MONO = 0x10000000L or 0x20000000L or 0x40000000L
 
     private val PCM_FORMAT = mapOf(
         0x4L to (8_000 to 1),
@@ -337,4 +452,15 @@ object AudioStreamCodec {
         0x4000L to (48_000 to 1),
         0x8000L to (48_000 to 2),
     )
+
+    private val FORMAT_BY_BITS = buildMap {
+        PCM_FORMAT.forEach { (bits, format) -> put(bits, Triple(AudioCodecKind.LPCM, format.first, format.second)) }
+        put(AirPlayAudioCapabilities.AAC_LC_44_1_KHZ_STEREO, Triple(AudioCodecKind.AAC_LC, 44_100, 2))
+        put(AirPlayAudioCapabilities.AAC_LC_48_KHZ_STEREO, Triple(AudioCodecKind.AAC_LC, 48_000, 2))
+        put(AirPlayAudioCapabilities.OPUS_16_KHZ_MONO, Triple(AudioCodecKind.OPUS, 16_000, 1))
+        put(AirPlayAudioCapabilities.OPUS_24_KHZ_MONO, Triple(AudioCodecKind.OPUS, 24_000, 1))
+        put(AirPlayAudioCapabilities.OPUS_48_KHZ_MONO, Triple(AudioCodecKind.OPUS, 48_000, 1))
+    }
 }
+
+internal fun normalizeAudioType(audioType: String): String = audioType.lowercase(java.util.Locale.ROOT)

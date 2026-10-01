@@ -169,6 +169,14 @@ Store the connection token as a weak reference and clear the split selection whe
 
 Set identity resolution in `finally` after processing Pair Verify state 3, and publish the verified controller ID before the verified flag. A fallback decision cannot observe an incomplete final-state transition.
 
+## Stage and token-fence audio replacement
+
+Bind and validate a new audio stream before changing its owner so failed SETUP leaves the current stream intact. Commit a per-type generation token only after prepare succeeds, then pass that token through engine callbacks, renderer/microphone entries, stop operations, and playback-clock reads; this closes check-then-act races without putting a shared lock on RTP delivery. Derive `/info` output masks and SETUP acceptance from the same transport/type/audioType policy. Keep the last successfully activated state separately from a pending logical owner, and retire it only after the replacement receiver starts; a failed start can then restore that state. Check session closure during the locked commit and read/detach owner state under the same slot lock. Derive Opus microphone PCM frames, encoder configuration, and RTP timestamp increments from the negotiated sample rate. Make sink start success observable to the engine so a failed renderer start does not permanently suppress future retries; record microphone state only when the sink reports a successful start.
+
+## Rate-limit microphone restart and health checks
+
+Keep a monotonic 750 ms next-attempt deadline per audio state so temporary uplink failures do not rebuild AudioRecord and the encoder on every RTP packet. Recheck active same-token uplinks at that cadence; conditionally detach inactive entries under the per-type lock and close them outside it before creating a replacement.
+
 ## Keep split-mode Gecko reuse Activity-scoped and identity-gated
 
 On a normal split exit, close any popup, leave the primary `GeckoSession` inactive, and retain it only for the current Activity. On re-entry, keep its view hidden until the current AirPlay profile resolves; reuse without reopening or reloading only when the profile context matches and the primary session remains open and healthy. Destroy it on profile change, AirPlay end, crash, shutdown or Activity destruction.

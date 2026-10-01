@@ -33,11 +33,14 @@ class PairVerify(
     fun handle(body: ByteArray): ByteArray {
         val tlv = Tlv8Codec.decode(body)
         val state = tlv[TYPE_STATE]?.firstOrNull()?.toInt()?.and(0xff)
-        if (state == 3) identityVerificationResolved = true
         return try {
             when (state) {
                 1 -> m2(tlv)
-                3 -> m4(tlv)
+                3 -> try {
+                    m4(tlv)
+                } finally {
+                    identityVerificationResolved = true
+                }
                 else -> err(state ?: 0)
             }
         } catch (_: Exception) {
@@ -102,8 +105,8 @@ class PairVerify(
         val readKey = AirPlayCrypto.hkdfSha512(shared, CONTROL_SALT.asciiBytes(), CONTROL_WRITE_KEY_INFO.asciiBytes())
         val writeKey = AirPlayCrypto.hkdfSha512(shared, CONTROL_SALT.asciiBytes(), CONTROL_READ_KEY_INFO.asciiBytes())
         keys = ControlKeys(readKey, writeKey)
-        verified = true
         this.controllerId = controllerId.toString(Charsets.UTF_8)
+        verified = true
         return Tlv8Codec.encode(listOf(Tlv8Item(TYPE_STATE, byteArrayOf(4))))
     }
 

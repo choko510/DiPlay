@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.youtube
 
 import android.content.Context
+import java.lang.ref.WeakReference
 import java.security.MessageDigest
 
 internal enum class IphoneIdentitySource(val logName: String) {
@@ -51,7 +52,7 @@ internal data class YoutubeDeviceProfile(
 )
 
 internal class YoutubeProfileSelection {
-    private var connectionToken: Any? = null
+    private var connectionToken: WeakReference<Any>? = null
     private var selectedProfile: YoutubeDeviceProfile? = null
     private var selectedEvidence = emptySet<String>()
 
@@ -61,8 +62,8 @@ internal class YoutubeProfileSelection {
         evidence: Set<String>,
         forceSelection: Boolean = false,
     ): YoutubeDeviceProfile {
-        if (this.connectionToken !== connectionToken) {
-            this.connectionToken = connectionToken
+        if (this.connectionToken?.get() !== connectionToken) {
+            this.connectionToken = WeakReference(connectionToken)
             selectedProfile = null
             selectedEvidence = emptySet()
         }

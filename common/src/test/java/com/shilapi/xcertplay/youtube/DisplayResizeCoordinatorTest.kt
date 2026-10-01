@@ -34,4 +34,19 @@ class DisplayResizeCoordinatorTest {
 
         assertEquals(latest, coordinator.completeRestart(original))
     }
+
+    @Test
+    fun keyboardResizeDoesNotReplaceTheNegotiatedCarPlaySize() {
+        val coordinator = DisplayResizeCoordinator()
+        val negotiated = DisplaySize(1920, 1080)
+        coordinator.observe(negotiated)
+
+        coordinator.observe(DisplaySize(1920, 620), imeVisible = true)
+
+        assertEquals(negotiated, coordinator.latestDesiredSize(negotiated))
+
+        val settledAfterKeyboard = DisplaySize(1920, 1080)
+        coordinator.observe(settledAfterKeyboard, imeVisible = false)
+        assertEquals(settledAfterKeyboard, coordinator.latestDesiredSize(negotiated))
+    }
 }

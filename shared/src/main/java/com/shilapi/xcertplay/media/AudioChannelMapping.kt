@@ -5,6 +5,12 @@ internal enum class AudioChannelMappingMode {
     AUTOMOTIVE_BUS,
 }
 
+enum class NavigationAudioRoute {
+    FULL_BAND,
+    SYSTEM_NAVIGATION,
+    LEGACY_STREAM_MUSIC,
+}
+
 internal enum class AudioChannel {
     MEDIA,
     PHONE,
@@ -20,6 +26,7 @@ internal enum class AudioContentType {
 internal data class AudioChannelSelection(
     val channel: AudioChannel,
     val contentType: AudioContentType,
+    val useLegacyMusicStream: Boolean = false,
 )
 
 /**
@@ -35,10 +42,12 @@ internal object AudioChannelMapper {
         audioType: String,
         payloadType: Int,
         mode: AudioChannelMappingMode,
+        navigationRoute: NavigationAudioRoute = NavigationAudioRoute.FULL_BAND,
     ): AudioChannelSelection {
         val normalized = audioType.lowercase()
         return when (mode) {
-            AudioChannelMappingMode.MOBILE_COMPATIBLE -> mapMobileCompatible(normalized, payloadType)
+            AudioChannelMappingMode.MOBILE_COMPATIBLE ->
+                mapMobileCompatible(normalized, payloadType, navigationRoute)
             AudioChannelMappingMode.AUTOMOTIVE_BUS -> mapAutomotiveBus(normalized, payloadType)
         }
     }
@@ -46,14 +55,23 @@ internal object AudioChannelMapper {
     private fun mapMobileCompatible(
         audioType: String,
         payloadType: Int,
+        navigationRoute: NavigationAudioRoute,
     ): AudioChannelSelection = when (audioType) {
         "telephony" -> AudioChannelSelection(AudioChannel.PHONE, AudioContentType.SPEECH)
         "speechrecognition" ->
             AudioChannelSelection(AudioChannel.ASSISTANT, AudioContentType.SPEECH)
         "media" -> AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.MUSIC)
-        "default", "alert", "compatibility" ->
-            AudioChannelSelection(AudioChannel.NAVIGATION, AudioContentType.SPEECH)
+        "default", "alert", "compatibility" -> mapNavigationRoute(navigationRoute)
         else -> mainHighAudioOrNavigation(payloadType)
+    }
+
+    private fun mapNavigationRoute(route: NavigationAudioRoute): AudioChannelSelection = when (route) {
+        NavigationAudioRoute.FULL_BAND ->
+            AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.MUSIC)
+        NavigationAudioRoute.SYSTEM_NAVIGATION ->
+            AudioChannelSelection(AudioChannel.NAVIGATION, AudioContentType.SPEECH)
+        NavigationAudioRoute.LEGACY_STREAM_MUSIC ->
+            AudioChannelSelection(AudioChannel.MEDIA, AudioContentType.MUSIC, useLegacyMusicStream = true)
     }
 
     private fun mapAutomotiveBus(

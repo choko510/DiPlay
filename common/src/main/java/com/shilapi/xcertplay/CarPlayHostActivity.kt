@@ -12,6 +12,7 @@ import android.graphics.Color
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
@@ -46,7 +47,9 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.shilapi.xcertplay.airplay.AirPlayConfig
@@ -67,6 +70,7 @@ import com.shilapi.xcertplay.airplay.SafeAreaRect
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider
 import com.shilapi.xcertplay.media.AndroidMediaSink
+import com.shilapi.xcertplay.media.NavigationAudioRoute
 import com.shilapi.xcertplay.media.CarPlayTouchMapper
 import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.orchestration.CarPlayController
@@ -291,6 +295,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var youtubeBrowser: YoutubeBrowserController? = null
     private var youtubeProfile: YoutubeDeviceProfile? = null
     private var youtubeFullscreen = false
+    private var imeVisible = false
+    private var imeAnimationInProgress = false
     private var hostLayoutState = HostLayoutState()
     private var activityVisible = false
     private var profileResolutionStartedElapsed = 0L
@@ -345,6 +351,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var hevcSoftwareDecoderEnabled = false
     private var advancedAudioChannelMappingSupported = false
     private var advancedAudioChannelMapping = false
+    private var navigationAudioRoute = NavigationAudioRoute.FULL_BAND
     private var autoStartOnBoot = false
     private var carPlayName = AirPlayPersistence.DEFAULT_CARPLAY_NAME
     private var manufacturer = AirPlayPersistence.DEFAULT_MANUFACTURER
@@ -454,6 +461,41 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         videoView?.postOnAnimation(prepareYoutubeAfterLayout)
     }
+    private var lastImeResizeSize: DisplaySize? = null
+    private var stableImeResizeFrames = 0
+    private val waitForImeResizeToSettle = object : Runnable {
+        override fun run() {
+            if (shuttingDown.get() || isFinishing || isDestroyed) {
+                resetImeResizeTracking()
+                return
+            }
+            val decor = window.decorView
+            imeVisible = ViewCompat.getRootWindowInsets(decor)?.let(::hasImeInsets) ?: imeVisible
+            if (imeAnimationInProgress || imeVisible) {
+                resetImeResizeTracking()
+                decor.postOnAnimation(this)
+                return
+            }
+            val view = videoView ?: return
+            val size = DisplaySize(view.width, view.height)
+            if (size.width <= 0 || size.height <= 0) {
+                decor.postOnAnimation(this)
+                return
+            }
+            if (lastImeResizeSize == size) {
+                stableImeResizeFrames += 1
+            } else {
+                lastImeResizeSize = size
+                stableImeResizeFrames = 1
+            }
+            if (stableImeResizeFrames >= IME_RESIZE_STABLE_FRAME_COUNT) {
+                resetImeResizeTracking()
+                scheduleDisplaySize(size.width, size.height)
+            } else {
+                decor.postOnAnimation(this)
+            }
+        }
+    }
     private val retryYoutubeProfileResolution = object : Runnable {
         override fun run() {
             if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) return
@@ -467,6 +509,10 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
     private val applyDisplaySize = Runnable {
+        if (isImeResizeActive()) {
+            pendingDisplaySize?.let(::ignoreImeDisplayResize)
+            return@Runnable
+        }
         val size = pendingDisplaySize ?: return@Runnable
         pendingDisplaySize = null
         applyDisplaySize(size)
@@ -550,6 +596,7 @@ class CarPlayHostActivity : ComponentActivity() {
         loadPersistedSettings()
         locationPermissionAvailable = hasFineLocationPermission()
         setContentView(buildContentView())
+        observeImeInsets()
         applyFullscreenMode()
         onBackPressedDispatcher.addCallback(
             this,
@@ -558,8 +605,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     if (menuOpen) {
                         if (safeAreaEditorActive) closeSafeAreaEditor() else cancelSettingsEdits()
                     } else if (youtubeFullscreen) {
-                        youtubeBrowser?.exitFullscreen()
-                        if (youtubeFullscreen) setYoutubeFullscreen(false)
+                        exitYoutubeFullscreen()
                     } else if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
                         if (youtubeBrowser?.goBack() != true) exitYoutubeSplit()
                     } else {
@@ -611,6 +657,7 @@ class CarPlayHostActivity : ComponentActivity() {
         advancedAudioChannelMapping =
             advancedAudioChannelMappingSupported &&
                 AirPlayPersistence.loadAdvancedAudioChannelMapping(this)
+        navigationAudioRoute = AirPlayPersistence.loadNavigationAudioRoute(this)
         autoStartOnBoot = AirPlayPersistence.loadAutoStartOnBoot(this)
         carPlayName = AirPlayPersistence.loadCarPlayName(this)
         manufacturer = AirPlayPersistence.loadManufacturer(this)
@@ -813,6 +860,7 @@ class CarPlayHostActivity : ComponentActivity() {
         mainHandler.removeCallbacks(finishSplitYoutubeStartup)
         mainHandler.removeCallbacks(retryRestartHandoff)
         mainHandler.removeCallbacks(restartAfterReconnectDelay)
+        window.decorView.removeCallbacks(waitForImeResizeToSettle)
         videoView?.removeCallbacks(deferYoutubePreparationOneFrame)
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
         restartHandoffRetryScheduled = false
@@ -1024,7 +1072,7 @@ class CarPlayHostActivity : ComponentActivity() {
         videoView?.removeCallbacks(deferYoutubePreparationOneFrame)
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
         mainHandler.removeCallbacks(retryYoutubeProfileResolution)
-        if (youtubeFullscreen) setYoutubeFullscreen(false)
+        if (youtubeFullscreen) exitYoutubeFullscreen()
         youtubeBrowser?.let { browser ->
             (browser.view.parent as? ViewGroup)?.removeView(browser.view)
             browser.destroy()
@@ -1147,7 +1195,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         val profileChanged = youtubeProfile?.youtubeContextId != profile.youtubeContextId
         if (profileChanged) {
-            if (youtubeFullscreen) setYoutubeFullscreen(false)
+            if (youtubeFullscreen) exitYoutubeFullscreen()
             Log.i(
                 TAG,
                 "YouTube profile resolved source=${profile.identitySource.logName} " +
@@ -1203,7 +1251,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun onYoutubeLoadStateChanged(state: YoutubeLoadState) {
         if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) return
         if (youtubeFullscreen && YoutubeFullscreenStatusPolicy.shouldExitFullscreen(state)) {
-            setYoutubeFullscreen(false)
+            exitYoutubeFullscreen()
         }
         when (state) {
             YoutubeLoadState.LOADING -> {
@@ -1259,9 +1307,15 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
+    private fun exitYoutubeFullscreen() {
+        if (!youtubeFullscreen) return
+        youtubeBrowser?.exitFullscreen()
+        setYoutubeFullscreen(false)
+    }
+
     private fun disconnectYoutubeProfile(retryForCurrentSession: Boolean = true) {
         mainHandler.removeCallbacks(retryYoutubeProfileResolution)
-        if (youtubeFullscreen) setYoutubeFullscreen(false)
+        if (youtubeFullscreen) exitYoutubeFullscreen()
         youtubeBrowser?.let { browser ->
             (browser.view.parent as? ViewGroup)?.removeView(browser.view)
             browser.destroy()
@@ -1420,14 +1474,14 @@ class CarPlayHostActivity : ComponentActivity() {
             ).apply { topMargin = dp(12) },
         )
 
+        content.addView(
+            settingsCategoryHeader(getString(R.string.host_section_audio)),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(36) },
+        )
         if (advancedAudioChannelMappingSupported) {
-            content.addView(
-                settingsCategoryHeader(getString(R.string.host_section_audio)),
-                LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                ).apply { topMargin = dp(36) },
-            )
             content.addView(
                 settingsSwitchRow(
                     label = getString(R.string.host_advanced_audio_mapping),
@@ -1440,6 +1494,25 @@ class CarPlayHostActivity : ComponentActivity() {
                             "applies when settings close",
                     )
                     updateResolutionMenu()
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(12) },
+            )
+        } else {
+            content.addView(
+                settingsChoiceRow(
+                    label = getString(R.string.host_navigation_audio_route),
+                    options = listOf(
+                        NavigationAudioRoute.FULL_BAND to getString(R.string.host_navigation_audio_full_band),
+                        NavigationAudioRoute.SYSTEM_NAVIGATION to getString(R.string.host_navigation_audio_system),
+                        NavigationAudioRoute.LEGACY_STREAM_MUSIC to getString(R.string.host_navigation_audio_legacy_music),
+                    ),
+                    selected = navigationAudioRoute,
+                ) { route ->
+                    navigationAudioRoute = route
+                    appendLog("Navigation audio route=$route; applies when the next audio stream starts")
                 },
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1882,6 +1955,7 @@ class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveLocationReportingEnabled(this, locationReportingEnabled)
         AirPlayPersistence.saveAutoStartOnBoot(this, autoStartOnBoot)
         AirPlayPersistence.saveAdvancedAudioChannelMapping(this, advancedAudioChannelMapping)
+        AirPlayPersistence.saveNavigationAudioRoute(this, navigationAudioRoute)
         AirPlayPersistence.saveDisplayScaleTenths(this, displayScaleTenths)
         AirPlayPersistence.saveFps(this, fps)
         AirPlayPersistence.saveWidthPhysicalMm(this, widthPhysicalMm)
@@ -2964,6 +3038,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 hotspotStatus.copy(state = "Running")
             CarPlayStatus.WirelessActive ->
                 hotspotStatus.copy(state = "Active")
+            CarPlayStatus.WirelessActiveBootstrapControl ->
+                hotspotStatus.copy(state = "Active")
             CarPlayStatus.AttachingNetwork ->
                 hotspotStatus.copy(state = "Starting AirPlay service")
             is CarPlayStatus.Failed -> hotspotStatus.copy(state = "Error")
@@ -3286,6 +3362,7 @@ class CarPlayHostActivity : ComponentActivity() {
             rightHandDrive = rightHandDrive,
             hevc = hevcEnabled,
             microphone = microphoneAvailable,
+            wirelessAudio = wirelessEnabled,
             manufacturer = normalizedManufacturer(),
             model = normalizedModel(),
             oemLabel = oemLabel,
@@ -3444,6 +3521,91 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
+    private fun observeImeInsets() {
+        val decor = window.decorView
+        ViewCompat.setOnApplyWindowInsetsListener(decor) { _, insets ->
+            val wasImeVisible = imeVisible
+            imeVisible = hasImeInsets(insets)
+            if (imeVisible) {
+                ignoreImeDisplayResize(videoView?.let { DisplaySize(it.width, it.height) })
+            } else if (wasImeVisible && !imeAnimationInProgress) {
+                scheduleImeResizeCheck()
+            }
+            insets
+        }
+        ViewCompat.setWindowInsetsAnimationCallback(
+            decor,
+            object : WindowInsetsAnimationCompat.Callback(
+                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE,
+            ) {
+                override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) == 0) return
+                    imeAnimationInProgress = true
+                    ignoreImeDisplayResize(videoView?.let { DisplaySize(it.width, it.height) })
+                }
+
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<WindowInsetsAnimationCompat>,
+                ): WindowInsetsCompat {
+                    imeVisible = hasImeInsets(insets)
+                    if (imeVisible || runningAnimations.any {
+                            (it.typeMask and WindowInsetsCompat.Type.ime()) != 0
+                        }
+                    ) {
+                        ignoreImeDisplayResize(videoView?.let { DisplaySize(it.width, it.height) })
+                    }
+                    return insets
+                }
+
+                override fun onEnd(animation: WindowInsetsAnimationCompat) {
+                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) == 0) return
+                    imeAnimationInProgress = false
+                    imeVisible = ViewCompat.getRootWindowInsets(decor)?.let(::hasImeInsets) ?: imeVisible
+                    if (imeVisible) {
+                        ignoreImeDisplayResize(videoView?.let { DisplaySize(it.width, it.height) })
+                    } else {
+                        scheduleImeResizeCheck()
+                    }
+                }
+            },
+        )
+        ViewCompat.requestApplyInsets(decor)
+    }
+
+    private fun isImeResizeActive(): Boolean {
+        if (imeAnimationInProgress || imeVisible) return true
+        return ViewCompat.getRootWindowInsets(window.decorView)?.let(::hasImeInsets) == true
+    }
+
+    private fun hasImeInsets(insets: WindowInsetsCompat): Boolean =
+        insets.isVisible(WindowInsetsCompat.Type.ime()) ||
+            insets.getInsets(WindowInsetsCompat.Type.ime()).bottom > 0
+
+    private fun ignoreImeDisplayResize(size: DisplaySize?) {
+        window.decorView.removeCallbacks(waitForImeResizeToSettle)
+        resetImeResizeTracking()
+        pendingDisplaySize = null
+        mainHandler.removeCallbacks(applyDisplaySize)
+        activeDisplaySize?.let { stableSize ->
+            displayResizeCoordinator.observe(stableSize)
+            CarPlayBackgroundSession.observePendingRestartSize(this, stableSize)
+        }
+        size?.let { displayResizeCoordinator.observe(it, imeVisible = true) }
+    }
+
+    private fun scheduleImeResizeCheck() {
+        resetImeResizeTracking()
+        val decor = window.decorView
+        decor.removeCallbacks(waitForImeResizeToSettle)
+        decor.postOnAnimation(waitForImeResizeToSettle)
+    }
+
+    private fun resetImeResizeTracking() {
+        lastImeResizeSize = null
+        stableImeResizeFrames = 0
+    }
+
     private fun normalizedManufacturer(): String =
         manufacturer.trim().ifBlank { AirPlayPersistence.DEFAULT_MANUFACTURER }
 
@@ -3466,6 +3628,13 @@ class CarPlayHostActivity : ComponentActivity() {
             videoHeight = videoHeight,
             preferSoftwareHevcDecoder = hevcSoftwareDecoderEnabled,
             advancedAudioChannelMapping = advancedAudioChannelMapping,
+            navigationAudioRoute = if (advancedAudioChannelMappingSupported && !advancedAudioChannelMapping) {
+                NavigationAudioRoute.SYSTEM_NAVIGATION
+            } else {
+                navigationAudioRoute
+            },
+            transport = if (wirelessEnabled) "wireless" else "wired",
+            audioManager = getSystemService(AudioManager::class.java),
             onScreenStreamActiveChanged = { type, active ->
                 onScreenStreamStateChanged(controllerGeneration, type, active)
             },
@@ -3529,6 +3698,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     }
                     CarPlayBackgroundSession.active = false
                     if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
+                        YoutubeDeviceProfileManager.clearSplitSelection()
                         disconnectYoutubeProfile()
                     }
                     if (menuOpen) {
@@ -3804,6 +3974,10 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun scheduleDisplaySize(width: Int, height: Int) {
         if (width <= 0 || height <= 0 || shuttingDown.get() || isFinishing || isDestroyed) return
         val size = DisplaySize(width, height)
+        if (isImeResizeActive()) {
+            ignoreImeDisplayResize(size)
+            return
+        }
         if (size == pendingDisplaySize) return
         CarPlayBackgroundSession.observePendingRestartSize(this, size)
         displayResizeCoordinator.observe(size)
@@ -3828,6 +4002,10 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun applyDisplaySize(size: DisplaySize) {
         if (shuttingDown.get() || isFinishing || isDestroyed) return
+        if (isImeResizeActive()) {
+            ignoreImeDisplayResize(size)
+            return
+        }
         CarPlayBackgroundSession.markPendingRestartLayoutReady(this, size)
         if (size == activeDisplaySize) {
             if (restartReadyToStart) finishRestartAtLatestSize(size)
@@ -4055,6 +4233,7 @@ class CarPlayHostActivity : ComponentActivity() {
         mainHandler.removeCallbacks(finishSplitYoutubeStartup)
         mainHandler.removeCallbacks(retryRestartHandoff)
         mainHandler.removeCallbacks(restartAfterReconnectDelay)
+        window.decorView.removeCallbacks(waitForImeResizeToSettle)
         videoView?.removeCallbacks(deferYoutubePreparationOneFrame)
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
         restartHandoffRetryScheduled = false
@@ -4298,6 +4477,7 @@ class CarPlayHostActivity : ComponentActivity() {
         CarPlayStatus.ConnectingBluetooth -> "Connecting Bluetooth"
         CarPlayStatus.RunningWireless -> "Wireless CarPlay control running"
         CarPlayStatus.WirelessActive -> "Wireless CarPlay active"
+        CarPlayStatus.WirelessActiveBootstrapControl -> "Wireless CarPlay active"
         CarPlayStatus.DiscoveringIphone -> "Discovering iPhone"
         CarPlayStatus.WaitingForIphone -> "Waiting for iPhone over USB"
         CarPlayStatus.RequestingIphonePermission -> "Requesting iPhone USB permission"
@@ -4320,6 +4500,7 @@ class CarPlayHostActivity : ComponentActivity() {
         private const val PROFILE_IDENTITY_TIMEOUT_MILLIS = 5_000L
         private const val PROFILE_IDENTITY_RETRY_INTERVAL_MILLIS = 250L
         private const val RESTART_HANDOFF_RETRY_MILLIS = 500L
+        private const val IME_RESIZE_STABLE_FRAME_COUNT = 2
         private const val PROFILE_LOG_PREFIX_LENGTH = 12
         private const val YOUTUBE_TOOLBAR_HEIGHT_DP = 56
         private const val YOUTUBE_BUTTON_MIN_HEIGHT_DP = 48

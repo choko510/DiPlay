@@ -134,11 +134,33 @@ class LockdownCarKitClient(
                 ?: error.value.toString()
             else -> throw IphoneUsbException.Protocol("$request response Error was not text or integer")
         }
-        throw IphoneUsbException.Protocol("Lockdown $request failed: $code")
+        throw IphoneUsbException.LockdownRemoteError(request, code)
     }
 
     private companion object {
         const val STEP_TIMEOUT_MILLIS = 5_000L
         const val CARKIT_SERVICE = "com.apple.carkit.service"
+    }
+}
+
+internal fun rejectedLockdownPairRecordError(error: Throwable): String? {
+    val remoteError = generateSequence(error) { it.cause }
+        .filterIsInstance<IphoneUsbException.LockdownRemoteError>()
+        .firstOrNull()
+    if (remoteError != null) {
+        return when {
+            remoteError.code.equals("InvalidPairRecord", ignoreCase = true) -> "InvalidPairRecord"
+            remoteError.code.equals("InvalidHostID", ignoreCase = true) -> "InvalidHostID"
+            else -> null
+        }
+    }
+
+    return generateSequence(error) { it.cause }.firstNotNullOfOrNull { cause ->
+        val message = cause.message.orEmpty()
+        when {
+            message.contains("InvalidPairRecord", ignoreCase = true) -> "InvalidPairRecord"
+            message.contains("InvalidHostID", ignoreCase = true) -> "InvalidHostID"
+            else -> null
+        }
     }
 }

@@ -261,6 +261,9 @@ internal class YoutubeBrowserController(
         cleanup("popup content delegate") { closingSession.setContentDelegate(null) }
         cleanup("popup progress delegate") { closingSession.setProgressDelegate(null) }
         cleanup("popup navigation delegate") { closingSession.setNavigationDelegate(null) }
+        cleanup("popup fullscreen exit") {
+            if (closingSession.isOpen) closingSession.exitFullScreen()
+        }
         cleanup("popup view release") {
             if (view.session === closingSession) view.releaseSession()
         }
@@ -271,6 +274,9 @@ internal class YoutubeBrowserController(
             primarySession?.let { parent ->
                 cleanup("primary view attach") { view.setSession(parent) }
                 cleanup("primary activation") { parent.setActive(active) }
+                cleanup("primary fullscreen exit") {
+                    if (parent.isOpen) parent.exitFullScreen()
+                }
             }
             setCanGoBack(primaryCanGoBack)
             onFullscreenChanged(false)

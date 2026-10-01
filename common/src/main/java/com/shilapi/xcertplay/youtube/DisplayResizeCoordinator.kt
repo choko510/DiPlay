@@ -10,6 +10,10 @@ internal class DisplayResizeCoordinator {
         latestObservedSize = size
     }
 
+    fun observe(size: DisplaySize, imeVisible: Boolean) {
+        if (!imeVisible) observe(size)
+    }
+
     fun beginRestart(): Boolean {
         if (restartInFlight) return false
         restartInFlight = true

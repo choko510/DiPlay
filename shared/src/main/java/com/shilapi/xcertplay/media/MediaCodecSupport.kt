@@ -3,6 +3,32 @@ package com.shilapi.xcertplay.media
 import com.shilapi.xcertplay.airplay.VideoCodec
 import java.io.ByteArrayOutputStream
 
+internal data class CodecSpecificData(val index: Int, val bytes: ByteArray)
+
+internal data class DecoderAttempt(val codecName: String?, val tuned: Boolean)
+
+internal data class DecoderAttemptKey(val codecName: String, val tuned: Boolean)
+
+internal fun videoDecoderAttemptPlan(softwareDecoderName: String?): List<DecoderAttempt> =
+    listOf(
+        DecoderAttempt(codecName = null, tuned = true),
+        DecoderAttempt(codecName = null, tuned = false),
+    ) + softwareDecoderName?.let { listOf(DecoderAttempt(it, tuned = false)) }.orEmpty()
+
+internal fun <T : Any> firstSuccessfulDecoderAttempt(
+    attempts: List<DecoderAttempt>,
+    configure: (DecoderAttempt) -> T?,
+): T? {
+    for (attempt in attempts) configure(attempt)?.let { return it }
+    return null
+}
+
+internal fun recordDecoderAttempt(
+    attempts: MutableSet<DecoderAttemptKey>,
+    codecName: String,
+    tuned: Boolean,
+): Boolean = attempts.add(DecoderAttemptKey(codecName, tuned))
+
 /**
  * Pure byte helpers that convert the CarPlay screen/audio payloads into the
  * records Android MediaCodec and AudioTrack expect. Kept free of Android types
@@ -20,6 +46,14 @@ object MediaCodecSupport {
         if (cursor >= codecData.size) return emptySet()
         val pps = readParameterSets(codecData, cursor + 1, codecData[cursor].toInt() and 0xff)
         return (sps.firstOrNull() ?: ByteArray(0)) to (pps.firstOrNull() ?: ByteArray(0))
+    }
+
+    internal fun avcCodecSpecificData(codecData: ByteArray): List<CodecSpecificData> {
+        val (sps, pps) = avcParameterSets(codecData)
+        return buildList {
+            if (sps.isNotEmpty()) add(CodecSpecificData(0, START_CODE + sps))
+            if (pps.isNotEmpty()) add(CodecSpecificData(1, START_CODE + pps))
+        }
     }
 
     /**
@@ -133,15 +167,12 @@ object MediaCodecSupport {
 
     /** Extracts one RFC 3640 AAC access unit from an RTP payload. */
     fun aacAccessUnit(rtpPayload: ByteArray): ByteArray {
-        if (rtpPayload.size < 4) return ByteArray(0)
-        val headerBits = readU16Be(rtpPayload, 0)
-        if (headerBits < 16 || headerBits % 16 != 0) return ByteArray(0)
-        val headerBytes = headerBits / 8
-        if (2 + headerBytes > rtpPayload.size) return ByteArray(0)
-        val auSize = (readU16Be(rtpPayload, 2) shr 3) and 0x1fff
-        val start = 2 + headerBytes
-        val end = minOf(start + auSize, rtpPayload.size)
-        return if (end <= start) ByteArray(0) else rtpPayload.copyOfRange(start, end)
+        val parsed = AacRtpPayloadParser.parse(rtpPayload) ?: return ByteArray(0)
+        return if (parsed.mode == AacPayloadMode.RFC3640 && parsed.accessUnits.size == 1) {
+            parsed.accessUnits.single()
+        } else {
+            ByteArray(0)
+        }
     }
 
     /** MPEG-4 sampling frequency index used by both ADTS and AudioSpecificConfig. */

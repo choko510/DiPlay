@@ -61,7 +61,7 @@ object AirPlayInfoPlist {
             "modes" to modes(),
         )
         if (!config.disableAudioOutput) {
-            info["audioLatencies"] = audioLatencies()
+            info["audioLatencies"] = audioLatencies(config.wirelessAudio)
             info["audioFormats"] = audioFormats(
                 config.entertainmentSampleRate,
                 config.microphone,
@@ -110,7 +110,7 @@ object AirPlayInfoPlist {
         ),
     )
 
-    private fun audioLatencies(): List<Map<String, Any?>> {
+    private fun audioLatencies(wirelessAudio: Boolean): List<Map<String, Any?>> {
         fun base(type: Int, audioType: String? = null): Map<String, Any?> {
             val entry = linkedMapOf<String, Any?>(
                 "type" to type,
@@ -120,11 +120,12 @@ object AirPlayInfoPlist {
             if (audioType != null) entry["audioType"] = audioType
             return entry
         }
-        return listOf(
+        val entries = mutableListOf(
             base(100), base(100, "default"), base(100, "media"), base(100, "telephony"),
             base(100, "speechRecognition"), base(100, "alert"), base(101), base(101, "default"),
-            base(102, "default"),
         )
+        if (wirelessAudio) entries.add(base(102, "media"))
+        return entries
     }
 
     private fun audioFormats(
@@ -152,6 +153,7 @@ object AirPlayInfoPlist {
         } else {
             PCM_44_1_KHZ_MONO or PCM_44_1_KHZ_STEREO
         }
+        val highRateStereoPcm = if (is48) PCM_48_KHZ_STEREO else PCM_44_1_KHZ_STEREO
         val pcm = lowRatePcmFormats or highRatePcm
         // Wired low-latency streams use PCM; wireless sessions also support Opus.
         val opus = if (wirelessAudio) OPUS_FORMATS else 0
@@ -164,17 +166,18 @@ object AirPlayInfoPlist {
         val pcmInput = if (microphone) pcmMono else null
         val inputFormats = if (microphone) pcmMono or opus else null
 
-        return listOf(
+        val entries = mutableListOf(
             format(100, "compatibility", pcm, pcmInput),
             format(101, "compatibility", navigationOutputFormats),
             format(100, "default", pcm or opus, inputFormats),
             format(100, "alert", pcm or opus),
-            format(100, "media", pcm),
+            format(100, "media", if (wirelessAudio) pcm else highRateStereoPcm),
             format(100, "telephony", voiceOutputFormats, inputFormats),
             format(100, "speechRecognition", voiceOutputFormats, inputFormats),
             format(101, "default", navigationOutputFormats or opus),
-            format(102, "media", aacLc),
         )
+        if (wirelessAudio) entries.add(format(102, "media", aacLc))
+        return entries
     }
 
     private fun displayEntry(display: AirPlayDisplayConfig, type: Int, uuid: String): Map<String, Any?> {

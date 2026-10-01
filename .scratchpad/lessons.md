@@ -94,3 +94,46 @@ The pinned GeckoView 156 source asserts that the returned session is unopened, t
 ## Delay UI-thread runtime creation until after the first split frame
 
 `View.postOnAnimation` runs before that frame's traversal. A second animation callback lets the split's first traversal draw before the synchronous portion of Gecko warm-up can consume UI time. Keep both callbacks named and cancel them on split exit and Activity teardown.
+## Preserve AAC bytes unless RFC 3640 is fully validated
+
+Do not classify AAC as RFC 3640 from the leading length field alone. Validate 16-bit alignment, header bounds, nonzero AU sizes, and exact aggregate data length; otherwise pass the complete payload through as raw AAC.
+
+## Keep the playback clock in the source sample domain
+
+AudioTrack reports output frames, while CarPlay feedback uses source RTP samples. Keep both rates in the immutable clock snapshot, map from the first accepted PCM frame, handle 32-bit head/sample wraps, and reset the base when recreating a track.
+
+## Retry peripheral audio setup without suppressing the stream forever
+
+Do not use a last-attempted AudioTrack format as a permanent duplicate guard. Treat a format as active only after the track reaches `STATE_INITIALIZED`; rate-limit retries with bounded backoff, and keep the pending format so temporary HAL failures can recover during the stream.
+
+## Enforce replay limits after adding the live fallback AU
+
+A reserve covers ordinary packet sizes but cannot guarantee a hard byte or duration cap by itself. When a live AU trips the AAC fallback, merge it with the cached AUs and evict older cached entries until all replay limits hold while keeping the live AU.
+
+## Treat AudioTimestamp availability and usefulness separately
+
+`getTimestamp() == true` is not enough to trust a vendor clock. Require advancing extended frame positions, stop frequent warm-up polling when the route stays unavailable or stale, and keep playback-head progress available while probing sparsely.
+
+## Count RTP duplicates before reorder depth
+
+A duplicate still has positive sequence distance from the next expected packet. Check pending/delivered membership before incrementing `reordered`, then test duplicate arrivals against an already pending out-of-order packet.
+
+## Separate decoded output from rendered PCM
+
+If MediaCodec emits real PCM while AudioTrack setup is failing, that still disproves an AAC no-output failure. Clear the compressed startup cache then, and avoid copying/normalizing PCM until an initialized output track is available.
+
+## Keep recovery backoff across successful construction
+
+A track that builds but fails immediately on the next HAL operation is not a recovery success. Track operation failures separately from builder failures, and only reset operation backoff after sustained advancing playback; bound zero-write waits by elapsed time.
+
+## Treat nonblocking zero writes as backpressure until they stall
+
+`WRITE_NON_BLOCKING` may return zero temporarily. Measure the continuous zero interval rather than retry count, then release and back off if no frame is accepted within the stall bound.
+
+## Keep IME resize separate from negotiated CarPlay size
+
+With `adjustResize`, filtering only surface callbacks is insufficient if a debounce is already pending. Cancel pending size work as soon as IME animation begins, update the restart handoff with the stable size, and refresh the settled view after IME animation ends. Retain `adjustResize` so login fields remain usable.
+
+## Recheck privacy-sensitive logs after merging main
+
+Later main changes can reintroduce raw controller or device identifiers into debug logs even when the PR branch had sanitized them. Search logging expressions after each merge and log availability or hashed identifiers instead.

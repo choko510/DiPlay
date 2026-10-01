@@ -22,6 +22,18 @@
 
 ---
 
+## Performance Optimization
+
+性能最適化に関する作業では、実装や調査を始める前にリポジトリルートの `optimization.md` を読みます。
+
+- 性能に関係する変更だけを `optimization.md` に記録する。
+- 最適化候補、進行状態、実施内容、測定条件、Before / After、PRまたはcommitを更新する。
+- 実測していない改善を確定的な性能向上として扱わず、`DONE_UNMEASURED` として残す。
+- 効果がなかった案も `NO_GAIN` として残し、同じ検証を繰り返さない。
+- 機能追加、通常のバグ修正、一般的な設計判断や作業履歴は `optimization.md` に混ぜない。
+
+---
+
 ## Prompt Files
 
 `.github/prompts/` には、Working Memoryの更新やタスク完了処理など、再利用可能なプロジェクト固有のPromptがあります。

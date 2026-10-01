@@ -1126,7 +1126,7 @@ private class AudioRenderer(
         else -> "CONTENT_TYPE_UNKNOWN"
     }
 
-    /** Minimal OpusHead CSD for the mono 48 kHz stream CarPlay negotiates. */
+    /** Minimal OpusHead CSD for the negotiated sample rate and channel count. */
     private fun opusHead(): ByteArray {
         val head = ByteArray(19)
         "OpusHead".toByteArray(Charsets.US_ASCII).copyInto(head, 0)

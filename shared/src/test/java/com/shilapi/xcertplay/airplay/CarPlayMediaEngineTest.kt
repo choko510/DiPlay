@@ -1,12 +1,14 @@
 package com.shilapi.xcertplay.airplay
 
 import java.io.Closeable
+import java.net.DatagramSocket
 import java.net.Socket
 import java.math.BigInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -101,6 +103,96 @@ class CarPlayMediaEngineTest {
             val feedback = engine.onFeedback(session)!!
             assertEquals(1, (feedback["streams"] as List<*>).size)
         } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
+    @Test
+    fun failedReplacementStartRestoresTheStillActiveOwner() {
+        val sink = TrackingSink()
+        val engine = CarPlayMediaEngine(sink)
+        val session = audioSession(engine)
+        try {
+            assertNotNull(engine.onAudio(session, 100, validAudioSetup(1L)))
+            val ownerA = sink.currentOwner.get()
+            assertEquals(AudioOwnerToken(100, 1), ownerA)
+
+            engine.audioStreamTestHooksForTest = AudioStreamTestHooks(
+                threadFactory = { task, name ->
+                    if (name == "airplay-rtcp-rx") {
+                        object : Thread(task, name) {
+                            override fun start() {
+                                throw IllegalStateException("injected control worker start failure")
+                            }
+                        }
+                    } else {
+                        Thread(task, name)
+                    }
+                },
+            )
+
+            assertNull(engine.onAudio(session, 100, validAudioSetup(2L)))
+
+            assertEquals(ownerA, sink.currentOwner.get())
+            assertTrue(sink.stopped.contains(AudioOwnerToken(100, 2)))
+            assertFalse(sink.stopped.contains(ownerA))
+            assertEquals(1, (engine.onFeedback(session)!!["streams"] as List<*>).size)
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
+    @Test
+    fun closedSessionCannotCommitAudioAfterPrepareFinishes() {
+        val sink = TrackingSink()
+        val engine = CarPlayMediaEngine(sink)
+        val session = audioSession(engine)
+        val prepared = CountDownLatch(1)
+        val resumeSetup = CountDownLatch(1)
+        val sockets = CopyOnWriteArrayList<DatagramSocket>()
+        val workerFactoryCalls = AtomicInteger()
+        val setupResult = AtomicReference<Map<String, Any?>?>()
+        val setupFailure = AtomicReference<Throwable?>()
+        engine.audioStreamTestHooksForTest = AudioStreamTestHooks(
+            socketFactory = { DatagramSocket(null).also(sockets::add) },
+            threadFactory = { task, name ->
+                workerFactoryCalls.incrementAndGet()
+                Thread(task, name)
+            },
+        )
+        engine.beforeAudioOwnerCommitForTest = { _, _ ->
+            prepared.countDown()
+            check(resumeSetup.await(3, TimeUnit.SECONDS))
+        }
+
+        try {
+            val setupWorker = Thread {
+                try {
+                    setupResult.set(engine.onAudio(session, 100, validAudioSetup(1L)))
+                } catch (error: Throwable) {
+                    setupFailure.set(error)
+                }
+            }.apply { isDaemon = true }
+            setupWorker.start()
+
+            assertTrue(prepared.await(3, TimeUnit.SECONDS))
+            session.close()
+            resumeSetup.countDown()
+            setupWorker.join(3_000)
+
+            assertFalse(setupWorker.isAlive)
+            assertNull(setupFailure.get())
+            assertNull(setupResult.get())
+            assertNull(sink.currentOwner.get())
+            assertTrue(sink.claims.isEmpty())
+            assertEquals(0, workerFactoryCalls.get())
+            assertEquals(2, sockets.size)
+            assertTrue(sockets.all { it.isClosed })
+            assertNull(engine.onFeedback(session))
+        } finally {
+            resumeSetup.countDown()
             engine.onSessionClosed(session)
             session.close()
         }
@@ -233,8 +325,10 @@ class CarPlayMediaEngineTest {
     private class TrackingSink : MediaSink {
         val currentOwner = AtomicReference<AudioOwnerToken?>()
         val stopped = CopyOnWriteArrayList<AudioOwnerToken>()
+        val claims = CopyOnWriteArrayList<AudioOwnerToken>()
 
         override fun claimAudioOwner(token: AudioOwnerToken) {
+            claims.add(token)
             currentOwner.set(token)
         }
 

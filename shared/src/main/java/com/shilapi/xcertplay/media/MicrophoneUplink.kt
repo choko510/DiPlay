@@ -63,7 +63,14 @@ internal class MicrophoneUplink(
             else -> MediaRecorder.AudioSource.MIC
         }
         val nextEncoder = if (config.codec == AudioCodecKind.OPUS) {
-            OpusEncoder(config.bitrate ?: 48_000).takeIf { it.available }
+            OpusEncoder(
+                OpusEncoderConfiguration(
+                    sampleRate = config.sampleRate,
+                    channels = config.channels,
+                    bitrate = config.bitrate ?: 48_000,
+                    frameMillis = config.frameMillis,
+                ),
+            ).takeIf { it.available }
         } else {
             null
         }

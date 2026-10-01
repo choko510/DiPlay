@@ -196,3 +196,11 @@ Apply the static low shelf to each channel after PEQ and before compression. App
 ## Keep DSP profile I/O out of the audio config provider
 
 Persist profiles as schema-versioned JSON under `filesDir/dsp/profiles/` with `AtomicFile`; keep only the global enable flag and selected profile ID in SharedPreferences. The common runtime loads storage before publishing the config store, then `DspConfigProvider.snapshot()` only reads an `AtomicReference`. Each `AudioRenderer` retains its own immutable snapshot, so a profile change affects new streams without mutating an active renderer. Never overwrite a file whose schema version is newer than this app.
+
+## Stage and token-fence audio replacement
+
+Bind and validate a new audio stream before changing its owner so failed SETUP leaves the current stream intact. Commit a per-type generation token only after prepare succeeds, then pass that token through engine callbacks, renderer/microphone entries, stop operations, and playback-clock reads; this closes check-then-act races without putting a shared lock on RTP delivery. Derive `/info` output masks and SETUP acceptance from the same transport/type/audioType policy. Keep the last successfully activated state separately from a pending logical owner, and retire it only after the replacement receiver starts; a failed start can then restore that state. Check session closure during the locked commit and read/detach owner state under the same slot lock. Derive Opus microphone PCM frames, encoder configuration, and RTP timestamp increments from the negotiated sample rate. Make sink start success observable to the engine so a failed renderer start does not permanently suppress future retries; record microphone state only when the sink reports a successful start.
+
+## Rate-limit microphone restart and health checks
+
+Keep a monotonic 750 ms next-attempt deadline per audio state so temporary uplink failures do not rebuild AudioRecord and the encoder on every RTP packet. Recheck active same-token uplinks at that cadence; conditionally detach inactive entries under the per-type lock and close them outside it before creating a replacement.

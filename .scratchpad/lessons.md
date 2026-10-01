@@ -157,3 +157,19 @@ For a sample-peak limiter with release, recovery may advance only while the ster
 Validate profile numbers and enum names while decoding, then construct the same validated runtime config used by DSP preparation. Check the stored schema before `AtomicFile.startWrite`; a generic parse fallback must not turn an unsupported future profile into a file the older app overwrites.
 
 M/S width must bypass mono buffers rather than synthesizing a second channel. For stereo, use a single linked transform; apply mono-bass HPF to the Side signal, not to Left and Right independently.
+
+## Keep audio setup preparation separate from ownership commit
+
+Bind both UDP sockets with no receive workers first, then atomically publish the new generation and only start its workers while it is still current. Keep the previous activated owner available until that start succeeds, and make closed-session commit plus teardown owner reads linearize under the per-type slot lock. Exercise A→B→C and prepare/close interleavings with latches; token checks at the sink and map-removal boundary catch races that an engine-only owner check misses.
+
+## Keep microphone Opus frames in the negotiated sample domain
+
+For 20 ms Opus uplink frames, derive samples and PCM bytes from the negotiated sample rate: 16 kHz is 320 samples/640 mono S16 bytes, 24 kHz is 480/960, and 48 kHz is 960/1920. Configure MediaCodec with that same rate and advance RTP timestamps by the same sample count; 960 samples is not a rate-independent frame size.
+
+## Propagate renderer and microphone start outcomes
+
+If a sink swallows a synchronous renderer-start failure, the engine can mark an absent renderer as started and drop every later RTP packet. Return success only after the worker has started; likewise mark microphone state started only after its uplink is active, and test that the next RTP retries after a failed renderer start.
+
+## Keep microphone recovery independent from downlink startup
+
+After the downlink renderer succeeds, microphone startup still needs its own retry path. Rate-limit retries and liveness checks with a monotonic deadline, and replace an inactive same-token uplink so a capture thread that exits cannot leave a permanent dead entry.

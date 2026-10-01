@@ -39,4 +39,5 @@ dependencies {
     testImplementation libs.junit
     androidTestImplementation libs.androidx.test.ext.junit
     androidTestImplementation libs.androidx.test.runner
+    testImplementation 'org.robolectric:robolectric:4.17'
 }

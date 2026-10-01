@@ -18,13 +18,41 @@ interface MediaSink {
     fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {}
     fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {}
     fun onScreenStreamActive(type: Int, active: Boolean) {}
-    fun onAudioStarted(type: Int, format: AudioFormat, firstSample: Int) {}
-    fun onAudioRtp(type: Int, format: AudioFormat, rtp: ByteArray, sample: Int) {}
-    fun audioPlaybackClock(type: Int): AudioPlaybackClock? = null
-    fun onAudioStopped(type: Int) {}
-    fun onMicrophoneStarted(type: Int, config: MicrophoneConfig) {}
-    fun onMicrophoneStopped(type: Int) {}
+    fun claimAudioOwner(token: AudioOwnerToken) {}
+    fun releaseAudioOwner(token: AudioOwnerToken) {}
+    fun onAudioStarted(token: AudioOwnerToken, format: AudioFormat, firstSample: Int) {}
+    fun onAudioRtp(token: AudioOwnerToken, format: AudioFormat, rtp: ByteArray, sample: Int) {}
+    fun audioPlaybackClock(token: AudioOwnerToken): AudioPlaybackClock? = null
+    fun onAudioStopped(token: AudioOwnerToken) {}
+    fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean = false
+    fun onMicrophoneStopped(token: AudioOwnerToken) {}
     fun onIapMessage(bytes: ByteArray) {}
+}
+
+data class AudioOwnerToken(val type: Int, val generation: Long)
+
+internal class AudioOwnerSlot<S>(private val type: Int) {
+    val lock = Any()
+    @Volatile var owner: S? = null
+    @Volatile var active: S? = null
+    private var generation = 0L
+
+    fun nextToken(): AudioOwnerToken {
+        check(Thread.holdsLock(lock))
+        check(generation < Long.MAX_VALUE) { "audio owner generation exhausted for type=$type" }
+        generation += 1
+        return AudioOwnerToken(type, generation)
+    }
+
+    fun clearIfCurrent(expected: S, onCleared: (S) -> Unit): Boolean = synchronized(lock) {
+        if (owner !== expected) {
+            false
+        } else {
+            owner = null
+            onCleared(expected)
+            true
+        }
+    }
 }
 
 /**
@@ -42,15 +70,25 @@ class CarPlayMediaEngine(
         val type: Int,
     )
 
-    private data class AudioMeta(
-        val type: Int,
+    private class AudioState(
+        val key: StreamKey,
+        val token: AudioOwnerToken,
         val format: AudioFormat,
         val connectionId: Any?,
         val playoutLatencyMs: Int,
-        @Volatile var firstSample: Int? = null,
-        @Volatile var originNs: Long? = null,
-        @Volatile var lastFeedbackClockLogNs: Long = 0L,
-    )
+        val stream: AudioStream,
+        val capture: AudioPacketCapture?,
+        val microphoneConfig: MicrophoneConfig?,
+    ) {
+        @Volatile var replacedOwner: AudioState? = null
+        @Volatile var firstSample: Int? = null
+        @Volatile var originNs: Long? = null
+        @Volatile var sinkStarted = false
+        @Volatile var microphoneStarted = false
+        @Volatile var microphoneStarting = false
+        @Volatile var nextMicrophoneAttemptNs = 0L
+        @Volatile var lastFeedbackClockLogNs = 0L
+    }
 
     private data class PendingIapTunnel(
         val bridge: AirPlayIapTunnelStream,
@@ -58,11 +96,14 @@ class CarPlayMediaEngine(
     )
 
     private val streams = ConcurrentHashMap<StreamKey, Closeable>()
-    private val audioMeta = ConcurrentHashMap<Int, AudioMeta>()
-    private val pendingMicrophone = ConcurrentHashMap<Int, MicrophoneConfig>()
-    private val audioCaptures = ConcurrentHashMap<Int, AudioPacketCapture>()
+    private val audioStates = ConcurrentHashMap<StreamKey, AudioState>()
+    private val audioSlots = ConcurrentHashMap<Int, AudioOwnerSlot<AudioState>>()
     private val pendingIapTunnels = ConcurrentHashMap<AirPlaySession, PendingIapTunnel>()
     @Volatile private var iapTunnelHandler: ((BlockingDuplexByteStream) -> Boolean)? = null
+    internal var beforeAudioOwnerCommitForTest: ((AirPlaySession, Int) -> Unit)? = null
+    internal var beforeAudioReceiverStartForTest: ((AudioOwnerToken) -> Unit)? = null
+    internal var audioStreamTestHooksForTest: AudioStreamTestHooks? = null
+    internal var monotonicTimeForTest: (() -> Long)? = null
 
     override fun setIapTunnelHandler(handler: ((BlockingDuplexByteStream) -> Boolean)?) {
         iapTunnelHandler = handler
@@ -106,21 +147,42 @@ class CarPlayMediaEngine(
     }
 
     override fun onAudio(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Map<String, Any?>? {
+        if (session.isClosed) return null
         val streamKey = StreamKey(session, type)
-        streams.remove(streamKey)?.close()
-        audioMeta.remove(type)
-        audioCaptures.remove(type)?.close()
-        if (pendingMicrophone.remove(type) != null) sink.onMicrophoneStopped(type)
-        sink.onAudioStopped(type)
+        val audioType = normalizeAudioType(stream["audioType"]?.toString() ?: "default")
+        val formatBits = (stream["audioFormat"] as? Number)?.toLong() ?: run {
+            session.logDebug("AirPlay audio SETUP rejected type=$type reason=missing audioFormat")
+            return null
+        }
+        val format = AudioStreamCodec.fromFormatBits(formatBits, type, audioType) ?: run {
+            session.logDebug(
+                "AirPlay audio SETUP rejected type=$type audioType=$audioType " +
+                    "formatBits=0x${formatBits.toString(16)} reason=unsupported format",
+            )
+            return null
+        }
+        val advertisedMask = session.advertisedAudioOutputMask(type, audioType) ?: run {
+            session.logDebug(
+                "AirPlay audio SETUP rejected type=$type audioType=$audioType " +
+                    "formatBits=0x${formatBits.toString(16)} reason=no advertised capability",
+            )
+            return null
+        }
+        if (advertisedMask and formatBits != formatBits) {
+            session.logDebug(
+                "AirPlay audio SETUP rejected type=$type audioType=$audioType " +
+                    "formatBits=0x${formatBits.toString(16)} advertised=0x${advertisedMask.toString(16)} " +
+                    "reason=format not advertised",
+            )
+            return null
+        }
+        val key = try {
+            outputKey(session, stream)
+        } catch (error: Exception) {
+            session.logDebug("AirPlay audio SETUP rejected type=$type reason=output key derivation failed")
+            null
+        } ?: return null
 
-        val key = outputKey(session, stream) ?: return null
-        val audioType = stream["audioType"]?.toString()?.lowercase() ?: "default"
-        val formatBits = (stream["audioFormat"] as? Number)?.toLong() ?: 0L
-        val format = AudioStreamCodec.fromFormatBits(
-            formatBits,
-            type,
-            audioType,
-        )
         Log.i(
             TAG,
             "AirPlay audio negotiated transport=${if (session.wirelessAudio) "wireless" else "wired"} " +
@@ -131,49 +193,153 @@ class CarPlayMediaEngine(
         )
         val connectionId = stream["streamConnectionID"]
         val latencyMs = (stream["audioLatencyMs"] as? Number)?.toInt() ?: 0
-        val meta = AudioMeta(type, format, connectionId, latencyMs)
-        val microphone = microphoneConfig(session, type, stream, format)
-        if (microphone != null) pendingMicrophone[type] = microphone
+        val microphone = try {
+            microphoneConfig(session, type, stream, format)
+        } catch (error: Exception) {
+            session.logDebug("AirPlay audio SETUP rejected type=$type reason=microphone key derivation failed")
+            return null
+        }
+        val capture = try {
+            audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
+        } catch (error: Exception) {
+            session.logDebug("AirPlay audio capture unavailable type=$type error=${error.javaClass.simpleName}")
+            null
+        }
+        val audio = newAudioStream(session, type, audioType, key)
+        val ports = try {
+            audio.prepare()
+        } catch (error: Exception) {
+            audio.close()
+            capture?.close()
+            session.logDebug(
+                "AirPlay audio SETUP rejected type=$type reason=socket preparation failed " +
+                    "error=${error.javaClass.simpleName}",
+            )
+            return null
+        }
 
-        val capture = audioCaptureDirectory?.let { AudioPacketCapture(it, type) }
-        if (capture != null) audioCaptures[type] = capture
-        val audio = AudioStream(
-            key = key,
-            streamType = type,
-            onDiagnostic = session::logDebug,
-            audioType = audioType,
-            wirelessAudio = session.wirelessAudio,
-        )
-        val (dataPort, controlPort) = audio.listen(
-            object : AudioStream.Listener {
-                override fun onStarted(firstSample: Int) {
-                    meta.firstSample = firstSample
-                    meta.originNs = System.nanoTime()
-                    sink.onAudioStarted(type, format, firstSample)
-                    microphone?.let { sink.onMicrophoneStarted(type, it) }
+        try {
+            beforeAudioOwnerCommitForTest?.invoke(session, type)
+        } catch (error: Throwable) {
+            audio.close()
+            capture?.close()
+            throw error
+        }
+
+        val slot = audioSlots.computeIfAbsent(type) { AudioOwnerSlot(type) }
+        lateinit var state: AudioState
+        var oldState: AudioState? = null
+        var claimFailure: Throwable? = null
+        var closedBeforeCommit = false
+        synchronized(slot.lock) {
+            if (session.isClosed) {
+                closedBeforeCommit = true
+            } else {
+                val token = slot.nextToken()
+                oldState = slot.owner
+                state = AudioState(streamKey, token, format, connectionId, latencyMs, audio, capture, microphone)
+                    .apply { replacedOwner = oldState }
+                slot.owner = state
+                oldState?.let { audioStates.remove(it.key, it) }
+                audioStates[streamKey] = state
+                try {
+                    sink.claimAudioOwner(token)
+                } catch (error: Throwable) {
+                    claimFailure = error
+                    slot.owner = oldState
+                    audioStates.remove(streamKey, state)
+                    oldState?.let { audioStates[it.key] = it }
+                    runCatching { sink.releaseAudioOwner(token) }
+                    oldState?.let { previous -> runCatching { sink.claimAudioOwner(previous.token) } }
                 }
+            }
+        }
+        if (closedBeforeCommit) {
+            audio.close()
+            capture?.close()
+            session.logDebug("AirPlay audio SETUP rejected type=$type reason=session closed before owner commit")
+            return null
+        }
+        if (claimFailure != null) {
+            audio.close()
+            capture?.close()
+            session.logDebug("AirPlay audio SETUP rejected type=$type reason=owner claim failed")
+            return null
+        }
 
-                override fun onRtp(rtp: ByteArray, sample: Int) =
-                    sink.onAudioRtp(type, format, rtp, sample)
-
-                override fun onPacket(
-                    wire: ByteArray,
-                    rtp: ByteArray?,
-                    sample: Int?,
-                    error: Throwable?,
-                ) {
-                    capture?.record(wire, rtp, sample, error)
+        var startFailure: Throwable? = null
+        try {
+            beforeAudioReceiverStartForTest?.invoke(state.token)
+        } catch (error: Throwable) {
+            startFailure = error
+        }
+        var rollbackCleanup = emptyList<AudioState>()
+        var retireAfterStart = emptyList<AudioState>()
+        val started = if (startFailure != null) {
+            rollbackCleanup = rollbackAudioState(state, slot)
+            false
+        } else synchronized(slot.lock) {
+            if (slot.owner !== state) {
+                false
+            } else {
+                try {
+                    audio.start(audioListener(state, slot))
+                    val previousActive = slot.active
+                    val previousOwner = state.replacedOwner
+                    slot.active = state
+                    state.replacedOwner = null
+                    retireAfterStart = listOfNotNull(previousActive, previousOwner)
+                        .filter { it !== state }
+                        .distinct()
+                    true
+                } catch (error: Throwable) {
+                    startFailure = error
+                    rollbackCleanup = rollbackAudioStateLocked(state, slot)
+                    false
                 }
-            },
-        )
-        streams[streamKey] = audio
-        audioMeta[type] = meta
+            }
+        }
+        if (!started) {
+            (rollbackCleanup + state).distinct().forEach(::retireAudioState)
+            val reason = if (startFailure == null) "superseded before receiver start" else
+                "receiver start failed ${startFailure.javaClass.simpleName}"
+            session.logDebug("AirPlay audio SETUP rolled back type=$type generation=${state.token.generation} reason=$reason")
+            return null
+        }
+        retireAfterStart.forEach(::retireAudioState)
         return linkedMapOf(
             "type" to type,
-            "dataPort" to dataPort,
-            "controlPort" to controlPort,
+            "dataPort" to ports.dataPort,
+            "controlPort" to ports.controlPort,
             "streamConnectionID" to unsignedPlistInteger(connectionId ?: 0L),
         )
+    }
+
+    private fun newAudioStream(
+        session: AirPlaySession,
+        type: Int,
+        audioType: String,
+        key: ByteArray,
+    ): AudioStream {
+        val hooks = audioStreamTestHooksForTest
+        return if (hooks == null) {
+            AudioStream(
+                key = key,
+                streamType = type,
+                onDiagnostic = session::logDebug,
+                audioType = audioType,
+                wirelessAudio = session.wirelessAudio,
+            )
+        } else {
+            AudioStream(
+                key = key,
+                streamType = type,
+                onDiagnostic = session::logDebug,
+                audioType = audioType,
+                wirelessAudio = session.wirelessAudio,
+                testHooks = hooks,
+            )
+        }
     }
 
     override fun onDataStream(session: AirPlaySession, stream: Map<String, Any?>): Map<String, Any?>? {
@@ -255,83 +421,277 @@ class CarPlayMediaEngine(
     }
 
     override fun onFeedback(session: AirPlaySession): Map<String, Any?>? {
-        val active = audioMeta.values.toList()
+        val active = audioSlots.values.mapNotNull { slot ->
+            synchronized(slot.lock) {
+                slot.owner?.takeIf { it.key.session === session }?.let { slot to it }
+            }
+        }
         if (active.isEmpty()) return null
-        val streams = active.map { meta ->
+        val streams = arrayListOf<Map<String, Any?>>()
+        active.forEach { (slot, state) ->
             val entry = linkedMapOf<String, Any?>(
-                "type" to meta.type,
-                "sampleRate" to meta.format.sampleRate,
+                "type" to state.token.type,
+                "sampleRate" to state.format.sampleRate,
             )
             val nowNs = System.nanoTime()
-            val playbackClock = sink.audioPlaybackClock(meta.type)
+            val playbackClock = sink.audioPlaybackClock(state.token)
             if (playbackClock != null) {
-                entry["streamConnectionID"] = unsignedPlistInteger(meta.connectionId ?: 0L)
+                entry["streamConnectionID"] = unsignedPlistInteger(state.connectionId ?: 0L)
                 entry["timestamp"] = session.syncedNtp()
                 entry["timestampRawNs"] = playbackClock.monotonicTimestampNs
                 entry["sampleTime"] = playbackClock.samplePosition
                 entry["sampleRate"] = playbackClock.sourceSampleRate
-                if (nowNs - meta.lastFeedbackClockLogNs >= FEEDBACK_CLOCK_LOG_INTERVAL_NS) {
-                    meta.lastFeedbackClockLogNs = nowNs
+                if (nowNs - state.lastFeedbackClockLogNs >= FEEDBACK_CLOCK_LOG_INTERVAL_NS) {
+                    state.lastFeedbackClockLogNs = nowNs
                     session.logDebug(
-                        "Audio feedback clock source=${playbackClock.source} type=${meta.type} " +
-                                "baseSample=${playbackClock.baseRtpSample} playedFrames=${playbackClock.playedFrames} " +
-                                "contentFrames=${playbackClock.contentFrames} latencyFrames=${playbackClock.algorithmicLatencyFrames} " +
+                        "Audio feedback clock source=${playbackClock.source} type=${state.token.type} " +
+                            "baseSample=${playbackClock.baseRtpSample} playedFrames=${playbackClock.playedFrames} " +
+                            "contentFrames=${playbackClock.contentFrames} latencyFrames=${playbackClock.algorithmicLatencyFrames} " +
                             "sampleTime=${playbackClock.samplePosition} sourceRate=${playbackClock.sourceSampleRate} " +
                             "outputRate=${playbackClock.outputSampleRate}",
                     )
                 }
             } else {
-                val firstSample = meta.firstSample
-                val originNs = meta.originNs
+                val firstSample = state.firstSample
+                val originNs = state.originNs
                 if (firstSample != null && originNs != null) {
                     val elapsedSec = Math.max(
                         0.0,
-                        (nowNs - originNs) / 1e9 - meta.playoutLatencyMs / 1000.0,
+                        (nowNs - originNs) / 1e9 - state.playoutLatencyMs / 1000.0,
                     )
                     val firstUnsigned = firstSample.toLong() and 0xffff_ffffL
-                    val sampleTime = (firstUnsigned + Math.round(elapsedSec * meta.format.sampleRate)) and
+                    val sampleTime = (firstUnsigned + Math.round(elapsedSec * state.format.sampleRate)) and
                         0xffff_ffffL
-                    entry["streamConnectionID"] = unsignedPlistInteger(meta.connectionId ?: 0L)
+                    entry["streamConnectionID"] = unsignedPlistInteger(state.connectionId ?: 0L)
                     entry["timestamp"] = session.syncedNtp()
                     entry["timestampRawNs"] = nowNs
                     entry["sampleTime"] = sampleTime
-                    if (nowNs - meta.lastFeedbackClockLogNs >= FEEDBACK_CLOCK_LOG_INTERVAL_NS) {
-                        meta.lastFeedbackClockLogNs = nowNs
+                    if (nowNs - state.lastFeedbackClockLogNs >= FEEDBACK_CLOCK_LOG_INTERVAL_NS) {
+                        state.lastFeedbackClockLogNs = nowNs
                         session.logDebug(
-                            "Audio feedback clock source=fallbackElapsed type=${meta.type} " +
-                                "latencyMs=${meta.playoutLatencyMs}",
+                            "Audio feedback clock source=fallbackElapsed type=${state.token.type} " +
+                                "latencyMs=${state.playoutLatencyMs}",
                         )
                     }
                 }
             }
-            entry
+            if (synchronized(slot.lock) { slot.owner === state }) streams.add(entry)
         }
+        if (streams.isEmpty()) return null
         return linkedMapOf("streams" to streams)
     }
 
     override fun onTeardown(session: AirPlaySession, type: Int) {
         if (type == STREAM_TYPE_DATA) clearPendingIapTunnel(session)
         streams.remove(StreamKey(session, type))?.close()
-        if (pendingMicrophone.remove(type) != null) sink.onMicrophoneStopped(type)
-        audioMeta.remove(type)
-        audioCaptures.remove(type)?.close()
-        sink.onAudioStopped(type)
+        detachAudioStates(session, type).forEach(::retireAudioState)
         if (isScreenStreamType(type)) sink.onScreenStreamActive(type, false)
     }
 
     override fun onSessionClosed(session: AirPlaySession) {
         clearPendingIapTunnel(session)
-        val sessionStreams = streams.keys.filter { it.session === session }
+        val sessionStreams = streams.entries.filter { it.key.session === session }.toList()
         sessionStreams
-            .filter { isScreenStreamType(it.type) }
-            .forEach { sink.onScreenStreamActive(it.type, false) }
-        sessionStreams.forEach { streams.remove(it)?.close() }
-        audioMeta.keys.toList().forEach(sink::onAudioStopped)
-        pendingMicrophone.keys.toList().forEach(sink::onMicrophoneStopped)
-        audioMeta.clear()
-        pendingMicrophone.clear()
-        audioCaptures.values.forEach(AudioPacketCapture::close)
-        audioCaptures.clear()
+            .filter { isScreenStreamType(it.key.type) }
+            .forEach { sink.onScreenStreamActive(it.key.type, false) }
+        sessionStreams.forEach { (key, stream) ->
+            if (streams.remove(key, stream)) stream.close()
+        }
+        audioSlots.keys.toList().forEach { type ->
+            detachAudioStates(session, type).forEach(::retireAudioState)
+        }
+    }
+
+    private fun audioListener(state: AudioState, slot: AudioOwnerSlot<AudioState>): AudioStream.Listener =
+        object : AudioStream.Listener {
+            override fun onStarted(firstSample: Int) {
+                state.firstSample = firstSample
+                state.originNs = System.nanoTime()
+                val microphone = synchronized(slot.lock) {
+                    if (slot.owner === state) startAudioSinkLocked(state, slot) else null
+                }
+                microphone?.let { startMicrophone(state, slot, it) }
+            }
+
+            override fun onRtp(rtp: ByteArray, sample: Int) {
+                if (slot.owner !== state) return
+                val microphone = synchronized(slot.lock) {
+                    if (slot.owner !== state) {
+                        null
+                    } else if (!state.sinkStarted) {
+                        if (state.firstSample == null) {
+                            state.firstSample = sample
+                            state.originNs = System.nanoTime()
+                        }
+                        startAudioSinkLocked(state, slot)
+                    } else {
+                        startMicrophoneIfDueLocked(state, slot)
+                    }
+                }
+                microphone?.let { startMicrophone(state, slot, it) }
+                if (slot.owner === state && state.sinkStarted) {
+                    sink.onAudioRtp(state.token, state.format, rtp, sample)
+                }
+            }
+
+            override fun onPacket(
+                wire: ByteArray,
+                rtp: ByteArray?,
+                sample: Int?,
+                error: Throwable?,
+            ) {
+                if (slot.owner === state) state.capture?.record(wire, rtp, sample, error)
+            }
+        }
+
+    private fun startAudioSinkLocked(
+        state: AudioState,
+        slot: AudioOwnerSlot<AudioState>,
+    ): MicrophoneConfig? {
+        check(Thread.holdsLock(slot.lock))
+        if (slot.owner !== state || state.sinkStarted) return null
+        val firstSample = state.firstSample ?: return null
+        sink.onAudioStarted(state.token, state.format, firstSample)
+        state.sinkStarted = true
+        return startMicrophoneIfDueLocked(state, slot)
+    }
+
+    private fun startMicrophoneIfDueLocked(
+        state: AudioState,
+        slot: AudioOwnerSlot<AudioState>,
+    ): MicrophoneConfig? {
+        check(Thread.holdsLock(slot.lock))
+        if (slot.owner !== state || !state.sinkStarted || state.microphoneStarting) {
+            return null
+        }
+        val microphone = state.microphoneConfig ?: return null
+        if (monotonicTimeNs() < state.nextMicrophoneAttemptNs) return null
+        state.microphoneStarting = true
+        return microphone
+    }
+
+    private fun startMicrophone(
+        state: AudioState,
+        slot: AudioOwnerSlot<AudioState>,
+        microphone: MicrophoneConfig,
+    ) {
+        var started = false
+        try {
+            started = sink.onMicrophoneStarted(state.token, microphone)
+        } catch (error: Exception) {
+            Log.w(TAG, "Microphone start failed; retrying", error)
+        } finally {
+            synchronized(slot.lock) {
+                state.microphoneStarted = started
+                if (slot.owner === state) {
+                    state.nextMicrophoneAttemptNs = monotonicTimeNs() + MICROPHONE_RETRY_BACKOFF_NS
+                }
+                state.microphoneStarting = false
+            }
+        }
+    }
+
+    private fun monotonicTimeNs(): Long = monotonicTimeForTest?.invoke() ?: System.nanoTime()
+
+    private fun rollbackAudioState(state: AudioState, slot: AudioOwnerSlot<AudioState>): List<AudioState> =
+        synchronized(slot.lock) { rollbackAudioStateLocked(state, slot) }
+
+    private fun rollbackAudioStateLocked(
+        state: AudioState,
+        slot: AudioOwnerSlot<AudioState>,
+    ): List<AudioState> {
+        check(Thread.holdsLock(slot.lock))
+        if (slot.owner !== state) return emptyList()
+
+        val previousActive = slot.active
+        val fallback = previousActive?.takeIf { !it.key.session.isClosed }
+        val cleanup = mutableListOf<AudioState>()
+        slot.owner = fallback
+        audioStates.remove(state.key, state)
+        if (fallback != null) {
+            audioStates[fallback.key] = fallback
+            runCatching { sink.claimAudioOwner(fallback.token) }
+            runCatching { sink.releaseAudioOwner(state.token) }
+        } else {
+            runCatching { sink.releaseAudioOwner(state.token) }
+            if (previousActive != null) {
+                slot.active = null
+                cleanup.add(previousActive)
+            }
+        }
+        state.replacedOwner?.takeIf { it !== fallback && it !== previousActive }?.let(cleanup::add)
+        state.replacedOwner = null
+        return cleanup.distinct()
+    }
+
+    private fun detachAudioStates(session: AirPlaySession, type: Int): List<AudioState> {
+        val slot = audioSlots[type] ?: return emptyList()
+        return synchronized(slot.lock) {
+            val cleanup = mutableListOf<AudioState>()
+            val current = slot.owner
+            val active = slot.active
+            pruneClosedAudioPredecessors(slot.owner, session, cleanup)
+            if (current?.key?.session === session) {
+                audioStates.remove(current.key, current)
+                val fallback = active?.takeIf {
+                    it !== current && it.key.session !== session && !it.key.session.isClosed
+                }
+                slot.owner = fallback
+                if (fallback != null) {
+                    audioStates[fallback.key] = fallback
+                    runCatching { sink.claimAudioOwner(fallback.token) }
+                    runCatching { sink.releaseAudioOwner(current.token) }
+                } else {
+                    runCatching { sink.releaseAudioOwner(current.token) }
+                    if (active != null) {
+                        slot.active = null
+                        cleanup.add(active)
+                    }
+                }
+                current.replacedOwner?.takeIf { it !== fallback && it !== active }?.let(cleanup::add)
+                current.replacedOwner = null
+                cleanup.add(current)
+            }
+            if (active?.key?.session === session && active !== current) {
+                if (slot.active === active) slot.active = null
+                if (slot.owner === active) {
+                    slot.owner = null
+                    audioStates.remove(active.key, active)
+                }
+                runCatching { sink.releaseAudioOwner(active.token) }
+                slot.owner?.takeIf { it.replacedOwner === active }?.replacedOwner = null
+                cleanup.add(active)
+            }
+            cleanup.distinct()
+        }
+    }
+
+    private fun pruneClosedAudioPredecessors(
+        state: AudioState?,
+        session: AirPlaySession,
+        cleanup: MutableList<AudioState>,
+    ) {
+        var parent = state
+        var predecessor = parent?.replacedOwner
+        while (parent != null && predecessor != null) {
+            val next = predecessor.replacedOwner
+            if (predecessor.key.session === session) {
+                parent.replacedOwner = next
+                cleanup.add(predecessor)
+            } else {
+                parent = predecessor
+            }
+            predecessor = next
+        }
+    }
+
+    private fun retireAudioState(state: AudioState) {
+        runCatching { state.stream.close() }
+        runCatching { sink.onAudioStopped(state.token) }
+        if (state.microphoneStarted || state.microphoneStarting) {
+            runCatching { sink.onMicrophoneStopped(state.token) }
+        }
+        runCatching { state.capture?.close() }
     }
 
     private fun replacePendingIapTunnel(session: AirPlaySession, next: PendingIapTunnel) {
@@ -423,6 +783,7 @@ class CarPlayMediaEngine(
         const val OPUS_24K = 0x20000000L
         const val OPUS_48K = 0x40000000L
         const val FEEDBACK_CLOCK_LOG_INTERVAL_NS = 5_000_000_000L
+        const val MICROPHONE_RETRY_BACKOFF_NS = 750_000_000L
     }
 }
 

@@ -63,6 +63,75 @@ class MediaCodecSupportTest {
         assertEquals(0, MediaCodecSupport.hevcCodecSpecificData(truncated).size)
     }
 
+    @Test
+    fun avcCodecSpecificDataKeepsSpsAndPpsAtTheirFixedIndices() {
+        val sps = byteArrayOf(0x67, 0x64)
+        val pps = byteArrayOf(0x68, 0xee.toByte())
+
+        val csd = MediaCodecSupport.avcCodecSpecificData(avcRecord(sps, pps))
+
+        assertEquals(listOf(0, 1), csd.map { it.index })
+        assertArrayEquals(byteArrayOf(0, 0, 0, 1) + sps, csd[0].bytes)
+        assertArrayEquals(byteArrayOf(0, 0, 0, 1) + pps, csd[1].bytes)
+    }
+
+    @Test
+    fun missingAvcSpsDoesNotShiftPpsIntoCsdZero() {
+        val pps = byteArrayOf(0x68, 0xee.toByte())
+
+        val csd = MediaCodecSupport.avcCodecSpecificData(avcRecord(null, pps))
+
+        assertEquals(listOf(1), csd.map { it.index })
+        assertArrayEquals(byteArrayOf(0, 0, 0, 1) + pps, csd.single().bytes)
+    }
+
+    @Test
+    fun duplicateDecoderNameAndFormatIsSkippedWithoutDroppingOtherAttempts() {
+        val attempts = mutableSetOf<DecoderAttemptKey>()
+
+        assertTrue(recordDecoderAttempt(attempts, "software.avc", tuned = true))
+        assertTrue(recordDecoderAttempt(attempts, "software.avc", tuned = false))
+        assertFalse(recordDecoderAttempt(attempts, "software.avc", tuned = false))
+        assertTrue(recordDecoderAttempt(attempts, "hardware.avc", tuned = false))
+    }
+
+    @Test
+    fun tunedDecoderFailureFallsBackToMinimalDefaultFormat() {
+        val tried = mutableListOf<DecoderAttempt>()
+        val configured = firstSuccessfulDecoderAttempt(videoDecoderAttemptPlan("software.avc")) {
+            tried += it
+            if (it.codecName == null && !it.tuned) "minimal" else null
+        }
+
+        assertEquals("minimal", configured)
+        assertEquals(
+            listOf(
+                DecoderAttempt(codecName = null, tuned = true),
+                DecoderAttempt(codecName = null, tuned = false),
+            ),
+            tried,
+        )
+    }
+
+    @Test
+    fun defaultDecoderFailuresReachTheExplicitSoftwareFallback() {
+        val tried = mutableListOf<DecoderAttempt>()
+        val configured = firstSuccessfulDecoderAttempt(videoDecoderAttemptPlan("software.avc")) {
+            tried += it
+            if (it.codecName == "software.avc") "software" else null
+        }
+
+        assertEquals("software", configured)
+        assertEquals(
+            listOf(
+                DecoderAttempt(codecName = null, tuned = true),
+                DecoderAttempt(codecName = null, tuned = false),
+                DecoderAttempt(codecName = "software.avc", tuned = false),
+            ),
+            tried,
+        )
+    }
+
     private fun hevcRecord(vararg parameterSets: ByteArray): ByteArray {
         var size = 23
         parameterSets.forEach { size += 5 + it.size }
@@ -81,5 +150,28 @@ class MediaCodecSupportTest {
             cursor += parameterSet.size
         }
         return record
+    }
+
+    private fun avcRecord(sps: ByteArray?, pps: ByteArray?): ByteArray {
+        val size = 7 + (sps?.size ?: 0) + (if (sps == null) 0 else 2) +
+            (pps?.size ?: 0) + (if (pps == null) 0 else 2)
+        val record = ByteArray(size)
+        record[0] = 1
+        record[5] = if (sps == null) 0 else 1
+        var cursor = 6
+        sps?.let {
+            record[cursor++] = (it.size ushr 8).toByte()
+            record[cursor++] = it.size.toByte()
+            it.copyInto(record, cursor)
+            cursor += it.size
+        }
+        record[cursor++] = if (pps == null) 0 else 1
+        pps?.let {
+            record[cursor++] = (it.size ushr 8).toByte()
+            record[cursor++] = it.size.toByte()
+            it.copyInto(record, cursor)
+            cursor += it.size
+        }
+        return record.copyOf(cursor)
     }
 }

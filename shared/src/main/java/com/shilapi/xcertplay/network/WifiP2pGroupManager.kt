@@ -175,7 +175,8 @@ class WifiP2pGroupManager(
                         throw P2pResetRequiredException()
                     }
                     val request = CreateRequest(
-                        requestedName = config?.networkName,
+                        // Some API 29 vendor frameworks lack WifiP2pConfig.getNetworkName().
+                        requestedName = if (config == null) null else credentials.ssid,
                         expectedPassphrase = if (config == null) null else credentials.passphrase,
                         groupWasAbsentBeforeCreate = true,
                     )

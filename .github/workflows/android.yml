@@ -20,7 +20,7 @@ jobs:
           java-version: '25'
       - uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973 emulator system-images;android-35;google_apis;x86_64
+          packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973 system-images;android-35;google_apis;x86_64
       - uses: gradle/actions/setup-gradle@v4
       - name: Host native DSP tests
         run: bash scripts/test_dsp_native.sh
@@ -28,15 +28,29 @@ jobs:
         run: bash scripts/test_dsp_native.sh --sanitize
       - name: Unit tests, lint and source-only debug build
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug --stacktrace
+      - name: Install Android Emulator binary
+        run: |
+          curl --fail --location --retry 3 "https://dl.google.com/android/repository/emulator-linux_x64-16433917.zip" -o "$RUNNER_TEMP/emulator.zip"
+          unzip -q "$RUNNER_TEMP/emulator.zip" -d "$ANDROID_HOME"
+          test -x "$ANDROID_HOME/emulator/emulator"
       - name: JNI DSP smoke test
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: x86_64
-          target: google_apis
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          disable-animations: true
-          script: ./gradlew :shared:connectedDebugAndroidTest --stacktrace
+        run: |
+          avdmanager create avd -f -n dsp-x86_64 -k "system-images;android-35;google_apis;x86_64" -d pixel_7_pro
+          "$ANDROID_HOME/emulator/emulator" -avd dsp-x86_64 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect &
+          timeout 180s adb wait-for-device
+          booted=false
+          for attempt in $(seq 1 180); do
+            if [[ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == "1" ]]; then
+              booted=true
+              break
+            fi
+            sleep 2
+          done
+          if [[ "$booted" != "true" ]]; then
+            echo "x86_64 emulator failed to boot" >&2
+            exit 1
+          fi
+          ./gradlew :shared:connectedDebugAndroidTest --stacktrace
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4

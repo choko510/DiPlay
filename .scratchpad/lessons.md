@@ -89,4 +89,8 @@ An Activity may claim a resize restart and then wait on permission or transport 
 
 ## Treat Gecko's new-session URI as policy input, not a load command
 
-`NavigationDelegate.onNewSession` provides a URI for information and expects a newly created session; Gecko loads it after the app returns that session. Validate the callback URI even when no preceding load-request callback was observed. Keep only a pending boolean rather than retaining the full URI, and track load state for hidden primary sessions so popup close does not restore stale status.
+The pinned GeckoView 156 source asserts that the returned session is unopened, then opens it on the parent runtime with its generated session ID. A closed GeckoSession can be attached to GeckoView before return. `onLoadRequest` and `onNewSession` should each validate policy independently; callback order and URL equality are not reliable gate state.
+
+## Delay UI-thread runtime creation until after the first split frame
+
+`View.postOnAnimation` runs before that frame's traversal. A second animation callback lets the split's first traversal draw before the synchronous portion of Gecko warm-up can consume UI time. Keep both callbacks named and cancel them on split exit and Activity teardown.

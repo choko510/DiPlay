@@ -32,7 +32,12 @@ class DiPlaySessionService : Service() {
                 NotificationManager.IMPORTANCE_LOW,
             ),
         )
-        val open = PendingIntent.getActivity(this, 0, Intent(this, CarPlayHostActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val open = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, CarPlayHostActivity::class.java).setAction(CarPlayHostActions.OPEN_CARPLAY),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(localizedContext, CHANNEL)
             .setSmallIcon(R.drawable.ic_diplay_notification)

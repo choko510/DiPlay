@@ -70,4 +70,49 @@ class YoutubeDeviceProfileTest {
         assertEquals("Test iPhone", profile.displayName)
         assertNotNull(profile.model)
     }
+
+    @Test
+    fun lateControllerIdDoesNotPromoteFallbackDuringTheCurrentSplit() {
+        val selection = YoutubeProfileSelection()
+        val fallback = requireNotNull(IphoneIdentityResolver.resolve(null, "device-a", "mac-a"))
+        val controller = requireNotNull(IphoneIdentityResolver.resolve("controller-a", "device-a", "mac-a"))
+        val fallbackKey = YoutubeDeviceProfileManager.getOrCreate(fallback).profileKey
+        val controllerProfile = YoutubeDeviceProfileManager.getOrCreate(controller)
+        val connection = Any()
+
+        val initial = selection.select(
+            connection,
+            YoutubeDeviceProfileManager.getOrCreate(fallback),
+            setOf(fallbackKey),
+        )
+        val afterLateVerification = selection.select(
+            connection,
+            controllerProfile,
+            setOf(fallbackKey, controllerProfile.profileKey),
+        )
+
+        assertEquals(initial.youtubeContextId, afterLateVerification.youtubeContextId)
+        assertEquals(IphoneIdentitySource.DEVICE_ID, afterLateVerification.identitySource)
+
+        selection.clear()
+        val nextSplit = selection.select(connection, controllerProfile, setOf(fallbackKey, controllerProfile.profileKey))
+        assertEquals(controllerProfile.youtubeContextId, nextSplit.youtubeContextId)
+    }
+
+    @Test
+    fun distinctIphoneEvidenceSwitchesTheLockedSplitProfile() {
+        val selection = YoutubeProfileSelection()
+        val first = requireNotNull(IphoneIdentityResolver.resolve("controller-a", "device-a", "mac-a"))
+        val second = requireNotNull(IphoneIdentityResolver.resolve("controller-b", "device-b", "mac-b"))
+        val firstProfile = YoutubeDeviceProfileManager.getOrCreate(first)
+        val secondProfile = YoutubeDeviceProfileManager.getOrCreate(second)
+        val firstConnection = Any()
+        val secondConnection = Any()
+
+        val selectedFirst = selection.select(firstConnection, firstProfile, setOf(firstProfile.profileKey))
+        val selectedSecond = selection.select(secondConnection, secondProfile, setOf(secondProfile.profileKey))
+
+        assertNotEquals(selectedFirst.youtubeContextId, selectedSecond.youtubeContextId)
+        assertEquals(secondProfile.youtubeContextId, selectedSecond.youtubeContextId)
+    }
 }

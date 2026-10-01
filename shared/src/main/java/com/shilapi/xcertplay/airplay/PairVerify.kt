@@ -17,10 +17,15 @@ class PairVerify(
     private var sharedSecret: ByteArray? = null
     private var encryptionKey: ByteArray? = null
     private var keys: ControlKeys? = null
+    @Volatile
     private var verified = false
+    @Volatile
+    private var identityVerificationResolved = false
+    @Volatile
     private var controllerId: String? = null
 
     val isVerified: Boolean get() = verified
+    val isIdentityVerificationResolved: Boolean get() = identityVerificationResolved
     val verifiedControllerId: String? get() = controllerId
     val controlKeys: ControlKeys? get() = keys
     val shared: ByteArray? get() = sharedSecret
@@ -28,6 +33,7 @@ class PairVerify(
     fun handle(body: ByteArray): ByteArray {
         val tlv = Tlv8Codec.decode(body)
         val state = tlv[TYPE_STATE]?.firstOrNull()?.toInt()?.and(0xff)
+        if (state == 3) identityVerificationResolved = true
         return try {
             when (state) {
                 1 -> m2(tlv)

@@ -38,6 +38,13 @@ internal object YoutubeGeckoRuntimeProvider {
         } catch (_: LinkageError) {
             Log.w(TAG, "Gecko configuration update failed")
         }
+        try {
+            runtime?.orientationChanged(configuration.orientation)
+        } catch (_: RuntimeException) {
+            Log.w(TAG, "Gecko orientation update failed")
+        } catch (_: LinkageError) {
+            Log.w(TAG, "Gecko orientation update failed")
+        }
     }
 
     private const val TAG = "DiPlayYouTube"

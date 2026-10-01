@@ -9,7 +9,7 @@ internal enum class YoutubeNavigationDecision {
 }
 
 internal object YoutubeNavigationPolicy {
-    fun decide(uri: String, newWindow: Boolean): YoutubeNavigationDecision {
+    fun decide(uri: String, newWindow: Boolean, isPopup: Boolean = false): YoutubeNavigationDecision {
         val parsed = runCatching { URI(uri) }.getOrNull() ?: return YoutubeNavigationDecision.DENY
         return when (parsed.scheme?.lowercase()) {
             "https" -> if (parsed.host.isNullOrBlank()) {
@@ -19,10 +19,11 @@ internal object YoutubeNavigationPolicy {
             } else {
                 YoutubeNavigationDecision.ALLOW_CURRENT
             }
-            "about" -> if (newWindow && uri.equals("about:blank", ignoreCase = true)) {
-                YoutubeNavigationDecision.OPEN_POPUP
-            } else {
-                YoutubeNavigationDecision.DENY
+            "about" -> when {
+                !uri.equals("about:blank", ignoreCase = true) -> YoutubeNavigationDecision.DENY
+                newWindow -> YoutubeNavigationDecision.OPEN_POPUP
+                isPopup -> YoutubeNavigationDecision.ALLOW_CURRENT
+                else -> YoutubeNavigationDecision.DENY
             }
             else -> YoutubeNavigationDecision.DENY
         }
@@ -30,31 +31,19 @@ internal object YoutubeNavigationPolicy {
 }
 
 internal class YoutubePopupGate {
-    private var requestPending = false
     var isOpen: Boolean = false
         private set
 
-    fun request(uri: String): Boolean {
-        if (isOpen || requestPending ||
-            YoutubeNavigationPolicy.decide(uri, newWindow = true) != YoutubeNavigationDecision.OPEN_POPUP
-        ) {
-            return false
-        }
-        requestPending = true
-        return true
-    }
+    fun canOpen(uri: String): Boolean =
+        !isOpen && YoutubeNavigationPolicy.decide(uri, newWindow = true) == YoutubeNavigationDecision.OPEN_POPUP
 
-    fun consume(uri: String): Boolean {
-        requestPending = false
-        if (isOpen || YoutubeNavigationPolicy.decide(uri, newWindow = true) != YoutubeNavigationDecision.OPEN_POPUP) {
-            return false
-        }
+    fun markOpened(): Boolean {
+        if (isOpen) return false
         isOpen = true
         return true
     }
 
     fun close() {
-        requestPending = false
         isOpen = false
     }
 }

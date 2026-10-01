@@ -89,3 +89,11 @@ A resize restart remains claimable across Activity destruction until the replace
 ## Bound Google popups to one same-context GeckoSession
 
 HTTPS new-window requests and `about:blank` can create one temporary GeckoSession using the same iPhone context ID. Return to the primary session on popup close; deny HTTP and external schemes, do not log or persist popup URLs, and restore the primary session's most recent load state.
+
+## Follow GeckoView's unopened popup-session contract
+
+For the pinned GeckoView 156 source, `onNewSession` must return a closed GeckoSession; Gecko opens it on the parent runtime with the generated new-session ID. Attach the closed session before return, never call `open()` in the delegate, and validate each navigation callback independently instead of holding request-pending state.
+
+## Lock a split's profile while allowing verified aliases
+
+Keep the selected context stable for an AirPlaySession when identity evidence overlaps. When Pair Verify later resolves a controller ID, bind that strong hash to the chosen fallback context for the next split, but never resolve a verified controller through weak aliases. Only hashed alias keys and profile hashes are persisted.

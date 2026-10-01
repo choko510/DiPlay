@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.youtube
 
 import android.content.Context
+import android.graphics.Color
 import android.util.Log
 import androidx.core.net.toUri
 import org.mozilla.geckoview.AllowOrDeny
@@ -13,6 +14,13 @@ internal enum class YoutubeLoadState {
     LOADING,
     READY,
     ERROR,
+}
+
+internal object YoutubePopupSessionFactory {
+    fun create(settings: GeckoSessionSettings): GeckoSession =
+        GeckoSession(settings).also { popup ->
+            check(!popup.isOpen) { "Gecko must open the returned popup session" }
+        }
 }
 
 internal class YoutubeBrowserController(
@@ -58,6 +66,7 @@ internal class YoutubeBrowserController(
             configureDelegates(newSession)
             newSession.open(geckoRuntime)
             view.setSession(newSession)
+            view.coverUntilFirstPaint(Color.BLACK)
             newSession.setActive(active)
             newSession.loadUri(YOUTUBE_URL)
             Log.i(TAG, "Gecko session opened profile=${deviceProfile.profileKey.take(LOG_PROFILE_PREFIX_LENGTH)}")
@@ -104,12 +113,14 @@ internal class YoutubeBrowserController(
     }
 
     private fun createSession(deviceProfile: YoutubeDeviceProfile): GeckoSession {
-        val settings = GeckoSessionSettings.Builder()
+        return GeckoSession(createSessionSettings(deviceProfile))
+    }
+
+    private fun createSessionSettings(deviceProfile: YoutubeDeviceProfile): GeckoSessionSettings =
+        GeckoSessionSettings.Builder()
             .contextId(deviceProfile.youtubeContextId)
             .suspendMediaWhenInactive(true)
             .build()
-        return GeckoSession(settings)
-    }
 
     private fun configureDelegates(geckoSession: GeckoSession) {
         geckoSession.setContentDelegate(object : GeckoSession.ContentDelegate {
@@ -152,11 +163,18 @@ internal class YoutubeBrowserController(
                 session: GeckoSession,
                 request: GeckoSession.NavigationDelegate.LoadRequest,
             ): GeckoResult<AllowOrDeny>? {
+                if (!isKnownSession(session)) return GeckoResult.fromValue(AllowOrDeny.DENY)
                 val newWindow = request.target == GeckoSession.NavigationDelegate.TARGET_WINDOW_NEW
-                return when (YoutubeNavigationPolicy.decide(request.uri, newWindow)) {
+                return when (
+                    YoutubeNavigationPolicy.decide(
+                        request.uri,
+                        newWindow,
+                        isPopup = session === popupSession,
+                    )
+                ) {
                     YoutubeNavigationDecision.ALLOW_CURRENT -> null
                     YoutubeNavigationDecision.OPEN_POPUP -> {
-                        if (session !== primarySession || popupSession != null || !popupGate.request(request.uri)) {
+                        if (session !== primarySession || popupSession != null || !popupGate.canOpen(request.uri)) {
                             GeckoResult.fromValue(AllowOrDeny.DENY)
                         } else {
                             null
@@ -184,10 +202,14 @@ internal class YoutubeBrowserController(
             }
 
             override fun onNewSession(session: GeckoSession, uri: String): GeckoResult<GeckoSession>? {
-                if (session !== primarySession || popupSession != null) return null
-                if (!popupGate.consume(uri)) return null
+                if (session !== primarySession || popupSession != null || !popupGate.canOpen(uri)) return null
+                if (!popupGate.markOpened()) return null
                 val popup = createPopupSession() ?: run {
                     popupGate.close()
+                    return null
+                }
+                if (popup.isOpen) {
+                    closePopupSession(popup)
                     return null
                 }
                 return GeckoResult.fromValue(popup)
@@ -197,9 +219,8 @@ internal class YoutubeBrowserController(
 
     private fun createPopupSession(): GeckoSession? {
         val deviceProfile = profile ?: return null
-        val geckoRuntime = runtime ?: return null
         val popup = try {
-            createSession(deviceProfile)
+            YoutubePopupSessionFactory.create(createSessionSettings(deviceProfile))
         } catch (_: RuntimeException) {
             return null
         } catch (_: LinkageError) {
@@ -209,11 +230,12 @@ internal class YoutubeBrowserController(
         popupCanGoBack = false
         return try {
             configureDelegates(popup)
-            popup.open(geckoRuntime)
+            check(!popup.isOpen) { "Gecko must open the returned popup session" }
             val previous = session
             if (previous != null && view.session === previous) view.releaseSession()
             session = popup
             view.setSession(popup)
+            view.coverUntilFirstPaint(Color.BLACK)
             popup.setActive(active)
             primarySession?.setActive(false)
             setCanGoBack(false)
@@ -229,7 +251,7 @@ internal class YoutubeBrowserController(
         }
     }
 
-    private fun closePopupSession(closingSession: GeckoSession) {
+    private fun closePopupSession(closingSession: GeckoSession, restoreLoadState: Boolean = true) {
         if (popupSession !== closingSession) return
         popupSession = null
         popupCanGoBack = false
@@ -242,7 +264,9 @@ internal class YoutubeBrowserController(
         cleanup("popup view release") {
             if (view.session === closingSession) view.releaseSession()
         }
-        cleanup("popup close") { closingSession.close() }
+        cleanup("popup close") {
+            if (closingSession.isOpen) closingSession.close()
+        }
         if (wasCurrent) {
             primarySession?.let { parent ->
                 cleanup("primary view attach") { view.setSession(parent) }
@@ -250,10 +274,12 @@ internal class YoutubeBrowserController(
             }
             setCanGoBack(primaryCanGoBack)
             onFullscreenChanged(false)
-            if (primarySession != null) {
-                onLoadStateChanged(primaryLoadState)
-            } else {
-                onLoadStateChanged(YoutubeLoadState.ERROR)
+            if (restoreLoadState) {
+                if (primarySession != null) {
+                    onLoadStateChanged(primaryLoadState)
+                } else {
+                    onLoadStateChanged(YoutubeLoadState.ERROR)
+                }
             }
         }
     }
@@ -261,16 +287,16 @@ internal class YoutubeBrowserController(
     private fun onSessionCrashed(crashedSession: GeckoSession) {
         when {
             popupSession === crashedSession -> {
-                closePopupSession(crashedSession)
-                onFullscreenChanged(false)
-                onLoadStateChanged(YoutubeLoadState.ERROR)
+                closePopupSession(crashedSession, restoreLoadState = false)
+                onLoadStateChanged(YoutubeCrashLoadStatePolicy.afterPopupCrash(primaryLoadState))
+                Log.w(TAG, "Gecko popup content process stopped")
             }
             primarySession === crashedSession -> {
                 closeSession()
                 crashed = true
                 setCanGoBack(false)
                 onFullscreenChanged(false)
-                onLoadStateChanged(YoutubeLoadState.ERROR)
+                onLoadStateChanged(YoutubeCrashLoadStatePolicy.afterPrimaryCrash())
                 Log.w(TAG, "Gecko content process stopped")
             }
         }
@@ -321,7 +347,9 @@ internal class YoutubeBrowserController(
         cleanup("view release") {
             if (view.session === closingSession) view.releaseSession()
         }
-        cleanup("session close") { closingSession.close() }
+        cleanup("session close") {
+            if (closingSession.isOpen) closingSession.close()
+        }
     }
 
     private inline fun cleanup(operation: String, action: () -> Unit) {

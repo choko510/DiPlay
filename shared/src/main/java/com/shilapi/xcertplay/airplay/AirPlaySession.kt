@@ -100,6 +100,7 @@ class AirPlaySession(
         get() = (socket.remoteSocketAddress as? InetSocketAddress)?.address
     val controllerId: String? get() = pairVerify.verifiedControllerId
     val isControllerIdentityVerified: Boolean get() = pairVerify.isVerified
+    val isControllerIdentityResolved: Boolean get() = pairVerify.isIdentityVerificationResolved
     val isClosed: Boolean get() = closed.get()
     val sharedSecret: ByteArray? get() = pairVerify.shared?.copyOf()
 

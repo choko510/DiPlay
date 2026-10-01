@@ -26,9 +26,13 @@ class YoutubeNavigationPolicyTest {
     }
 
     @Test
-    fun aboutBlankIsAllowedOnlyAsANewWindow() {
+    fun aboutBlankIsAllowedOnlyForPopupFlows() {
         assertEquals(YoutubeNavigationDecision.DENY, YoutubeNavigationPolicy.decide("about:blank", false))
         assertEquals(YoutubeNavigationDecision.OPEN_POPUP, YoutubeNavigationPolicy.decide("about:blank", true))
+        assertEquals(
+            YoutubeNavigationDecision.ALLOW_CURRENT,
+            YoutubeNavigationPolicy.decide("about:blank", false, isPopup = true),
+        )
         assertEquals(YoutubeNavigationDecision.DENY, YoutubeNavigationPolicy.decide("about:config", true))
     }
 
@@ -49,22 +53,34 @@ class YoutubeNavigationPolicyTest {
     }
 
     @Test
-    fun popupGateAllowsOneAllowedPopupAndRejectsStaleOrNestedWindows() {
+    fun popupGateHasNoPendingRequestAndAllowsOnlyOnePopup() {
         val gate = YoutubePopupGate()
 
-        assertTrue(gate.request("about:blank"))
-        assertFalse(gate.request("https://accounts.google.com/"))
-        assertFalse(gate.consume("intent://accounts.google.com/"))
+        assertTrue(gate.canOpen("about:blank"))
+        assertTrue(gate.canOpen("https://accounts.google.com/"))
+        assertFalse(gate.canOpen("intent://accounts.google.com/"))
         assertFalse(gate.isOpen)
 
-        assertTrue(gate.request("https://accounts.google.com/"))
-        assertTrue(gate.consume("https://accounts.google.com/signin/callback"))
+        assertTrue(gate.markOpened())
         assertTrue(gate.isOpen)
-        assertFalse(gate.request("https://www.youtube.com/"))
+        assertFalse(gate.canOpen("https://www.youtube.com/"))
+        assertFalse(gate.markOpened())
 
         gate.close()
         assertFalse(gate.isOpen)
-        assertTrue(gate.consume("about:blank"))
-        assertFalse(gate.consume("https://accounts.google.com/"))
+        assertTrue(gate.canOpen("https://accounts.google.com/"))
+    }
+
+    @Test
+    fun aboutBlankPopupCanRedirectToAnHttpsCurrentPage() {
+        val gate = YoutubePopupGate()
+
+        assertTrue(gate.canOpen("about:blank"))
+        assertTrue(gate.markOpened())
+        assertEquals(
+            YoutubeNavigationDecision.ALLOW_CURRENT,
+            YoutubeNavigationPolicy.decide("https://accounts.google.com/signin", newWindow = false),
+        )
+        assertFalse(gate.canOpen("https://accounts.google.com/signin"))
     }
 }

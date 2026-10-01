@@ -168,3 +168,11 @@ Store the connection token as a weak reference and clear the split selection whe
 ## Mark Pair Verify identity resolved after final-state processing
 
 Set identity resolution in `finally` after processing Pair Verify state 3, and publish the verified controller ID before the verified flag. A fallback decision cannot observe an incomplete final-state transition.
+
+## Keep split-mode Gecko reuse Activity-scoped and identity-gated
+
+On a normal split exit, close any popup, leave the primary `GeckoSession` inactive, and retain it only for the current Activity. On re-entry, keep its view hidden until the current AirPlay profile resolves; reuse without reopening or reloading only when the profile context matches and the primary session remains open and healthy. Destroy it on profile change, AirPlay end, crash, shutdown or Activity destruction.
+
+## Keep CarPlay resize on the verified restart fallback
+
+Advertise the existing single ViewArea but do not invent a runtime switch payload. Keep the full controller restart path until the command, dimensions and decoder behavior are verified. Enable R8 through the AGP 9.3 optimization DSL and use a debuggable, debug-signed benchmark build for optimized CI coverage without production credentials.

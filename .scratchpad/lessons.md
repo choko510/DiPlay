@@ -137,3 +137,11 @@ With `adjustResize`, filtering only surface callbacks is insufficient if a debou
 ## Recheck privacy-sensitive logs after merging main
 
 Later main changes can reintroduce raw controller or device identifiers into debug logs even when the PR branch had sanitized them. Search logging expressions after each merge and log availability or hashed identifiers instead.
+
+## Resolve the current iPhone before reactivating a warm YouTube view
+
+A retained GeckoView can still display the prior account while inactive. Hide it and keep its session inactive as split mode opens; re-show it only after the current connection's profile is resolved. Same-profile reuse must not call `open()` or `loadUri()` again.
+
+## Keep IME resize suppression through layout settling
+
+Suppress pending display-size work once at the IME edge, then use the existing two stable frames to distinguish a real pane/orientation change. Clearing suppression at animation end can let the keyboard's final transient size restart CarPlay.

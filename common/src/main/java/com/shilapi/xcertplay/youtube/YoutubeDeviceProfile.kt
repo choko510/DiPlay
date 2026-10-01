@@ -89,8 +89,80 @@ internal class YoutubeProfileSelection {
     }
 }
 
+internal data class CachedYoutubeProfileResolution(
+    val profile: YoutubeDeviceProfile,
+    val evidenceKeys: Set<String>,
+)
+
+internal class YoutubeProfileResolutionCache {
+    private data class IdentityKey(
+        val source: IphoneIdentitySource,
+        val canonicalKey: String,
+    )
+
+    private data class ResolutionKey(
+        val identities: Set<IdentityKey>,
+        val splitRatio: Float,
+    )
+
+    private var connectionToken: WeakReference<Any>? = null
+    private var resolutionKey: ResolutionKey? = null
+    private var resolution: CachedYoutubeProfileResolution? = null
+
+    @Synchronized
+    fun find(
+        token: Any,
+        identity: ConnectedIphoneIdentity,
+        evidence: List<ConnectedIphoneIdentity>,
+        splitRatio: Float,
+    ): CachedYoutubeProfileResolution? {
+        if (connectionToken?.get() !== token) return null
+        if (resolutionKey != key(identity, evidence, splitRatio)) return null
+        val cached = resolution ?: return null
+        return cached.copy(
+            profile = cached.profile.copy(
+                displayName = identity.displayName,
+                model = identity.model,
+                splitRatio = SplitLayoutConfig.normalizeCarPlayFraction(splitRatio),
+            ),
+        )
+    }
+
+    @Synchronized
+    fun store(
+        token: Any,
+        identity: ConnectedIphoneIdentity,
+        evidence: List<ConnectedIphoneIdentity>,
+        splitRatio: Float,
+        profile: YoutubeDeviceProfile,
+        evidenceKeys: Set<String>,
+    ) {
+        connectionToken = WeakReference(token)
+        resolutionKey = key(identity, evidence, splitRatio)
+        resolution = CachedYoutubeProfileResolution(profile, evidenceKeys)
+    }
+
+    @Synchronized
+    fun clear(token: Any? = null) {
+        if (token != null && connectionToken?.get() !== token) return
+        connectionToken = null
+        resolutionKey = null
+        resolution = null
+    }
+
+    private fun key(
+        identity: ConnectedIphoneIdentity,
+        evidence: List<ConnectedIphoneIdentity>,
+        splitRatio: Float,
+    ): ResolutionKey = ResolutionKey(
+        identities = (evidence + identity).map { IdentityKey(it.source, it.canonicalKey) }.toSet(),
+        splitRatio = SplitLayoutConfig.normalizeCarPlayFraction(splitRatio),
+    )
+}
+
 internal object YoutubeDeviceProfileManager {
     private val splitSelection = YoutubeProfileSelection()
+    private val resolutionCache = YoutubeProfileResolutionCache()
 
     fun getOrCreate(identity: ConnectedIphoneIdentity, splitRatio: Float = SplitLayoutConfig.DEFAULT_CARPLAY_FRACTION): YoutubeDeviceProfile {
         val profileKey = profileKey(identity)
@@ -105,6 +177,7 @@ internal object YoutubeDeviceProfileManager {
         )
     }
 
+    @Synchronized
     fun getOrCreateForSplit(
         context: Context,
         connectionToken: Any,
@@ -112,8 +185,14 @@ internal object YoutubeDeviceProfileManager {
         evidence: List<ConnectedIphoneIdentity>,
         splitRatio: Float = SplitLayoutConfig.DEFAULT_CARPLAY_FRACTION,
     ): YoutubeDeviceProfile {
+        val cached = resolutionCache.find(connectionToken, identity, evidence, splitRatio)
+        if (cached != null) {
+            SplitPerformanceTracer.increment(SplitPerformanceCounter.PROFILE_RESOLUTIONS)
+            return splitSelection.select(connectionToken, cached.profile, cached.evidenceKeys)
+        }
+
         val candidate = getOrCreate(identity, splitRatio)
-        val evidenceKeys = (evidence + identity).map(::profileKey).distinct()
+        val evidenceKeys = (evidence + identity).map(::profileKey).distinct().toSet()
         val aliasStore = YoutubeDeviceProfileAliasStore(context.applicationContext)
         val persistenceKeys = if (identity.source == IphoneIdentitySource.CONTROLLER_ID) {
             listOf(candidate.profileKey)
@@ -125,7 +204,7 @@ internal object YoutubeDeviceProfileManager {
         }
         val existingBinding = aliasStore.find(persistenceKeys)
         val selected = if (existingBinding == null) {
-            splitSelection.select(connectionToken, candidate, evidenceKeys.toSet())
+            splitSelection.select(connectionToken, candidate, evidenceKeys)
         } else {
             splitSelection.select(
                 connectionToken,
@@ -134,15 +213,21 @@ internal object YoutubeDeviceProfileManager {
                     youtubeContextId = "diplay_youtube_${existingBinding.profileKey}",
                     identitySource = existingBinding.identitySource,
                 ),
-                evidenceKeys.toSet(),
+                evidenceKeys,
                 forceSelection = true,
             )
         }
         aliasStore.bind(persistenceKeys, selected.profileKey, selected.identitySource)
+        resolutionCache.store(connectionToken, identity, evidence, splitRatio, selected, evidenceKeys)
+        SplitPerformanceTracer.increment(SplitPerformanceCounter.PROFILE_RESOLUTIONS)
         return selected
     }
 
+    @Synchronized
     fun clearSplitSelection() = splitSelection.clear()
+
+    @Synchronized
+    fun clearSessionCache(connectionToken: Any? = null) = resolutionCache.clear(connectionToken)
 
     private fun profileKey(identity: ConnectedIphoneIdentity): String {
         val identityMaterial = "diplay-youtube-profile-v1:${identity.source.name}:${identity.canonicalKey}"
@@ -169,9 +254,14 @@ internal class YoutubeDeviceProfileAliasStore(context: Context) {
 
     fun bind(aliasKeys: List<String>, profileKey: String, source: IphoneIdentitySource) {
         val value = "${source.name}|$profileKey"
+        val changedKeys = YoutubeProfileAliasWritePolicy.changedKeys(aliasKeys, value) { key ->
+            preferences.getString(PREFERENCE_PREFIX + key, null)
+        }
+        if (changedKeys.isEmpty()) return
         preferences.edit().apply {
-            aliasKeys.forEach { aliasKey -> putString(PREFERENCE_PREFIX + aliasKey, value) }
+            changedKeys.forEach { aliasKey -> putString(PREFERENCE_PREFIX + aliasKey, value) }
         }.apply()
+        SplitPerformanceTracer.increment(SplitPerformanceCounter.SHARED_PREFERENCES_WRITES)
     }
 
     private fun decode(value: String): YoutubeProfileAliasBinding? {
@@ -186,4 +276,12 @@ internal class YoutubeDeviceProfileAliasStore(context: Context) {
         const val PREFERENCE_PREFIX = "identity_alias_"
         val PROFILE_KEY_PATTERN = Regex("[0-9a-f]{32}")
     }
+}
+
+internal object YoutubeProfileAliasWritePolicy {
+    fun changedKeys(
+        aliasKeys: List<String>,
+        value: String,
+        currentValue: (String) -> String?,
+    ): List<String> = aliasKeys.distinct().filter { currentValue(it) != value }
 }

@@ -70,6 +70,26 @@ internal class DspProfileRuntime private constructor(context: Context) {
         applyWithImpulse(profile, enabled, cachedImpulseResponse(profile))
     }
 
+    fun setMasterEnabled(enabled: Boolean) {
+        val profile = activeProfile.get()
+        applyWithImpulse(profile, enabled, cachedImpulseResponse(profile))
+    }
+
+    fun setMasterEnabledAsync(enabled: Boolean, onComplete: () -> Unit) {
+        ioExecutor.execute {
+            val profile = activeProfile.get()
+            val impulse = impulseResponseFor(profile)
+            applyWithImpulse(profile, enabled, impulse)
+            Handler(Looper.getMainLooper()).post(onComplete)
+        }
+    }
+
+    internal fun encodeProfileDraftForSavedState(profile: DspAudioProfile): String =
+        repository.encodeDraftForSavedState(profile)
+
+    internal fun decodeProfileDraftFromSavedState(serialized: String): DspAudioProfile? =
+        repository.decodeDraftFromSavedState(serialized)
+
     fun applyAsync(profile: DspAudioProfile, enabled: Boolean, onComplete: () -> Unit) {
         ioExecutor.execute {
             val impulse = impulseResponseFor(profile)

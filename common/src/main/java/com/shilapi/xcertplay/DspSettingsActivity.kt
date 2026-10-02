@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,6 +62,24 @@ import com.shilapi.xcertplay.shared.AppLanguage
 import java.util.Locale
 import java.util.UUID
 
+internal enum class EqBandEditorControl {
+    FREQUENCY,
+    GAIN,
+    Q,
+}
+
+internal fun eqBandEditorControls(type: DspEqType): Set<EqBandEditorControl> = when (type) {
+    DspEqType.PEAK -> setOf(EqBandEditorControl.FREQUENCY, EqBandEditorControl.GAIN, EqBandEditorControl.Q)
+    DspEqType.LOW_SHELF, DspEqType.HIGH_SHELF ->
+        setOf(EqBandEditorControl.FREQUENCY, EqBandEditorControl.GAIN)
+    DspEqType.HIGH_PASS, DspEqType.LOW_PASS, DspEqType.NOTCH, DspEqType.ALL_PASS ->
+        setOf(EqBandEditorControl.FREQUENCY, EqBandEditorControl.Q)
+}
+
+internal fun convolverWetPercentValue(wet: Double): Double = wet * 100.0
+
+internal fun convolverWetModelValue(percent: Double): Double = percent.coerceIn(0.0, 100.0) / 100.0
+
 class DspSettingsActivity : ComponentActivity() {
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLanguage.localizedContext(newBase))
@@ -82,7 +101,13 @@ class DspSettingsActivity : ComponentActivity() {
 private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
     val context = LocalContext.current
     var profiles by remember(runtime) { mutableStateOf(runtime.availableProfiles()) }
-    var profile by remember { mutableStateOf(runtime.selectedProfile()) }
+    val profileSaver = remember(runtime) {
+        Saver<DspAudioProfile, String>(
+            save = { runtime.encodeProfileDraftForSavedState(it) },
+            restore = { runtime.decodeProfileDraftFromSavedState(it) ?: runtime.selectedProfile() },
+        )
+    }
+    var profile by rememberSaveable(runtime, stateSaver = profileSaver) { mutableStateOf(runtime.selectedProfile()) }
     var dspEnabled by rememberSaveable { mutableStateOf(runtime.isDspEnabled()) }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var profileMenuExpanded by remember { mutableStateOf(false) }
@@ -143,8 +168,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         checked = dspEnabled,
                         onCheckedChange = { enabled ->
                             dspEnabled = enabled
-                            profile = profile.copy(enabled = enabled)
-                            runtime.applyAsync(profile, enabled) { }
+                            runtime.setMasterEnabledAsync(enabled) { }
                         },
                     )
                     Text(stringResource(R.string.dsp_profile), style = MaterialTheme.typography.titleMedium)
@@ -361,8 +385,15 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         modifier = Modifier.fillMaxWidth(),
                         onClick = { openImpulseResponse.launch(arrayOf("audio/*")) },
                     ) { Text(stringResource(R.string.dsp_ir_import)) }
-                    DspValueSlider(stringResource(R.string.dsp_wet), profile.convolver.wet, 0.0..1.0, "%") {
-                        profile = profile.copy(convolver = profile.convolver.copy(wet = it))
+                    DspValueSlider(
+                        stringResource(R.string.dsp_wet),
+                        convolverWetPercentValue(profile.convolver.wet),
+                        0.0..100.0,
+                        "%",
+                    ) {
+                        profile = profile.copy(
+                            convolver = profile.convolver.copy(wet = convolverWetModelValue(it)),
+                        )
                     }
                 }
                 SectionCard(title = stringResource(R.string.dsp_diagnostics)) {
@@ -374,10 +405,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
-                    val applied = profile.copy(
-                        enabled = dspEnabled,
-                        convolver = profile.convolver.copy(impulseResponse = null),
-                    )
+                    val applied = profile.copy(convolver = profile.convolver.copy(impulseResponse = null))
                     if (applied.id == CUSTOM_PROFILE_1 || applied.id == CUSTOM_PROFILE_2) {
                         runtime.saveCustomAsync(applied, dspEnabled) { result ->
                             showProfileSaveResult(context, result)
@@ -397,7 +425,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        val custom = profile.copy(id = CUSTOM_PROFILE_1, name = context.getString(R.string.dsp_preset_custom_1), enabled = dspEnabled)
+                        val custom = profile.copy(id = CUSTOM_PROFILE_1, name = context.getString(R.string.dsp_preset_custom_1))
                         runtime.saveCustomAsync(custom, dspEnabled) { result ->
                             if (result == DspProfileSaveResult.SAVED) profile = custom
                             if (result == DspProfileSaveResult.SAVED) profiles = runtime.availableProfiles()
@@ -408,7 +436,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
                     onClick = {
-                        val custom = profile.copy(id = CUSTOM_PROFILE_2, name = context.getString(R.string.dsp_preset_custom_2), enabled = dspEnabled)
+                        val custom = profile.copy(id = CUSTOM_PROFILE_2, name = context.getString(R.string.dsp_preset_custom_2))
                         runtime.saveCustomAsync(custom, dspEnabled) { result ->
                             if (result == DspProfileSaveResult.SAVED) profile = custom
                             if (result == DspProfileSaveResult.SAVED) profiles = runtime.availableProfiles()
@@ -458,14 +486,21 @@ private fun EqBandControl(
                 Switch(checked = band.enabled, onCheckedChange = { onChange(band.copy(enabled = it)) })
             }
             TextButton(onClick = onEditType) { Text(band.type.name) }
-            DspValueSlider(stringResource(R.string.dsp_frequency), band.frequencyHz, 20.0..19_800.0, "Hz") {
-                onChange(band.copy(frequencyHz = it))
+            val controls = eqBandEditorControls(band.type)
+            if (EqBandEditorControl.FREQUENCY in controls) {
+                DspValueSlider(stringResource(R.string.dsp_frequency), band.frequencyHz, 20.0..19_800.0, "Hz") {
+                    onChange(band.copy(frequencyHz = it))
+                }
             }
-            DspValueSlider(stringResource(R.string.dsp_gain), band.gainDb, -18.0..18.0, "dB") {
-                onChange(band.copy(gainDb = it))
+            if (EqBandEditorControl.GAIN in controls) {
+                DspValueSlider(stringResource(R.string.dsp_gain), band.gainDb, -18.0..18.0, "dB") {
+                    onChange(band.copy(gainDb = it))
+                }
             }
-            DspValueSlider(stringResource(R.string.dsp_q), band.q, 0.1..20.0, "") {
-                onChange(band.copy(q = it))
+            if (EqBandEditorControl.Q in controls) {
+                DspValueSlider(stringResource(R.string.dsp_q), band.q, 0.1..20.0, "") {
+                    onChange(band.copy(q = it))
+                }
             }
         }
     }
@@ -539,7 +574,12 @@ private fun DynamicEqBandControl(
                 choices = modes.map { it.first },
                 onSelect = { selected -> onChange(band.copy(mode = modes.first { it.first == selected }.second)) },
             )
-            DspValueSlider(stringResource(R.string.dsp_frequency), band.frequencyHz, 20.0..20_000.0, "Hz") {
+            DspValueSlider(
+                stringResource(R.string.dsp_frequency),
+                band.frequencyHz,
+                20.0..DspDynamicEqConfig.UI_MAX_FREQUENCY_HZ,
+                "Hz",
+            ) {
                 onChange(band.copy(frequencyHz = it))
             }
             DspValueSlider(stringResource(R.string.dsp_q), band.q, 0.1..20.0, "") {

@@ -42,7 +42,7 @@ data class DspAudioProfile(
         masterEnabled: Boolean,
         impulseResponse: DspImpulseResponse? = null,
     ): DspRuntimeConfig = DspRuntimeConfig(
-        enabled = masterEnabled && enabled,
+        enabled = masterEnabled,
         gainDb = preampDb,
         peqBands = eqBands,
         autoHeadroomEnabled = autoHeadroomEnabled,

@@ -77,6 +77,10 @@ class DspProfileRepositoryTest {
         val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
         assertEquals(profile, loaded.profile)
         assertEquals(null, loaded.migratedFromVersion)
+        assertEquals(
+            profile,
+            repository.decodeDraftFromSavedState(repository.encodeDraftForSavedState(profile)),
+        )
     }
 
     @Test
@@ -84,6 +88,7 @@ class DspProfileRepositoryTest {
         val profile = DspAudioProfile(
             id = "custom2",
             name = "Runtime map",
+            enabled = false,
             eqBands = listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 3.0)),
             bass = DspBassConfig(enabled = true, gainDb = 4.0),
             stereoWidth = 1.5,

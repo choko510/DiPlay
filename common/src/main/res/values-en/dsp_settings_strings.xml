@@ -3,7 +3,7 @@
     <string name="dsp_settings_entry_description">Adjust audio profiles, equalizer, and dynamics.</string>
     <string name="dsp_settings_entry_button">Open DSP audio settings</string>
     <string name="dsp_settings_title">DSP audio</string>
-    <string name="dsp_settings_description">Changes apply to newly created CarPlay audio streams.</string>
+    <string name="dsp_settings_description">Most settings apply during playback. Convolver changes that alter processing latency apply to the next audio stream.</string>
     <string name="dsp_enabled">Enable DSP</string>
     <string name="dsp_enabled_description">Off by default. When disabled, playback uses the existing PCM path.</string>
     <string name="dsp_profile">Profile</string>

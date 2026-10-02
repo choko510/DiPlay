@@ -92,6 +92,16 @@ internal class DspProfileRepository(
 
     internal fun profileFileForTesting(profileId: String): File? = profileFile(profileId)
 
+    internal fun encodeDraftForSavedState(profile: DspAudioProfile): String = encode(profile).toString()
+
+    internal fun decodeDraftFromSavedState(serialized: String): DspAudioProfile? = try {
+        val json = JSONObject(serialized)
+        val profileId = json.optString(KEY_ID)
+        if (!isValidProfileId(profileId)) null else decode(profileId, json, CURRENT_SCHEMA_VERSION)
+    } catch (_: Exception) {
+        null
+    }
+
     private fun profileFile(profileId: String): File? {
         if (!isValidProfileId(profileId)) return null
         val directory = profilesDirectory.canonicalFile

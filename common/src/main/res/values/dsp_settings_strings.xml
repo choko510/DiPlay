@@ -3,7 +3,7 @@
     <string name="dsp_settings_entry_description">音質プロファイル、イコライザー、ダイナミクスを調整します。</string>
     <string name="dsp_settings_entry_button">DSPオーディオ設定を開く</string>
     <string name="dsp_settings_title">DSPオーディオ</string>
-    <string name="dsp_settings_description">設定は新しいCarPlayオーディオストリームから反映されます。</string>
+    <string name="dsp_settings_description">多くの設定は再生中にも反映されます。処理遅延が変わる一部のConvolver設定は、次のオーディオストリームから反映されます。</string>
     <string name="dsp_enabled">DSPを有効にする</string>
     <string name="dsp_enabled_description">初期設定では無効です。無効時は既存のPCM再生経路を使用します。</string>
     <string name="dsp_profile">プロファイル</string>

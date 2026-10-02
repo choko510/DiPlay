@@ -32,6 +32,7 @@ internal class DspLiveUpdateController(
     private val canAdoptLatencyChange: () -> Boolean = { false },
     private val pipelinePreparer: DspPipelinePreparer =
         { targetFormat, config -> createNativePipeline(role, targetFormat, config) },
+    private val preparedLatencyFrames: (DspPcmPipeline?) -> Int = { it?.algorithmicLatencyFrames ?: 0 },
 ) : Closeable {
     private val controlExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "dsp-live-control").apply { isDaemon = true }
@@ -84,7 +85,7 @@ internal class DspLiveUpdateController(
                     runCatching { onDeferred(snapshot.generation) }
                     continue
                 }
-                val latencyFrames = pipeline?.algorithmicLatencyFrames ?: 0
+                val latencyFrames = preparedLatencyFrames(pipeline).coerceAtLeast(0)
                 if (latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()) {
                     runCatching { pipeline?.close() }
                     lastHandledGeneration.set(snapshot.generation)

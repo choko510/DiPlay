@@ -1,5 +1,6 @@
 #include "dsp_engine.h"
 
+#include <float.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -1491,6 +1492,12 @@ static void test_convolver_ir_sizes_and_validation(void) {
     assert_true(
         create_test_engine_with_convolver(48000, 1, 512, &too_long) == NULL,
         "IRs longer than the configured frame limit are rejected");
+
+    const float huge_impulse[] = {FLT_MAX};
+    const dsp_convolver_config overflowing_ir = {1, 48000, 1, 1, 1, 1.0f, huge_impulse};
+    assert_true(
+        create_test_engine_with_convolver(48000, 1, 512, &overflowing_ir) == NULL,
+        "finite but unbounded IR amplitudes are rejected before FFT preparation");
 }
 
 static void test_convolver_sparse_sentinel_taps_reach_their_output_frames(void) {

@@ -6,7 +6,7 @@ Keep native/unit/lint/build verification and Android instrumentation in independ
 
 ## Keep DSP latency and fallback aligned to one AudioTrack generation
 
-Prepare the initial codec graph on the audio renderer worker before its first PCM write. Once an AudioTrack accepts PCM, keep that generation's algorithmic latency fixed; maintain a preallocated delayed-dry ring so a failed graph or a sample-rate-mismatched IR replacement can preserve the same content timeline. Reset temporal DSP state and cancel/finish the active crossfade when a new track generation is created.
+Prepare the initial codec graph on the audio renderer worker before its first PCM write. Once an AudioTrack accepts PCM, `trackGenerationLatencyFrames` is the source of truth for both playback-clock correction and output alignment; maintain a preallocated delayed-dry ring so a failed graph or a sample-rate-mismatched IR replacement can preserve the same content timeline. Keep desired DSP config separate from the effective graph for format-incompatible Convolvers. Rebuilds that would start an active Convolver or long-state dynamics graph without history defer to the next AudioTrack generation. Cancel and retire an in-flight fade when decoder format changes.
 
 ## Make the global DSP switch the only runtime enable source
 

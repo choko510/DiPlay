@@ -18,6 +18,10 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - Moved API 35 emulator boot and `:shared:connectedDebugAndroidTest` into a parallel `android-instrumentation` job, and stopped installing the emulator system image in the host verification job. Kept all 40 DSP cases, three 256-block measurement rounds, and the p99 gate unchanged.
 - Actions run 85 passed both jobs and finished in 9m55s, compared with 13m28s for the preceding serial run 84 (3m33s / 26% less wall time). The instrumentation job completed while host verification continued.
 
+## 2026-10-02 — PR #14 production-path DSP benchmark
+
+- Extended the emulator matrix for latency-bearing graphs to process both the delayed-dry shadow bypass and DSP pipeline on each block. The combined p99 is now the gate for Convolver cases, and the zero-allocation check covers both paths. The 40-case matrix and three 256-block rounds remain.
+
 ## 2026-10-02 — PR #14 DSP review follow-up
 
 - Preallocate the PCM16 output and Float32 crossfade scratch for the supported 16,384-frame decoder block during pipeline preparation. The first 1,537-frame stereo call reports zero Kotlin allocations on the API 36.1 x86_64 emulator; the identity processor uses indexed Float copying.

@@ -58,19 +58,34 @@ class DspPipelineBenchmarkInstrumentedTest {
             assertNotNull("native graph: ${benchmarkCase.name}", processor)
             processor ?: continue
             val pipeline = DspPcmPipeline(format, processor, forceInitialLatencySilence = false)
+            val latencyBypass = pipeline.algorithmicLatencyFrames.takeIf { it > 0 }?.let {
+                DspLatencyPreservingBypass(format, it)
+            }
             try {
                 var block = 0
                 while (block < WARMUP_BLOCKS) {
+                    latencyBypass?.let {
+                        assertEquals(source.size, it.process(source, 0, source.size, DspPcmEncoding.PCM16))
+                    }
                     assertEquals(source.size, pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16))
                     block++
                 }
-                assertNoSteadyStateAllocations(pipeline, source)
+                assertNoSteadyStateAllocations(pipeline, latencyBypass, source)
                 val pipelineRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
+                val productionRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
                 repeat(MEASURED_RUNS) { runIndex ->
                     pipeline.resetTimingMetrics()
+                    val productionTiming = latencyBypass?.let { DspFixedHistogram() }
                     block = 0
                     while (block < MEASURED_BLOCKS) {
-                        assertEquals(source.size, pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16))
+                        val startedNs = if (productionTiming != null) System.nanoTime() else 0L
+                        val bypass = latencyBypass
+                        if (bypass != null && bypass.process(source, 0, source.size, DspPcmEncoding.PCM16) != source.size) {
+                            throw AssertionError("latency-preserving bypass rejected block $block")
+                        }
+                        val outputLength = pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16)
+                        if (outputLength != source.size) throw AssertionError("DSP pipeline rejected block $block")
+                        productionTiming?.record(System.nanoTime() - startedNs)
                         block++
                     }
                     val diagnostics = pipeline.diagnostics()
@@ -79,19 +94,25 @@ class DspPipelineBenchmarkInstrumentedTest {
                     assertEquals(MEASURED_BLOCKS.toLong(), native.sampleCount)
                     assertEquals(MEASURED_BLOCKS.toLong(), fullPipeline.sampleCount)
                     pipelineRuns += fullPipeline
+                    productionTiming?.snapshot()?.let(productionRuns::add)
+                    val production = productionTiming?.snapshot()?.toMetricString()
+                        ?: "not-applicable"
                     Log.i(
                         TAG,
                         "DSP_BENCHMARK case=${benchmarkCase.name} sampleRate=$sampleRate channels=$channels " +
                             "run=${runIndex + 1} blocks=$MEASURED_BLOCKS nativeProcessUs=${native.toMetricString()} " +
-                            "pipelineProcessUs=${fullPipeline.toMetricString()}",
+                            "pipelineProcessUs=${fullPipeline.toMetricString()} " +
+                            "latencyPreservingBypass=${latencyBypass != null} productionProcessUs=$production",
                     )
                 }
                 val blockDurationUs =
                     DspBufferSizing.PROCESSING_CHUNK_FRAMES * 1_000_000L / sampleRate
                 val p99CeilingUs = blockDurationUs * 200L / 100L
-                val medianPipelineP99Us = pipelineRuns.map(DspTimingSummary::p99Us).sorted()[MEASURED_RUNS / 2]
+                val gateRuns = productionRuns.ifEmpty { pipelineRuns }
+                val medianPipelineP99Us = gateRuns.map(DspTimingSummary::p99Us).sorted()[MEASURED_RUNS / 2]
+                val metricName = if (productionRuns.isEmpty()) "pipeline" else "production pipeline"
                 assertTrue(
-                    "${benchmarkCase.name} median pipeline p99=${medianPipelineP99Us}us exceeded " +
+                    "${benchmarkCase.name} median $metricName p99=${medianPipelineP99Us}us exceeded " +
                         "${p99CeilingUs}us over $MEASURED_RUNS runs",
                     medianPipelineP99Us < p99CeilingUs,
                 )
@@ -102,12 +123,20 @@ class DspPipelineBenchmarkInstrumentedTest {
     }
 
     @Suppress("DEPRECATION")
-    private fun assertNoSteadyStateAllocations(pipeline: DspPcmPipeline, source: ByteArray) {
+    private fun assertNoSteadyStateAllocations(
+        pipeline: DspPcmPipeline,
+        latencyBypass: DspLatencyPreservingBypass?,
+        source: ByteArray,
+    ) {
         Debug.startAllocCounting()
         try {
             Debug.resetThreadAllocCount()
             var block = 0
             while (block < ALLOCATION_CHECK_BLOCKS) {
+                val bypass = latencyBypass
+                if (bypass != null && bypass.process(source, 0, source.size, DspPcmEncoding.PCM16) != source.size) {
+                    throw AssertionError("latency-preserving bypass rejected allocation-check block $block")
+                }
                 if (pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16) != source.size) {
                     throw AssertionError("DSP pipeline rejected allocation-check block $block")
                 }

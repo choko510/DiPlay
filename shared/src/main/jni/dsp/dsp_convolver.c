@@ -7,6 +7,8 @@
 
 #define DSP_CONVOLVER_FFT_FRAMES (DSP_CONVOLVER_PARTITION_FRAMES * 2)
 #define DSP_CONVOLVER_BINS (DSP_CONVOLVER_FFT_FRAMES / 2 + 1)
+#define DSP_CONVOLVER_MAX_IR_SAMPLE_ABS 32.0f
+#define DSP_CONVOLVER_MAX_IR_ABSOLUTE_SUM 1000000.0
 
 static int supported_sample_rate(int sample_rate) {
     return sample_rate == 44100 || sample_rate == 48000 || sample_rate == 96000;
@@ -113,15 +115,16 @@ int dsp_convolver_prepare(
         !supported_sample_rate(config->sample_rate)) {
         return 0;
     }
-    if (config->wet == 0.0f) {
-        return 1;
-    }
-    if (config->sample_rate != sample_rate) {
-        return 1;
-    }
     const size_t sample_count = (size_t)config->frames * (size_t)config->channels;
+    double absolute_sum = 0.0;
     for (size_t index = 0; index < sample_count; index++) {
-        if (!isfinite(config->samples[index])) return 0;
+        const float sample = config->samples[index];
+        if (!isfinite(sample) || fabsf(sample) > DSP_CONVOLVER_MAX_IR_SAMPLE_ABS) return 0;
+        absolute_sum += fabs((double)sample);
+        if (absolute_sum > DSP_CONVOLVER_MAX_IR_ABSOLUTE_SUM) return 0;
+    }
+    if (config->wet == 0.0f || config->sample_rate != sample_rate) {
+        return 1;
     }
 
     convolver->channels = channels;
@@ -146,10 +149,14 @@ int dsp_convolver_prepare(
                         (size_t)impulse_frame * (size_t)config->channels + (size_t)channel];
                 }
             }
-            kiss_fftr(
-                convolver->forward_fft,
-                convolver->fft_input,
-                convolver->ir_spectra + ir_spectrum_offset(convolver, channel, partition));
+            kiss_fft_cpx *spectrum = convolver->ir_spectra + ir_spectrum_offset(convolver, channel, partition);
+            kiss_fftr(convolver->forward_fft, convolver->fft_input, spectrum);
+            for (size_t bin = 0; bin < DSP_CONVOLVER_BINS; bin++) {
+                if (!isfinite(spectrum[bin].r) || !isfinite(spectrum[bin].i)) {
+                    dsp_convolver_close(convolver);
+                    return 0;
+                }
+            }
         }
     }
     convolver->active = 1;

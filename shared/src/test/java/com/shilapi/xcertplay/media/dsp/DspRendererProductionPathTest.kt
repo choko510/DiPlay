@@ -370,7 +370,114 @@ class DspRendererProductionPathTest {
     }
 
     @Test
-    fun mismatchedImpulseReplacementDropsOldConvolverAndRestoresValidIrAtSameLatency() {
+    fun recoveryCrossfadeUsesDelayedDryFloatsAsItsOldSignal() {
+        val writes = CopyOnWriteArrayList<ByteArray>()
+        val provider = MutableConfigProvider(DspRuntimeConfig(enabled = true))
+        val prepared = LinkedBlockingQueue<Unit>()
+        val pipelineCreations = AtomicInteger()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = DspRuntimeConfig(enabled = true),
+            provider = provider,
+            writeAdapter = { bytes, offset, length, _ ->
+                writes += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, _ ->
+                if (pipelineCreations.getAndIncrement() == 0) {
+                    val processor = StateProcessor(audioFormat, latencyFrames = 128, gain = 1.0f, failOnProcess = 5)
+                    DspPcmPipeline(audioFormat, processor, forceInitialLatencySilence = false)
+                } else {
+                    pipeline(audioFormat, latencyFrames = 0, gain = 1.0f)
+                }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(480)), sample = 0)
+            repeat(4) { block ->
+                renderer.handleRtpForTesting(
+                    lpcmRtp(IntArray(64) { frame -> 1_000 + block * 1_000 + frame }),
+                    sample = block * 64,
+                )
+            }
+            assertNull(renderer.dspPipeline)
+            assertEquals(128, renderer.trackLatencyForTesting)
+
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = 1.0))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            Thread.sleep(50)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { frame -> 5_000 + frame }), sample = 256)
+
+            assertTrue(renderer.liveFadeInProgressForTesting)
+            assertEquals(6, writes.size)
+            assertTrue(abs(readSample(writes.last(), 0) - 3_000) <= 2)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun oversizedDecodedPcmUsesTheSameBoundedChunksForDspAndLatencyFallback() {
+        val frameCount = DspBufferSizing.MAX_DECODER_PCM_FRAMES + 1
+        val sourceSamples = IntArray(frameCount) { (it % 12_000) - 6_000 }
+        val source = ByteArray(frameCount * Short.SIZE_BYTES)
+        sourceSamples.forEachIndexed { index, sample ->
+            source[index * 2] = sample.toByte()
+            source[index * 2 + 1] = (sample shr 8).toByte()
+        }
+        val writes = CopyOnWriteArrayList<ByteArray>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.AAC_LC, channels = 1),
+            initialConfig = DspRuntimeConfig(enabled = true),
+            writeAdapter = { bytes, offset, length, _ ->
+                writes += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            pipelinePreparer = { audioFormat, _ ->
+                val processor = StateProcessor(audioFormat, latencyFrames = 128, gain = 1.0f, failOnProcess = 1)
+                DspPcmPipeline(audioFormat, processor, forceInitialLatencySilence = false)
+            },
+        )
+        try {
+            renderer.prepareDecoderPcmFormatForTesting(48_000, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source,
+                0,
+                source.size,
+                AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 900,
+            )
+
+            assertTrue(writes.size >= 2)
+            assertEquals(128, renderer.trackLatencyForTesting)
+            val output = ByteArray(source.size)
+            var outputOffset = 0
+            writes.forEach { chunk ->
+                chunk.copyInto(output, outputOffset)
+                outputOffset += chunk.size
+            }
+            assertEquals(source.size, outputOffset)
+            for (frame in 0 until frameCount) {
+                val sourceFrame = frame - 128
+                val expected = when {
+                    sourceFrame < 0 -> 0
+                    frame < 480 -> sourceSamples[sourceFrame].toLong() * (frame + 1) / 480
+                    else -> sourceSamples[sourceFrame].toLong()
+                }.toInt()
+                val actual = readSample(output, frame * Short.SIZE_BYTES)
+                assertTrue("delayed frame $frame expected=$expected actual=$actual", abs(actual - expected) <= 2)
+            }
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun mismatchedIrKeepsLatencyAndDefersValidConvolverUntilANewTrack() {
         val irA = DspImpulseResponse("room_a", 48_000, 1, floatArrayOf(1.0f))
         val irB = DspImpulseResponse("room_b", 44_100, 1, floatArrayOf(1.0f))
         val irC = DspImpulseResponse("room_c", 48_000, 1, floatArrayOf(1.0f))
@@ -409,8 +516,20 @@ class DspRendererProductionPathTest {
             assertEquals(1L, renderer.dspGenerationForTesting)
             assertEquals(128, renderer.dspPipeline?.algorithmicLatencyFrames)
             assertEquals(128, renderer.trackLatencyForTesting)
+            assertFalse(renderer.effectiveConvolverEnabledForTesting)
             renderer.handleRtpForTesting(lpcmRtp(IntArray(256) { 1_000 }), sample = 30)
             assertTrue(readSample(writes.last(), 200 * Short.SIZE_BYTES) in 990..1_010)
+
+            provider.update(convolverConfig(irB, gainDb = 4.0))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            Thread.sleep(50)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2_400) { 1_000 }), sample = 35)
+
+            assertEquals(2L, renderer.dspGenerationForTesting)
+            assertEquals(128, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertEquals(128, renderer.trackLatencyForTesting)
+            assertFalse(renderer.effectiveConvolverEnabledForTesting)
+            assertNull(renderer.deferredDspGenerationForTesting)
 
             provider.update(convolverConfig(irC))
             assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
@@ -420,7 +539,143 @@ class DspRendererProductionPathTest {
             assertEquals(2L, renderer.dspGenerationForTesting)
             assertEquals(128, renderer.dspPipeline?.algorithmicLatencyFrames)
             assertEquals(128, renderer.trackLatencyForTesting)
+            assertFalse(renderer.effectiveConvolverEnabledForTesting)
+            assertEquals(3L, renderer.deferredDspGenerationForTesting)
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 50)
+
+            assertEquals(3L, renderer.dspGenerationForTesting)
+            assertEquals(128, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertTrue(renderer.effectiveConvolverEnabledForTesting)
             assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun dynamicsGraphUpdatesWaitUntilANewTrackGeneration() {
+        val compressor = DspCompressorConfig(enabled = true, attackMs = 1_000.0, releaseMs = 1_000.0)
+        val initialConfig = DspRuntimeConfig(enabled = true, compressor = compressor)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                pipeline(audioFormat, latencyFrames = 0, gain = if (config.gainDb == 0.0) 1.0f else 0.5f)
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 10)
+            val activePipeline = renderer.dspPipeline
+
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = 6.0, compressor = compressor))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 20)
+
+            assertTrue(renderer.dspPipeline === activePipeline)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 30)
+
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertTrue(renderer.dspPipeline !== activePipeline)
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun activeConvolverGraphUpdatesWaitToPreserveItsFirHistory() {
+        val impulse = DspImpulseResponse("room_a", 48_000, 1, floatArrayOf(1.0f))
+        val initialConfig = convolverConfig(impulse)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                pipeline(audioFormat, latencyFrames = if (config.convolver.enabled) 128 else 0, gain = 1.0f)
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 10)
+            val activePipeline = renderer.dspPipeline
+
+            provider.update(convolverConfig(impulse, gainDb = 4.0))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 20)
+
+            assertTrue(renderer.dspPipeline === activePipeline)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 30)
+
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertTrue(renderer.dspPipeline !== activePipeline)
+            assertEquals(128, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun decoderFormatChangeCancelsAnInFlightFadeAndRetiresItsOldFormatGraph() {
+        val oldCandidateClosed = CountDownLatch(1)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val provider = MutableConfigProvider(DspRuntimeConfig.disabled())
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.AAC_LC, channels = 1),
+            initialConfig = DspRuntimeConfig.disabled(),
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, _ ->
+                if (audioFormat.sampleRate == 44_100) {
+                    val processor = StateProcessor(audioFormat, 0, 1.0f)
+                    DspPcmPipeline(audioFormat, processor, forceInitialLatencySilence = false).also {
+                        processor.onClose = oldCandidateClosed::countDown
+                    }
+                } else {
+                    pipeline(audioFormat, latencyFrames = 0, gain = 1.0f)
+                }
+            },
+        )
+        try {
+            renderer.prepareDecoderPcmFormatForTesting(44_100, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(pcm16(64, 1, 100), 0, 128, AndroidAudioFormat.ENCODING_PCM_16BIT, 10)
+
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = 2.0))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.processDecodedPcmForTesting(pcm16(64, 1, 200), 0, 128, AndroidAudioFormat.ENCODING_PCM_16BIT, 15)
+            assertTrue(renderer.liveFadeInProgressForTesting)
+
+            renderer.prepareDecoderPcmFormatForTesting(48_000, 2, AndroidAudioFormat.ENCODING_PCM_16BIT)
+
+            assertTrue(oldCandidateClosed.await(5, TimeUnit.SECONDS))
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(DspAudioFormat(48_000, 2), renderer.dspPipeline?.format)
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(pcm16(64, 2, 200), 0, 256, AndroidAudioFormat.ENCODING_PCM_16BIT, 20)
+            assertEquals(DspAudioFormat(48_000, 2), renderer.dspPipeline?.format)
+            assertFalse(renderer.liveFadeInProgressForTesting)
         } finally {
             renderer.releaseForTesting()
         }
@@ -514,8 +769,9 @@ class DspRendererProductionPathTest {
         audioType = "media",
     )
 
-    private fun convolverConfig(ir: DspImpulseResponse): DspRuntimeConfig = DspRuntimeConfig(
+    private fun convolverConfig(ir: DspImpulseResponse, gainDb: Double = 0.0): DspRuntimeConfig = DspRuntimeConfig(
         enabled = true,
+        gainDb = gainDb,
         autoHeadroomEnabled = false,
         convolver = DspConvolverConfig(
             enabled = true,

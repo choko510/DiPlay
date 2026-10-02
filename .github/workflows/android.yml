@@ -75,12 +75,23 @@ jobs:
           emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
-          script: ./gradlew :shared:connectedDebugAndroidTest --stacktrace
-      - name: Capture DSP benchmark evidence
-        if: always()
-        run: |
-          mkdir -p shared/build/outputs/dsp-benchmark
-          timeout 20s adb logcat -d -v threadtime -s DspPipelineBenchmark:I > shared/build/outputs/dsp-benchmark/logcat.txt || true
+          script: |
+            set +e
+            ./gradlew :shared:connectedDebugAndroidTest --stacktrace
+            test_result=$?
+            mkdir -p shared/build/outputs/dsp-benchmark
+            timeout 20s adb logcat -d -v threadtime -s DspPipelineBenchmark:I > shared/build/outputs/dsp-benchmark/logcat.txt || true
+            if [ "$test_result" -eq 0 ]; then
+              if [ ! -s shared/build/outputs/dsp-benchmark/logcat.txt ]; then
+                echo "DSP benchmark log capture was empty"
+                exit 1
+              fi
+              if ! grep -q "DSP_BENCHMARK" shared/build/outputs/dsp-benchmark/logcat.txt; then
+                echo "DSP benchmark evidence was not present in logcat"
+                exit 1
+              fi
+            fi
+            exit "$test_result"
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4

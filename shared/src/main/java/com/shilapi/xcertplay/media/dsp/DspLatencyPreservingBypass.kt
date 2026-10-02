@@ -14,6 +14,7 @@ internal class DspLatencyPreservingBypass(
     )
     private var ringPosition = 0
     private var processedLength = 0
+    private var processedFrames = 0
 
     init {
         require(latencyFrames > 0)
@@ -25,6 +26,12 @@ internal class DspLatencyPreservingBypass(
     val outputLength: Int
         get() = processedLength
 
+    val outputFloats: FloatArray
+        get() = delayedFloats
+
+    val outputFrameCount: Int
+        get() = processedFrames
+
     fun process(
         source: ByteArray,
         offset: Int,
@@ -32,6 +39,7 @@ internal class DspLatencyPreservingBypass(
         encoding: DspPcmEncoding,
     ): Int {
         processedLength = 0
+        processedFrames = 0
         val frames = DspPcmConverter.pcmToFloatArray(source, offset, length, encoding, format, inputFloats)
         if (frames <= 0 || frames > DspBufferSizing.MAX_DECODER_PCM_FRAMES) return -1
         for (frame in 0 until frames) {
@@ -55,6 +63,7 @@ internal class DspLatencyPreservingBypass(
         ) {
             return -1
         }
+        processedFrames = frames
         processedLength = DspBufferSizing.pcm16ByteCount(frames, format.channels)
         return processedLength
     }
@@ -66,5 +75,6 @@ internal class DspLatencyPreservingBypass(
         dither.reset()
         ringPosition = 0
         processedLength = 0
+        processedFrames = 0
     }
 }

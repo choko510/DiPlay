@@ -4,6 +4,14 @@
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.
 
+## Keep recovery crossfades on the delayed-dry timeline
+
+When a DSP path with nonzero latency fails, use the latency-preserving bypass's delayed Float32 output as the old side of a recovery fade. Check the renderer's production clock and PCM writes against the same track-generation latency source; a separate test-only latency field can hide the mismatch.
+
+## Defer graph rebuilds when processor history cannot migrate
+
+Latency equality alone does not make a replacement graph safe. Do not discard Convolver FIR history or long dynamics envelopes during an active stream; keep the prepared update pending for a fresh AudioTrack generation and test that it is adopted before that generation accepts PCM.
+
 ## Exercise live DSP through the production renderer boundary
 
 An internal `AudioTrack.write` adapter allows unit tests to submit LPCM RTP and decoded codec PCM through `AudioRenderer` without a device track. Use latches for worker preparation and format-change races, and verify the first accepted source-sample anchor, generation adoption, fail-open output, and track-generation reset.

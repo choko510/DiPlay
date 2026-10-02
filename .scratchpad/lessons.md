@@ -1,5 +1,29 @@
 # Lessons
 
+## Parallelize slow emulator checks in CI
+
+When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.
+
+## Keep recovery crossfades on the delayed-dry timeline
+
+When a DSP path with nonzero latency fails, use the latency-preserving bypass's delayed Float32 output as the old side of a recovery fade. Check the renderer's production clock and PCM writes against the same track-generation latency source; a separate test-only latency field can hide the mismatch.
+
+## Defer graph rebuilds when processor history cannot migrate
+
+Latency equality alone does not make a replacement graph safe. Do not discard Convolver FIR history or long dynamics envelopes during an active stream; keep the prepared update pending for a fresh AudioTrack generation and test that it is adopted before that generation accepts PCM.
+
+## Exercise live DSP through the production renderer boundary
+
+An internal `AudioTrack.write` adapter allows unit tests to submit LPCM RTP and decoded codec PCM through `AudioRenderer` without a device track. Use latches for worker preparation and format-change races, and verify the first accepted source-sample anchor, generation adoption, fail-open output, and track-generation reset.
+
+## Measure the cold large-block call without test-framework work inside the counter
+
+Allocate the source and prepared graph first, start allocation counting immediately before the first 1,537-frame stereo call, and read the counter before making any test assertions. Keep the full supported PCM16 output and float scratch preallocated, and use an explicit Float copy loop in the identity processor so the measured path avoids bulk-buffer helpers.
+
+## Crossfade canonical floats before PCM16 conversion
+
+Convolver and DSP graph swaps should blend the two pipeline Float32 outputs, then dither and quantize the mixed signal once. Converting each candidate to PCM16 and blending bytes gives an unnecessarily quantized transition.
+
 ## Do not remove a Wi-Fi Direct group from partial identity
 
 When Android omits a system-generated passphrase, the group may be unusable and still unconfirmed for cleanup. Test that the fallback sends a null configuration and that cleanup skips a group without complete identity.
@@ -138,6 +162,34 @@ With `adjustResize`, filtering only surface callbacks is insufficient if a debou
 
 Later main changes can reintroduce raw controller or device identifiers into debug logs even when the PR branch had sanitized them. Search logging expressions after each merge and log availability or hashed identifiers instead.
 
+## Do not infer DSP eligibility from Android usage
+
+Navigation may intentionally use the media route. Keep stream semantics explicit in one classification snapshot and base full-DSP eligibility on that role rather than on the selected Android route.
+
+## Validate audio buffers with frames, channels and encoding together
+
+Compute complete frames from the source encoding before decoding, then require exactly `frames × channels × sizeof(float)` at the processor boundary. Drop and count incomplete trailing frames, keep conversion scratch buffers across chunks, and retain independent dither state so decoder chunk splits do not change output.
+
+## Pass direct-buffer positions into JNI explicitly
+
+JNI direct-buffer addresses point at the allocation base. Send position and remaining-byte counts with the block, validate both capacities and reject overlapping input/output ranges before calling the core, then advance Kotlin buffer positions only after native success.
+
+For combined filter headroom, multiply each section's magnitude at each shared scan frequency before selecting the peak; summing independent band boosts overstates filters at different frequencies. A notch can produce exact zero at a scan point, which is valid and must not invalidate the config. RBJ shelves use fixed S=1 and ignore Q in coefficient calculation.
+
+For a sample-peak limiter with release, recovery may advance only while the stereo-linked frame stays under the ceiling. If release advances on a repeated over-threshold DC sample, it can raise gain between identical samples and exceed the advertised threshold; clamp gain to threshold/peak on every over-threshold frame.
+
+Validate profile numbers and enum names while decoding, then construct the same validated runtime config used by DSP preparation. Check the stored schema before `AtomicFile.startWrite`; a generic parse fallback must not turn an unsupported future profile into a file the older app overwrites.
+
+M/S width must bypass mono buffers rather than synthesizing a second channel. For stereo, use a single linked transform; apply mono-bass HPF to the Side signal, not to Left and Right independently.
+
+For a 3-band LR4 splitter, cascade identical Butterworth sections in each Low, Mid, and High branch and keep independent state for both channels. Measure recombination through steady sine response and impulse energy; chunk comparisons catch state/order mistakes. Cap the highest crossover at 3.5 kHz so the configuration remains below 0.45 Nyquist even at the minimum supported 8 kHz rate.
+
+Every compressor band should reuse the established stereo-linked detector and reset path. Use the largest enabled positive band makeup for conservative static headroom, and increment the persisted profile schema when adding a field so earlier versions cannot silently erase it.
+
+For Dynamic EQ, process a band-pass detector and fixed-gain peaking path continuously, but change only a bounded dry/filter blend every 16 frames. This keeps detector/filter state continuous, avoids unstable coefficient interpolation, and makes arbitrary audio chunk splits deterministic when the control countdown is part of band state.
+
+For live DSP changes, capture one immutable generation, prepare the full pipeline away from audio processing, and let the renderer worker adopt only the newest compatible candidate. Crossfade the two PCM16 outputs through one existing `writePcm` call; hold latency-changing graphs for the next renderer and close retired native state only after the fade completes.
+
 ## Keep audio setup preparation separate from ownership commit
 
 Bind both UDP sockets with no receive workers first, then atomically publish the new generation and only start its workers while it is still current. Keep the previous activated owner available until that start succeeds, and make closed-session commit plus teardown owner reads linearize under the per-type slot lock. Exercise A→B→C and prepare/close interleavings with latches; token checks at the sink and map-removal boundary catch races that an engine-only owner check misses.
@@ -154,6 +206,9 @@ If a sink swallows a synchronous renderer-start failure, the engine can mark an 
 
 After the downlink renderer succeeds, microphone startup still needs its own retry path. Rate-limit retries and liveness checks with a monotonic deadline, and replace an inactive same-token uplink so a capture thread that exits cannot leave a permanent dead entry.
 
+## Isolate Windows AtomicFile rename behavior in profile migration tests
+
+When Robolectric runs on Windows, Android `AtomicFile.finishWrite()` relies on `File.renameTo()` replacing an existing base file, which Windows does not guarantee. Keep production persistence on `AtomicFile`; inject a deterministic writer only into schema-migration tests that need to verify replacement contents, and inspect the failing assertion before changing migration defaults.
 ## Resolve the current iPhone before reactivating a warm YouTube view
 
 A retained GeckoView can still display the prior account while inactive. Hide it and keep its session inactive as split mode opens; re-show it only after the current connection's profile is resolved. Same-profile reuse must not call `open()` or `loadUri()` again.

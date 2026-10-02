@@ -8,9 +8,13 @@ data class AudioPlaybackClock(
     val outputSampleRate: Int,
     val monotonicTimestampNs: Long,
     val source: String,
+    val algorithmicLatencyFrames: Int = 0,
 ) {
+    val contentFrames: Long
+        get() = (playedFrames - algorithmicLatencyFrames.coerceAtLeast(0).toLong()).coerceAtLeast(0L)
+
     val samplePosition: Long
-        get() = (baseRtpSample + framesToSourceSamples(playedFrames, sourceSampleRate, outputSampleRate)) and UINT32_MASK
+        get() = (baseRtpSample + framesToSourceSamples(contentFrames, sourceSampleRate, outputSampleRate)) and UINT32_MASK
 }
 
 /** Maps AudioTrack frame positions back to the RTP sample clock for one track generation. */
@@ -34,7 +38,12 @@ internal class AudioPlaybackClockMapper(private val streamType: Int) {
         }
     }
 
-    fun snapshot(framePosition: Long, timestampNs: Long, source: String): AudioPlaybackClock? {
+    fun snapshot(
+        framePosition: Long,
+        timestampNs: Long,
+        source: String,
+        algorithmicLatencyFrames: Int = 0,
+    ): AudioPlaybackClock? {
         val baseSample = baseRtpSample ?: return null
         return AudioPlaybackClock(
             streamType = streamType,
@@ -44,6 +53,7 @@ internal class AudioPlaybackClockMapper(private val streamType: Int) {
             outputSampleRate = outputSampleRate,
             monotonicTimestampNs = timestampNs,
             source = source,
+            algorithmicLatencyFrames = algorithmicLatencyFrames.coerceAtLeast(0),
         )
     }
 }

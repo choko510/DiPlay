@@ -227,6 +227,15 @@ class DiPlayActivity : ComponentActivity() {
         content.addView(label(getString(R.string.ui_settings_title), 34, TEXT, true))
         content.addView(label(getString(R.string.ui_settings_description), 17, MUTED).apply { setPadding(0, dp(8), 0, dp(24)) })
         section(content, getString(R.string.ui_language_section)) { card -> languageSelector(card) }
+        section(content, getString(R.string.dsp_settings_entry_title)) { card ->
+            card.addView(label(getString(R.string.dsp_settings_entry_description), 15, MUTED))
+            card.addView(
+                button(getString(R.string.dsp_settings_entry_button), false) {
+                    startActivity(Intent(this, DspSettingsActivity::class.java))
+                },
+                matchButton(12, 60),
+            )
+        }
         section(content, getString(R.string.ui_automatic_connection)) { card ->
             toggle(card, getString(R.string.ui_connect_on_open), getString(R.string.ui_connect_on_open_description), DiPlayPreferences.autoConnect(this)) { DiPlayPreferences.saveAutoConnect(this, it) }
             toggle(card, getString(R.string.ui_start_with_car), getString(R.string.ui_start_with_car_description), AirPlayPersistence.loadAutoStartOnBoot(this)) { AirPlayPersistence.saveAutoStartOnBoot(this, it) }

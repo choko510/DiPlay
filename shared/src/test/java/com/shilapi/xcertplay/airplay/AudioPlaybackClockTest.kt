@@ -6,6 +6,28 @@ import org.junit.Test
 
 class AudioPlaybackClockTest {
     @Test
+    fun subtractsOutputFrameLatencyBeforeConvertingToSourceSamples() {
+        val mapper = AudioPlaybackClockMapper(streamType = 100)
+        mapper.reset(sourceRate = 44_100, outputRate = 48_000)
+        mapper.onPcmWritten(sourceSample = 0xffff_ff00L)
+
+        val beforeLatency = mapper.snapshot(255, 10, "playbackHead", algorithmicLatencyFrames = 256)!!
+        val atLatency = mapper.snapshot(256, 11, "playbackHead", algorithmicLatencyFrames = 256)!!
+        val afterLatency = mapper.snapshot(257, 12, "playbackHead", algorithmicLatencyFrames = 256)!!
+        val later = mapper.snapshot(1000, 13, "playbackHead", algorithmicLatencyFrames = 256)!!
+
+        assertEquals(0L, beforeLatency.contentFrames)
+        assertEquals(0xffff_ff00L, beforeLatency.samplePosition)
+        assertEquals(0L, atLatency.contentFrames)
+        assertEquals(0xffff_ff00L, atLatency.samplePosition)
+        assertEquals(1L, afterLatency.contentFrames)
+        assertEquals(0xffff_ff00L, afterLatency.samplePosition)
+        assertEquals(744L, later.contentFrames)
+        assertEquals((0xffff_ff00L + 744L * 44_100L / 48_000L) and 0xffff_ffffL, later.samplePosition)
+        assertEquals(256, later.algorithmicLatencyFrames)
+    }
+
+    @Test
     fun mapsPlayedFramesFromTheRtpBaseAtFortyEightKilohertz() {
         val mapper = AudioPlaybackClockMapper(streamType = 100)
         mapper.reset(sourceRate = 48_000, outputRate = 48_000)

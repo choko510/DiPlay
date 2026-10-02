@@ -21,6 +21,22 @@ class DspRuntimeConfig(
     val preampDb: Double
         get() = gainDb
 
+    internal fun withConvolver(convolver: DspConvolverConfig): DspRuntimeConfig = DspRuntimeConfig(
+        enabled = enabled,
+        gainDb = gainDb,
+        peqBands = peqBands,
+        autoHeadroomEnabled = autoHeadroomEnabled,
+        autoHeadroomMarginDb = autoHeadroomMarginDb,
+        bass = bass,
+        compressor = compressor,
+        safetyLimiter = safetyLimiter,
+        stereoWidth = stereoWidth,
+        monoBass = monoBass,
+        convolver = convolver,
+        multiband = multiband,
+        dynamicEq = dynamicEq,
+    )
+
     init {
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)
         require(this.peqBands.size <= DspEqDesigner.MAX_BANDS)

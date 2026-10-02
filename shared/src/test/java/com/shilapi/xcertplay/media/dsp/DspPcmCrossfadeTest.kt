@@ -1,7 +1,5 @@
 package com.shilapi.xcertplay.media.dsp
 
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -11,41 +9,31 @@ class DspPcmCrossfadeTest {
     @Test
     fun gainTransitionRampsWithoutAFullScaleStep() {
         val crossfade = DspPcmCrossfade(channels = 1, durationFrames = 20)
-        val from = pcm16(FloatArray(20) { 0.8f })
-        val to = pcm16(FloatArray(20) { 0.4f })
-        val output = ByteArray(from.size)
+        val from = FloatArray(20) { 0.8f }
+        val to = FloatArray(20) { 0.4f }
+        val output = FloatArray(from.size)
         crossfade.begin()
 
-        assertTrue(crossfade.blend(from, 0, to, 0, output, 0, output.size))
+        assertTrue(crossfade.blend(from, to, output, output.size))
 
-        val values = samples(output)
-        assertTrue(values.zipWithNext().all { (a, b) -> b <= a })
-        assertEquals(values.first(), samples(from).first())
-        assertEquals(samples(to).last(), values.last())
+        for (frame in 1 until output.size) assertTrue(output[frame] <= output[frame - 1])
+        assertEquals(from.first(), output.first(), 0f)
+        assertEquals(to.last(), output.last(), 0f)
         assertFalse(crossfade.isActive)
     }
 
     @Test
     fun stereoTransitionUsesTheSameMixForBothChannelsAndRejectsBadRanges() {
         val crossfade = DspPcmCrossfade(channels = 2, durationFrames = 4)
-        val from = pcm16(floatArrayOf(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f))
-        val to = pcm16(floatArrayOf(0.25f, -0.25f, 0.25f, -0.25f, 0.25f, -0.25f, 0.25f, -0.25f))
-        val output = ByteArray(from.size)
+        val from = floatArrayOf(0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f, 0.5f, -0.5f)
+        val to = floatArrayOf(0.25f, -0.25f, 0.25f, -0.25f, 0.25f, -0.25f, 0.25f, -0.25f)
+        val output = FloatArray(from.size)
         crossfade.begin()
 
-        assertFalse(crossfade.blend(from, -1, to, 0, output, 0, output.size))
+        assertFalse(crossfade.blend(from, to, FloatArray(2), 4))
         crossfade.begin()
-        assertTrue(crossfade.blend(from, 0, to, 0, output, 0, output.size))
-        val values = samples(output)
-        for (frame in 0 until 4) assertEquals(values[frame * 2], -values[frame * 2 + 1])
+        assertTrue(crossfade.blend(from, to, output, 4))
+        for (frame in 0 until 4) assertEquals(output[frame * 2], -output[frame * 2 + 1], 0f)
+        assertEquals(0.25f, output[6], 0f)
     }
-
-    private fun pcm16(samples: FloatArray): ByteArray = ByteBuffer.allocate(samples.size * Short.SIZE_BYTES)
-        .order(ByteOrder.LITTLE_ENDIAN)
-        .apply { samples.forEach { putShort((it * Short.MAX_VALUE).toInt().toShort()) } }
-        .array()
-
-    private fun samples(bytes: ByteArray): List<Int> = ByteBuffer.wrap(bytes)
-        .order(ByteOrder.LITTLE_ENDIAN)
-        .run { List(bytes.size / Short.SIZE_BYTES) { short.toInt() } }
 }

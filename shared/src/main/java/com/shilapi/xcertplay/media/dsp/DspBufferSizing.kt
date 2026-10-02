@@ -2,6 +2,8 @@ package com.shilapi.xcertplay.media.dsp
 
 internal object DspBufferSizing {
     const val PROCESSING_CHUNK_FRAMES = 512
+    const val MAX_DECODER_PCM_FRAMES = 16_384
+    const val MAX_DECODER_PCM_BYTES = MAX_DECODER_PCM_FRAMES * 2 * Float.SIZE_BYTES
 
     fun floatByteCount(frames: Int, channels: Int): Int {
         require(frames >= 0)

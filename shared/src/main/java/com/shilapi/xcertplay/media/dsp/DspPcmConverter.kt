@@ -13,6 +13,69 @@ internal enum class DspPcmEncoding(val bytesPerSample: Int) {
 }
 
 internal object DspPcmConverter {
+    fun pcmToFloatArray(
+        source: ByteArray,
+        offset: Int,
+        length: Int,
+        encoding: DspPcmEncoding,
+        format: DspAudioFormat,
+        destination: FloatArray,
+    ): Int {
+        if (offset < 0 || length < 0 || offset > source.size - length) return -1
+        val frameBytes = encoding.bytesPerSample * format.channels
+        val completeLength = length - length % frameBytes
+        val frames = completeLength / frameBytes
+        val sampleCount = frames.toLong() * format.channels
+        if (sampleCount > destination.size) return -1
+        var sourceIndex = offset
+        var destinationIndex = 0
+        repeat(frames * format.channels) {
+            destination[destinationIndex++] = decodeSample(source, sourceIndex, encoding)
+            sourceIndex += encoding.bytesPerSample
+        }
+        return frames
+    }
+
+    fun floatArrayToPcm16(
+        source: FloatArray,
+        frames: Int,
+        format: DspAudioFormat,
+        destination: ByteArray,
+        offset: Int,
+        dither: DspTpdfDither?,
+        diagnostics: DspDiagnostics? = null,
+        initialSilenceFrames: Int = 0,
+    ): Boolean {
+        if (frames <= 0 || initialSilenceFrames !in 0..frames || offset < 0) return false
+        val sampleCount = frames.toLong() * format.channels
+        val destinationBytes = sampleCount * Short.SIZE_BYTES
+        if (sampleCount > source.size || destinationBytes > Int.MAX_VALUE ||
+            offset.toLong() > destination.size.toLong() - destinationBytes
+        ) {
+            return false
+        }
+        var sourceIndex = 0
+        var destinationIndex = offset
+        repeat(frames) { frame ->
+            repeat(format.channels) { channel ->
+                val raw = source[sourceIndex]
+                val finite = if (raw.isFinite()) raw else {
+                    diagnostics?.let { it.nonFiniteOutputSamples++ }
+                    0f
+                }
+                val clipped = if (frame < initialSilenceFrames) 0f else finite.coerceIn(-1f, MAX_PCM16_FLOAT)
+                val noise = if (frame < initialSilenceFrames) 0.0 else dither?.nextTpdf(channel) ?: 0.0
+                val quantized = (clipped * 32768f).toDouble().plus(noise)
+                    .roundToInt().coerceIn(-32768, 32767)
+                destination[destinationIndex] = quantized.toByte()
+                destination[destinationIndex + 1] = (quantized shr 8).toByte()
+                sourceIndex++
+                destinationIndex += Short.SIZE_BYTES
+            }
+        }
+        return true
+    }
+
     fun pcmToFloat(
         source: ByteArray,
         offset: Int,
@@ -31,7 +94,19 @@ internal object DspPcmConverter {
 
         var sourceIndex = offset
         repeat(frames * format.channels) {
-            val value = when (encoding) {
+            val value = decodeSample(source, sourceIndex, encoding, diagnostics)
+            destination.putFloat(value)
+            sourceIndex += encoding.bytesPerSample
+        }
+        return frames
+    }
+
+    private fun decodeSample(
+        source: ByteArray,
+        sourceIndex: Int,
+        encoding: DspPcmEncoding,
+        diagnostics: DspDiagnostics? = null,
+    ): Float = when (encoding) {
                 DspPcmEncoding.PCM8 ->
                     ((source[sourceIndex].toInt() and 0xff) - 128) / 128f
                 DspPcmEncoding.PCM16 -> {
@@ -66,11 +141,6 @@ internal object DspPcmConverter {
                     }
                 }
             }
-            destination.putFloat(value)
-            sourceIndex += encoding.bytesPerSample
-        }
-        return frames
-    }
 
     fun floatToPcm16(
         source: ByteBuffer,

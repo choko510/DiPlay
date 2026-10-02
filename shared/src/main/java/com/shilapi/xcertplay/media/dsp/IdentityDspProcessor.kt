@@ -21,7 +21,12 @@ internal class IdentityDspProcessor(
         ) {
             return result.failure(frames, latencyFrames, DspBypassReason.INVALID_BUFFER)
         }
-        output.put(input)
+        val inputPosition = input.position()
+        val sampleCount = (expectedByteCount / Float.SIZE_BYTES).toInt()
+        repeat(sampleCount) { sample ->
+            output.putFloat(input.getFloat(inputPosition + sample * Float.SIZE_BYTES))
+        }
+        input.position(inputPosition + expectedByteCount.toInt())
         return result.success(frames, latencyFrames)
     }
 

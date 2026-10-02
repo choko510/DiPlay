@@ -7,6 +7,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -14,6 +15,63 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DspLiveUpdateControllerTest {
+    @Test
+    fun initialLatencyCandidateIsAllowedBeforeAnyTrackContentIsCommitted() {
+        val provider = MutableConfigProvider()
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            canAdoptLatencyChange = { true },
+            onPrepared = { prepared.offer(it) },
+            pipelinePreparer = { format, _ -> trackingPipeline(format, 128) { } },
+        )
+
+        provider.update(DspRuntimeConfig(enabled = true))
+        val initial = prepared.poll(5, TimeUnit.SECONDS)
+
+        assertNotNull(initial)
+        assertEquals(128, initial?.latencyFrames)
+        assertEquals(DspAudioFormat(48_000, 2), initial?.format)
+        initial?.pipeline?.close()
+        controller.close()
+    }
+
+    @Test
+    fun initialLatencyCandidateCompletingAfterFirstCommitIsDeferred() {
+        val provider = MutableConfigProvider()
+        val preparing = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val deferred = LinkedBlockingQueue<Long>()
+        val committed = AtomicBoolean(false)
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            canAdoptLatencyChange = { !committed.get() },
+            onPrepared = { it.pipeline?.close() },
+            onDeferred = { deferred.offer(it) },
+            pipelinePreparer = { format, _ ->
+                preparing.countDown()
+                check(release.await(5, TimeUnit.SECONDS))
+                trackingPipeline(format, 128) { }
+            },
+        )
+
+        provider.update(DspRuntimeConfig(enabled = true))
+        assertTrue(preparing.await(5, TimeUnit.SECONDS))
+        committed.set(true)
+        release.countDown()
+
+        assertEquals(1L, deferred.poll(5, TimeUnit.SECONDS))
+        controller.close()
+    }
+
     @Test
     fun peqSnapshotPreparesOffTheAudioThread() {
         val provider = MutableConfigProvider()

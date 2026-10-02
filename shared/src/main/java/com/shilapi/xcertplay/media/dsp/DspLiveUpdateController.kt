@@ -12,10 +12,13 @@ import java.util.concurrent.atomic.AtomicReferenceArray
 
 internal data class DspPreparedUpdate(
     val generation: Long,
+    val format: DspAudioFormat,
     val config: DspRuntimeConfig,
     val pipeline: DspPcmPipeline?,
     val latencyFrames: Int,
 )
+
+internal typealias DspPipelinePreparer = (DspAudioFormat, DspRuntimeConfig) -> DspPcmPipeline?
 
 internal class DspLiveUpdateController(
     private val format: DspAudioFormat,
@@ -26,7 +29,8 @@ internal class DspLiveUpdateController(
     private val onPrepared: (DspPreparedUpdate) -> Unit,
     private val onPreparing: (DspConfigSnapshot) -> Unit = { },
     private val onDeferred: (Long) -> Unit = { },
-    private val pipelinePreparer: (DspAudioFormat, DspRuntimeConfig) -> DspPcmPipeline? =
+    private val canAdoptLatencyChange: () -> Boolean = { false },
+    private val pipelinePreparer: DspPipelinePreparer =
         { targetFormat, config -> createNativePipeline(role, targetFormat, config) },
 ) : Closeable {
     private val controlExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
@@ -74,8 +78,14 @@ internal class DspLiveUpdateController(
                 val snapshot = desired.get() ?: return
                 if (snapshot.generation <= lastHandledGeneration.get()) return
                 val pipeline = pipelinePreparer(format, snapshot.config)
+                if (pipeline != null && pipeline.format != format) {
+                    runCatching { pipeline.close() }
+                    lastHandledGeneration.set(snapshot.generation)
+                    runCatching { onDeferred(snapshot.generation) }
+                    continue
+                }
                 val latencyFrames = pipeline?.algorithmicLatencyFrames ?: 0
-                if (latencyFrames != activeLatencyFrames()) {
+                if (latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()) {
                     runCatching { pipeline?.close() }
                     lastHandledGeneration.set(snapshot.generation)
                     runCatching { onDeferred(snapshot.generation) }
@@ -90,7 +100,7 @@ internal class DspLiveUpdateController(
                     return
                 }
                 lastHandledGeneration.set(snapshot.generation)
-                runCatching { onPrepared(DspPreparedUpdate(snapshot.generation, snapshot.config, pipeline, latencyFrames)) }
+                runCatching { onPrepared(DspPreparedUpdate(snapshot.generation, format, snapshot.config, pipeline, latencyFrames)) }
                     .onFailure { runCatching { pipeline?.close() } }
             }
         } finally {
@@ -131,7 +141,7 @@ internal class DspLiveUpdateController(
 private const val MAINTENANCE_INTERVAL_MS = 10L
 private const val MAX_RETIRED_PIPELINES = 8
 
-private fun createNativePipeline(
+internal fun createNativePipeline(
     role: DspStreamRole,
     format: DspAudioFormat,
     config: DspRuntimeConfig,

@@ -16,6 +16,53 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class NativeDspBridgeInstrumentedTest {
     @Test
+    fun nativeProcessRejectsMisalignedDirectBufferPositions() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val format = DspAudioFormat(sampleRate = 48_000, channels = 1)
+        val prepared = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+        ).prepare(format)
+        val handle = NativeDspJni.create(
+            sampleRate = format.sampleRate,
+            channels = format.channels,
+            maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
+            gainDb = prepared.appliedPreampDb,
+            eqCoefficients = prepared.eqCoefficients,
+            dynamics = prepared.dynamics,
+            multiband = prepared.multiband,
+            dynamicEq = prepared.dynamicEq,
+            bassCoefficients = prepared.bassCoefficients,
+            monoBassCoefficients = prepared.monoBassCoefficients,
+            spatial = prepared.spatial,
+            convolverConfig = prepared.convolverConfig,
+            convolverSamples = prepared.convolverSamples,
+        )
+        assertTrue(handle > 0L)
+        try {
+            val input = ByteBuffer.allocateDirect(8).order(ByteOrder.nativeOrder())
+            val output = ByteBuffer.allocateDirect(Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+
+            val status = NativeDspJni.process(
+                handle = handle,
+                input = input,
+                inputPosition = 1,
+                inputRemaining = Float.SIZE_BYTES,
+                output = output,
+                outputPosition = 0,
+                outputRemaining = Float.SIZE_BYTES,
+                frames = 1,
+                channels = 1,
+            )
+
+            assertEquals(3, status)
+        } finally {
+            NativeDspJni.destroy(handle)
+        }
+    }
+
+    @Test
     fun loadCreateProcessResetDestroyAndRejectInvalidHandle() {
         assertTrue(NativeDspLibrary.ensureLoaded())
         assertTrue(NativeDspJni.reset(0L) != 0)

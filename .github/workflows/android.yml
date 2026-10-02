@@ -51,6 +51,11 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
           script: ./gradlew :shared:connectedDebugAndroidTest --stacktrace
+      - name: Capture DSP benchmark evidence
+        if: always()
+        run: |
+          mkdir -p shared/build/outputs/dsp-benchmark
+          adb logcat -d -v threadtime -s DspPipelineBenchmark:I > shared/build/outputs/dsp-benchmark/logcat.txt || true
       - name: Test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -61,3 +66,4 @@ jobs:
             common/build/reports/tests/
             mobile/build/reports/lint-results-debug.html
             automotive/build/reports/lint-results-debug.html
+            shared/build/outputs/dsp-benchmark/

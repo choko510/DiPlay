@@ -22,7 +22,7 @@ fi
 build_dir="$(mktemp -d)"
 trap 'rm -rf "$build_dir"' EXIT
 
-flags=(-std=c11 -Wall -Wextra -Werror -pedantic -g -I"$source_dir" -I"$root_dir/shared/src/main/jni/third_party/kissfft")
+flags=(-std=c11 -Wall -Wextra -Werror -pedantic -g -DDSP_ENGINE_TESTING=1 -I"$source_dir" -I"$root_dir/shared/src/main/jni/third_party/kissfft")
 if [[ $sanitize -eq 1 ]]; then
   flags+=(-O1 -fsanitize=address,undefined -fno-omit-frame-pointer)
 else

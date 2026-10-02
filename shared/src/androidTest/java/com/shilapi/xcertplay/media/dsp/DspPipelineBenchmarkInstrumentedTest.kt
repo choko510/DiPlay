@@ -14,6 +14,29 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class DspPipelineBenchmarkInstrumentedTest {
+    @Suppress("DEPRECATION")
+    @Test
+    fun cold1537FrameStereoPipelineCallDoesNotAllocate() {
+        val format = DspAudioFormat(48_000, 2)
+        val source = inputBlock(format, frames = 1_537)
+        val pipeline = DspPcmPipeline(format, IdentityDspProcessor(format), seed = 11)
+        try {
+            Debug.startAllocCounting()
+            var outputLength = 0
+            val allocations = try {
+                Debug.resetThreadAllocCount()
+                outputLength = pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16)
+                Debug.getThreadAllocCount()
+            } finally {
+                Debug.stopAllocCounting()
+            }
+            assertEquals(source.size, outputLength)
+            assertEquals("cold large-block Kotlin allocations", 0, allocations)
+        } finally {
+            pipeline.close()
+        }
+    }
+
     @Test
     fun benchmarks44100Mono() = benchmarkMatrix(sampleRate = 44_100, channels = 1)
 
@@ -54,6 +77,14 @@ class DspPipelineBenchmarkInstrumentedTest {
                 val fullPipeline = diagnostics.pipelineProcessUs
                 assertEquals(MEASURED_BLOCKS.toLong(), native.sampleCount)
                 assertEquals(MEASURED_BLOCKS.toLong(), fullPipeline.sampleCount)
+                val blockDurationUs =
+                    DspBufferSizing.PROCESSING_CHUNK_FRAMES * 1_000_000L / sampleRate
+                val heavyCase = benchmarkCase.name.startsWith("Convolver") || benchmarkCase.name == "FullHeavyChain"
+                val p99CeilingUs = blockDurationUs * (if (heavyCase) 50L else 25L) / 100L
+                assertTrue(
+                    "${benchmarkCase.name} pipeline p99=${fullPipeline.p99Us}us exceeded ${p99CeilingUs}us",
+                    fullPipeline.p99Us < p99CeilingUs,
+                )
                 Log.i(
                     TAG,
                     "DSP_BENCHMARK case=${benchmarkCase.name} sampleRate=$sampleRate channels=$channels " +
@@ -229,10 +260,13 @@ class DspPipelineBenchmarkInstrumentedTest {
         )
     }
 
-    private fun inputBlock(format: DspAudioFormat): ByteArray {
-        val result = ByteArray(DspBufferSizing.pcm16ByteCount(DspBufferSizing.PROCESSING_CHUNK_FRAMES, format.channels))
+    private fun inputBlock(
+        format: DspAudioFormat,
+        frames: Int = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
+    ): ByteArray {
+        val result = ByteArray(DspBufferSizing.pcm16ByteCount(frames, format.channels))
         var offset = 0
-        for (frame in 0 until DspBufferSizing.PROCESSING_CHUNK_FRAMES) {
+        for (frame in 0 until frames) {
             val sample = (
                 0.68 * sin(2.0 * PI * 997.0 * frame / format.sampleRate) +
                     0.12 * sin(2.0 * PI * 7_003.0 * frame / format.sampleRate)

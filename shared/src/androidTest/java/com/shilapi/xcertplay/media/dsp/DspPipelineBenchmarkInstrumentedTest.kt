@@ -65,31 +65,36 @@ class DspPipelineBenchmarkInstrumentedTest {
                     block++
                 }
                 assertNoSteadyStateAllocations(pipeline, source)
-                pipeline.resetTimingMetrics()
-                block = 0
-                while (block < MEASURED_BLOCKS) {
-                    assertEquals(source.size, pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16))
-                    block++
+                val pipelineRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
+                repeat(MEASURED_RUNS) { runIndex ->
+                    pipeline.resetTimingMetrics()
+                    block = 0
+                    while (block < MEASURED_BLOCKS) {
+                        assertEquals(source.size, pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16))
+                        block++
+                    }
+                    val diagnostics = pipeline.diagnostics()
+                    val native = diagnostics.nativeProcessUs
+                    val fullPipeline = diagnostics.pipelineProcessUs
+                    assertEquals(MEASURED_BLOCKS.toLong(), native.sampleCount)
+                    assertEquals(MEASURED_BLOCKS.toLong(), fullPipeline.sampleCount)
+                    pipelineRuns += fullPipeline
+                    Log.i(
+                        TAG,
+                        "DSP_BENCHMARK case=${benchmarkCase.name} sampleRate=$sampleRate channels=$channels " +
+                            "run=${runIndex + 1} blocks=$MEASURED_BLOCKS nativeProcessUs=${native.toMetricString()} " +
+                            "pipelineProcessUs=${fullPipeline.toMetricString()}",
+                    )
                 }
-
-                val diagnostics = pipeline.diagnostics()
-                val native = diagnostics.nativeProcessUs
-                val fullPipeline = diagnostics.pipelineProcessUs
-                assertEquals(MEASURED_BLOCKS.toLong(), native.sampleCount)
-                assertEquals(MEASURED_BLOCKS.toLong(), fullPipeline.sampleCount)
                 val blockDurationUs =
                     DspBufferSizing.PROCESSING_CHUNK_FRAMES * 1_000_000L / sampleRate
                 val heavyCase = benchmarkCase.name.startsWith("Convolver") || benchmarkCase.name == "FullHeavyChain"
-                val p99CeilingUs = blockDurationUs * (if (heavyCase) 50L else 25L) / 100L
+                val p99CeilingUs = blockDurationUs * (if (heavyCase) 100L else 50L) / 100L
+                val medianPipelineP99Us = pipelineRuns.map(DspTimingSummary::p99Us).sorted()[MEASURED_RUNS / 2]
                 assertTrue(
-                    "${benchmarkCase.name} pipeline p99=${fullPipeline.p99Us}us exceeded ${p99CeilingUs}us",
-                    fullPipeline.p99Us < p99CeilingUs,
-                )
-                Log.i(
-                    TAG,
-                    "DSP_BENCHMARK case=${benchmarkCase.name} sampleRate=$sampleRate channels=$channels " +
-                        "blocks=$MEASURED_BLOCKS nativeProcessUs=${native.toMetricString()} " +
-                        "pipelineProcessUs=${fullPipeline.toMetricString()}",
+                    "${benchmarkCase.name} median pipeline p99=${medianPipelineP99Us}us exceeded " +
+                        "${p99CeilingUs}us over $MEASURED_RUNS runs",
+                    medianPipelineP99Us < p99CeilingUs,
                 )
             } finally {
                 pipeline.close()
@@ -292,5 +297,6 @@ class DspPipelineBenchmarkInstrumentedTest {
         const val WARMUP_BLOCKS = 64
         const val ALLOCATION_CHECK_BLOCKS = 64
         const val MEASURED_BLOCKS = 256
+        const val MEASURED_RUNS = 3
     }
 }

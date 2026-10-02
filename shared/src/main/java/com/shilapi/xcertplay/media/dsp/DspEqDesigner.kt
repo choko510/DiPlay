@@ -257,10 +257,13 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         require(multiband.midHighCrossoverHz < format.sampleRate * 0.45)
     }
     val multibandNativeValues = multiband.toNativeValues()
-    if (dynamicEq.enabled) {
-        require(dynamicEq.bands.filter(DspDynamicEqBandConfig::enabled).all { it.frequencyHz < format.sampleRate * 0.45 })
-    }
-    val dynamicEqNativeValues = dynamicEq.toNativeValues()
+    val rateSafeDynamicEq = DspDynamicEqConfig(
+        enabled = dynamicEq.enabled,
+        bands = dynamicEq.bands.map { band ->
+            if (band.enabled && band.frequencyHz >= format.sampleRate * 0.45) band.copy(enabled = false) else band
+        },
+    )
+    val dynamicEqNativeValues = rateSafeDynamicEq.toNativeValues()
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
@@ -276,8 +279,9 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             } else {
                 0.0
             },
-            dynamicBoostDb = if (dynamicEq.enabled) {
-                dynamicEq.bands.filter { it.enabled && it.mode == DspDynamicEqMode.BOOST }.sumOf(DspDynamicEqBandConfig::maxBoostDb)
+            dynamicBoostDb = if (rateSafeDynamicEq.enabled) {
+                rateSafeDynamicEq.bands.filter { it.enabled && it.mode == DspDynamicEqMode.BOOST }
+                    .sumOf(DspDynamicEqBandConfig::maxBoostDb)
             } else {
                 0.0
             },

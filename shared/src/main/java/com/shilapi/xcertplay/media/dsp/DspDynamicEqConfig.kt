@@ -85,6 +85,7 @@ class DspDynamicEqConfig(
     companion object {
         const val MAX_BANDS = 5
         const val NATIVE_VALUE_COUNT = 51
+        const val UI_MAX_FREQUENCY_HZ = 19_800.0
         private const val HEADER_VALUE_COUNT = 1
         private const val VALUES_PER_BAND = 10
 

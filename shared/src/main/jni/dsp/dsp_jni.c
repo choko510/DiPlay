@@ -383,15 +383,27 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeProcess(
         return DSP_STATUS_INVALID_BUFFER;
     }
 
-    const float *input = (const float *)((uint8_t *)input_address + input_position);
-    float *output = (float *)((uint8_t *)output_address + output_position);
-    const uintptr_t input_start = (uintptr_t)input;
-    const uintptr_t output_start = (uintptr_t)output;
+    const uintptr_t input_base = (uintptr_t)input_address;
+    const uintptr_t output_base = (uintptr_t)output_address;
     const uintptr_t expected_size = (uintptr_t)expected_bytes;
+    if ((uintptr_t)input_position > UINTPTR_MAX - input_base ||
+        (uintptr_t)output_position > UINTPTR_MAX - output_base) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_BUFFER;
+    }
+    const uintptr_t input_start = input_base + (uintptr_t)input_position;
+    const uintptr_t output_start = output_base + (uintptr_t)output_position;
+    if (input_start % _Alignof(float) != 0 || output_start % _Alignof(float) != 0 ||
+        expected_size > UINTPTR_MAX - input_start || expected_size > UINTPTR_MAX - output_start) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_BUFFER;
+    }
     if (input_start < output_start + expected_size && output_start < input_start + expected_size) {
         release_engine(&lease);
         return DSP_STATUS_INVALID_ARGUMENT;
     }
+    const float *input = (const float *)input_start;
+    float *output = (float *)output_start;
     const dsp_status status = dsp_engine_process(
         lease.engine,
         input,

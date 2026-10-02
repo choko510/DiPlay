@@ -45,16 +45,34 @@ class DspDynamicEqConfigTest {
         )
         assertFalse(runCatching { DspDynamicEqBandConfig(frequencyHz = Double.NaN) }.isSuccess)
         assertFalse(runCatching { DspDynamicEqBandConfig(maxBoostDb = 12.1) }.isSuccess)
-        assertFalse(
-            runCatching {
-                DspRuntimeConfig(
-                    enabled = true,
-                    dynamicEq = DspDynamicEqConfig(
-                        enabled = true,
-                        bands = listOf(DspDynamicEqBandConfig(enabled = true, frequencyHz = 4_000.0)),
-                    ),
-                ).prepare(DspAudioFormat(8_000, 2))
-            }.isSuccess,
+        val lowRatePrepared = DspRuntimeConfig(
+            enabled = true,
+            dynamicEq = DspDynamicEqConfig(
+                enabled = true,
+                bands = listOf(DspDynamicEqBandConfig(enabled = true, frequencyHz = 4_000.0)),
+            ),
+        ).prepare(DspAudioFormat(8_000, 2))
+        assertEquals(0.0, lowRatePrepared.dynamicEq[1], 0.0)
+    }
+
+    @Test
+    fun highLegacyFrequencyIsDisabledPerBandAt44100AndRemainsValidAt48000() {
+        val bands = DspDynamicEqConfig.defaultBands().toMutableList()
+        bands[0] = DspDynamicEqBandConfig(enabled = true, frequencyHz = 20_000.0)
+        val config = DspRuntimeConfig(
+            enabled = true,
+            gainDb = 3.0,
+            autoHeadroomEnabled = false,
+            dynamicEq = DspDynamicEqConfig(enabled = true, bands = bands),
         )
+
+        val prepared44100 = config.prepare(DspAudioFormat(44_100, 2))
+        val prepared48000 = config.prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals(0.0, prepared44100.dynamicEq[1], 0.0)
+        assertEquals(1.0, prepared48000.dynamicEq[1], 0.0)
+        assertEquals(3.0, prepared44100.appliedPreampDb, 0.0)
+        assertEquals(20_000.0, config.dynamicEq.bands[0].frequencyHz, 0.0)
+        assertEquals(19_800.0, DspDynamicEqConfig.UI_MAX_FREQUENCY_HZ, 0.0)
     }
 }

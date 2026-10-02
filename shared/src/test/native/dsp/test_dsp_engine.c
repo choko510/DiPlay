@@ -191,6 +191,8 @@ static void assert_near(double actual, double expected, double tolerance, const 
     }
 }
 
+static double measure_sine_gain(dsp_engine *engine, double frequency, int channels);
+
 static void test_gain_and_meter(void) {
     const double gain_db = 6.020599913279624;
     dsp_engine *engine = create_test_engine(48000, 2, 512, gain_db, NULL, 0);
@@ -316,6 +318,25 @@ static void test_nonfinite_samples_and_reset(void) {
     dsp_engine_destroy(engine);
 }
 
+static void test_processed_frame_counter_saturates_without_wrap(void) {
+    dsp_engine *engine = create_test_engine(48000, 1, 1, 0.0, NULL, 0);
+    assert_true(engine != NULL, "counter boundary engine creates");
+    const float input[] = {0.25f};
+    float output[] = {0.0f};
+    dsp_engine_diagnostics diagnostics;
+
+    dsp_engine_test_set_processed_frames(engine, UINT32_MAX - 1U);
+    assert_true(dsp_engine_process(engine, input, 1, output, 1, 1, 1) == DSP_STATUS_OK,
+        "counter reaches its saturation boundary");
+    assert_true(dsp_engine_process(engine, input, 1, output, 1, 1, 1) == DSP_STATUS_OK,
+        "counter stays valid after reaching its boundary");
+    assert_true(dsp_engine_get_diagnostics(engine, &diagnostics) == DSP_STATUS_OK,
+        "saturated counter diagnostics are readable");
+    assert_true(diagnostics.processed_frames == UINT32_MAX,
+        "processed frame counter saturates instead of wrapping");
+    dsp_engine_destroy(engine);
+}
+
 static void design_peak(double sample_rate, double frequency, double q, double gain_db, double coefficients[5]) {
     const double pi = 3.14159265358979323846;
     const double omega = 2.0 * pi * frequency / sample_rate;
@@ -412,6 +433,33 @@ static void test_peq_stereo_state_and_denormal_flush(void) {
         "small state filter second block processes");
     assert_near(second_output[0], 0.0, 0.0, "denormal state flushes at block end");
     dsp_engine_destroy(denormal);
+}
+
+static void test_peq_fifteenth_band_is_active(void) {
+    double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0};
+    for (size_t band = 0; band < DSP_BIQUAD_MAX_BANDS; band++) {
+        coefficients[band * DSP_BIQUAD_COEFFICIENT_COUNT] = 1.0;
+    }
+    design_peak(
+        48000.0,
+        1000.0,
+        1.0,
+        6.0,
+        coefficients + (DSP_BIQUAD_MAX_BANDS - 1) * DSP_BIQUAD_COEFFICIENT_COUNT);
+    dsp_engine *engine = create_test_engine(
+        48000,
+        1,
+        512,
+        0.0,
+        coefficients,
+        DSP_BIQUAD_MAX_BANDS);
+    assert_true(engine != NULL, "15th-band PEQ graph creates");
+    assert_near(
+        measure_sine_gain(engine, 1000.0, 1),
+        pow(10.0, 6.0 / 20.0),
+        0.03,
+        "active 15th PEQ band applies its configured boost");
+    dsp_engine_destroy(engine);
 }
 
 static void test_compressor_transfer_curve(void) {
@@ -524,6 +572,17 @@ static void test_stereo_limiter_caps_sample_peaks_and_preserves_image(void) {
         assert_true(fabs(output[index]) <= threshold + 1e-6, "sample peak stays below limiter threshold");
     }
     assert_near(output[0], -output[1], 1e-6, "linked limiter preserves anti-phase image");
+
+    assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "limiter resets before sustained overload");
+    const float sustained_overload[] = {2.0f, -2.0f, 1.0f, -1.0f};
+    float overload_output[4] = {0.0f};
+    assert_true(dsp_engine_process(engine, sustained_overload, 4, overload_output, 4, 2, 2) == DSP_STATUS_OK,
+        "limiter processes consecutive over-threshold peaks");
+    assert_near(fabs(overload_output[0]), threshold, 1e-6, "first overload frame reaches the hard ceiling");
+    assert_true(fabs(overload_output[2]) < threshold,
+        "limiter does not recover gain while the signal remains over threshold");
+    assert_near(overload_output[2], threshold / 2.0, 1e-6,
+        "limiter retains the gain reduction across a still-hot frame");
 
     assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "limiter reset succeeds");
     for (size_t index = 0; index < 512; index++) {
@@ -1055,6 +1114,46 @@ static void test_dynamic_eq_threshold_modes_and_band_selectivity(void) {
     dsp_engine_destroy(engine);
 }
 
+static double measure_dynamic_eq_mix_gain_db(int mode, double threshold_db) {
+    dsp_dynamic_eq_config config = bypass_dynamic_eq;
+    config.enabled = 1;
+    config.bands[0] = (dsp_dynamic_eq_band_config) {
+        1, mode, 1000.0, 1.0, threshold_db, 2.0, 10.0, 100.0, 12.0, 12.0,
+    };
+    dsp_dynamic_eq dynamic_eq;
+    assert_true(dsp_dynamic_eq_prepare(&dynamic_eq, 48000, &config), "intermediate mix prepares");
+    dynamic_eq.bands[0].envelope = mode == DSP_DYNAMIC_EQ_CUT ? 1.0f : (float)pow(10.0, -24.0 / 20.0);
+    dynamic_eq.bands[0].attack_coefficient = 1.0f;
+    dynamic_eq.bands[0].release_coefficient = 1.0f;
+
+    double input_square = 0.0;
+    double output_square = 0.0;
+    for (size_t frame = 0; frame < 48000; frame++) {
+        float input = (float)(0.1 * sin(2.0 * 3.14159265358979323846 * 1000.0 * (double)frame / 48000.0));
+        float output = input;
+        float unused_right = 0.0f;
+        dsp_dynamic_eq_process_frame(&dynamic_eq, &output, &unused_right, 1);
+        if (frame < 4096) continue;
+        input_square += (double)input * input;
+        output_square += (double)output * output;
+    }
+    return 20.0 * log10(sqrt(output_square / input_square));
+}
+
+static void test_dynamic_eq_intermediate_db_change_matches_tone_rms(void) {
+    const double cut_thresholds[] = {-6.0, -12.0, -18.0};
+    const double boost_thresholds[] = {-18.0, -12.0, -6.0};
+    const double requested_changes[] = {3.0, 6.0, 9.0};
+    for (size_t index = 0; index < sizeof(cut_thresholds) / sizeof(cut_thresholds[0]); index++) {
+        const double cut_db = measure_dynamic_eq_mix_gain_db(DSP_DYNAMIC_EQ_CUT, cut_thresholds[index]);
+        const double boost_db = measure_dynamic_eq_mix_gain_db(DSP_DYNAMIC_EQ_BOOST, boost_thresholds[index]);
+        assert_near(cut_db, -requested_changes[index], 0.12,
+            "dynamic cut intermediate dB change matches the measured center tone");
+        assert_near(boost_db, requested_changes[index], 0.12,
+            "dynamic boost intermediate dB change matches the measured center tone");
+    }
+}
+
 static void test_dynamic_eq_attack_release_reset_and_chunk_invariance(void) {
     dsp_dynamic_eq_config config = bypass_dynamic_eq;
     config.enabled = 1;
@@ -1394,13 +1493,62 @@ static void test_convolver_ir_sizes_and_validation(void) {
         "IRs longer than the configured frame limit are rejected");
 }
 
+static void test_convolver_sparse_sentinel_taps_reach_their_output_frames(void) {
+    const int sizes[] = {4096, 16384, DSP_CONVOLVER_MAX_IR_FRAMES};
+    const float tap_values[] = {0.125f, -0.25f, 0.375f, -0.5f, 0.625f, -0.75f, 0.875f};
+    const int taps_4k[] = {0, 127, 128, 2048, 4095};
+    const int taps_16k[] = {0, 127, 128, 4096, 16383};
+    const int taps_64k[] = {0, 127, 128, 4096, 16384, 32768, 65535};
+    for (size_t size_index = 0; size_index < sizeof(sizes) / sizeof(sizes[0]); size_index++) {
+        const int frame_count = sizes[size_index];
+        const int *tap_indices = size_index == 0 ? taps_4k : size_index == 1 ? taps_16k : taps_64k;
+        const size_t tap_count = size_index == 0 ? 5 : size_index == 1 ? 5 : 7;
+        float *impulse = (float *)calloc((size_t)frame_count, sizeof(float));
+        assert_true(impulse != NULL, "sparse sentinel IR allocates");
+        for (size_t tap = 0; tap < tap_count; tap++) {
+            impulse[tap_indices[tap]] = tap_values[tap];
+        }
+        const dsp_convolver_config config = {
+            1, 48000, 1, frame_count, (size_t)frame_count, 1.0f, impulse,
+        };
+        dsp_engine *engine = create_test_engine_with_convolver(48000, 1, 512, &config);
+        assert_true(engine != NULL, "sparse sentinel convolution graph creates");
+
+        const size_t total_frames = (size_t)frame_count + DSP_CONVOLVER_PARTITION_FRAMES;
+        for (size_t block_start = 0; block_start < total_frames; block_start += 512) {
+            const size_t frames = total_frames - block_start < 512 ? total_frames - block_start : 512;
+            float input[512] = {0.0f};
+            float output[512] = {0.0f};
+            if (block_start == 0) input[0] = 1.0f;
+            assert_true(dsp_engine_process(engine, input, frames, output, frames, (int)frames, 1) == DSP_STATUS_OK,
+                "sparse sentinel impulse block processes");
+            for (size_t frame = 0; frame < frames; frame++) {
+                const size_t output_frame = block_start + frame;
+                float expected = 0.0f;
+                if (output_frame >= DSP_CONVOLVER_PARTITION_FRAMES) {
+                    const size_t tap_index = output_frame - DSP_CONVOLVER_PARTITION_FRAMES;
+                    for (size_t tap = 0; tap < tap_count; tap++) {
+                        if (tap_indices[tap] == (int)tap_index) expected = tap_values[tap];
+                    }
+                }
+                assert_near(output[frame], expected, 1e-4,
+                    "sparse IR tap appears at reported latency plus tap index");
+            }
+        }
+        dsp_engine_destroy(engine);
+        free(impulse);
+    }
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
     test_chunk_invariance_and_buffer_canaries();
     test_nonfinite_samples_and_reset();
+    test_processed_frame_counter_saturates_without_wrap();
     test_peq_frequency_response_and_reset();
     test_peq_stereo_state_and_denormal_flush();
+    test_peq_fifteenth_band_is_active();
     test_compressor_transfer_curve();
     test_compressor_attack_and_release_steps();
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
@@ -1411,12 +1559,14 @@ int main(void) {
     test_multiband_chunk_invariance_reset_and_validation();
     test_multiband_randomized_configurations_remain_finite();
     test_dynamic_eq_threshold_modes_and_band_selectivity();
+    test_dynamic_eq_intermediate_db_change_matches_tone_rms();
     test_dynamic_eq_attack_release_reset_and_chunk_invariance();
     test_dynamic_eq_randomized_configs_stay_bounded_and_finite();
     test_kiss_fft_round_trip();
     test_convolver_impulse_direct_convolution_and_latency();
     test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass();
     test_convolver_ir_sizes_and_validation();
+    test_convolver_sparse_sentinel_taps_reach_their_output_frames();
     puts("native DSP tests passed");
     return 0;
 }

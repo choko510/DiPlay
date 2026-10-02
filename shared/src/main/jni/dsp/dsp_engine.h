@@ -61,4 +61,8 @@ int dsp_engine_get_latency_frames(const dsp_engine *engine);
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics);
 void dsp_engine_destroy(dsp_engine *engine);
 
+#ifdef DSP_ENGINE_TESTING
+void dsp_engine_test_set_processed_frames(dsp_engine *engine, uint32_t value);
+#endif
+
 #endif

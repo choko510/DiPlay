@@ -44,6 +44,22 @@ static int engine_is_prepared(const dsp_engine *engine) {
         engine->channels >= 1 && engine->channels <= 2 && engine->max_frames > 0;
 }
 
+static void saturating_add_counter(_Atomic uint32_t *counter, uint32_t increment) {
+    uint32_t current = atomic_load_explicit(counter, memory_order_relaxed);
+    while (current != UINT32_MAX) {
+        const uint32_t remaining = UINT32_MAX - current;
+        const uint32_t next = increment > remaining ? UINT32_MAX : current + increment;
+        if (atomic_compare_exchange_weak_explicit(
+                counter,
+                &current,
+                next,
+                memory_order_relaxed,
+                memory_order_relaxed)) {
+            return;
+        }
+    }
+}
+
 dsp_engine *dsp_engine_create(
     int sample_rate,
     int channels,
@@ -125,14 +141,14 @@ dsp_status dsp_engine_process(
     }
     if (input == NULL || output == NULL || frames <= 0 || channels < 1 || channels > 2 ||
         frames > engine->max_frames || channels != engine->channels) {
-        atomic_fetch_add_explicit(&engine->native_error_count, 1, memory_order_relaxed);
+        saturating_add_counter(&engine->native_error_count, 1);
         return DSP_STATUS_INVALID_ARGUMENT;
     }
 
     const size_t sample_count = (size_t)frames * (size_t)channels;
     if (sample_count / (size_t)channels != (size_t)frames ||
         input_capacity_samples < sample_count || output_capacity_samples < sample_count) {
-        atomic_fetch_add_explicit(&engine->native_error_count, 1, memory_order_relaxed);
+        saturating_add_counter(&engine->native_error_count, 1);
         return DSP_STATUS_INVALID_BUFFER;
     }
 
@@ -150,16 +166,14 @@ dsp_status dsp_engine_process(
         (size_t)channels,
         &non_finite_input,
         &non_finite_output);
-    atomic_fetch_add_explicit(&engine->processed_frames, (uint32_t)frames, memory_order_relaxed);
-    atomic_fetch_add_explicit(&engine->processed_blocks, 1, memory_order_relaxed);
-    atomic_fetch_add_explicit(
+    saturating_add_counter(&engine->processed_frames, (uint32_t)frames);
+    saturating_add_counter(&engine->processed_blocks, 1);
+    saturating_add_counter(
         &engine->non_finite_input_samples,
-        (uint32_t)non_finite_input,
-        memory_order_relaxed);
-    atomic_fetch_add_explicit(
+        non_finite_input > UINT32_MAX ? UINT32_MAX : (uint32_t)non_finite_input);
+    saturating_add_counter(
         &engine->non_finite_output_samples,
-        (uint32_t)non_finite_output,
-        memory_order_relaxed);
+        non_finite_output > UINT32_MAX ? UINT32_MAX : (uint32_t)non_finite_output);
 
     float input_peak[2];
     float output_peak[2];
@@ -179,6 +193,14 @@ dsp_status dsp_engine_process(
     }
     return DSP_STATUS_OK;
 }
+
+#ifdef DSP_ENGINE_TESTING
+void dsp_engine_test_set_processed_frames(dsp_engine *engine, uint32_t value) {
+    if (engine_is_prepared(engine)) {
+        atomic_store_explicit(&engine->processed_frames, value, memory_order_relaxed);
+    }
+}
+#endif
 
 dsp_status dsp_engine_reset(dsp_engine *engine) {
     if (!engine_is_prepared(engine)) {

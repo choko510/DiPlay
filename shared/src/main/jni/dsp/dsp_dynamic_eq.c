@@ -121,7 +121,13 @@ static float target_mix(const dsp_dynamic_eq_band *band) {
     const float gain_change_db = fminf(
         maximum,
         overshoot * (float)(1.0 - 1.0 / band->config.ratio));
-    return gain_change_db / maximum;
+    const float sign = band->config.mode == DSP_DYNAMIC_EQ_CUT ? -1.0f : 1.0f;
+    const float desired_gain = powf(10.0f, sign * gain_change_db / 20.0f);
+    const float static_gain = powf(10.0f, sign * maximum / 20.0f);
+    const float denominator = static_gain - 1.0f;
+    if (!isfinite(desired_gain) || !isfinite(static_gain) || fabsf(denominator) <= 1e-12f) return 0.0f;
+    const float mix = (desired_gain - 1.0f) / denominator;
+    return fminf(1.0f, fmaxf(0.0f, mix));
 }
 
 void dsp_dynamic_eq_process_frame(dsp_dynamic_eq *dynamic_eq, float *left, float *right, int channels) {

@@ -1,5 +1,17 @@
 # Decisions
 
+## Keep DSP latency and fallback aligned to one AudioTrack generation
+
+Prepare the initial codec graph on the audio renderer worker before its first PCM write. Once an AudioTrack accepts PCM, keep that generation's algorithmic latency fixed; maintain a preallocated delayed-dry ring so a failed graph or a sample-rate-mismatched IR replacement can preserve the same content timeline. Reset temporal DSP state and cancel/finish the active crossfade when a new track generation is created.
+
+## Make the global DSP switch the only runtime enable source
+
+The persisted global master setting controls runtime enablement. Keep `profile.enabled` for old profile-schema compatibility, but do not couple it to the master switch or let a master toggle apply the editor's uncommitted draft.
+
+## Disable only rate-invalid Dynamic EQ bands at prepare time
+
+Keep the universal editor ceiling at 19.8 kHz. When a legacy profile's enabled band is at or above `sampleRate * 0.45`, disable that band in the prepared graph and retain the other DSP stages; keep the saved profile unchanged so the band can work again at a compatible rate.
+
 ## Keep Wi-Fi Direct cleanup strict when system credentials are incomplete
 
 If `createGroup(null)` succeeds but Android omits the system-generated passphrase, the group identity is incomplete. Fail startup without retrying rejected custom credentials or removing a group that cannot be proven to be owned by this attempt.

@@ -1,5 +1,17 @@
 # Lessons
 
+## Exercise live DSP through the production renderer boundary
+
+An internal `AudioTrack.write` adapter allows unit tests to submit LPCM RTP and decoded codec PCM through `AudioRenderer` without a device track. Use latches for worker preparation and format-change races, and verify the first accepted source-sample anchor, generation adoption, fail-open output, and track-generation reset.
+
+## Measure the cold large-block call without test-framework work inside the counter
+
+Allocate the source and prepared graph first, start allocation counting immediately before the first 1,537-frame stereo call, and read the counter before making any test assertions. Keep the full supported PCM16 output and float scratch preallocated, and use an explicit Float copy loop in the identity processor so the measured path avoids bulk-buffer helpers.
+
+## Crossfade canonical floats before PCM16 conversion
+
+Convolver and DSP graph swaps should blend the two pipeline Float32 outputs, then dither and quantize the mixed signal once. Converting each candidate to PCM16 and blending bytes gives an unnecessarily quantized transition.
+
 ## Do not remove a Wi-Fi Direct group from partial identity
 
 When Android omits a system-generated passphrase, the group may be unusable and still unconfirmed for cleanup. Test that the fallback sends a null configuration and that cleanup skips a group without complete identity.

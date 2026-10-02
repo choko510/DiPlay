@@ -1,3 +1,3 @@
 # Current Work
 
-- No active implementation task. PR-DSP-02 through PR-DSP-12 are complete on PR #14 (`codex/dsp-01`). Local gates and the NDK ASan/UBSan emulator run pass; hosted workflow results and LeakSanitizer remain unavailable. Preserve DSP-OFF legacy PCM16 and the two-channel output limit.
+- No active implementation task. PR #14's integrated DSP review repairs are committed and pushed to `codex/dsp-01`; see `.scratchpad/completed.md` for the validation summary. Preserve DSP-OFF legacy PCM16, MEDIA-only routing, two-channel output, AudioTrack PCM16, protocol/AudioTrack policies, and video/YouTube behavior.

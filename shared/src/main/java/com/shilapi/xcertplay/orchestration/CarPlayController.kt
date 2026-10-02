@@ -1299,9 +1299,9 @@ class CarPlayController(
                 }
             }
 
-            override fun onVideoFrameRendered(session: AirPlaySession) {
+            override fun onVideoFrameSubmittedToSurface(session: AirPlaySession) {
                 if (isStaleWirelessRun(generation) || activeSession !== session) return
-                wirelessConnectionProof.rendered(generation, session)
+                wirelessConnectionProof.submittedToSurface(generation, session)
             }
 
             override fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {

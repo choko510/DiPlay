@@ -39,7 +39,7 @@ class ConnectionTraceEventTest {
             "AIRPLAY_CONTROL_ENCRYPTED",
             "AIRPLAY_EVENT_ACCEPTED",
             "SCREEN_STREAM_OPENED",
-            "FIRST_FRAME_RENDERED",
+            "FIRST_FRAME_SUBMITTED_TO_SURFACE",
         )
 
         assertTrue(ConnectionTraceStage.values().map { it.name }.containsAll(required))

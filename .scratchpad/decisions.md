@@ -223,4 +223,51 @@ Record native processing and the full PCM pipeline in separate fixed-width histo
 
 ## Preserve DSP latency behavior when reviewing newer main
 
-After origin/main advanced through PR #13, review its audio deltas without merging its branch wholesale: the updated `AudioPlaybackClock` removes algorithmic-latency compensation and the unmerged main snapshot omits PR #14 DSP files. Keep PR #14's convolver clock correction and DSP implementation; PR #15's renderer lifecycle hardening is already integrated on this branch.
+When synchronizing after origin/main advanced through PR #13, resolve audio conflicts while preserving PR #14's DSP path and convolver clock correction. The incoming `AudioPlaybackClock` version removes algorithmic-latency compensation, and the main snapshot omits the unmerged PR #14 DSP files. Keep the compatible submitted-frame callback update; PR #15's renderer lifecycle hardening is already integrated on this branch.
+## Keep split-mode Gecko reuse Activity-scoped and identity-gated
+
+On a normal split exit, close any popup, leave the primary `GeckoSession` inactive, and retain it only for the current Activity. On re-entry, keep its view hidden until the current AirPlay profile resolves; reuse without reopening or reloading only when the profile context matches and the primary session remains open and healthy. Destroy it on profile change, AirPlay end, crash, shutdown or Activity destruction.
+
+## Keep CarPlay resize on the verified restart fallback
+
+Advertise the existing single ViewArea but do not invent a runtime switch payload. Keep the full controller restart path until the command, dimensions and decoder behavior are verified. Enable R8 through the AGP 9.3 optimization DSL and use a non-debuggable, profileable benchmark build signed with the debug key; opt in trace collection through its benchmark manifest metadata.
+
+## Revalidate profile identity before discarding a warm GeckoSession
+
+A replacement AirPlaySession does not by itself mean the iPhone profile changed. Hide and suspend the retained browser, resolve the new `youtubeContextId`, then reuse on a match or close/create on a mismatch. For an already active same-profile `open()`, preserve the current session (including a popup) and do not republish primary-session navigation state.
+
+## Keep JNI string lookups in shared consumer rules
+
+The Linux I2C native bridge resolves `LinuxI2cNativeException` and its constructor by name. Preserve only that class and `(int, String)` constructor in the shared AAR's consumer rules so both apps retain the JNI ABI without broad app keep rules.
+
+## Measure presentation and restart completion at their user-visible endpoints
+
+Keep page network readiness separate from visible Gecko paint. End split presentation after a visible primary/popup FCP or a post-reset composite, and end CarPlay restart after the first main video output is submitted for rendering. Release-like profiling builds must be non-debuggable and profileable.
+
+## Reuse across AirPlaySession replacement only after profile resolution
+
+Do not tie GeckoSession lifetime to AirPlaySession object identity. During split-mode controller restarts, hide/deactivate the existing browser and resolve the replacement session's profile; keep the old GeckoSession only for a matching `youtubeContextId`, otherwise let `open()` replace it.
+
+## Separate active same-profile open from suspended warm reopen
+
+An active `open()` request targets the currently selected GeckoSession, which may be a Google popup. Preserve that session and its UI state. Only the explicit SUSPENDED lifecycle path reactivates the primary session and increments the warm-reopen counter.
+
+## Opt into benchmark tracing without making the app debuggable
+
+Benchmark build types inherit release, use debug signing and are profileable with shell access. A variant-only manifest metadata flag enables custom tracing; production release stays non-debuggable with tracing disabled.
+
+## Keep warm-reopen instrumentation aligned with actual activation
+
+Start the warm-reopen span around `GeckoSession.setActive(true)` after the view has been made visible, not during identity resolution or an inactive call. Keep Gecko page-load stop, visible Gecko paint and first main CarPlay output submission as separate endpoints.
+
+## Gate Gecko UI updates on the current active presentation
+
+Keep progress and navigation state from the current suspended session internally, but publish to the Activity only when the controller is active and the callback's session is still current. Publish the latest cached state once after `setActive(true)` succeeds. Treat MediaCodec `releaseOutputBuffer(true)` as submission to a render surface, and close a missing-paint trace as a diagnostic timeout rather than success.
+
+## Keep Gecko paint outcomes terminal and memory trims specific
+
+Treat paint completion, timeout and cancellation as mutually exclusive terminal outcomes for one activation measurement. On Android versions that deliver `TRIM_MEMORY_RUNNING_CRITICAL`, evict a suspended session only for running-critical levels below `TRIM_MEMORY_UI_HIDDEN`; Android 14 and later do not deliver the running levels, and UI-hidden alone keeps the warm session.
+
+## Preserve paint-reset evidence through warm activation
+
+Tag each primary-session `onPaintStatusReset()` with the current suspension generation. A measurement ending must not erase session evidence; a new distinct suspension advances the generation so older reset events cannot authorize its paint. Cold session creation starts a fresh generation. Start the timeout deadline on first activation and carry its absolute elapsed-realtime value across pause/resume and repeated same-profile opens.

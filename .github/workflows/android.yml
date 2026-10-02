@@ -9,7 +9,7 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Reject credential files in public source
@@ -26,8 +26,10 @@ jobs:
         run: bash scripts/test_dsp_native.sh
       - name: Host native DSP tests with ASan and UBSan
         run: bash scripts/test_dsp_native.sh --sanitize
-      - name: Unit tests, lint and source-only debug build
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug --stacktrace
+      - name: Unit tests, lint, debug and optimized builds
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --stacktrace
+      - name: Verify JNI names survive R8
+        run: python3 scripts/check_jni_mapping.py
       - name: Install Android Emulator binary
         run: |
           curl --fail --location --retry 3 "https://dl.google.com/android/repository/emulator-linux_x64-16433917.zip" -o "$RUNNER_TEMP/emulator.zip"

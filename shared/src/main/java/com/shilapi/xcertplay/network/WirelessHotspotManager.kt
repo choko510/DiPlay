@@ -38,7 +38,7 @@ interface WirelessHotspotManager : Closeable {
      */
     fun start(timeoutMillis: Long): WirelessHotspotInfo
 
-    /** The authenticated wireless session has rendered CarPlay; AP creation alone is insufficient. */
+    /** The authenticated wireless session submitted a video frame to its surface; AP creation alone is insufficient. */
     fun onCarPlayConfirmed() {}
 }
 

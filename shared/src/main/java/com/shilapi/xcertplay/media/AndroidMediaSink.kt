@@ -2160,13 +2160,21 @@ internal class AudioRenderer(
         val underrunDelta = (underruns - statsLastUnderruns).coerceAtLeast(0)
         val lastRx = lastArrivalNs.get()
         val timestampAnchorAgeMs = timestampAnchor?.let { ((now - it.nanoTime).coerceAtLeast(0L)) / 1_000_000L } ?: -1L
+        val dspTiming = dspPipeline?.diagnostics()?.let { diagnostics ->
+            val native = diagnostics.nativeProcessUs
+            val pipeline = diagnostics.pipelineProcessUs
+            " dspNativeUs=avg:${native.averageUs.toLong()},p50:${native.p50Us},p95:${native.p95Us}," +
+                "p99:${native.p99Us},max:${native.maxUs} " +
+                "dspPipelineUs=avg:${pipeline.averageUs.toLong()},p50:${pipeline.p50Us}," +
+                "p95:${pipeline.p95Us},p99:${pipeline.p99Us},max:${pipeline.maxUs}"
+        }.orEmpty()
         val line = "audio stats audioType=${format.audioType} codec=${format.codec} rx=${packetsReceived.getAndSet(0)} " +
             "dropped=${packetsDropped.getAndSet(0)} underruns=+$underrunDelta queue=${queue.size} " +
             "playing=$playbackStarted maxGapMs=${maxArrivalGapMs.getAndSet(0)} " +
             "sinceRxMs=${if (lastRx == 0L) -1 else (now - lastRx) / 1_000_000L} maxWriteMs=$maxWriteMs " +
             "decoderDroppedTotal=$inputDropped outputBuffersTotal=$outputBuffers rebuffers=$rebufferCount " +
             "timestampPollingMs=${timestampPollPolicy.pollingIntervalMs} timestampAnchorAgeMs=$timestampAnchorAgeMs " +
-            "feedbackClock=${playbackClockSnapshot?.source ?: "fallbackElapsed"} ended=$force"
+            "feedbackClock=${playbackClockSnapshot?.source ?: "fallbackElapsed"}$dspTiming ended=$force"
         Log.i(STATS_TAG, line)
         report(line)
         statsLastUnderruns = underruns

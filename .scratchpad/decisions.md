@@ -216,3 +216,11 @@ Bind and validate a new audio stream before changing its owner so failed SETUP l
 ## Rate-limit microphone restart and health checks
 
 Keep a monotonic 750 ms next-attempt deadline per audio state so temporary uplink failures do not rebuild AudioRecord and the encoder on every RTP packet. Recheck active same-token uplinks at that cadence; conditionally detach inactive entries under the per-type lock and close them outside it before creating a replacement.
+
+## Keep DSP timing bounded and optimize only after repeated measurements
+
+Record native processing and the full PCM pipeline in separate fixed-width histograms with no per-block collection or sorting. Expose cumulative percentiles only in the existing periodic audio stats log. Preserve the 512-frame chunk and portable 128-frame convolver partition when repeated 44.1/48 kHz Mono/Stereo benchmark runs meet the light/heavy p99 budgets; do not add SIMD or math changes without a stable measured hotspot.
+
+## Preserve DSP latency behavior when reviewing newer main
+
+After origin/main advanced through PR #13, review its audio deltas without merging its branch wholesale: the updated `AudioPlaybackClock` removes algorithmic-latency compensation and the unmerged main snapshot omits PR #14 DSP files. Keep PR #14's convolver clock correction and DSP implementation; PR #15's renderer lifecycle hardening is already integrated on this branch.

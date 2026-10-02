@@ -152,7 +152,7 @@ class DspProfileRepositoryTest {
 
     @Test
     fun versionOneProfileMigratesWithMultibandDisabledByDefault() {
-        val repository = repository()
+        val repository = repositoryWithDirectWriterForMigrationTests()
         val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
         assertTrue(profileFile.parentFile!!.mkdirs())
         profileFile.writeText(
@@ -165,12 +165,13 @@ class DspProfileRepositoryTest {
         assertFalse(loaded.profile.multiband.enabled)
         assertEquals(DspMultibandConfig.DEFAULT_LOW_MID_CROSSOVER_HZ, loaded.profile.multiband.lowMidCrossoverHz, 0.0)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
-        assertTrue(profileFile.readText().contains("\"schemaVersion\":3"))
+        val savedProfile = profileFile.readText()
+        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":3"))
     }
 
     @Test
     fun versionTwoProfileMigratesWithDynamicEqDisabledByDefault() {
-        val repository = repository()
+        val repository = repositoryWithDirectWriterForMigrationTests()
         val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
         assertTrue(profileFile.parentFile!!.mkdirs())
         profileFile.writeText(
@@ -183,7 +184,8 @@ class DspProfileRepositoryTest {
         assertFalse(loaded.profile.dynamicEq.enabled)
         assertEquals(DspDynamicEqConfig.MAX_BANDS, loaded.profile.dynamicEq.bands.size)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
-        assertTrue(profileFile.readText().contains("\"schemaVersion\":3"))
+        val savedProfile = profileFile.readText()
+        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":3"))
     }
 
     @Test
@@ -219,4 +221,7 @@ class DspProfileRepositoryTest {
     }
 
     private fun repository(): DspProfileRepository = DspProfileRepository(temporaryFolder.newFolder("files"))
+
+    private fun repositoryWithDirectWriterForMigrationTests(): DspProfileRepository =
+        DspProfileRepository(temporaryFolder.newFolder("files")) { file, contents -> file.writeBytes(contents) }
 }

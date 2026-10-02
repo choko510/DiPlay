@@ -181,3 +181,7 @@ If a sink swallows a synchronous renderer-start failure, the engine can mark an 
 ## Keep microphone recovery independent from downlink startup
 
 After the downlink renderer succeeds, microphone startup still needs its own retry path. Rate-limit retries and liveness checks with a monotonic deadline, and replace an inactive same-token uplink so a capture thread that exits cannot leave a permanent dead entry.
+
+## Isolate Windows AtomicFile rename behavior in profile migration tests
+
+When Robolectric runs on Windows, Android `AtomicFile.finishWrite()` relies on `File.renameTo()` replacing an existing base file, which Windows does not guarantee. Keep production persistence on `AtomicFile`; inject a deterministic writer only into schema-migration tests that need to verify replacement contents, and inspect the failing assertion before changing migration defaults.

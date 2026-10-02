@@ -159,6 +159,7 @@ internal class NativeDspProcessor internal constructor(
 ) : DspProcessor {
     @Volatile private var nativeHandle = handle
     private val result = DspProcessResult()
+    private val nativeProcessTiming = DspFixedHistogram()
     private val meterValues = DoubleArray(DIAGNOSTIC_VALUE_COUNT)
     private val counters = LongArray(DIAGNOSTIC_COUNTER_COUNT)
     @Volatile private var localNativeErrors = 0L
@@ -173,24 +174,29 @@ internal class NativeDspProcessor internal constructor(
             return result.failure(frames, latencyFrames, DspBypassReason.INVALID_BUFFER)
         }
 
+        val startNs = System.nanoTime()
         val status = try {
-            bindings.process(
-                handle = nativeHandle,
-                input = input,
-                inputPosition = input.position(),
-                inputRemaining = input.remaining(),
-                output = output,
-                outputPosition = output.position(),
-                outputRemaining = output.remaining(),
-                frames = frames,
-                channels = format.channels,
-            )
-        } catch (_: SecurityException) {
-            -1
-        } catch (_: LinkageError) {
-            -1
-        } catch (_: Exception) {
-            -1
+            try {
+                bindings.process(
+                    handle = nativeHandle,
+                    input = input,
+                    inputPosition = input.position(),
+                    inputRemaining = input.remaining(),
+                    output = output,
+                    outputPosition = output.position(),
+                    outputRemaining = output.remaining(),
+                    frames = frames,
+                    channels = format.channels,
+                )
+            } catch (_: SecurityException) {
+                -1
+            } catch (_: LinkageError) {
+                -1
+            } catch (_: Exception) {
+                -1
+            }
+        } finally {
+            nativeProcessTiming.record(System.nanoTime() - startNs)
         }
         if (status != NATIVE_OK) {
             localNativeErrors++
@@ -220,7 +226,12 @@ internal class NativeDspProcessor internal constructor(
     @Synchronized
     override fun diagnostics(): DspDiagnosticsSnapshot {
         val handle = nativeHandle
-        if (handle <= 0L) return DspDiagnosticsSnapshot(nativeErrorCount = localNativeErrors)
+        if (handle <= 0L) {
+            return DspDiagnosticsSnapshot(
+                nativeErrorCount = localNativeErrors,
+                nativeProcessUs = nativeProcessTiming.snapshot(),
+            )
+        }
         val status = try {
             bindings.diagnostics(handle, meterValues, counters)
         } catch (_: SecurityException) {
@@ -232,7 +243,10 @@ internal class NativeDspProcessor internal constructor(
         }
         if (status != NATIVE_OK) {
             localNativeErrors++
-            return DspDiagnosticsSnapshot(nativeErrorCount = localNativeErrors)
+            return DspDiagnosticsSnapshot(
+                nativeErrorCount = localNativeErrors,
+                nativeProcessUs = nativeProcessTiming.snapshot(),
+            )
         }
         return DspDiagnosticsSnapshot(
             processedFrames = counters[0],
@@ -248,7 +262,12 @@ internal class NativeDspProcessor internal constructor(
             outputPeakR = meterValues[5],
             outputRmsL = meterValues[6],
             outputRmsR = meterValues[7],
+            nativeProcessUs = nativeProcessTiming.snapshot(),
         )
+    }
+
+    internal fun resetTimingMetrics() {
+        nativeProcessTiming.reset()
     }
 
     override fun close() {

@@ -16,6 +16,8 @@ internal data class DspDiagnosticsSnapshot(
     val outputPeakR: Double = 0.0,
     val outputRmsL: Double = 0.0,
     val outputRmsR: Double = 0.0,
+    val nativeProcessUs: DspTimingSummary = DspTimingSummary(),
+    val pipelineProcessUs: DspTimingSummary = DspTimingSummary(),
 ) {
     companion object {
         val EMPTY = DspDiagnosticsSnapshot()

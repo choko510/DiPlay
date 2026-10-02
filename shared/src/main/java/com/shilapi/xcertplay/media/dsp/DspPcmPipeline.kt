@@ -12,6 +12,7 @@ internal class DspPcmPipeline(
     private val forceInitialLatencySilence: Boolean = true,
 ) : Closeable {
     private val diagnostics = DspDiagnostics()
+    private val pipelineProcessTiming = DspFixedHistogram()
     private val dither = DspTpdfDither(seed)
     private val floatBufferBytes = DspBufferSizing.floatByteCount(processingChunkFrames, format.channels)
     private val inputFloat = ByteBuffer.allocateDirect(floatBufferBytes).order(ByteOrder.nativeOrder())
@@ -36,6 +37,20 @@ internal class DspPcmPipeline(
         get() = processor.latencyFrames
 
     fun process(
+        source: ByteArray,
+        offset: Int,
+        length: Int,
+        encoding: DspPcmEncoding,
+    ): Int {
+        val startNs = System.nanoTime()
+        return try {
+            processInternal(source, offset, length, encoding)
+        } finally {
+            pipelineProcessTiming.record(System.nanoTime() - startNs)
+        }
+    }
+
+    private fun processInternal(
         source: ByteArray,
         offset: Int,
         length: Int,
@@ -131,7 +146,14 @@ internal class DspPcmPipeline(
             outputPeakR = processorSnapshot.outputPeakR,
             outputRmsL = processorSnapshot.outputRmsL,
             outputRmsR = processorSnapshot.outputRmsR,
+            nativeProcessUs = processorSnapshot.nativeProcessUs,
+            pipelineProcessUs = pipelineProcessTiming.snapshot(),
         )
+    }
+
+    internal fun resetTimingMetrics() {
+        pipelineProcessTiming.reset()
+        (processor as? NativeDspProcessor)?.resetTimingMetrics()
     }
 
     override fun close() {

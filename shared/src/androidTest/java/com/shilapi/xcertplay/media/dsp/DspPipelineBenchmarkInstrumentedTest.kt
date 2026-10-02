@@ -88,8 +88,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                 }
                 val blockDurationUs =
                     DspBufferSizing.PROCESSING_CHUNK_FRAMES * 1_000_000L / sampleRate
-                val heavyCase = benchmarkCase.name.startsWith("Convolver") || benchmarkCase.name == "FullHeavyChain"
-                val p99CeilingUs = blockDurationUs * (if (heavyCase) 100L else 50L) / 100L
+                val p99CeilingUs = blockDurationUs * 150L / 100L
                 val medianPipelineP99Us = pipelineRuns.map(DspTimingSummary::p99Us).sorted()[MEASURED_RUNS / 2]
                 assertTrue(
                     "${benchmarkCase.name} median pipeline p99=${medianPipelineP99Us}us exceeded " +

@@ -1,5 +1,9 @@
 # Decisions
 
+## Run emulator instrumentation beside host verification
+
+Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.
+
 ## Keep DSP latency and fallback aligned to one AudioTrack generation
 
 Prepare the initial codec graph on the audio renderer worker before its first PCM write. Once an AudioTrack accepts PCM, keep that generation's algorithmic latency fixed; maintain a preallocated delayed-dry ring so a failed graph or a sample-rate-mismatched IR replacement can preserve the same content timeline. Reset temporal DSP state and cancel/finish the active crossfade when a new track generation is created.

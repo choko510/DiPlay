@@ -1,5 +1,9 @@
 # Lessons
 
+## Parallelize slow emulator checks in CI
+
+When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.
+
 ## Exercise live DSP through the production renderer boundary
 
 An internal `AudioTrack.write` adapter allows unit tests to submit LPCM RTP and decoded codec PCM through `AudioRenderer` without a device track. Use latches for worker preparation and format-change races, and verify the first accepted source-sample anchor, generation adoption, fail-open output, and track-generation reset.

@@ -109,13 +109,17 @@ object NcmFunctionDiscovery {
     fun find(configuration: UsbConfiguration): NcmFunction? =
         discover(configuration, ByteArray(0)).selected
 
-    fun discover(configuration: UsbConfiguration, rawDescriptors: ByteArray): DiscoveryResult {
+    fun discover(
+        configuration: UsbConfiguration,
+        rawDescriptors: ByteArray,
+        forcedPair: Pair<Int, Int>? = null,
+    ): DiscoveryResult {
         val interfaces = (0 until configuration.interfaceCount).map(configuration::getInterface)
         val parsed = parseFunctionalDescriptors(rawDescriptors, configuration.id)
         val records = interfaces.map(::record)
         val candidateRecords = pairCandidates(records, parsed)
         val usable = candidateRecords.filter { it.eligible && hasBulkPair(interfaces, it) }
-        val selectedRecord = selectCandidate(usable)
+        val selectedRecord = selectCandidate(usable, forcedPair)
         val tiedOnEvidence = selectedRecord != null &&
             usable.count { it.evidenceScore == selectedRecord.evidenceScore } > 1
         val selected = selectedRecord?.let { candidate ->
@@ -139,7 +143,9 @@ object NcmFunctionDiscovery {
                     hasEthernetDescriptor = candidate.hasEthernetDescriptor,
                     hasNcmDescriptor = candidate.hasNcmDescriptor,
                     ncmNetworkCapabilities = candidate.ncmNetworkCapabilities,
-                    selectionReason = if (tiedOnEvidence) {
+                    selectionReason = if (forcedPair != null) {
+                        "forced diagnostic interface pair ${forcedPair.first}->${forcedPair.second}; ${candidate.reason}"
+                    } else if (tiedOnEvidence) {
                         "${candidate.reason}; equal evidence resolved by USB descriptor order"
                     } else {
                         candidate.reason
@@ -148,6 +154,8 @@ object NcmFunctionDiscovery {
             }
         }
         val decision = when {
+            selected == null && forcedPair != null ->
+                "forced diagnostic interface pair ${forcedPair.first}->${forcedPair.second} is unavailable or ineligible"
             selected == null && parsed.malformed -> "no valid pair; raw CDC descriptors were malformed"
             selected == null -> "no unambiguous CDC-NCM control/data pair"
             else -> selected.selectionReason
@@ -312,8 +320,16 @@ object NcmFunctionDiscovery {
         )
     }
 
-    internal fun selectCandidate(candidates: List<PairCandidate>): PairCandidate? =
+    internal fun selectCandidate(
+        candidates: List<PairCandidate>,
+        forcedPair: Pair<Int, Int>? = null,
+    ): PairCandidate? = if (forcedPair == null) {
         candidates.filter(PairCandidate::eligible).maxByOrNull(PairCandidate::evidenceScore)
+    } else {
+        candidates.firstOrNull {
+            it.eligible && it.controlId == forcedPair.first && it.dataId == forcedPair.second
+        }
+    }
 
     private fun candidate(
         control: InterfaceRecord,

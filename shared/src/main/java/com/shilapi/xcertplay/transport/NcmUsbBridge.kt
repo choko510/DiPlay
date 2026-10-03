@@ -33,6 +33,9 @@ sealed interface NcmSendResult {
 
 internal data class NcmDiagnosticsSnapshot(
     val selection: String,
+    val profile: NcmDiagnosticProfile,
+    val attempt: Int,
+    val statusEndpoint: Int?,
     val linkPhase: NcmLinkPhase,
     val rxProven: Boolean,
     val txProven: Boolean,
@@ -61,11 +64,17 @@ internal data class NcmDiagnosticsSnapshot(
     val ndpTxAttempts: Long,
     val ndpTxSuccesses: Long,
     val statusPollAttempts: Long,
+    val statusPollNoData: Long,
     val statusPollFailures: Long,
+    val syncReadCalls: Long,
+    val syncReadNoData: Long,
 ) {
     fun report(): String =
-        "selected={$selection} linkPhase=$linkPhase rxProven=$rxProven txProven=$txProven " +
-            "readState=$readState statusPolling=$statusPollingEnabled " +
+        "profile=${profile.name} attempt=$attempt selected={$selection} " +
+            "statusEndpoint=${statusEndpoint?.let { "0x${it.toString(16)}" } ?: "none"} " +
+            "statusPolling=$statusPollingEnabled preReadyOutTimeoutMs=${profile.preReadyOutTimeoutMillis} " +
+            "readMode=${if (profile.synchronousBulkIn) "SYNC_BULK_IN" else "ASYNC_USB_REQUEST"} " +
+            "linkPhase=$linkPhase rxProven=$rxProven txProven=$txProven readState=$readState " +
             "peerMacLearned=$peerMacLearned failure=${failure ?: "none"} " +
             "readQueues=$readQueues readCompletions=$readCompletions readTimeouts=$readTimeouts " +
             "readNullErrors=$readNullErrors readQueueFailures=$readQueueFailures " +
@@ -76,7 +85,8 @@ internal data class NcmDiagnosticsSnapshot(
             "ipv6RxPackets=$ipv6RxPackets ipv6TxAttempts=$ipv6TxAttempts " +
             "ipv6TxSuccesses=$ipv6TxSuccesses ndpRxPackets=$ndpRxPackets " +
             "ndpTxAttempts=$ndpTxAttempts ndpTxSuccesses=$ndpTxSuccesses " +
-            "statusPollAttempts=$statusPollAttempts statusPollFailures=$statusPollFailures"
+            "statusPollAttempts=$statusPollAttempts statusPollNoData=$statusPollNoData " +
+            "statusPollFailures=$statusPollFailures syncReadCalls=$syncReadCalls syncReadNoData=$syncReadNoData"
 }
 
 internal data class NcmNtbParameters(
@@ -115,7 +125,10 @@ class NcmUsbBridge internal constructor(
     descriptorHostMac: ByteArray?,
     private val selectionDiagnostics: String,
     onDiagnosticEvent: (NcmDiagnosticEvent) -> Unit,
-    private val statusPollingEnabled: Boolean,
+    val diagnosticProfile: NcmDiagnosticProfile,
+    private val diagnosticAttempt: Int,
+    private val diagnosticsEnabled: Boolean,
+    private val onDiagnosticLog: (String) -> Unit,
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
     val hostMac: ByteArray? get() = descriptorMac?.copyOf()
@@ -131,6 +144,7 @@ class NcmUsbBridge internal constructor(
     private var buffered = ByteArray(0)
     private var bufferedSize = 0
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
+    private val statusPollingEnabled = diagnosticProfile.statusPolling && statusEndpoint != null
     // Bulk IN uses one persistent async request: bulkTransfer() pins its byte[] in a JNI critical
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no
@@ -163,7 +177,11 @@ class NcmUsbBridge internal constructor(
     private val ndpTxAttempts = AtomicLong()
     private val ndpTxSuccesses = AtomicLong()
     private val statusPollAttempts = AtomicLong()
+    private val statusPollNoData = AtomicLong()
     private val statusPollFailures = AtomicLong()
+    private val syncReadCalls = AtomicLong()
+    private val syncReadNoData = AtomicLong()
+    private val startupTxLogCount = AtomicLong()
     private val statusThread = statusEndpoint?.takeIf { statusPollingEnabled }?.let { endpoint ->
         Thread({ drainStatus(endpoint) }, "ncm-status-in").apply {
             isDaemon = true
@@ -174,12 +192,32 @@ class NcmUsbBridge internal constructor(
     /** Wraps one Ethernet frame in one NTB16 block and writes it to bulk OUT. */
     fun send(frame: ByteArray, timeoutMillis: Int): NcmSendResult = synchronized(writeLock) {
         require(timeoutMillis > 0) { "timeoutMillis must be positive" }
+        val startedAtNanos = System.nanoTime()
+        val phase = linkReadiness.phase()
         linkReadiness.markOutboundAttempt()
         val ipv6 = EthernetIpv6Codec.parseIpv6View(frame)
+        val packetType = if (diagnosticsEnabled) {
+            ipv6?.let { EthernetIpv6Codec.packetType(frame, it.payloadOffset, it.payloadLength) } ?: "OTHER"
+        } else {
+            "OTHER"
+        }
         val ndp = ipv6?.let {
             EthernetIpv6Codec.isNeighborDiscovery(frame, it.payloadOffset, it.payloadLength)
         } == true
-        writeAttempts.incrementAndGet()
+        val attempt = writeAttempts.incrementAndGet()
+        fun finish(result: NcmSendResult, resultOverride: String? = null): NcmSendResult {
+            logStartupTx(
+                phase,
+                packetType,
+                timeoutMillis,
+                frame.size,
+                attempt,
+                startedAtNanos,
+                result,
+                resultOverride,
+            )
+            return result
+        }
         if (ipv6 != null) {
             ipv6TxAttempts.incrementAndGet()
             if (ndp) ndpTxAttempts.incrementAndGet()
@@ -191,30 +229,33 @@ class NcmUsbBridge internal constructor(
                 this.sequence.also { this.sequence = (this.sequence + 1) and 0xffff }
             }
         } catch (error: Exception) {
-            return@synchronized NcmSendResult.Failed(error)
+            return@synchronized finish(NcmSendResult.Failed(error))
         }
         val block = try {
             Ntb16Codec.build(frame, sequence)
         } catch (error: Exception) {
-            return@synchronized NcmSendResult.Failed(error)
+            return@synchronized finish(NcmSendResult.Failed(error))
         }
         val transferred = try {
             connection.bulkTransfer(outEndpoint, block, block.size, timeoutMillis)
         } catch (error: RuntimeException) {
             writePartialFailures.incrementAndGet()
-            return@synchronized NcmSendResult.Failed(
+            return@synchronized finish(NcmSendResult.Failed(
                 failSession("NCM_WRITE_ERROR: NCM bulk OUT failed", error),
-            )
+            ))
         }
         if (transferred <= 0) {
             writeNotReady.incrementAndGet()
             emitFirst(NcmDiagnosticEvent.TX_NOT_READY)
-            return@synchronized NcmSendResult.NotReady
+            return@synchronized finish(NcmSendResult.NotReady)
         }
         if (transferred != block.size) {
             writePartialFailures.incrementAndGet()
-            return@synchronized NcmSendResult.Failed(
-                failSession("NCM_WRITE_ERROR: NCM write transferred $transferred of ${block.size} bytes"),
+            return@synchronized finish(
+                NcmSendResult.Failed(
+                    failSession("NCM_WRITE_ERROR: NCM write transferred $transferred of ${block.size} bytes"),
+                ),
+                resultOverride = "PARTIAL",
             )
         }
         writeSuccesses.incrementAndGet()
@@ -225,11 +266,14 @@ class NcmUsbBridge internal constructor(
             emitFirst(NcmDiagnosticEvent.FIRST_IPV6_TX_SUCCESS)
             if (linkReadiness.recordOutboundIpv6Success()) emitFirst(NcmDiagnosticEvent.LINK_READY)
         }
-        NcmSendResult.Sent
+        finish(NcmSendResult.Sent)
     }
 
     internal fun diagnosticSnapshot(): NcmDiagnosticsSnapshot = NcmDiagnosticsSnapshot(
         selection = selectionDiagnostics,
+        profile = diagnosticProfile,
+        attempt = diagnosticAttempt,
+        statusEndpoint = statusEndpoint?.address,
         linkPhase = linkReadiness.phase(),
         rxProven = linkReadiness.hasRxProof(),
         txProven = linkReadiness.hasTxProof(),
@@ -258,7 +302,10 @@ class NcmUsbBridge internal constructor(
         ndpTxAttempts = ndpTxAttempts.get(),
         ndpTxSuccesses = ndpTxSuccesses.get(),
         statusPollAttempts = statusPollAttempts.get(),
+        statusPollNoData = statusPollNoData.get(),
         statusPollFailures = statusPollFailures.get(),
+        syncReadCalls = syncReadCalls.get(),
+        syncReadNoData = syncReadNoData.get(),
     )
 
     internal fun recordPeerMacLearned() {
@@ -282,6 +329,41 @@ class NcmUsbBridge internal constructor(
     private fun emitFirst(event: NcmDiagnosticEvent) {
         val first = synchronized(firstEvents) { firstEvents.add(event) }
         if (first) runCatching { diagnosticEventListener(event) }
+    }
+
+    private fun logStartupTx(
+        phase: NcmLinkPhase,
+        packetType: String,
+        timeoutMillis: Int,
+        bytes: Int,
+        attempt: Long,
+        startedAtNanos: Long,
+        result: NcmSendResult,
+        resultOverride: String?,
+    ) {
+        if (
+            !diagnosticsEnabled || phase == NcmLinkPhase.NCM_LINK_READY ||
+            startupTxLogCount.incrementAndGet() > MAX_STARTUP_TX_LOGS
+        ) {
+            return
+        }
+        val resultName = resultOverride ?: when (result) {
+            NcmSendResult.Sent -> "SENT"
+            NcmSendResult.NotReady -> "NOT_READY"
+            is NcmSendResult.Failed -> "FAILED"
+        }
+        val errorType = (result as? NcmSendResult.Failed)?.error?.javaClass?.simpleName ?: "none"
+        reportDiagnostic(
+            "NCM_TX profile=${diagnosticProfile.name} phase=$phase packetType=$packetType " +
+                "timeoutMs=$timeoutMillis bytes=$bytes attempt=$attempt result=$resultName errorType=$errorType " +
+                "elapsedMs=${(System.nanoTime() - startedAtNanos) / NANOS_PER_MILLISECOND}",
+        )
+    }
+
+    private fun reportDiagnostic(message: String) {
+        if (!diagnosticsEnabled) return
+        Log.i(IphoneCarPlayConfiguration.TAG, message)
+        runCatching { onDiagnosticLog(message) }
     }
 
     /**
@@ -335,19 +417,44 @@ class NcmUsbBridge internal constructor(
         synchronized(readLock) { }
         val requestToClose = synchronized(stateLock) { readLifecycle.takeForClose() }
         runCatching { requestToClose?.close() }
+        val snapshot = diagnosticSnapshot()
+        val outcome = when {
+            snapshot.failure != null -> "FAILED"
+            snapshot.linkPhase == NcmLinkPhase.NCM_LINK_READY -> "LINK_READY"
+            else -> "NO_LINK_PROOF"
+        }
+        reportDiagnostic(
+            "NCM_AB_RESULT outcome=$outcome ${snapshot.report()}",
+        )
     }
 
     private fun drainStatus(endpoint: UsbEndpoint) {
         val buffer = ByteArray(endpoint.maxPacketSize.coerceAtLeast(64))
+        reportDiagnostic(
+            "NCM_STATUS profile=${diagnosticProfile.name} statusEndpoint=0x${endpoint.address.toString(16)} " +
+                "statusPollStarted",
+        )
         while (statusRunning.get()) {
-            statusPollAttempts.incrementAndGet()
+            val attempt = statusPollAttempts.incrementAndGet()
             val transferred = try {
                 connection.bulkTransfer(endpoint, buffer, buffer.size, STATUS_POLL_TIMEOUT_MILLIS)
-            } catch (_: RuntimeException) {
+            } catch (error: RuntimeException) {
                 statusPollFailures.incrementAndGet()
+                reportDiagnostic(
+                    "NCM_STATUS profile=${diagnosticProfile.name} statusEndpoint=0x${endpoint.address.toString(16)} " +
+                        "statusPollError=${error.javaClass.simpleName}",
+                )
                 return
             }
             if (transferred <= 0) {
+                val noDataCount = statusPollNoData.incrementAndGet()
+                if (noDataCount <= 3 || noDataCount % STATUS_POLL_LOG_EVERY == 0L) {
+                    reportDiagnostic(
+                        "NCM_STATUS profile=${diagnosticProfile.name} statusEndpoint=0x${endpoint.address.toString(16)} " +
+                            "statusPollResult bytes=$transferred result=NO_DATA statusPollAttempt=$attempt " +
+                            "statusPollNoData=$noDataCount",
+                    )
+                }
                 try {
                     Thread.sleep(STATUS_POLL_INTERVAL_MILLIS)
                 } catch (_: InterruptedException) {
@@ -355,6 +462,16 @@ class NcmUsbBridge internal constructor(
                 }
                 continue
             }
+            val prefixLength = minOf(transferred, MAX_STATUS_NOTIFICATION_HEX_BYTES)
+            val notificationType = if (transferred >= 2) buffer[1].toInt() and 0xff else null
+            val prefix = buffer.copyOfRange(0, prefixLength).joinToString("") {
+                "%02x".format(it.toInt() and 0xff)
+            }
+            reportDiagnostic(
+                "NCM_STATUS profile=${diagnosticProfile.name} statusEndpoint=0x${endpoint.address.toString(16)} " +
+                    "statusPollResult bytes=$transferred notificationType=${notificationType ?: "unknown"} " +
+                    "payloadPrefix=$prefix",
+            )
         }
     }
 
@@ -417,6 +534,7 @@ class NcmUsbBridge internal constructor(
     }
 
     private fun readChunk(timeoutMillis: Long): Int? {
+        if (diagnosticProfile.synchronousBulkIn) return readChunkSynchronously(timeoutMillis)
         var newlyQueued = false
         val request = try {
             synchronized(stateLock) {
@@ -458,16 +576,36 @@ class NcmUsbBridge internal constructor(
         } catch (error: RuntimeException) {
             if (readLifecycle.isClosing()) return null
             throw failSession("NCM_READ_ERROR: NCM read request setup failed", error)
+        } catch (error: IphoneUsbException) {
+            if ("NCM_QUEUE_ERROR" in error.message.orEmpty()) {
+                reportDiagnostic(
+                    "NCM_USB_READ profile=${diagnosticProfile.name} mode=ASYNC_USB_REQUEST " +
+                        "readQueueResult=FAILED count=${readQueueFailures.get()}",
+                )
+            }
+            throw error
         }
-        if (newlyQueued) emitFirst(NcmDiagnosticEvent.READ_QUEUED)
+        if (newlyQueued) {
+            emitFirst(NcmDiagnosticEvent.READ_QUEUED)
+            reportDiagnostic(
+                "NCM_USB_READ profile=${diagnosticProfile.name} mode=ASYNC_USB_REQUEST " +
+                    "readQueueResult=QUEUED count=${readQueues.get()}",
+            )
+        }
         try {
             val completed = try {
                 connection.requestWait(timeoutMillis.coerceAtLeast(1))
             } catch (_: TimeoutException) {
-                synchronized(stateLock) {
+                val timeoutCount = synchronized(stateLock) {
                     if (readLifecycle.isClosing()) return null
                     readLifecycle.onTimeout()
                     readTimeouts.incrementAndGet()
+                }
+                if (timeoutCount <= 3L || timeoutCount % READ_DIAGNOSTIC_LOG_EVERY == 0L) {
+                    reportDiagnostic(
+                        "NCM_USB_READ profile=${diagnosticProfile.name} mode=ASYNC_USB_REQUEST " +
+                            "requestWaitResult=TIMEOUT count=$timeoutCount",
+                    )
                 }
                 return null
             }
@@ -476,6 +614,10 @@ class NcmUsbBridge internal constructor(
                     if (!readLifecycle.onNullResult()) return null
                     readNullErrors.incrementAndGet()
                 }
+                reportDiagnostic(
+                    "NCM_USB_READ profile=${diagnosticProfile.name} mode=ASYNC_USB_REQUEST " +
+                        "requestWaitResult=NULL_ERROR",
+                )
                 throw failSession("NCM_REQUEST_WAIT_ERROR: Android returned no NCM read request")
             }
             var firstCompletion = false
@@ -488,7 +630,13 @@ class NcmUsbBridge internal constructor(
                 firstCompletion = readCompletions.incrementAndGet() == 1L
                 directReadBuffer.position().also { readBytes.addAndGet(it.toLong()) }
             }
-            if (firstCompletion) emitFirst(NcmDiagnosticEvent.FIRST_USB_COMPLETION)
+            if (firstCompletion) {
+                emitFirst(NcmDiagnosticEvent.FIRST_USB_COMPLETION)
+                reportDiagnostic(
+                    "NCM_USB_READ profile=${diagnosticProfile.name} mode=ASYNC_USB_REQUEST " +
+                        "requestWaitResult=COMPLETED bytes=$transferred",
+                )
+            }
             if (transferred <= 0) return null
             directReadBuffer.flip()
             directReadBuffer.get(readBuffer, 0, transferred)
@@ -499,6 +647,46 @@ class NcmUsbBridge internal constructor(
             if (readLifecycle.isClosing()) return null
             throw failSession("NCM_REQUEST_WAIT_ERROR: NCM read failed", error)
         }
+    }
+
+    private fun readChunkSynchronously(timeoutMillis: Long): Int? {
+        val call = syncReadCalls.incrementAndGet()
+        val boundedTimeout = timeoutMillis.coerceAtLeast(1L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val startedAtNanos = System.nanoTime()
+        val transferred = try {
+            connection.bulkTransfer(inEndpoint, readBuffer, readBuffer.size, boundedTimeout)
+        } catch (error: RuntimeException) {
+            readNullErrors.incrementAndGet()
+            reportDiagnostic(
+                "NCM_USB_READ profile=${diagnosticProfile.name} mode=SYNC_BULK_IN " +
+                    "bulkTransferResult=ERROR error=${error.javaClass.simpleName}",
+            )
+            throw failSession("NCM_SYNC_READ_ERROR: Android bulk IN failed", error)
+        }
+        if (readLifecycle.isClosing()) return null
+        if (transferred <= 0) {
+            val noData = syncReadNoData.incrementAndGet()
+            readTimeouts.incrementAndGet()
+            if (noData <= 3L || noData % READ_DIAGNOSTIC_LOG_EVERY == 0L) {
+                reportDiagnostic(
+                    "NCM_USB_READ profile=${diagnosticProfile.name} mode=SYNC_BULK_IN " +
+                        "bulkTransferResult=$transferred result=NO_DATA count=$noData timeoutMs=$boundedTimeout " +
+                        "elapsedMs=${(System.nanoTime() - startedAtNanos) / NANOS_PER_MILLISECOND}",
+                )
+            }
+            return null
+        }
+        val firstCompletion = readCompletions.incrementAndGet() == 1L
+        readBytes.addAndGet(transferred.toLong())
+        if (firstCompletion) {
+            emitFirst(NcmDiagnosticEvent.FIRST_USB_COMPLETION)
+            reportDiagnostic(
+                "NCM_USB_READ profile=${diagnosticProfile.name} mode=SYNC_BULK_IN " +
+                    "bulkTransferResult=COMPLETED bytes=$transferred call=$call " +
+                    "elapsedMs=${(System.nanoTime() - startedAtNanos) / NANOS_PER_MILLISECOND}",
+            )
+        }
+        return transferred
     }
 
     private fun failSession(message: String, cause: Throwable? = null): IphoneUsbException.DeviceUnavailable {
@@ -535,6 +723,10 @@ class NcmUsbBridge internal constructor(
         private const val USB_PACKET_SIZE = 512
         private const val STATUS_POLL_TIMEOUT_MILLIS = 20
         private const val STATUS_POLL_INTERVAL_MILLIS = 500L
+        private const val STATUS_POLL_LOG_EVERY = 20L
+        private const val MAX_STATUS_NOTIFICATION_HEX_BYTES = 8
+        private const val MAX_STARTUP_TX_LOGS = 8L
+        private const val READ_DIAGNOSTIC_LOG_EVERY = 20L
         private const val MAX_QUEUED_FRAMES = 256
         private const val MAX_QUEUED_BYTES = 1 shl 20
         private const val NANOS_PER_MILLISECOND = 1_000_000L
@@ -546,9 +738,6 @@ class NcmUsbBridge internal constructor(
 
         internal fun readChunkBytesForDiagnostics(): Int = READ_CHUNK_BYTES
 
-        @Volatile
-        internal var statusPollingEnabledForDiagnostics = false
-
         /** Claims and activates the NCM control/data interfaces; owns the connection on success. */
         fun open(
             connection: UsbDeviceConnection,
@@ -558,13 +747,34 @@ class NcmUsbBridge internal constructor(
                     "data=${function.data.id}/${function.data.alternateSetting}",
             onDiagnosticEvent: (NcmDiagnosticEvent) -> Unit = {},
             queryNtbParameters: Boolean = false,
+            diagnosticProfile: NcmDiagnosticProfile = NcmDiagnosticProfile.AUTO,
+            diagnosticAttempt: Int = 0,
+            diagnosticsEnabled: Boolean = false,
+            onDiagnosticLog: (String) -> Unit = {},
         ): NcmUsbBridge {
             val claimed = ArrayList<UsbInterface>(2)
             try {
+                val statusAddress = function.statusIn?.address
+                val statusPollingEnabled = diagnosticProfile.statusPolling && statusAddress != null
+                val profileLine =
+                    "NCM_AB profile=${diagnosticProfile.name} attempt=$diagnosticAttempt " +
+                        "control=${function.control.id}/${function.control.alternateSetting} " +
+                        "data=${function.data.id}/${function.data.alternateSetting} " +
+                        "statusEndpoint=${statusAddress?.let { "0x${it.toString(16)}" } ?: "none"} " +
+                        "bulkIn=0x${function.bulkIn.address.toString(16)} " +
+                        "bulkOut=0x${function.bulkOut.address.toString(16)} " +
+                        "statusPolling=$statusPollingEnabled " +
+                        "readMode=${if (diagnosticProfile.synchronousBulkIn) "SYNC_BULK_IN" else "ASYNC_USB_REQUEST"} " +
+                        "preReadyOutTimeoutMs=${diagnosticProfile.preReadyOutTimeoutMillis} " +
+                        "selection={$selectionDiagnostics}"
+                if (diagnosticsEnabled) {
+                    Log.i(IphoneCarPlayConfiguration.TAG, profileLine)
+                    runCatching { onDiagnosticLog(profileLine) }
+                }
                 val descriptorHostMac = readNcmHostMac(connection, function.control.id)
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
-                    "ncm descriptor hostMac=${descriptorHostMac?.macString() ?: "unavailable"}",
+                    "ncm descriptor hostMacPresent=${descriptorHostMac != null}",
                 )
                 // Apple's Ethernet function exposes control and data as alternate settings of the
                 // same interface id, so it must be claimed once and switched with setInterface.
@@ -618,11 +828,11 @@ class NcmUsbBridge internal constructor(
                 }
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
-                    "ncm status endpoint=${function.statusIn?.address?.let { "0x${it.toString(16)}" } ?: "none"}",
+                    "ncm status endpoint=${statusAddress?.let { "0x${it.toString(16)}" } ?: "none"}",
                 )
                 Log.i(
                     IphoneCarPlayConfiguration.TAG,
-                    "ncm status polling=${statusPollingEnabledForDiagnostics}",
+                    "ncm status polling=$statusPollingEnabled",
                 )
                 return NcmUsbBridge(
                     connection,
@@ -632,7 +842,10 @@ class NcmUsbBridge internal constructor(
                     descriptorHostMac,
                     "$selectionDiagnostics ntbParameters=$ntbParametersSummary",
                     onDiagnosticEvent,
-                    statusPollingEnabledForDiagnostics,
+                    diagnosticProfile,
+                    diagnosticAttempt,
+                    diagnosticsEnabled,
+                    onDiagnosticLog,
                 )
             } catch (error: Throwable) {
                 for (usbInterface in claimed.asReversed()) {
@@ -735,9 +948,6 @@ class NcmUsbBridge internal constructor(
             }
             return null
         }
-
-        private fun ByteArray.macString(): String =
-            joinToString(":") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
         private const val USB_INTERFACE_DESCRIPTOR_TYPE = 0x04
         private const val USB_REQUEST_GET_DESCRIPTOR = 0x06

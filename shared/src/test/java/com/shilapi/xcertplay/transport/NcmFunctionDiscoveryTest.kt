@@ -50,6 +50,9 @@ class NcmFunctionDiscoveryTest {
         assertEquals(setOf(3 to 4, 5 to 6), candidates.map { it.controlId to it.dataId }.toSet())
         assertTrue(candidates.all { it.hasUnion && it.eligible })
         assertEquals(4, NcmFunctionDiscovery.selectCandidate(candidates)?.dataId)
+        assertEquals(5, NcmFunctionDiscovery.selectCandidate(candidates, 5 to 6)?.controlId)
+        assertEquals(6, NcmFunctionDiscovery.selectCandidate(candidates, 5 to 6)?.dataId)
+        assertEquals(null, NcmFunctionDiscovery.selectCandidate(candidates, 7 to 8))
     }
 
     @Test

@@ -228,3 +228,7 @@ Tag each primary-session `onPaintStatusReset()` with the current suspension gene
 ## Keep wired NCM experiments isolated and debug-only
 
 Persist one NCM diagnostic profile only in debuggable builds. `AUTO` retains current shipping behavior; status polling, pre-ready OUT timeout, sync Bulk IN and forced function selection stay independent. Do not combine profiles or add CDC-NCM control requests until ordered real-device A/B results justify the next experiment.
+
+## Keep local MFi identity outside tracked source
+
+Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Allow only the expected identity and certificate assets, and reject every other key-like file from APK asset inputs. Never copy those local assets into the worktree.

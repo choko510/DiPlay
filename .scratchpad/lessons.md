@@ -206,4 +206,8 @@ If a paint timeout closes a trace but leaves its pending flag set, later callbac
 
 For diagnostic classification, resolve ICMPv6 through bounded extension-header parsing and distinguish RS/RA/NS/NA (133–136). Keep ambiguous Bulk OUT retries limited to NS/NA (135/136); packet typing and counters must not silently change retry behavior.
 
+## Bundle local MFi identity only through an explicit input
+
+Use the external `DIPLAY_AUTH_ASSETS_DIR` input for a local-only debug build, and gate packaging with an exact two-file allowlist. Generated APKs may contain those user-requested assets; keep them out of source, commits, and logs.
+
 When Gecko reports paint-status reset during `setActive(false)`, retain it through profile-resolution timeout and warm reopen. Associate it with a suspension generation instead of clearing a boolean on measurement end; a later suspension must observe its own reset before primary paint is accepted.

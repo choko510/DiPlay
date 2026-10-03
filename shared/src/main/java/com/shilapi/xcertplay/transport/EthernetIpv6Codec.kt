@@ -45,11 +45,78 @@ object EthernetIpv6Codec {
     }
 
     fun isNeighborDiscovery(ipv6: ByteArray, offset: Int = 0, length: Int = ipv6.size - offset): Boolean =
-        length >= IPV6_HEADER_BYTES + 1 && offset >= 0 && offset + length <= ipv6.size &&
-            (ipv6[offset].toInt() ushr 4 and 0x0f) == 6 &&
-            (ipv6[offset + IPV6_NEXT_HEADER_OFFSET].toInt() and 0xff) == ICMPV6_NEXT_HEADER &&
-            (ipv6[offset + IPV6_HEADER_BYTES].toInt() and 0xff) in
-            ICMPV6_NEIGHBOR_SOLICITATION..ICMPV6_NEIGHBOR_ADVERTISEMENT
+        icmpv6Type(ipv6, offset, length)?.let {
+            it in ICMPV6_ROUTER_SOLICITATION..ICMPV6_NEIGHBOR_ADVERTISEMENT
+        } == true
+
+    fun isNeighborResolution(ipv6: ByteArray, offset: Int = 0, length: Int = ipv6.size - offset): Boolean =
+        icmpv6Type(ipv6, offset, length)?.let {
+            it in ICMPV6_NEIGHBOR_SOLICITATION..ICMPV6_NEIGHBOR_ADVERTISEMENT
+        } == true
+
+    fun packetType(ipv6: ByteArray, offset: Int = 0, length: Int = ipv6.size - offset): String {
+        val upperLayer = upperLayer(ipv6, offset, length) ?: return "OTHER"
+        return when (upperLayer.protocol) {
+            TCP_NEXT_HEADER -> "TCP"
+            UDP_NEXT_HEADER -> "UDP"
+            ICMPV6_NEXT_HEADER -> when (icmpv6Type(ipv6, offset, length)) {
+                ICMPV6_ROUTER_SOLICITATION -> "NDP_RS"
+                ICMPV6_ROUTER_ADVERTISEMENT -> "NDP_RA"
+                ICMPV6_NEIGHBOR_SOLICITATION -> "NDP_NS"
+                ICMPV6_NEIGHBOR_ADVERTISEMENT -> "NDP_NA"
+                null -> "ICMPV6"
+                else -> "ICMPV6_OTHER"
+            }
+            else -> "OTHER"
+        }
+    }
+
+    private fun icmpv6Type(ipv6: ByteArray, offset: Int, length: Int): Int? {
+        val upperLayer = upperLayer(ipv6, offset, length) ?: return null
+        if (upperLayer.protocol != ICMPV6_NEXT_HEADER || upperLayer.offset >= upperLayer.end) return null
+        return ipv6[upperLayer.offset].toInt() and 0xff
+    }
+
+    private fun upperLayer(ipv6: ByteArray, offset: Int, length: Int): UpperLayer? {
+        if (
+            offset < 0 || length < IPV6_HEADER_BYTES || length > ipv6.size - offset ||
+            (ipv6[offset].toInt() ushr 4 and 0x0f) != 6
+        ) return null
+        val packetEnd = minOf(offset + length, offset + IPV6_HEADER_BYTES + readU16(ipv6, offset + IPV6_PAYLOAD_LENGTH_OFFSET))
+        var nextHeader = ipv6[offset + IPV6_NEXT_HEADER_OFFSET].toInt() and 0xff
+        var cursor = offset + IPV6_HEADER_BYTES
+        repeat(MAX_EXTENSION_HEADERS) {
+            when (nextHeader) {
+                ICMPV6_NEXT_HEADER, TCP_NEXT_HEADER, UDP_NEXT_HEADER ->
+                    return UpperLayer(nextHeader, cursor, packetEnd)
+                HOP_BY_HOP_NEXT_HEADER, ROUTING_NEXT_HEADER, DESTINATION_OPTIONS_NEXT_HEADER -> {
+                    if (cursor + 2 > packetEnd) return null
+                    val extensionBytes = ((ipv6[cursor + 1].toInt() and 0xff) + 1) * 8
+                    if (cursor + extensionBytes > packetEnd) return null
+                    nextHeader = ipv6[cursor].toInt() and 0xff
+                    cursor += extensionBytes
+                }
+                FRAGMENT_NEXT_HEADER -> {
+                    if (cursor + FRAGMENT_HEADER_BYTES > packetEnd) return null
+                    val fragmentOffset = readU16(ipv6, cursor + 2) and FRAGMENT_OFFSET_MASK
+                    if (fragmentOffset != 0) return null
+                    nextHeader = ipv6[cursor].toInt() and 0xff
+                    cursor += FRAGMENT_HEADER_BYTES
+                }
+                AUTHENTICATION_NEXT_HEADER -> {
+                    if (cursor + 2 > packetEnd) return null
+                    val extensionBytes = ((ipv6[cursor + 1].toInt() and 0xff) + 2) * 4
+                    if (cursor + extensionBytes > packetEnd) return null
+                    nextHeader = ipv6[cursor].toInt() and 0xff
+                    cursor += extensionBytes
+                }
+                else -> return null
+            }
+        }
+        return null
+    }
+
+    private data class UpperLayer(val protocol: Int, val offset: Int, val end: Int)
 
     fun build(sourceMac: ByteArray, destinationMac: ByteArray, ipv6: ByteArray): ByteArray {
         require(sourceMac.size == MAC_BYTES) { "sourceMac must be $MAC_BYTES bytes" }
@@ -156,9 +223,21 @@ object EthernetIpv6Codec {
     private const val IPV6_NEXT_HEADER_OFFSET = 6
     private const val IPV6_SOURCE_OFFSET = 8
     private const val IPV6_DESTINATION_OFFSET = 24
+    private const val MAX_EXTENSION_HEADERS = 8
+    private const val HOP_BY_HOP_NEXT_HEADER = 0
+    private const val TCP_NEXT_HEADER = 6
+    private const val UDP_NEXT_HEADER = 17
+    private const val ROUTING_NEXT_HEADER = 43
+    private const val FRAGMENT_NEXT_HEADER = 44
+    private const val AUTHENTICATION_NEXT_HEADER = 51
+    private const val DESTINATION_OPTIONS_NEXT_HEADER = 60
     private const val ICMPV6_NEXT_HEADER = 58
+    private const val ICMPV6_ROUTER_SOLICITATION = 133
+    private const val ICMPV6_ROUTER_ADVERTISEMENT = 134
     private const val ICMPV6_NEIGHBOR_SOLICITATION = 135
     private const val ICMPV6_NEIGHBOR_ADVERTISEMENT = 136
+    private const val FRAGMENT_HEADER_BYTES = 8
+    private const val FRAGMENT_OFFSET_MASK = 0xfff8
     private const val ICMPV6_NA_BYTES = 24
     private const val ICMPV6_NA_MIN_BYTES = IPV6_HEADER_BYTES + ICMPV6_NA_BYTES
     private const val ICMPV6_TARGET_LINK_LAYER_OPTION = 2

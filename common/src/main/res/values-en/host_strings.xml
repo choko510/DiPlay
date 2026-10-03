@@ -10,6 +10,18 @@
 
     <string name="host_settings_title">CarPlay settings</string>
     <string name="host_section_connection">Connection</string>
+    <string name="host_section_ncm_diagnostics">NCM diagnostics (debug build only)</string>
+    <string name="host_ncm_diagnostic_profile">NCM startup diagnostic profile</string>
+    <string name="host_ncm_diagnostic_help">For debug builds only. Change one variable at a time, then save and reconnect to apply.</string>
+    <string name="host_ncm_profile_current">Automatic selection (A0 baseline)</string>
+    <string name="host_ncm_profile_status_polling">Enable status interrupt polling only</string>
+    <string name="host_ncm_profile_out_250">Pre-ready Bulk OUT timeout: 250 ms</string>
+    <string name="host_ncm_profile_out_500">Pre-ready Bulk OUT timeout: 500 ms</string>
+    <string name="host_ncm_profile_out_1000">Pre-ready Bulk OUT timeout: 1000 ms</string>
+    <string name="host_ncm_profile_out_2000">Legacy Bulk OUT timeout: 2000 ms</string>
+    <string name="host_ncm_profile_sync_bulk_in">Synchronous Bulk IN (diagnostic)</string>
+    <string name="host_ncm_profile_force_3_4">Force CDC-NCM 3→4/1</string>
+    <string name="host_ncm_profile_force_5_6">Force CDC-NCM 5→6/1</string>
     <string name="host_wireless_carplay">Wireless CarPlay</string>
     <string name="host_accessibility_wireless_carplay">Wireless CarPlay transport</string>
     <string name="host_hotspot_status_title">Hotspot status</string>

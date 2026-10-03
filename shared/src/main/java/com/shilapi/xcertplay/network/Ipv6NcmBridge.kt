@@ -102,13 +102,14 @@ class Ipv6NcmBridge(
                 val mac = multicastMac ?: peerMac
                 if (mac == null) continue
                 val frame = EthernetIpv6Codec.build(hostMac, mac, ipv6)
-                val ndp = EthernetIpv6Codec.isNeighborDiscovery(ipv6)
+                val ndp = EthernetIpv6Codec.isNeighborResolution(ipv6)
                 val linkPhase = ncm.linkPhase()
                 val linkReady = linkPhase == NcmLinkPhase.NCM_LINK_READY
                 val result = NcmStartupNdpRetry.send(
                     startupNeighborDiscovery = ndp &&
                         linkPhase != NcmLinkPhase.PRE_CARPLAY_START && !linkReady,
                     linkReady = linkReady,
+                    preReadyOutTimeoutMillis = ncm.diagnosticProfile.preReadyOutTimeoutMillis,
                     isActive = running::get,
                     sendOnce = { timeoutMillis -> ncm.send(frame, timeoutMillis) },
                     pause = { delayMillis -> LockSupport.parkNanos(delayMillis * NANOS_PER_MILLISECOND) },

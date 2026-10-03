@@ -224,3 +224,11 @@ Treat paint completion, timeout and cancellation as mutually exclusive terminal 
 ## Preserve paint-reset evidence through warm activation
 
 Tag each primary-session `onPaintStatusReset()` with the current suspension generation. A measurement ending must not erase session evidence; a new distinct suspension advances the generation so older reset events cannot authorize its paint. Cold session creation starts a fresh generation. Start the timeout deadline on first activation and carry its absolute elapsed-realtime value across pause/resume and repeated same-profile opens.
+
+## Keep wired NCM experiments isolated and debug-only
+
+Persist one NCM diagnostic profile only in debuggable builds. `AUTO` retains current shipping behavior; status polling, pre-ready OUT timeout, sync Bulk IN and forced function selection stay independent. Do not combine profiles or add CDC-NCM control requests until ordered real-device A/B results justify the next experiment.
+
+## Keep local MFi identity outside tracked source
+
+Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Allow only the expected identity and certificate assets, and reject every other key-like file from APK asset inputs. Never copy those local assets into the worktree.

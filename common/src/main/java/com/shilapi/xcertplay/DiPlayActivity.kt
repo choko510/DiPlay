@@ -32,6 +32,8 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.shared.AppLanguage
+import com.shilapi.xcertplay.transport.NcmDiagnosticProfile
+import com.shilapi.xcertplay.transport.NcmDiagnosticProfileStore
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -257,6 +259,30 @@ class DiPlayActivity : ComponentActivity() {
         }
         section(content, getString(R.string.ui_about_diagnostics)) { card ->
             card.addView(button(getString(R.string.ui_about_diplay), false) { page = "about"; render() }, matchButton(0, 60))
+            if (NcmDiagnosticProfileStore.isDebuggable(this)) {
+                val profileLabels = mapOf(
+                    NcmDiagnosticProfile.AUTO to R.string.host_ncm_profile_current,
+                    NcmDiagnosticProfile.STATUS_POLLING to R.string.host_ncm_profile_status_polling,
+                    NcmDiagnosticProfile.OUT_TIMEOUT_250 to R.string.host_ncm_profile_out_250,
+                    NcmDiagnosticProfile.OUT_TIMEOUT_500 to R.string.host_ncm_profile_out_500,
+                    NcmDiagnosticProfile.OUT_TIMEOUT_1000 to R.string.host_ncm_profile_out_1000,
+                    NcmDiagnosticProfile.LEGACY_OUT_TIMEOUT to R.string.host_ncm_profile_out_2000,
+                    NcmDiagnosticProfile.SYNC_BULK_IN to R.string.host_ncm_profile_sync_bulk_in,
+                    NcmDiagnosticProfile.FORCE_3_4 to R.string.host_ncm_profile_force_3_4,
+                    NcmDiagnosticProfile.FORCE_5_6 to R.string.host_ncm_profile_force_5_6,
+                )
+                val profiles = NcmDiagnosticProfile.entries
+                val selectedProfile = NcmDiagnosticProfileStore.load(this)
+                card.addView(label(getString(R.string.host_ncm_diagnostic_help), 14, MUTED).apply {
+                    setPadding(0, dp(8), 0, dp(8))
+                })
+                choice(
+                    card,
+                    getString(R.string.host_ncm_diagnostic_profile),
+                    profiles.map { getString(profileLabels.getValue(it)) },
+                    profiles.indexOf(selectedProfile).coerceAtLeast(0),
+                ) { index -> NcmDiagnosticProfileStore.save(this, profiles[index]) }
+            }
             toggle(
                 card,
                 getString(R.string.ui_debug_mode),

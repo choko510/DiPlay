@@ -232,3 +232,7 @@ Persist one NCM diagnostic profile only in debuggable builds. `AUTO` retains cur
 ## Keep local MFi identity outside tracked source
 
 Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Allow only the expected identity and certificate assets, and reject every other key-like file from APK asset inputs. Never copy those local assets into the worktree.
+
+## Include both APK signing schemes for mobile debug distribution
+
+Explicitly configure the mobile debug signing config for v1 and v2 so OEM installers that depend on JAR signatures can parse the APK. Verify the resulting artifact with `apksigner`; the manifest minSdk can affect which scheme is reported as applicable.

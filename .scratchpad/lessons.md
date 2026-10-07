@@ -214,4 +214,8 @@ Use the external `DIPLAY_AUTH_ASSETS_DIR` input for a local-only debug build, an
 
 Use `apksigner verify --verbose --min-sdk-version 23` when confirming v1 compatibility on an APK whose manifest minSdk is 28 or higher; the default report can show v1 as not applicable while v2 remains valid. Check the exact final APK file rather than assuming Gradle's successful package task alone resolved an installer error.
 
+## Keep NCM evidence distinct from readiness state
+
+The NCM readiness phase can be advanced by an AirPlay control milestone, so `NCM_LINK_READY` alone does not prove bidirectional NCM traffic. Derive the NCM result from explicit RX/TX proof and log AirPlay acceptance and screen opening separately. Put summary fields before descriptor details because diagnostic export truncates long lines.
+
 When Gecko reports paint-status reset during `setActive(false)`, retain it through profile-resolution timeout and warm reopen. Associate it with a suspension generation instead of clearing a boolean on measurement end; a later suspension must observe its own reset before primary paint is accepted.

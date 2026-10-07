@@ -2306,7 +2306,18 @@ class CarPlayController(
                 } else {
                     failureCategory ?: ConnectionTraceError.USB
                 }
-                val ncmReport = ncm.diagnosticSnapshot().report()
+                val ncmSnapshot = ncm.diagnosticSnapshot()
+                val ncmReport = ncmSnapshot.report()
+                debugLog(
+                    "WIRED_AB_RESULT profile=${ncmSnapshot.profile.name} attempt=$startupAttempt " +
+                        "ncmOutcome=${ncmSnapshot.ncmOutcome.name} rxProven=${ncmSnapshot.rxProven} " +
+                        "txProven=${ncmSnapshot.txProven} " +
+                        "airplayControlAccepted=${wiredAirPlayControlAccepted.get()} " +
+                        "airplayEncryptionStarted=${wiredAirPlayEncryptionStarted.get()} " +
+                        "airplayEncrypted=${wiredAirPlayEncrypted.get()} " +
+                        "airplayEventAccepted=${wiredAirPlayEventAccepted.get()} " +
+                        "screenOpened=$streamWasOpened overallOutcome=$finalCategory",
+                )
                 if (connectionTraceErrorReported.compareAndSet(false, true)) {
                     traceConnection(
                         ConnectionTraceStage.ERROR,

@@ -10,6 +10,20 @@ internal enum class NcmLinkPhase {
     NCM_LINK_READY,
 }
 
+internal enum class NcmLinkOutcome {
+    NO_LINK_PROOF,
+    RX_ONLY,
+    TX_ONLY,
+    BIDIRECTIONAL_LINK,
+}
+
+internal fun ncmLinkOutcome(rxProven: Boolean, txProven: Boolean): NcmLinkOutcome = when {
+    rxProven && txProven -> NcmLinkOutcome.BIDIRECTIONAL_LINK
+    rxProven -> NcmLinkOutcome.RX_ONLY
+    txProven -> NcmLinkOutcome.TX_ONLY
+    else -> NcmLinkOutcome.NO_LINK_PROOF
+}
+
 internal class NcmLinkReadiness {
     private val phase = AtomicReference(NcmLinkPhase.PRE_CARPLAY_START)
     private val rxProven = AtomicBoolean(false)
@@ -20,6 +34,8 @@ internal class NcmLinkReadiness {
     fun hasRxProof(): Boolean = rxProven.get()
 
     fun hasTxProof(): Boolean = txProven.get()
+
+    fun outcome(): NcmLinkOutcome = ncmLinkOutcome(hasRxProof(), hasTxProof())
 
     fun markCarPlayStartSent() {
         phase.compareAndSet(NcmLinkPhase.PRE_CARPLAY_START, NcmLinkPhase.CARPLAY_START_SENT)

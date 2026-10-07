@@ -69,12 +69,15 @@ internal data class NcmDiagnosticsSnapshot(
     val syncReadCalls: Long,
     val syncReadNoData: Long,
 ) {
+    val ncmOutcome: NcmLinkOutcome
+        get() = ncmLinkOutcome(rxProven, txProven)
+
     fun report(): String =
-        "profile=${profile.name} attempt=$attempt selected={$selection} " +
+        "ncmOutcome=${ncmOutcome.name} profile=${profile.name} attempt=$attempt " +
             "statusEndpoint=${statusEndpoint?.let { "0x${it.toString(16)}" } ?: "none"} " +
             "statusPolling=$statusPollingEnabled preReadyOutTimeoutMs=${profile.preReadyOutTimeoutMillis} " +
             "readMode=${if (profile.synchronousBulkIn) "SYNC_BULK_IN" else "ASYNC_USB_REQUEST"} " +
-            "linkPhase=$linkPhase rxProven=$rxProven txProven=$txProven readState=$readState " +
+            "readinessPhase=$linkPhase rxProven=$rxProven txProven=$txProven readState=$readState " +
             "peerMacLearned=$peerMacLearned failure=${failure ?: "none"} " +
             "readQueues=$readQueues readCompletions=$readCompletions readTimeouts=$readTimeouts " +
             "readNullErrors=$readNullErrors readQueueFailures=$readQueueFailures " +
@@ -86,7 +89,8 @@ internal data class NcmDiagnosticsSnapshot(
             "ipv6TxSuccesses=$ipv6TxSuccesses ndpRxPackets=$ndpRxPackets " +
             "ndpTxAttempts=$ndpTxAttempts ndpTxSuccesses=$ndpTxSuccesses " +
             "statusPollAttempts=$statusPollAttempts statusPollNoData=$statusPollNoData " +
-            "statusPollFailures=$statusPollFailures syncReadCalls=$syncReadCalls syncReadNoData=$syncReadNoData"
+            "statusPollFailures=$statusPollFailures syncReadCalls=$syncReadCalls syncReadNoData=$syncReadNoData " +
+            "selected={$selection}"
 }
 
 internal data class NcmNtbParameters(
@@ -418,13 +422,17 @@ class NcmUsbBridge internal constructor(
         val requestToClose = synchronized(stateLock) { readLifecycle.takeForClose() }
         runCatching { requestToClose?.close() }
         val snapshot = diagnosticSnapshot()
-        val outcome = when {
-            snapshot.failure != null -> "FAILED"
-            snapshot.linkPhase == NcmLinkPhase.NCM_LINK_READY -> "LINK_READY"
-            else -> "NO_LINK_PROOF"
-        }
         reportDiagnostic(
-            "NCM_AB_RESULT outcome=$outcome ${snapshot.report()}",
+            "NCM_AB_RESULT ncmOutcome=${snapshot.ncmOutcome.name} profile=${snapshot.profile.name} " +
+                "attempt=${snapshot.attempt} rxProven=${snapshot.rxProven} txProven=${snapshot.txProven} " +
+                "readinessPhase=${snapshot.linkPhase} statusEndpoint=" +
+                "${snapshot.statusEndpoint?.let { "0x${it.toString(16)}" } ?: "none"} " +
+                "statusPolling=${snapshot.statusPollingEnabled} " +
+                "preReadyOutTimeoutMs=${snapshot.profile.preReadyOutTimeoutMillis} " +
+                "readMode=${if (snapshot.profile.synchronousBulkIn) "SYNC_BULK_IN" else "ASYNC_USB_REQUEST"} " +
+                "readCompletions=${snapshot.readCompletions} readBytes=${snapshot.readBytes} " +
+                "ipv6RxPackets=${snapshot.ipv6RxPackets} ipv6TxAttempts=${snapshot.ipv6TxAttempts} " +
+                "ipv6TxSuccesses=${snapshot.ipv6TxSuccesses} failure=${snapshot.failure ?: "none"}",
         )
     }
 

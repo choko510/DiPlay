@@ -32,6 +32,10 @@ Keep the received TCP `word8` field diagnostic-only because observed iPhone repl
 
 Treat `requestWait` timeout as idle while preserving the queued request; treat a null result, queue failure, or unexpected completion as a terminal NCM transport error. Close the full bridge on terminal errors. Do not run synchronous status-endpoint transfers on the shared connection by default; retain an explicit diagnostic switch for A/B testing.
 
+## Separate NCM packet proof from CarPlay startup milestones
+
+Classify NCM directionality only from observed inbound and successful outbound IPv6 proof. The readiness phase may also be advanced by accepted AirPlay control traffic, so report that signal, screen-stream opening, and the overall attempt outcome separately. Keep short result fields before long descriptor summaries so bounded log export retains them.
+
 ## Retry only idempotent NDP during NCM startup
 
 Report OUT not-ready results instead of dropping them silently. Before link readiness is proven, use one short OUT timeout for all frames and retry only Neighbor Solicitation/Advertisement frames after CarPlayStartSession, with five short bounded attempts; leave TCP/UDP retransmission to their own protocols.

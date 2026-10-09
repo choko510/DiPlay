@@ -56,6 +56,31 @@ object MediaCodecSupport {
         }
     }
 
+    internal fun adaptiveCodecSpecificData(codec: VideoCodec, codecData: ByteArray): ByteArray {
+        return when (codec) {
+            VideoCodec.H264 -> {
+                val (sequenceParameterSets, pictureParameterSets) = avcParameterSetsAll(codecData)
+                if (sequenceParameterSets.isEmpty() || pictureParameterSets.isEmpty()) return ByteArray(0)
+                val output = ByteArrayOutputStream()
+                sequenceParameterSets.forEach { output.write(START_CODE + it) }
+                pictureParameterSets.forEach { output.write(START_CODE + it) }
+                output.toByteArray()
+            }
+            VideoCodec.H265 -> hevcCodecSpecificData(codecData)
+        }
+    }
+
+    internal fun combineAdaptiveConfigAndKeyFrame(
+        codec: VideoCodec,
+        codecSpecificData: ByteArray,
+        frameNalus: ByteArray,
+    ): ByteArray? {
+        if (codecSpecificData.isEmpty()) return null
+        val annexB = toAnnexB(frameNalus)
+        if (annexB.isEmpty() || !isRandomAccess(annexB, codec)) return null
+        return codecSpecificData + annexB
+    }
+
     /**
      * Converts an HEVCDecoderConfigurationRecord (hvcC) into Annex B VPS/SPS/PPS CSD.
      *
@@ -194,6 +219,22 @@ object MediaCodecSupport {
     }
 
     private fun emptySet(): Pair<ByteArray, ByteArray> = ByteArray(0) to ByteArray(0)
+
+    private fun avcParameterSetsAll(codecData: ByteArray): Pair<List<ByteArray>, List<ByteArray>> {
+        if (codecData.size < 7) return emptyList<ByteArray>() to emptyList()
+        var cursor = 6
+        val sequenceParameterSetCount = codecData[5].toInt() and 0x1f
+        if (sequenceParameterSetCount == 0) return emptyList<ByteArray>() to emptyList()
+        val sequenceParameterSets = readParameterSets(codecData, cursor, sequenceParameterSetCount)
+        if (sequenceParameterSets.size != sequenceParameterSetCount) return emptyList<ByteArray>() to emptyList()
+        cursor += sequenceParameterSets.sumOf { it.size + 2 }
+        if (cursor >= codecData.size) return emptyList<ByteArray>() to emptyList()
+        val pictureParameterSetCount = codecData[cursor].toInt() and 0xff
+        if (pictureParameterSetCount == 0) return emptyList<ByteArray>() to emptyList()
+        val pictureParameterSets = readParameterSets(codecData, cursor + 1, pictureParameterSetCount)
+        if (pictureParameterSets.size != pictureParameterSetCount) return emptyList<ByteArray>() to emptyList()
+        return sequenceParameterSets to pictureParameterSets
+    }
 
     private fun readParameterSets(source: ByteArray, offset: Int, count: Int): List<ByteArray> {
         val sets = ArrayList<ByteArray>(count)

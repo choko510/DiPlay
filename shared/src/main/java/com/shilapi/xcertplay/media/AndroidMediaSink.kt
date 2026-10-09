@@ -6,6 +6,7 @@ import android.media.AudioFormat as AndroidAudioFormat
 import android.media.AudioTimestamp
 import android.media.AudioTrack
 import android.media.MediaCodec
+import android.media.MediaCodecInfo
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
@@ -73,6 +74,8 @@ class AndroidMediaSink(
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
     private val onAudioDiagnostic: (String) -> Unit = {},
     onVideoFrameSubmittedToSurface: ((Int) -> Unit)? = null,
+    onVideoOutputGeometryChanged: ((Int, VideoOutputGeometry) -> Unit)? = null,
+    onVideoMetric: ((Int, VideoDecodeMetric) -> Unit)? = null,
 ) : MediaSink {
     constructor(
         surface: Surface? = null,
@@ -102,20 +105,26 @@ class AndroidMediaSink(
     )
     private data class AudioRendererEntry(val token: AudioOwnerToken, val renderer: AudioRenderer)
     private data class MicrophoneEntry(val token: AudioOwnerToken, val uplink: MicrophoneUplinkController)
+    private data class VideoConfig(val codec: VideoCodec, val data: ByteArray)
 
     private val screenStateLock = Any()
     private val activeScreenTypes = mutableSetOf<Int>()
     private val defaultSurface = surface
     @Volatile private var screenStreamActiveChanged = onScreenStreamActiveChanged
     @Volatile private var videoFrameSubmittedToSurface = onVideoFrameSubmittedToSurface
+    @Volatile private var videoOutputGeometryChanged = onVideoOutputGeometryChanged
+    @Volatile private var videoMetric = onVideoMetric
     private val surfaces = ConcurrentHashMap<Int, Surface>()
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
+    private val latestVideoOutputGeometries = ConcurrentHashMap<Int, VideoOutputGeometry>()
+    private val videoGeometryLock = Any()
     private val audioTypeLocks = ConcurrentHashMap<Int, Any>()
     private val activeAudioOwners = ConcurrentHashMap<Int, AudioOwnerToken>()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRendererEntry>()
     private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneEntry>()
     private val closed = AtomicBoolean(false)
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
+    private val lastVideoConfig = ConcurrentHashMap<Int, VideoConfig>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, () -> Unit>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
     private val recoveryPending = AtomicBoolean(false)
@@ -169,12 +178,29 @@ class AndroidMediaSink(
         videoFrameSubmittedToSurface = listener
     }
 
+    fun setVideoOutputGeometryChangedListener(listener: ((Int, VideoOutputGeometry) -> Unit)?) {
+        val latest = synchronized(videoGeometryLock) {
+            videoOutputGeometryChanged = listener
+            latestVideoOutputGeometries.filterKeys { videoDecoders.containsKey(it) }
+        }
+        latest.forEach { (type, geometry) -> listener?.invoke(type, geometry) }
+    }
+
+    fun setVideoMetricListener(listener: ((Int, VideoDecodeMetric) -> Unit)?) {
+        videoMetric = listener
+    }
+
     override fun onVideoCodec(type: Int, codec: VideoCodec) {
         pendingVideoCodec[type] = codec
     }
 
     override fun onVideoConfig(type: Int, codecData: ByteArray) {
         val codec = pendingVideoCodec[type] ?: VideoCodec.H264
+        val previous = lastVideoConfig[type]
+        if (previous == null || previous.codec != codec || !previous.data.contentEquals(codecData)) {
+            lastVideoConfig[type] = VideoConfig(codec, codecData.copyOf())
+            videoMetric?.invoke(type, VideoDecodeMetric.CODEC_CONFIG_CHANGE)
+        }
         videoDecoder(type).configure(codec, codecData)
     }
 
@@ -187,7 +213,9 @@ class AndroidMediaSink(
             videoRecoveryHandlers.remove(type)
             videoDiagnosticHandlers.remove(type)
             videoDecoders.remove(type)?.close()
+            synchronized(videoGeometryLock) { latestVideoOutputGeometries.remove(type) }
             pendingVideoCodec.remove(type)
+            lastVideoConfig.remove(type)
         }
         synchronized(screenStateLock) {
             if (active) activeScreenTypes.add(type) else activeScreenTypes.remove(type)
@@ -332,8 +360,14 @@ class AndroidMediaSink(
         }
         videoDecoders.values.forEach(VideoDecoder::close)
         videoDecoders.clear()
+        synchronized(videoGeometryLock) {
+            videoOutputGeometryChanged = null
+            latestVideoOutputGeometries.clear()
+        }
+        videoMetric = null
         videoRecoveryHandlers.clear()
         videoDiagnosticHandlers.clear()
+        lastVideoConfig.clear()
         recoveryExecutor.shutdownNow()
         val types = (audioTypeLocks.keys + activeAudioOwners.keys + audioRenderers.keys + microphoneUplinks.keys).toSet()
         val renderers = mutableListOf<AudioRenderer>()
@@ -349,9 +383,9 @@ class AndroidMediaSink(
         microphones.forEach(MicrophoneUplinkController::close)
     }
 
-    private fun videoDecoder(type: Int): VideoDecoder =
-        videoDecoders.computeIfAbsent(type) {
-            VideoDecoder(
+    private fun videoDecoder(type: Int): VideoDecoder = videoDecoders.computeIfAbsent(type) {
+            lateinit var created: VideoDecoder
+            created = VideoDecoder(
                 surfaces[type] ?: defaultSurface,
                 videoWidth,
                 videoHeight,
@@ -359,8 +393,22 @@ class AndroidMediaSink(
                 requestKeyFrame = { requestVideoRecovery(type) },
                 report = { videoDiagnosticHandlers[type]?.invoke(it) },
                 onFirstFrameSubmittedToSurface = { videoFrameSubmittedToSurface?.invoke(type) },
+                onMetric = { videoMetric?.invoke(type, it) },
+                onOutputGeometryChanged = { geometry ->
+                    publishVideoOutputGeometry(type, created, geometry)
+                },
             )
+            created
         }
+
+    private fun publishVideoOutputGeometry(type: Int, decoder: VideoDecoder, geometry: VideoOutputGeometry) {
+        val listener = synchronized(videoGeometryLock) {
+            if (videoDecoders[type] !== decoder) return
+            latestVideoOutputGeometries[type] = geometry
+            videoOutputGeometryChanged
+        }
+        listener?.invoke(type, geometry)
+    }
 
     private fun createAudioRenderer(format: AudioFormat): AudioRenderer {
         val mappingMode = if (advancedAudioChannelMapping) {
@@ -415,17 +463,29 @@ class AndroidMediaSink(
 /** Serial MediaCodec video decoder: one worker owns configure and frame feeding. */
 private class VideoDecoder(
     surface: Surface?,
-    private val width: Int,
-    private val height: Int,
+    private val declaredMaxWidth: Int,
+    private val declaredMaxHeight: Int,
     private val preferSoftwareHevcDecoder: Boolean,
     private val requestKeyFrame: () -> Unit,
     private val report: (String) -> Unit,
     private val onFirstFrameSubmittedToSurface: () -> Unit,
+    private val onMetric: (VideoDecodeMetric) -> Unit,
+    private val onOutputGeometryChanged: (VideoOutputGeometry) -> Unit,
 ) : Closeable {
+    private data class ConfiguredDecoder(val codec: MediaCodec, val adaptivePlayback: Boolean)
+
     private val queue = VideoDecodeQueue()
     @Volatile private var running = true
     @Volatile private var decoder: MediaCodec? = null
     private var outputSurface: Surface? = surface
+    private var configuredWidth = declaredMaxWidth
+    private var configuredHeight = declaredMaxHeight
+    private var adaptivePlaybackEnabled = false
+    private var pendingAdaptiveCodecSpecificData: ByteArray? = null
+    private var pendingDimensionReconfigure: Pair<Int, Int>? = null
+    private var dropOutputUntilSafeGeometry = false
+    private var lastOutputGeometry: VideoOutputGeometry? = null
+    private var pendingOutputGeometry: VideoOutputGeometry? = null
     private var lastConfig: VideoJob.Config? = null
     private var submittedFrameToSurfaceLogged = false
     private var submittedFrameLogged = false
@@ -471,11 +531,13 @@ private class VideoDecoder(
                         null -> Unit
                     }
                     decoder?.let(::drainOutput)
+                    reconfigureForObservedSizeChange()
                     stats.logIfDue()?.let(report)
                     if (referenceChain.needsKeyFrame && lastConfig != null && outputSurface != null) requestKeyFrameIfDue()
                 } catch (error: Exception) {
                     if (running) Log.e(TAG, "video decoder job failed: ${job?.javaClass?.simpleName}", error)
                     if (running) report("decoder error ${error.javaClass.simpleName}; waiting for keyframe")
+                    if (decoder != null) onMetric(VideoDecodeMetric.DECODER_RECONFIGURE)
                     releaseDecoder()
                     referenceChain.reset()
                     requestKeyFrameIfDue()
@@ -501,10 +563,25 @@ private class VideoDecoder(
             }
             return
         }
+        val reconfiguring = decoder != null
+        if (decoder != null && adaptivePlaybackEnabled && previous?.codec == config.codec) {
+            val updatedCsd = MediaCodecSupport.adaptiveCodecSpecificData(config.codec, config.codecData)
+            if (updatedCsd.isNotEmpty()) {
+                lastConfig = config
+                duplicateConfigLogged = false
+                pendingAdaptiveCodecSpecificData = updatedCsd
+                referenceChain.reset()
+                report("adaptive codec configuration changed; waiting for a random-access frame")
+                requestKeyFrameIfDue()
+                return
+            }
+        }
         lastConfig = config
         duplicateConfigLogged = false
+        if (reconfiguring) onMetric(VideoDecodeMetric.DECODER_RECONFIGURE)
         releaseDecoder()
         referenceChain.reset()
+        lastOutputGeometry = null
         val surface = outputSurface ?: return
         val codec = config.codec
         val codecData = config.codecData
@@ -524,25 +601,39 @@ private class VideoDecoder(
             tryConfigure(mime, csd, surface, attempt, attemptedFormats)
         }
         if (next == null) {
-            report("decoder configuration failed mime=$mime size=${width}x$height")
+            report("decoder configuration failed mime=$mime size=${configuredWidth}x$configuredHeight")
         }
-        decoder = next
+        decoder = next?.codec
+        adaptivePlaybackEnabled = next?.adaptivePlayback == true
+        dropOutputUntilSafeGeometry = false
         submittedFrameToSurfaceLogged = false
         submittedFrameLogged = false
         if (next != null) {
-            report("decoder=${next.name} mime=$mime size=${width}x$height")
+            report(
+                "decoder=${next.codec.name} mime=$mime size=${configuredWidth}x$configuredHeight " +
+                    "adaptive=$adaptivePlaybackEnabled",
+            )
             Log.i(
                 TAG,
-                "video decoder configured name=${next.name} mime=$mime size=${width}x$height",
+                "video decoder configured name=${next.codec.name} mime=$mime " +
+                    "size=${configuredWidth}x$configuredHeight adaptive=$adaptivePlaybackEnabled",
             )
         }
     }
 
-    private fun buildFormat(mime: String, csd: List<CodecSpecificData>, tuned: Boolean): MediaFormat =
-        MediaFormat.createVideoFormat(mime, width, height).apply {
+    private fun buildFormat(
+        mime: String,
+        csd: List<CodecSpecificData>,
+        tuned: Boolean,
+        adaptiveBounds: AdaptivePlaybackBounds?,
+    ): MediaFormat = MediaFormat.createVideoFormat(mime, configuredWidth, configuredHeight).apply {
             if (tuned) {
                 setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, MAX_INPUT_SIZE)
                 setInteger(MediaFormat.KEY_PRIORITY, 0)
+            }
+            adaptiveBounds?.let { bounds ->
+                setInteger(MediaFormat.KEY_MAX_WIDTH, bounds.maxWidth)
+                setInteger(MediaFormat.KEY_MAX_HEIGHT, bounds.maxHeight)
             }
             csd.forEach { data ->
                 setByteBuffer("csd-${data.index}", ByteBuffer.wrap(data.bytes))
@@ -555,32 +646,77 @@ private class VideoDecoder(
         surface: Surface,
         attempt: DecoderAttempt,
         attemptedFormats: MutableSet<DecoderAttemptKey>,
-    ): MediaCodec? {
+    ): ConfiguredDecoder? {
         var candidate: MediaCodec? = null
-        return try {
-            val format = buildFormat(mime, csd, attempt.tuned)
+        var codecName: String? = null
+        var adaptiveBounds: AdaptivePlaybackBounds? = null
+        try {
             val codec = attempt.codecName?.let { MediaCodec.createByCodecName(it) } ?: createDecoder(mime)
             candidate = codec
+            codecName = codec.name
             if (!recordDecoderAttempt(attemptedFormats, codec.name, attempt.tuned)) {
                 runCatching { codec.release() }
                 candidate = null
                 return null
             }
+            adaptiveBounds = adaptivePlaybackBounds(codec, mime)
+            val format = buildFormat(mime, csd, attempt.tuned, adaptiveBounds)
             if (attempt.tuned && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                 codec.codecInfo.getCapabilitiesForType(mime).isFeatureSupported("low-latency")) {
                 format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
             }
             codec.configure(format, surface, null, 0)
             codec.start()
-            codec
+            return ConfiguredDecoder(codec, adaptiveBounds != null)
         } catch (error: Exception) {
+            runCatching { candidate?.stop() }
             runCatching { candidate?.release() }
             Log.w(
                 TAG,
-                "video decoder configure failed name=${attempt.codecName ?: "default"} " +
-                    "tuned=${attempt.tuned} mime=$mime size=${width}x$height",
+                "video decoder configure failed name=${codecName ?: attempt.codecName ?: "default"} " +
+                    "tuned=${attempt.tuned} mime=$mime size=${configuredWidth}x$configuredHeight " +
+                    "adaptive=${adaptiveBounds != null}",
                 error,
             )
+        }
+        val rejectedAdaptiveBounds = adaptiveBounds ?: return null
+        val fallbackName = codecName ?: return null
+        var fallback: MediaCodec? = null
+        return try {
+            fallback = MediaCodec.createByCodecName(fallbackName)
+            val format = buildFormat(mime, csd, attempt.tuned, adaptiveBounds = null)
+            if (attempt.tuned && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                fallback.codecInfo.getCapabilitiesForType(mime).isFeatureSupported("low-latency")) {
+                format.setInteger(MediaFormat.KEY_LOW_LATENCY, 1)
+            }
+            fallback.configure(format, surface, null, 0)
+            fallback.start()
+            report(
+                "decoder rejected adaptive bounds=${rejectedAdaptiveBounds.maxWidth}x" +
+                    "${rejectedAdaptiveBounds.maxHeight}; continuing without adaptive playback",
+            )
+            ConfiguredDecoder(fallback, adaptivePlayback = false)
+        } catch (error: Exception) {
+            runCatching { fallback?.stop() }
+            runCatching { fallback?.release() }
+            Log.w(TAG, "video decoder non-adaptive fallback failed name=$fallbackName mime=$mime", error)
+            null
+        }
+    }
+
+    private fun adaptivePlaybackBounds(codec: MediaCodec, mime: String): AdaptivePlaybackBounds? {
+        return try {
+            val capabilities = codec.codecInfo.getCapabilitiesForType(mime)
+            val video = capabilities.videoCapabilities ?: return null
+            boundedAdaptivePlaybackBounds(
+                featureSupported = capabilities.isFeatureSupported(MediaCodecInfo.CodecCapabilities.FEATURE_AdaptivePlayback) &&
+                    video.isSizeSupported(declaredMaxWidth, declaredMaxHeight),
+                canvasWidth = declaredMaxWidth,
+                canvasHeight = declaredMaxHeight,
+                codecMaxWidth = video.supportedWidths.upper,
+                codecMaxHeight = video.supportedHeights.upper,
+            )
+        } catch (_: Exception) {
             null
         }
     }
@@ -627,6 +763,7 @@ private class VideoDecoder(
                 return
             } catch (error: Exception) {
                 Log.w(TAG, "video decoder output surface update failed; reconfiguring", error)
+                onMetric(VideoDecodeMetric.DECODER_RECONFIGURE)
             }
         }
         releaseDecoder()
@@ -649,22 +786,46 @@ private class VideoDecoder(
             Log.i(
                 TAG,
                 "video decoder first input avcc=${nalus.size} annexB=${annexB.size} " +
-                    "head=${annexB.take(16).joinToString("") { "%02x".format(it.toInt() and 0xff) }}",
+                "head=${annexB.take(16).joinToString("") { "%02x".format(it.toInt() and 0xff) }}",
             )
         }
+        val pendingCsd = pendingAdaptiveCodecSpecificData
+        val inputData = if (pendingCsd != null) {
+            MediaCodecSupport.combineAdaptiveConfigAndKeyFrame(config.codec, pendingCsd, annexB)
+                ?: run {
+                    requestKeyFrameIfDue()
+                    return
+                }
+        } else {
+            annexB
+        }
         val index = VideoInputPump.acquire(
-            running = { running }, drain = { drainOutput(codec) },
-            dequeue = { codec.dequeueInputBuffer(INPUT_TIMEOUT_US) },
+            running = { running && pendingDimensionReconfigure == null },
+            drain = { drainOutput(codec) },
+            dequeue = {
+                if (pendingDimensionReconfigure == null) codec.dequeueInputBuffer(INPUT_TIMEOUT_US) else -1
+            },
         )
-        if (index < 0) { recover("video decoder input stalled"); return }
+        if (index < 0) {
+            if (pendingDimensionReconfigure != null) return
+            recover("video decoder input stalled")
+            return
+        }
         val input = checkNotNull(codec.getInputBuffer(index)) { "Decoder input buffer unavailable" }
         input.clear()
-        if (annexB.size <= input.remaining()) {
-            input.put(annexB)
-            codec.queueInputBuffer(index, 0, annexB.size, System.nanoTime() / 1000, 0)
+        if (inputData.size <= input.remaining()) {
+            input.put(inputData)
+            codec.queueInputBuffer(index, 0, inputData.size, System.nanoTime() / 1000, 0)
             referenceChain.onQueued()
+            if (pendingCsd != null && pendingAdaptiveCodecSpecificData === pendingCsd) {
+                pendingAdaptiveCodecSpecificData = null
+            }
         } else {
-            recover("video frame exceeded codec input capacity")
+            recover(if (pendingCsd != null) {
+                "adaptive config and keyframe exceeded codec input capacity"
+            } else {
+                "video frame exceeded codec input capacity"
+            })
             return
         }
         drainOutput(codec)
@@ -675,6 +836,7 @@ private class VideoDecoder(
         stats.onRecovery()
         report("recovery: $reason; waiting for keyframe")
         // Recreate with codec-specific data: flush can discard CSD before the first output.
+        if (decoder != null) onMetric(VideoDecodeMetric.DECODER_RECONFIGURE)
         releaseDecoder()
         referenceChain.reset()
         requestKeyFrameIfDue()
@@ -693,10 +855,21 @@ private class VideoDecoder(
             val index = codec.dequeueOutputBuffer(info, 0)
             when {
                 index == MediaCodec.INFO_TRY_AGAIN_LATER -> return
-                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> logOutputFormat(codec.outputFormat)
+                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                    onMetric(VideoDecodeMetric.OUTPUT_FORMAT_CHANGE)
+                    logOutputFormat(codec.outputFormat)
+                }
                 index >= 0 -> {
-                    val submitToSurface = outputSurface != null
+                    val submitToSurface = outputSurface != null &&
+                        !dropOutputUntilSafeGeometry && pendingDimensionReconfigure == null
                     codec.releaseOutputBuffer(index, submitToSurface)
+                    if (submitToSurface) {
+                        onMetric(VideoDecodeMetric.SURFACE_OUTPUT_SUBMISSION)
+                        pendingOutputGeometry?.let { geometry ->
+                            pendingOutputGeometry = null
+                            onOutputGeometryChanged(geometry)
+                        }
+                    }
                     if (submitToSurface) stats.onSubmittedToSurface()
                     if (submitToSurface && !submittedFrameToSurfaceLogged) {
                         submittedFrameToSurfaceLogged = true
@@ -711,30 +884,118 @@ private class VideoDecoder(
         }
     }
 
+    private fun reconfigureForObservedSizeChange() {
+        val dimensions = pendingDimensionReconfigure ?: return
+        pendingDimensionReconfigure = null
+        if (adaptivePlaybackEnabled) return
+        val (newWidth, newHeight) = dimensions
+        if (newWidth <= 0 || newHeight <= 0 || newWidth > declaredMaxWidth || newHeight > declaredMaxHeight) {
+            report(
+                "ignoring decoder size change ${newWidth}x$newHeight outside declared bound " +
+                    "${declaredMaxWidth}x$declaredMaxHeight",
+            )
+            return
+        }
+        val config = lastConfig ?: return
+        configuredWidth = newWidth
+        configuredHeight = newHeight
+        onMetric(VideoDecodeMetric.DECODER_RECONFIGURE)
+        releaseDecoder()
+        referenceChain.reset()
+        report("reconfiguring video decoder only size=${newWidth}x$newHeight; transport remains active")
+        configureDecoder(config)
+        requestKeyFrameIfDue()
+    }
+
     private fun logOutputFormat(format: MediaFormat) {
-        report("output format requested=${width}x${height} " +
-            "coded=${format.intOrNull(MediaFormat.KEY_WIDTH)}x${format.intOrNull(MediaFormat.KEY_HEIGHT)} " +
-            "crop=${format.intOrNull("crop-left")},${format.intOrNull("crop-top")}," +
-            "${format.intOrNull("crop-right")},${format.intOrNull("crop-bottom")} " +
-            "stride=${format.intOrNull(MediaFormat.KEY_STRIDE)} slice=${format.intOrNull(MediaFormat.KEY_SLICE_HEIGHT)} " +
-            "color=${format.intOrNull(MediaFormat.KEY_COLOR_STANDARD)}/${format.intOrNull(MediaFormat.KEY_COLOR_RANGE)}/${format.intOrNull(MediaFormat.KEY_COLOR_TRANSFER)}")
+        val codedWidth = format.intOrNull(MediaFormat.KEY_WIDTH)
+        val codedHeight = format.intOrNull(MediaFormat.KEY_HEIGHT)
+        val geometry = if (codedWidth != null && codedHeight != null) {
+            VideoOutputGeometry.create(
+                codedWidth = codedWidth,
+                codedHeight = codedHeight,
+                cropLeft = format.intOrNull("crop-left"),
+                cropTop = format.intOrNull("crop-top"),
+                cropRight = format.intOrNull("crop-right"),
+                cropBottom = format.intOrNull("crop-bottom"),
+                rotationDegrees = format.intOrNull(MediaFormat.KEY_ROTATION),
+            )
+        } else {
+            null
+        }
+        if (geometry == null) {
+            dropOutputUntilSafeGeometry = true
+            report("ignoring invalid MediaCodec output geometry")
+            referenceChain.reset()
+            requestKeyFrameIfDue()
+            return
+        }
+        if (geometry.codedWidth > declaredMaxWidth || geometry.codedHeight > declaredMaxHeight) {
+            dropOutputUntilSafeGeometry = true
+            report(
+                "ignoring output size ${geometry.codedWidth}x${geometry.codedHeight} beyond declared " +
+                    "decoder bound ${declaredMaxWidth}x$declaredMaxHeight",
+            )
+            referenceChain.reset()
+            requestKeyFrameIfDue()
+            return
+        }
+        dropOutputUntilSafeGeometry = false
         Log.i(
             TAG,
-            "video decoder output format " +
-                "size=${format.intOrNull(MediaFormat.KEY_WIDTH)}x" +
-                "${format.intOrNull(MediaFormat.KEY_HEIGHT)} " +
+            "video decoder output format requested=${configuredWidth}x$configuredHeight " +
+                "coded=${geometry.codedWidth}x${geometry.codedHeight} " +
+                "visible=${geometry.visibleWidth}x${geometry.visibleHeight} " +
+                "crop=${geometry.cropLeft},${geometry.cropTop},${geometry.cropRight},${geometry.cropBottom} " +
+                "rotation=${geometry.rotationDegrees} " +
                 "stride=${format.intOrNull(MediaFormat.KEY_STRIDE)} " +
                 "slice=${format.intOrNull(MediaFormat.KEY_SLICE_HEIGHT)} " +
                 "standard=${format.intOrNull(MediaFormat.KEY_COLOR_STANDARD)} " +
                 "range=${format.intOrNull(MediaFormat.KEY_COLOR_RANGE)} " +
                 "transfer=${format.intOrNull(MediaFormat.KEY_COLOR_TRANSFER)}",
         )
+        report(
+            "output geometry coded=${geometry.codedWidth}x${geometry.codedHeight} " +
+                "visible=${geometry.visibleWidth}x${geometry.visibleHeight} " +
+                "rotation=${geometry.rotationDegrees} adaptive=$adaptivePlaybackEnabled",
+        )
+        if (lastOutputGeometry != geometry) {
+            lastOutputGeometry = geometry
+            pendingOutputGeometry = geometry
+        }
+        when (
+            val change = VideoOutputSizePolicy.evaluate(
+                geometry = geometry,
+                adaptivePlaybackEnabled = adaptivePlaybackEnabled,
+                configuredWidth = configuredWidth,
+                configuredHeight = configuredHeight,
+                maximumWidth = declaredMaxWidth,
+                maximumHeight = declaredMaxHeight,
+            )
+        ) {
+            is VideoOutputSizeChange.Reconfigure -> {
+                pendingDimensionReconfigure = change.width to change.height
+            }
+            VideoOutputSizeChange.OutOfBounds -> {
+                report(
+                    "output size ${geometry.codedWidth}x${geometry.codedHeight} exceeds declared decoder bound " +
+                        "${declaredMaxWidth}x$declaredMaxHeight",
+                )
+            }
+            VideoOutputSizeChange.Adaptive,
+            VideoOutputSizeChange.Unchanged -> Unit
+        }
     }
 
     @Synchronized
     private fun releaseDecoder() {
         val codec = decoder
         decoder = null
+        adaptivePlaybackEnabled = false
+        pendingAdaptiveCodecSpecificData = null
+        pendingDimensionReconfigure = null
+        dropOutputUntilSafeGeometry = false
+        pendingOutputGeometry = null
         if (codec != null) {
             try {
                 codec.stop()

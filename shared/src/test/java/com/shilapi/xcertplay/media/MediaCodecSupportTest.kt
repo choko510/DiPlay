@@ -2,10 +2,12 @@ package com.shilapi.xcertplay.media
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import com.shilapi.xcertplay.airplay.VideoCodec
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
+import java.io.ByteArrayOutputStream
 
 class MediaCodecSupportTest {
     @Test fun truncatedAccessUnitIsRejectedInsteadOfSubmittingItsValidPrefix() {
@@ -83,6 +85,45 @@ class MediaCodecSupportTest {
 
         assertEquals(listOf(1), csd.map { it.index })
         assertArrayEquals(byteArrayOf(0, 0, 0, 1) + pps, csd.single().bytes)
+    }
+
+    @Test
+    fun adaptiveAvcConfigAndIdrShareOneAccessUnitWithEveryParameterSet() {
+        val sequenceSets = listOf(byteArrayOf(0x67, 0x64), byteArrayOf(0x67, 0x4d))
+        val pictureSets = listOf(byteArrayOf(0x68, 0xee.toByte()), byteArrayOf(0x68, 0x3c))
+        val config = avcRecordWithSets(sequenceSets, pictureSets)
+        val csd = MediaCodecSupport.adaptiveCodecSpecificData(VideoCodec.H264, config)
+        val idr = byteArrayOf(0, 0, 0, 2, 0x65, 0x11)
+
+        assertArrayEquals(
+            sequenceSets.fold(ByteArray(0)) { result, set -> result + byteArrayOf(0, 0, 0, 1) + set } +
+                pictureSets.fold(ByteArray(0)) { result, set -> result + byteArrayOf(0, 0, 0, 1) + set },
+            csd,
+        )
+        assertArrayEquals(csd + byteArrayOf(0, 0, 0, 1, 0x65, 0x11),
+            MediaCodecSupport.combineAdaptiveConfigAndKeyFrame(VideoCodec.H264, csd, idr))
+        assertNull(
+            MediaCodecSupport.combineAdaptiveConfigAndKeyFrame(
+                VideoCodec.H264,
+                csd,
+                byteArrayOf(0, 0, 0, 2, 0x41, 0x11),
+            ),
+        )
+    }
+
+    @Test
+    fun adaptiveHevcConfigAndIrapShareOneAccessUnit() {
+        val vps = byteArrayOf(0x40, 0x01)
+        val sps = byteArrayOf(0x42, 0x01, 0x02)
+        val pps = byteArrayOf(0x44, 0x01)
+        val csd = MediaCodecSupport.adaptiveCodecSpecificData(VideoCodec.H265, hevcRecord(vps, sps, pps))
+        val irap = byteArrayOf(0, 0, 0, 3, 0x26, 0x01, 0x55)
+
+        assertArrayEquals(
+            byteArrayOf(0, 0, 0, 1) + vps + byteArrayOf(0, 0, 0, 1) + sps +
+                byteArrayOf(0, 0, 0, 1) + pps + byteArrayOf(0, 0, 0, 1, 0x26, 0x01, 0x55),
+            MediaCodecSupport.combineAdaptiveConfigAndKeyFrame(VideoCodec.H265, csd, irap),
+        )
     }
 
     @Test
@@ -173,5 +214,22 @@ class MediaCodecSupportTest {
             cursor += it.size
         }
         return record.copyOf(cursor)
+    }
+
+    private fun avcRecordWithSets(sps: List<ByteArray>, pps: List<ByteArray>): ByteArray {
+        val output = ByteArrayOutputStream()
+        output.write(byteArrayOf(1, 0x64, 0, 0x1f, 0xff.toByte(), (0xe0 or sps.size).toByte()))
+        sps.forEach { set ->
+            output.write((set.size ushr 8) and 0xff)
+            output.write(set.size and 0xff)
+            output.write(set, 0, set.size)
+        }
+        output.write(pps.size)
+        pps.forEach { set ->
+            output.write((set.size ushr 8) and 0xff)
+            output.write(set.size and 0xff)
+            output.write(set, 0, set.size)
+        }
+        return output.toByteArray()
     }
 }

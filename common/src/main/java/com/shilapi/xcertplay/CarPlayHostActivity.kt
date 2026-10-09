@@ -9,6 +9,7 @@ import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Matrix
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -65,14 +66,23 @@ import com.shilapi.xcertplay.airplay.AirPlayIcon
 import com.shilapi.xcertplay.airplay.AirPlaySafeArea
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
+import com.shilapi.xcertplay.airplay.AirPlayViewAreaRequest
+import com.shilapi.xcertplay.airplay.AirPlayViewAreaCommandParser
 import com.shilapi.xcertplay.airplay.CarPlayMediaEngine
+import com.shilapi.xcertplay.airplay.DynamicViewAreaFactory
+import com.shilapi.xcertplay.airplay.ViewAreaCommandWriteResult
 import com.shilapi.xcertplay.airplay.SafeAreaRect
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
+import com.shilapi.xcertplay.host.BuildConfig as HostBuildConfig
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider
 import com.shilapi.xcertplay.media.AndroidMediaSink
+import com.shilapi.xcertplay.media.CarPlayRenderGeometry
+import com.shilapi.xcertplay.media.CarPlayRenderRect
 import com.shilapi.xcertplay.media.NavigationAudioRoute
 import com.shilapi.xcertplay.media.CarPlayTouchMapper
+import com.shilapi.xcertplay.media.VideoDecodeMetric
+import com.shilapi.xcertplay.media.VideoOutputGeometry
 import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
@@ -92,13 +102,21 @@ import com.shilapi.xcertplay.transport.UsbDeviceId
 import com.shilapi.xcertplay.youtube.CarPlayRestartHandoff
 import com.shilapi.xcertplay.youtube.DisplayResizeCoordinator
 import com.shilapi.xcertplay.youtube.DisplaySize
+import com.shilapi.xcertplay.youtube.DynamicViewAreaCoordinator
 import com.shilapi.xcertplay.youtube.HostLayoutMode
 import com.shilapi.xcertplay.youtube.HostLayoutState
 import com.shilapi.xcertplay.youtube.ImeResizeResumePolicy
 import com.shilapi.xcertplay.youtube.IphoneIdentityResolver
+import com.shilapi.xcertplay.youtube.ViewAreaRequestResult
+import com.shilapi.xcertplay.youtube.ViewAreaTransitionToken
+import com.shilapi.xcertplay.youtube.ViewAreaGeometryMatch
+import com.shilapi.xcertplay.youtube.ViewAreaGeometryMatcher
+import com.shilapi.xcertplay.youtube.ViewAreaWriteDisposition
 import com.shilapi.xcertplay.youtube.SplitLayoutConfig
 import com.shilapi.xcertplay.youtube.SplitPerformanceCounter
 import com.shilapi.xcertplay.youtube.SplitPerformanceTracer
+import com.shilapi.xcertplay.youtube.SplitDisplaySizePolicy
+import com.shilapi.xcertplay.youtube.SplitViewMode
 import com.shilapi.xcertplay.youtube.YoutubeBrowserController
 import com.shilapi.xcertplay.youtube.YoutubeBrowserMemoryPolicy
 import com.shilapi.xcertplay.youtube.YoutubeDeviceProfile
@@ -153,6 +171,11 @@ internal object CarPlayHostActions {
  * Apple devices are discovered by vendor ID; CH341 uses the configured VID/PID below.
  */
 class CarPlayHostActivity : ComponentActivity() {
+    private data class PendingViewAreaSurfaceFrame(
+        val token: ViewAreaTransitionToken,
+        val geometryMatch: ViewAreaGeometryMatch,
+    )
+
     private data class SettingsBaseline(
         val safeAreaSize: DisplaySize?,
         val safeAreaRect: SafeAreaRect?,
@@ -316,6 +339,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var restartHandoffToken: Long? = null
     private var restartHandoffRetryScheduled = false
     private var splitTraceCookie: Int? = null
+    private var splitPerformanceBaseline: LongArray? = null
     private var carPlayTeardownTraceCookie: Int? = null
     private var carPlayRestartTraceCookie: Int? = null
     private var deviceInfoSession: AirPlaySession? = null
@@ -353,6 +377,22 @@ class CarPlayHostActivity : ComponentActivity() {
     private var currentSurfaceTexture: SurfaceTexture? = null
     private var activeDisplaySize: DisplaySize? = null
     private var pendingDisplaySize: DisplaySize? = null
+    private val splitViewMode = SplitViewMode.fromBuild(HostBuildConfig.DEBUG, HostBuildConfig.SPLIT_VIEW_MODE)
+    private var renderFrameWidth = 0
+    private var renderFrameHeight = 0
+    private var renderFrameRotation = 0
+    private var renderCanvasWidth = 0
+    private var renderCanvasHeight = 0
+    private var lastObservedVideoGeometry: VideoOutputGeometry? = null
+    private var viewAreaGeometryBaseline: VideoOutputGeometry? = null
+    private var pendingViewAreaSurfaceFrame: PendingViewAreaSurfaceFrame? = null
+    private var renderGeometryGeneration = 0L
+    private var carPlayRenderGeometry: CarPlayRenderGeometry? = null
+    private var localTouchSequenceCancelled = false
+    private var localScalePaneResizeLogged = false
+    private val dynamicViewAreaCoordinator = DynamicViewAreaCoordinator()
+    private var dynamicViewAreaTimeout: Runnable? = null
+    private var dynamicViewAreaRetry: Runnable? = null
     private val displayResizeCoordinator = DisplayResizeCoordinator()
     private var restartReadyToStart = false
     private var displayScaleTenths = CarPlayDisplayScale.DEFAULT_TENTHS
@@ -403,6 +443,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var latestStage = "Preparing CarPlay"
     private var darkMode = false
     private var activeAirPlaySession: AirPlaySession? = null
+    private var nextAirPlaySessionTag = 0L
+    private var activeAirPlaySessionTag = 0L
     private val activeScreenStreamTypes = mutableSetOf<Int>()
     private var handshakeResetInProgress = false
     private var startAfterHandshakeReset = false
@@ -546,15 +588,18 @@ class CarPlayHostActivity : ComponentActivity() {
                     existing?.release()
                     currentSurface = it
                     currentSurfaceTexture = texture
+                    SplitPerformanceTracer.increment(SplitPerformanceCounter.SURFACE_TEXTURE_CREATED)
                 }
             }
             appendLog(if (existing === surface) "Texture surface reused" else "Texture surface created")
             attachSurface(surface)
             scheduleDisplaySize(width, height)
+            updateCarPlayRenderTransform()
         }
 
         override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
             scheduleDisplaySize(width, height)
+            updateCarPlayRenderTransform()
         }
 
         override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
@@ -566,11 +611,17 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             currentSurface = null
             currentSurfaceTexture = null
+            SplitPerformanceTracer.increment(SplitPerformanceCounter.SURFACE_TEXTURE_DESTROYED)
             appendLog("Texture surface destroyed")
             return true
         }
 
-        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
+        override fun onSurfaceTextureUpdated(texture: SurfaceTexture) {
+            if (videoView?.isShown == true) {
+                SplitPerformanceTracer.increment(SplitPerformanceCounter.TEXTURE_VISIBLE_COMPOSITE)
+            }
+            confirmPendingViewAreaSurfaceFrame()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -646,6 +697,9 @@ class CarPlayHostActivity : ComponentActivity() {
             microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
         }
         if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
+            if (splitPerformanceBaseline == null && SplitPerformanceTracer.enabled) {
+                splitPerformanceBaseline = SplitPerformanceTracer.snapshot()
+            }
             SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_ENTRIES)
             splitTraceCookie = SplitPerformanceTracer.beginAsync("diplay.split.total")
             youtubeStartupStartedElapsed = SystemClock.elapsedRealtime()
@@ -907,6 +961,8 @@ class CarPlayHostActivity : ComponentActivity() {
         mainHandler.removeCallbacks(finishSplitYoutubeStartup)
         mainHandler.removeCallbacks(retryRestartHandoff)
         mainHandler.removeCallbacks(restartAfterReconnectDelay)
+        cancelDynamicViewAreaCallbacks()
+        dynamicViewAreaCoordinator.attachSession(null, 0)
         window.decorView.removeCallbacks(waitForImeResizeToSettle)
         videoView?.removeCallbacks(deferYoutubePreparationOneFrame)
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
@@ -920,6 +976,8 @@ class CarPlayHostActivity : ComponentActivity() {
             restartHandoffToken = null
         }
         sink?.setVideoFrameSubmittedToSurfaceListener(null)
+        sink?.setVideoOutputGeometryChangedListener(null)
+        sink?.setVideoMetricListener(null)
         destroyYoutubeBrowser()
         currentSurface?.let { surface ->
             sink?.clearSurface(SCREEN_TYPE_MAIN, surface)
@@ -938,11 +996,19 @@ class CarPlayHostActivity : ComponentActivity() {
         val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(12, 17, 27)) }
         val contentRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                val width = right - left
+                val height = bottom - top
+                if (width > 0 && height > 0 && (width != oldRight - oldLeft || height != oldBottom - oldTop)) {
+                    scheduleDisplaySize(width, height)
+                }
+            }
         }
         val carPlay = FrameLayout(this)
         val video = TextureView(this).apply {
             isOpaque = false
             surfaceTextureListener = textureListener
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateCarPlayRenderTransform() }
         }
         val gestureLayer = View(this).apply {
             isClickable = true
@@ -1097,10 +1163,370 @@ class CarPlayHostActivity : ComponentActivity() {
         hostContentRow?.requestLayout()
     }
 
-    private fun enterYoutubeSplit() {
+    private fun isNoRestartSplit(): Boolean =
+        splitViewMode != SplitViewMode.LEGACY_RECONNECT &&
+            hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT
+
+    private fun requestDynamicViewArea(index: Int) {
+        if (splitViewMode != SplitViewMode.DYNAMIC_VIEW_AREA_EXPERIMENTAL) return
+        val session = activeAirPlaySession ?: return
+        if (session.isClosed || controller?.currentAirPlaySession() !== session) return
+        when (val result = dynamicViewAreaCoordinator.request(
+            index = index,
+            nowElapsedMs = SystemClock.elapsedRealtime(),
+            timeoutMs = DYNAMIC_VIEW_AREA_TIMEOUT_MILLIS,
+        )) {
+            is ViewAreaRequestResult.Outbound -> {
+                cancelDynamicViewAreaCallbacks()
+                viewAreaGeometryBaseline = lastObservedVideoGeometry
+                pendingViewAreaSurfaceFrame = null
+                scheduleDynamicViewAreaTimeout(result.token)
+                dispatchDynamicViewAreaCommand(result.token)
+            }
+            is ViewAreaRequestResult.Existing -> Unit
+            ViewAreaRequestResult.AlreadyCommitted -> Unit
+            is ViewAreaRequestResult.PhoneInitiated -> Unit
+            is ViewAreaRequestResult.Rejected -> Log.w(
+                TAG,
+                "Dynamic ViewArea request held sessionTag=$activeAirPlaySessionTag " +
+                    "index=$index reason=${result.reason}; keeping the CarPlay session",
+            )
+        }
+    }
+
+    private fun dispatchDynamicViewAreaCommand(token: ViewAreaTransitionToken) {
+        if (!dynamicViewAreaCoordinator.isCurrent(token)) return
+        val session = token.session as? AirPlaySession ?: return
+        try {
+            airPlayCommandExecutor.execute {
+                if (!dynamicViewAreaCoordinator.isCurrent(token)) return@execute
+                SplitPerformanceTracer.increment(SplitPerformanceCounter.VIEWAREA_COMMAND_ATTEMPTS)
+                val result = if (session.isClosed) {
+                    ViewAreaCommandWriteResult.SESSION_CLOSED
+                } else {
+                    session.writeViewAreaSelection(token.targetIndex)
+                }
+                if (result == ViewAreaCommandWriteResult.WRITTEN) {
+                    SplitPerformanceTracer.increment(SplitPerformanceCounter.VIEWAREA_COMMAND_WRITE_OK)
+                }
+                mainHandler.post {
+                    if (!dynamicViewAreaCoordinator.isCurrent(token)) return@post
+                    when (
+                        dynamicViewAreaCoordinator.onWriteResult(
+                            token,
+                            result,
+                            SystemClock.elapsedRealtime(),
+                        )
+                    ) {
+                        ViewAreaWriteDisposition.WRITTEN -> {
+                            Log.i(
+                                TAG,
+                                "ViewArea candidate write succeeded sessionTag=$activeAirPlaySessionTag " +
+                                    "requested=${token.targetIndex}; awaiting frame geometry confirmation",
+                            )
+                        }
+                        ViewAreaWriteDisposition.RETRY_ONCE -> {
+                            Log.i(
+                                TAG,
+                                "ViewArea event channel not ready sessionTag=$activeAirPlaySessionTag; " +
+                                    "one bounded retry scheduled",
+                            )
+                            scheduleDynamicViewAreaRetry(token)
+                        }
+                        ViewAreaWriteDisposition.FALLBACK -> recordDynamicViewAreaFallback(
+                            result.name.lowercase(),
+                            token,
+                        )
+                        ViewAreaWriteDisposition.STALE,
+                        ViewAreaWriteDisposition.NOT_APPLICABLE -> Unit
+                    }
+                }
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            if (dynamicViewAreaCoordinator.isCurrent(token)) {
+                dynamicViewAreaCoordinator.onWriteResult(
+                    token,
+                    ViewAreaCommandWriteResult.SESSION_CLOSED,
+                    SystemClock.elapsedRealtime(),
+                )
+                recordDynamicViewAreaFallback("command_executor_closed", token)
+            }
+        }
+    }
+
+    private fun scheduleDynamicViewAreaRetry(token: ViewAreaTransitionToken) {
+        dynamicViewAreaRetry?.let(mainHandler::removeCallbacks)
+        val retry = Runnable {
+            dynamicViewAreaRetry = null
+            if (dynamicViewAreaCoordinator.isCurrent(token)) dispatchDynamicViewAreaCommand(token)
+        }
+        dynamicViewAreaRetry = retry
+        mainHandler.postDelayed(retry, DYNAMIC_VIEW_AREA_RETRY_DELAY_MILLIS)
+    }
+
+    private fun scheduleDynamicViewAreaTimeout(token: ViewAreaTransitionToken) {
+        val timeout = Runnable {
+            dynamicViewAreaTimeout = null
+            if (dynamicViewAreaCoordinator.timeout(token, SystemClock.elapsedRealtime())) {
+                SplitPerformanceTracer.increment(SplitPerformanceCounter.VIEWAREA_TRANSITION_TIMEOUT)
+                recordDynamicViewAreaFallback("transition_timeout", token)
+            }
+        }
+        dynamicViewAreaTimeout = timeout
+        mainHandler.postDelayed(
+            timeout,
+            (token.deadlineElapsedMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L),
+        )
+    }
+
+    private fun cancelDynamicViewAreaCallbacks() {
+        dynamicViewAreaTimeout?.let(mainHandler::removeCallbacks)
+        dynamicViewAreaRetry?.let(mainHandler::removeCallbacks)
+        dynamicViewAreaTimeout = null
+        dynamicViewAreaRetry = null
+    }
+
+    private fun recordDynamicViewAreaFallback(reason: String, token: ViewAreaTransitionToken) {
+        cancelDynamicViewAreaCallbacks()
+        pendingViewAreaSurfaceFrame = null
+        viewAreaGeometryBaseline = null
+        SplitPerformanceTracer.increment(SplitPerformanceCounter.VIEWAREA_FALLBACK_COUNT)
+        Log.w(
+            TAG,
+            "ViewArea transition fell back to local rendering sessionTag=$activeAirPlaySessionTag " +
+                "generation=${token.generation} reason=$reason; CarPlay controller remains active",
+        )
+        updateCarPlayRenderTransform()
+    }
+
+    private fun handlePhoneViewAreaRequest(session: AirPlaySession, request: AirPlayViewAreaRequest) {
+        val validationError = request.validationError(session.declaredViewAreaCount)
+        if (validationError != null) {
+            Log.w(
+                TAG,
+                "Phone ViewArea request rejected sessionTag=$activeAirPlaySessionTag " +
+                    "index=${request.viewAreaIndex ?: -1} reason=$validationError",
+            )
+            return
+        }
+        if (splitViewMode != SplitViewMode.DYNAMIC_VIEW_AREA_EXPERIMENTAL) {
+            Log.w(TAG, "Phone ViewArea request held sessionTag=$activeAirPlaySessionTag reason=experimental_mode_off")
+            return
+        }
+        val index = checkNotNull(request.viewAreaIndex)
+        val canApply = !menuOpen && !shuttingDown.get() && !isFinishing && !isDestroyed
+        when (
+            val result = dynamicViewAreaCoordinator.requestFromPhone(
+                session = session,
+                index = index,
+                canApplyToHostLayout = canApply,
+                nowElapsedMs = SystemClock.elapsedRealtime(),
+                timeoutMs = DYNAMIC_VIEW_AREA_TIMEOUT_MILLIS,
+            )
+        ) {
+            is ViewAreaRequestResult.PhoneInitiated -> {
+                cancelDynamicViewAreaCallbacks()
+                viewAreaGeometryBaseline = lastObservedVideoGeometry
+                pendingViewAreaSurfaceFrame = null
+                scheduleDynamicViewAreaTimeout(result.token)
+                applyPhoneRequestedViewAreaLayout(index)
+                Log.i(
+                    TAG,
+                    "Phone ViewArea request applied to host layout sessionTag=$activeAirPlaySessionTag " +
+                        "index=$index; awaiting frame geometry confirmation",
+                )
+            }
+            is ViewAreaRequestResult.Existing -> {
+                applyPhoneRequestedViewAreaLayout(index)
+                Log.i(
+                    TAG,
+                    "Phone ViewArea request matches pending host state sessionTag=$activeAirPlaySessionTag index=$index",
+                )
+            }
+            ViewAreaRequestResult.AlreadyCommitted -> {
+                applyPhoneRequestedViewAreaLayout(index)
+                Log.i(
+                    TAG,
+                    "Phone ViewArea request matches committed state sessionTag=$activeAirPlaySessionTag index=$index",
+                )
+            }
+            is ViewAreaRequestResult.Outbound -> Unit
+            is ViewAreaRequestResult.Rejected -> Log.w(
+                TAG,
+                "Phone ViewArea request held sessionTag=$activeAirPlaySessionTag index=$index reason=${result.reason}",
+            )
+        }
+    }
+
+    private fun applyPhoneRequestedViewAreaLayout(index: Int) {
+        when (index) {
+            0 -> if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
+                exitYoutubeSplitInternal(sendDynamicViewAreaRequest = false)
+            }
+            1 -> if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
+                enterYoutubeSplit(sendDynamicViewAreaRequest = false)
+            }
+        }
+    }
+
+    private fun onVideoOutputGeometryChanged(
+        controllerGeneration: Int,
+        type: Int,
+        geometry: VideoOutputGeometry,
+    ) {
+        if (type != SCREEN_TYPE_MAIN) return
+        runOnUiThread {
+            val session = activeAirPlaySession ?: return@runOnUiThread
+            if (
+                shuttingDown.get() ||
+                controllerGeneration != restartGeneration ||
+                session.isClosed ||
+                controller?.currentAirPlaySession() !== session
+            ) {
+                return@runOnUiThread
+            }
+            lastObservedVideoGeometry = geometry
+            renderFrameWidth = geometry.displayWidth
+            renderFrameHeight = geometry.displayHeight
+            // Surface-mode MediaCodec applies rotation before the TextureView receives the frame.
+            renderFrameRotation = 0
+            val token = dynamicViewAreaCoordinator.snapshot().pendingToken
+            val viewAreas = (0 until session.declaredViewAreaCount)
+                .mapNotNull { session.declaredViewArea(it)?.viewport }
+            val geometryMatch = ViewAreaGeometryMatcher.match(
+                viewAreas,
+                geometry.displayWidth,
+                geometry.displayHeight,
+            )
+            if (token != null && viewAreaGeometryBaseline == null) {
+                viewAreaGeometryBaseline = geometry
+            }
+            val changedSinceRequest = viewAreaGeometryBaseline?.let { it != geometry } == true
+            if (token != null && geometryMatch != null &&
+                geometryMatch.index == token.targetIndex && changedSinceRequest
+            ) {
+                pendingViewAreaSurfaceFrame = PendingViewAreaSurfaceFrame(token, geometryMatch)
+                Log.i(
+                    TAG,
+                    "ViewArea frame geometry observed sessionTag=$activeAirPlaySessionTag " +
+                        "index=${token.targetIndex} visible=${geometry.displayWidth}x${geometry.displayHeight} " +
+                        "match=${if (geometryMatch.exactDimensions) "exact" else "aspect"}; " +
+                        "waiting for TextureView update",
+                )
+            }
+            updateCarPlayRenderTransform()
+        }
+    }
+
+    private fun confirmPendingViewAreaSurfaceFrame() {
+        val pending = pendingViewAreaSurfaceFrame ?: return
+        if (!dynamicViewAreaCoordinator.isCurrent(pending.token)) {
+            pendingViewAreaSurfaceFrame = null
+            return
+        }
+        val session = activeAirPlaySession ?: return
+        if (session !== pending.token.session || session.isClosed) {
+            pendingViewAreaSurfaceFrame = null
+            return
+        }
+        if (dynamicViewAreaCoordinator.confirmObserved(
+                pending.token,
+                pending.geometryMatch.index,
+                geometryChangedSinceRequest = true,
+            )
+        ) {
+            SplitPerformanceTracer.increment(SplitPerformanceCounter.VIEWAREA_TRANSITION_CONFIRMED)
+            pendingViewAreaSurfaceFrame = null
+            viewAreaGeometryBaseline = null
+            cancelDynamicViewAreaCallbacks()
+            Log.i(
+                TAG,
+                "ViewArea geometry and TextureView update observed sessionTag=$activeAirPlaySessionTag " +
+                    "committed=${pending.geometryMatch.index} " +
+                    "geometryMatch=${if (pending.geometryMatch.exactDimensions) "exact" else "aspect"}; " +
+                    "wire acceptance and visual correctness still require device review",
+            )
+            updateCarPlayRenderTransform()
+        }
+    }
+
+    private fun updateCarPlayRenderTransform() {
+        val texture = videoView ?: return
+        if (!isNoRestartSplit()) {
+            if (carPlayRenderGeometry != null) {
+                controller?.sendTouch(emptyList())
+                localTouchSequenceCancelled = true
+            }
+            carPlayRenderGeometry = null
+            texture.setTransform(Matrix())
+            return
+        }
+        val session = activeAirPlaySession
+        val canvasWidth = session?.mainDisplayWidthPixels
+            ?: renderCanvasWidth.takeIf { it > 0 }
+            ?: activeDisplaySize?.width
+            ?: return
+        val canvasHeight = session?.mainDisplayHeightPixels
+            ?: renderCanvasHeight.takeIf { it > 0 }
+            ?: activeDisplaySize?.height
+            ?: return
+        val width = texture.width
+        val height = texture.height
+        if (width <= 0 || height <= 0) return
+        val sourceWidth = renderFrameWidth.takeIf { it > 0 } ?: canvasWidth
+        val sourceHeight = renderFrameHeight.takeIf { it > 0 } ?: canvasHeight
+        val selectedViewArea = if (splitViewMode == SplitViewMode.DYNAMIC_VIEW_AREA_EXPERIMENTAL) {
+            session?.declaredViewArea(dynamicViewAreaCoordinator.snapshot().committedIndex)
+        } else {
+            null
+        }
+        val viewArea = selectedViewArea?.viewport?.let {
+            CarPlayRenderRect(it.x, it.y, it.width, it.height)
+        } ?: CarPlayRenderRect(0, 0, canvasWidth, canvasHeight)
+        val sourceRect = if (
+            selectedViewArea != null &&
+            (viewArea.x != 0 || viewArea.y != 0 || viewArea.width != canvasWidth || viewArea.height != canvasHeight) &&
+            sourceWidth == canvasWidth && sourceHeight == canvasHeight
+        ) {
+            viewArea
+        } else {
+            CarPlayRenderRect(0, 0, sourceWidth, sourceHeight)
+        }
+        val geometry = CarPlayRenderGeometry.create(
+            canvasWidth = canvasWidth,
+            canvasHeight = canvasHeight,
+            sourceWidth = sourceWidth,
+            sourceHeight = sourceHeight,
+            viewWidth = width,
+            viewHeight = height,
+            sourceRect = sourceRect,
+            viewArea = viewArea,
+            rotationDegrees = renderFrameRotation,
+        ) ?: return
+        val previous = carPlayRenderGeometry
+        if (previous != null && previous.copy(generation = 0) == geometry.copy(generation = 0)) return
+        renderGeometryGeneration += 1
+        val updated = geometry.copy(generation = renderGeometryGeneration)
+        controller?.sendTouch(emptyList())
+        localTouchSequenceCancelled = true
+        texture.setTransform(Matrix().apply { setValues(updated.textureMatrixValues()) })
+        carPlayRenderGeometry = updated
+        Log.i(
+            TAG,
+            "Local CarPlay render geometry generation=${updated.generation} " +
+                "canvas=${canvasWidth}x${canvasHeight} frame=${sourceWidth}x${sourceHeight} " +
+                "viewArea=${viewArea.x},${viewArea.y},${viewArea.width},${viewArea.height} " +
+                "view=${width}x${height} rotation=${renderFrameRotation}",
+        )
+    }
+
+    private fun enterYoutubeSplit(sendDynamicViewAreaRequest: Boolean = true) {
         if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
             startYoutubeProfileResolution(resetTimeout = true)
             return
+        }
+        if (splitPerformanceBaseline == null && SplitPerformanceTracer.enabled) {
+            splitPerformanceBaseline = SplitPerformanceTracer.snapshot()
         }
         youtubeBrowser?.let { browser ->
             browser.view.visibility = View.GONE
@@ -1114,6 +1540,8 @@ class CarPlayHostActivity : ComponentActivity() {
         youtubeLayoutStartupLogged = false
         youtubeFullscreen = false
         updateHostLayout()
+        updateCarPlayRenderTransform()
+        if (sendDynamicViewAreaRequest) requestDynamicViewArea(1)
         Log.i(TAG, "YouTube split requested")
         logYoutubeStartup("split-request")
         showYoutubeStatus(R.string.youtube_waiting_for_iphone_profile)
@@ -1126,7 +1554,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
-    private fun exitYoutubeSplitInternal() {
+    private fun exitYoutubeSplitInternal(sendDynamicViewAreaRequest: Boolean = true) {
         val wasSplit = hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT
         if (wasSplit) {
             SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_EXITS)
@@ -1146,8 +1574,15 @@ class CarPlayHostActivity : ComponentActivity() {
         youtubeLayoutStartupLogged = false
         hostLayoutState = hostLayoutState.returnToCarPlay()
         updateHostLayout()
+        updateCarPlayRenderTransform()
+        if (wasSplit && sendDynamicViewAreaRequest) requestDynamicViewArea(0)
+        localScalePaneResizeLogged = false
         if (wasSplit) Log.i(TAG, "YouTube split exited")
-        SplitPerformanceTracer.summary()?.let { Log.i(TAG, "Split performance $it") }
+        splitPerformanceBaseline?.let { baseline ->
+            SplitPerformanceTracer.summarySince(baseline)?.let { summary ->
+                Log.i(TAG, "Split performance delta since first split request $summary")
+            }
+        }
         videoView?.post {
             val view = videoView ?: return@post
             scheduleDisplaySize(view.width, view.height)
@@ -3508,13 +3943,38 @@ class CarPlayHostActivity : ComponentActivity() {
             ),
             safeAreaDrawOutside = safeAreaDrawOutside,
         )
+        val dynamicViewAreas = if (splitViewMode == SplitViewMode.DYNAMIC_VIEW_AREA_EXPERIMENTAL) {
+            DynamicViewAreaFactory.twoAreas(display)
+        } else {
+            null
+        }
+        val configuredDisplay = if (dynamicViewAreas != null) {
+            display.copy(dynamicViewAreas = dynamicViewAreas)
+        } else {
+            display
+        }
+        repeat(configuredDisplay.dynamicViewAreas?.areas?.size ?: 1) {
+            SplitPerformanceTracer.increment(SplitPerformanceCounter.VIEWAREA_ADVERTISED_COUNT)
+        }
+        if (splitViewMode == SplitViewMode.DYNAMIC_VIEW_AREA_EXPERIMENTAL) {
+            appendLog(
+                if (dynamicViewAreas != null) {
+                    "Experimental Dynamic ViewArea advertised count=${dynamicViewAreas.areas.size} " +
+                        "initial=${dynamicViewAreas.initialIndex}"
+                } else {
+                    "Experimental Dynamic ViewArea geometry invalid; advertising the legacy single area"
+                },
+            )
+        }
         val requestSummary = "Display request selected=${CarPlayUiScale.label(requestedPercent)} percent=$requestedPercent " +
             "surface=${size.width}x${size.height} resolution=${displayScaleTenths * 10}% " +
             "base=${resolutionDisplay.widthPixels}x${resolutionDisplay.heightPixels} " +
             "candidate=${candidate.widthPixels}x${candidate.heightPixels} fps=$fps " +
-            "codec=${if (hevcEnabled) "HEVC" else "H.264"} softwareHevc=$hevcSoftwareDecoderEnabled"
+            "codec=${if (hevcEnabled) "HEVC" else "H.264"} softwareHevc=$hevcSoftwareDecoderEnabled " +
+            "splitMode=${splitViewMode.name.lowercase()}"
         val effectiveSummary = "Display effective percent=$uiScalePercent " +
-            "canvas=${display.widthPixels}x${display.heightPixels} decision=${support.reason} " +
+            "canvas=${configuredDisplay.widthPixels}x${configuredDisplay.heightPixels} " +
+            "viewAreaCount=${configuredDisplay.dynamicViewAreas?.areas?.size ?: 1} decision=${support.reason} " +
             "physical=${physical.widthMm}x${physical.heightMm}mm safeArea=${display.safeArea} " +
             "drawOutside=${display.safeAreaDrawOutside}"
         displayDiagnosticAttempt = DisplayDiagnosticSnapshot.begin(this, requestSummary, support.details, effectiveSummary)
@@ -3526,7 +3986,7 @@ class CarPlayHostActivity : ComponentActivity() {
             deviceId = DiPlayBootstrap.deviceId(airPlayIdentity),
             btMac = DiPlayBluetooth.localAddress(this) ?: DiPlayBootstrap.deviceId(airPlayIdentity),
             sourceVersion = "950.7.1",
-            main = display,
+            main = configuredDisplay,
             rightHandDrive = rightHandDrive,
             hevc = hevcEnabled,
             microphone = microphoneAvailable,
@@ -3829,11 +4289,32 @@ class CarPlayHostActivity : ComponentActivity() {
             onVideoFrameSubmittedToSurface = { type ->
                 onVideoFrameSubmittedToSurface(controllerGeneration, type)
             },
+            onVideoOutputGeometryChanged = { type, geometry ->
+                onVideoOutputGeometryChanged(controllerGeneration, type, geometry)
+            },
+            onVideoMetric = currentVideoMetricListener(),
             onAudioDiagnostic = { message ->
                 diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
             },
         )
     }
+
+    private fun recordVideoDecodeMetric(metric: VideoDecodeMetric) {
+        val counter = when (metric) {
+            VideoDecodeMetric.CODEC_CONFIG_CHANGE -> SplitPerformanceCounter.VIDEO_CONFIG_CHANGES
+            VideoDecodeMetric.OUTPUT_FORMAT_CHANGE -> SplitPerformanceCounter.VIDEO_OUTPUT_FORMAT_CHANGES
+            VideoDecodeMetric.DECODER_RECONFIGURE -> SplitPerformanceCounter.VIDEO_DECODER_RECONFIGURES
+            VideoDecodeMetric.SURFACE_OUTPUT_SUBMISSION -> SplitPerformanceCounter.SURFACE_OUTPUT_SUBMISSIONS
+        }
+        SplitPerformanceTracer.increment(counter)
+    }
+
+    private fun currentVideoMetricListener(): ((Int, VideoDecodeMetric) -> Unit)? =
+        if (SplitPerformanceTracer.enabled) {
+            { _, metric -> recordVideoDecodeMetric(metric) }
+        } else {
+            null
+        }
 
     private fun createMediaEngine(sink: AndroidMediaSink): CarPlayMediaEngine =
         CarPlayMediaEngine(
@@ -3855,10 +4336,33 @@ class CarPlayHostActivity : ComponentActivity() {
                     }
                     val previousSession = activeAirPlaySession
                     val sessionChanged = previousSession !== session
+                    if (sessionChanged) cancelDynamicViewAreaCallbacks()
+                    dynamicViewAreaCoordinator.attachSession(session, session.declaredViewAreaCount)
                     activeAirPlaySession = session
+                    if (sessionChanged) {
+                        SplitPerformanceTracer.increment(SplitPerformanceCounter.AIRPLAY_SESSION_CHANGES)
+                        renderCanvasWidth = session.mainDisplayWidthPixels
+                        renderCanvasHeight = session.mainDisplayHeightPixels
+                        renderFrameWidth = renderCanvasWidth
+                        renderFrameHeight = renderCanvasHeight
+                        renderFrameRotation = 0
+                        lastObservedVideoGeometry = null
+                        viewAreaGeometryBaseline = null
+                        pendingViewAreaSurfaceFrame = null
+                        nextAirPlaySessionTag += 1
+                        activeAirPlaySessionTag = nextAirPlaySessionTag
+                        Log.i(
+                            TAG,
+                            "AirPlay anonymous session tag=$activeAirPlaySessionTag " +
+                                "declaredViewAreaCount=${session.declaredViewAreaCount}",
+                        )
+                    }
                     deviceInfoSession = session
                     connectedDeviceInfo = session.deviceInfo
                     CarPlayBackgroundSession.active = true
+                    sink?.setVideoOutputGeometryChangedListener { type, geometry ->
+                        onVideoOutputGeometryChanged(controllerGeneration, type, geometry)
+                    }
                     reconnectAttempts = 0
                     syncAirPlayDarkMode()
                     if (sessionChanged && hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
@@ -3867,6 +4371,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     } else {
                         resolveYoutubeProfile()
                     }
+                    if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) requestDynamicViewArea(1)
                     if (menuOpen) return@runOnUiThread
                     appendLog("AirPlay session active")
                 }
@@ -3884,6 +4389,12 @@ class CarPlayHostActivity : ComponentActivity() {
                     }
                     finishCarPlayRestartTrace()
                     activeAirPlaySession = null
+                    activeAirPlaySessionTag = 0
+                    cancelDynamicViewAreaCallbacks()
+                    dynamicViewAreaCoordinator.attachSession(null, 0)
+                    lastObservedVideoGeometry = null
+                    viewAreaGeometryBaseline = null
+                    pendingViewAreaSurfaceFrame = null
                     if (deviceInfoSession === session) {
                         deviceInfoSession = null
                         connectedDeviceInfo = null
@@ -3957,8 +4468,29 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             }
 
+            override fun onCommand(session: AirPlaySession, type: String, params: Map<String, Any?>) {
+                val request = AirPlayViewAreaCommandParser.parseIncoming(type, params) ?: return
+                SplitPerformanceTracer.increment(SplitPerformanceCounter.VIEWAREA_REQUEST_FROM_PHONE)
+                runOnUiThread {
+                    if (
+                        controllerGeneration != restartGeneration ||
+                        activeAirPlaySession !== session ||
+                        session.isClosed
+                    ) {
+                        return@runOnUiThread
+                    }
+                    handlePhoneViewAreaRequest(session, request)
+                }
+            }
+
             override fun onDebugLog(message: String) {
                 if (DiagnosticRedactor.redact(message) == null) return
+                when {
+                    message.startsWith("airplay SETUP keys=") ->
+                        SplitPerformanceTracer.increment(SplitPerformanceCounter.AIRPLAY_SETUP_COUNT)
+                    message.startsWith("airplay TEARDOWN types=") ->
+                        SplitPerformanceTracer.increment(SplitPerformanceCounter.AIRPLAY_TEARDOWN_COUNT)
+                }
                 runOnUiThread {
                     if (controllerGeneration != restartGeneration) {
                         return@runOnUiThread
@@ -4016,10 +4548,30 @@ class CarPlayHostActivity : ComponentActivity() {
             displayResizeCoordinator.observe(DisplaySize(snapshot.width, snapshot.height))
         }
         snapshot.controller.currentAirPlaySession()?.let { session ->
+            if (activeAirPlaySession !== session) cancelDynamicViewAreaCallbacks()
+            dynamicViewAreaCoordinator.attachSession(session, session.declaredViewAreaCount)
+            if (activeAirPlaySession !== session) {
+                nextAirPlaySessionTag += 1
+                activeAirPlaySessionTag = nextAirPlaySessionTag
+                Log.i(
+                    TAG,
+                    "AirPlay anonymous session tag=$activeAirPlaySessionTag " +
+                        "declaredViewAreaCount=${session.declaredViewAreaCount}",
+                )
+            }
             activeAirPlaySession = session
             deviceInfoSession = session
             connectedDeviceInfo = session.deviceInfo
+            renderCanvasWidth = session.mainDisplayWidthPixels
+            renderCanvasHeight = session.mainDisplayHeightPixels
+            renderFrameWidth = renderCanvasWidth
+            renderFrameHeight = renderCanvasHeight
+            renderFrameRotation = 0
+            lastObservedVideoGeometry = null
+            viewAreaGeometryBaseline = null
+            pendingViewAreaSurfaceFrame = null
             CarPlayBackgroundSession.active = true
+            if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) requestDynamicViewArea(1)
         }
         val generation = restartGeneration
         snapshot.controller.attachUi(
@@ -4032,6 +4584,10 @@ class CarPlayHostActivity : ComponentActivity() {
         snapshot.sink.setVideoFrameSubmittedToSurfaceListener { type ->
             onVideoFrameSubmittedToSurface(generation, type)
         }
+        snapshot.sink.setVideoOutputGeometryChangedListener { type, geometry ->
+            onVideoOutputGeometryChanged(generation, type, geometry)
+        }
+        snapshot.sink.setVideoMetricListener(currentVideoMetricListener())
         currentSurface?.let(::attachSurface)
         val serviceReused = snapshot.controller.hasActiveAirPlayAttachment()
         appendLog(
@@ -4059,6 +4615,15 @@ class CarPlayHostActivity : ComponentActivity() {
         val controllerGeneration = restartGeneration
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)
+        renderCanvasWidth = airPlayConfig.main.widthPixels
+        renderCanvasHeight = airPlayConfig.main.heightPixels
+        renderFrameWidth = airPlayConfig.main.widthPixels
+        renderFrameHeight = airPlayConfig.main.heightPixels
+        renderFrameRotation = 0
+        lastObservedVideoGeometry = null
+        viewAreaGeometryBaseline = null
+        pendingViewAreaSurfaceFrame = null
+        updateCarPlayRenderTransform()
         val locationProvider: Iap2LocationProvider? =
             if (config.locationReportingEnabled) {
                 AndroidCarPlayLocationProvider(this)
@@ -4174,11 +4739,11 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun scheduleDisplaySize(width: Int, height: Int) {
         if (width <= 0 || height <= 0 || shuttingDown.get() || isFinishing || isDestroyed) return
-        val size = DisplaySize(width, height)
         if (isImeResizeActive()) {
             ignoreImeDisplayResize()
             return
         }
+        val size = resolveNegotiatedDisplaySize(width, height) ?: return
         if (size == pendingDisplaySize) return
         CarPlayBackgroundSession.observePendingRestartSize(this, size)
         displayResizeCoordinator.observe(size)
@@ -4201,6 +4766,34 @@ class CarPlayHostActivity : ComponentActivity() {
         mainHandler.postDelayed(applyDisplaySize, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
     }
 
+    private fun resolveNegotiatedDisplaySize(width: Int, height: Int): DisplaySize? {
+        val observed = DisplaySize(width, height)
+        val row = hostContentRow
+        val fullCanvas = row?.takeIf { it.width > 0 && it.height > 0 }
+            ?.let { DisplaySize(it.width, it.height) }
+        val negotiated = SplitDisplaySizePolicy.negotiatedSize(
+            localSplit = isNoRestartSplit(),
+            observed = observed,
+            fullCanvas = fullCanvas,
+            activeCanvas = activeDisplaySize,
+            restartReady = restartReadyToStart,
+            restartPending = CarPlayBackgroundSession.hasPendingRestart(),
+        )
+        if (negotiated == null) {
+            if (observed != fullCanvas && !localScalePaneResizeLogged) {
+                localScalePaneResizeLogged = true
+                appendLog(
+                    "Split pane resized locally; keeping CarPlay canvas=" +
+                        "${fullCanvas?.width}x${fullCanvas?.height} " +
+                        "pane=${observed.width}x${observed.height}",
+                )
+            }
+            updateCarPlayRenderTransform()
+            return null
+        }
+        return negotiated
+    }
+
     private fun applyDisplaySize(size: DisplaySize) {
         SplitPerformanceTracer.section("diplay.split.carplay_resize") {
             applyDisplaySizeNow(size)
@@ -4213,30 +4806,32 @@ class CarPlayHostActivity : ComponentActivity() {
             ignoreImeDisplayResize()
             return
         }
-        CarPlayBackgroundSession.markPendingRestartLayoutReady(this, size)
-        if (size == activeDisplaySize) {
-            if (restartReadyToStart) finishRestartAtLatestSize(size)
+        val negotiatedSize = resolveNegotiatedDisplaySize(size.width, size.height) ?: return
+        CarPlayBackgroundSession.markPendingRestartLayoutReady(this, negotiatedSize)
+        if (negotiatedSize == activeDisplaySize) {
+            if (restartReadyToStart) finishRestartAtLatestSize(negotiatedSize)
             return
         }
         val previous = activeDisplaySize
-        activeDisplaySize = size
-        recordDetectedMaximum(size)
+        activeDisplaySize = negotiatedSize
+        recordDetectedMaximum(negotiatedSize)
         updateResolutionMenu()
         if (previous == null) {
-            appendLog("Display detected: ${size.width}x${size.height}")
+            appendLog("Display detected: ${negotiatedSize.width}x${negotiatedSize.height}")
             maybeStartCarPlay()
         } else if (menuOpen || handshakeResetInProgress) {
             appendLog(
                 "Display updated while handshake is reset: " +
-                    "${previous.width}x${previous.height} -> ${size.width}x${size.height}",
+                    "${previous.width}x${previous.height} -> ${negotiatedSize.width}x${negotiatedSize.height}",
             )
         } else {
             restartCarPlay(
-                "Display changed ${previous.width}x${previous.height} -> ${size.width}x${size.height}",
+                "Display changed ${previous.width}x${previous.height} -> " +
+                    "${negotiatedSize.width}x${negotiatedSize.height}",
                 displayResize = true,
             )
         }
-        if (restartReadyToStart) finishRestartAtLatestSize(size)
+        if (restartReadyToStart) finishRestartAtLatestSize(negotiatedSize)
     }
 
     private fun recordDetectedMaximum(size: DisplaySize) {
@@ -4324,6 +4919,10 @@ class CarPlayHostActivity : ComponentActivity() {
             displayResizeCoordinator.completeRestart(size)
             return
         }
+        cancelDynamicViewAreaCallbacks()
+        dynamicViewAreaCoordinator.attachSession(null, 0)
+        viewAreaGeometryBaseline = null
+        pendingViewAreaSurfaceFrame = null
         if (displayResize) SplitPerformanceTracer.increment(SplitPerformanceCounter.CARPLAY_DISPLAY_RESTARTS)
         finishCarPlayRestartTrace()
         restartHandoffToken = restartToken
@@ -4341,6 +4940,8 @@ class CarPlayHostActivity : ComponentActivity() {
         handshakeResetInProgress = true
         val oldSink = sink
         oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
+        oldSink?.setVideoOutputGeometryChangedListener(null)
+        oldSink?.setVideoMetricListener(null)
         controller = null
         sink = null
         teardownExecutor.execute {
@@ -4456,6 +5057,8 @@ class CarPlayHostActivity : ComponentActivity() {
         mainHandler.removeCallbacks(finishSplitYoutubeStartup)
         mainHandler.removeCallbacks(retryRestartHandoff)
         mainHandler.removeCallbacks(restartAfterReconnectDelay)
+        cancelDynamicViewAreaCallbacks()
+        dynamicViewAreaCoordinator.attachSession(null, 0)
         window.decorView.removeCallbacks(waitForImeResizeToSettle)
         videoView?.removeCallbacks(deferYoutubePreparationOneFrame)
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
@@ -4465,6 +5068,8 @@ class CarPlayHostActivity : ComponentActivity() {
         val oldController = controller
         val oldSink = sink
         oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
+        oldSink?.setVideoOutputGeometryChangedListener(null)
+        oldSink?.setVideoMetricListener(null)
         CarPlayBackgroundSession.clear(oldController)
         controller = null
         sink = null
@@ -4495,6 +5100,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun onHostTouch(view: View, event: MotionEvent): Boolean {
         if (menuOpen) return true
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) localTouchSequenceCancelled = false
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -4542,7 +5148,24 @@ class CarPlayHostActivity : ComponentActivity() {
             return true
         }
 
-        val contacts = CarPlayTouchMapper.contacts(event, view.width, view.height)
+        val contacts = if (isNoRestartSplit()) {
+            if (localTouchSequenceCancelled) {
+                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    localTouchSequenceCancelled = false
+                }
+                return true
+            }
+            val geometry = carPlayRenderGeometry ?: return true
+            val mapped = CarPlayTouchMapper.contacts(event, geometry)
+            if (mapped == null) {
+                controller?.sendTouch(emptyList())
+                localTouchSequenceCancelled = true
+                return true
+            }
+            mapped
+        } else {
+            CarPlayTouchMapper.contacts(event, view.width, view.height)
+        }
         val queued = controller?.sendTouch(contacts) ?: false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN,
@@ -4570,9 +5193,13 @@ class CarPlayHostActivity : ComponentActivity() {
         runOnUiThread {
             if (shuttingDown.get() || generation != restartGeneration) return@runOnUiThread
             if (active) {
-                activeScreenStreamTypes.add(type)
+                if (activeScreenStreamTypes.add(type)) {
+                    SplitPerformanceTracer.increment(SplitPerformanceCounter.SCREEN_STREAM_STARTS)
+                }
             } else {
-                activeScreenStreamTypes.remove(type)
+                if (activeScreenStreamTypes.remove(type)) {
+                    SplitPerformanceTracer.increment(SplitPerformanceCounter.SCREEN_STREAM_ENDS)
+                }
             }
             updateDebugOverlays()
         }
@@ -4733,6 +5360,8 @@ class CarPlayHostActivity : ComponentActivity() {
         private const val STATE_YOUTUBE_SPLIT = "host.youtube_split"
         private const val STATE_CARPLAY_FRACTION = "host.carplay_fraction"
         private const val PROFILE_IDENTITY_TIMEOUT_MILLIS = 5_000L
+        private const val DYNAMIC_VIEW_AREA_TIMEOUT_MILLIS = 3_000L
+        private const val DYNAMIC_VIEW_AREA_RETRY_DELAY_MILLIS = 250L
         private const val PROFILE_IDENTITY_RETRY_INTERVAL_MILLIS = 250L
         private const val RESTART_HANDOFF_RETRY_MILLIS = 500L
         private const val IME_RESIZE_STABLE_FRAME_COUNT = 2

@@ -11,8 +11,27 @@ import java.util.concurrent.atomic.AtomicLongArray
 internal enum class SplitPerformanceCounter(val label: String) {
     CARPLAY_CONTROLLER_STARTS("carplay_controller_starts"),
     CARPLAY_CONTROLLER_CLOSES("carplay_controller_closes"),
+    AIRPLAY_SESSION_CHANGES("airplay_session_changes"),
+    AIRPLAY_SETUP_COUNT("airplay_setup_count"),
+    AIRPLAY_TEARDOWN_COUNT("airplay_teardown_count"),
+    SCREEN_STREAM_STARTS("screen_stream_starts"),
+    SCREEN_STREAM_ENDS("screen_stream_ends"),
     SPLIT_ENTRIES("split_entries"),
     SPLIT_EXITS("split_exits"),
+    VIEWAREA_ADVERTISED_COUNT("viewarea_advertised_count"),
+    VIEWAREA_COMMAND_ATTEMPTS("viewarea_command_attempts"),
+    VIEWAREA_COMMAND_WRITE_OK("viewarea_command_write_ok"),
+    VIEWAREA_TRANSITION_CONFIRMED("viewarea_transition_confirmed"),
+    VIEWAREA_TRANSITION_TIMEOUT("viewarea_transition_timeout"),
+    VIEWAREA_REQUEST_FROM_PHONE("viewarea_request_from_phone"),
+    VIEWAREA_FALLBACK_COUNT("viewarea_fallback_count"),
+    VIDEO_CONFIG_CHANGES("video_config_changes"),
+    VIDEO_OUTPUT_FORMAT_CHANGES("video_output_format_changes"),
+    VIDEO_DECODER_RECONFIGURES("video_decoder_reconfigure_count"),
+    SURFACE_TEXTURE_CREATED("surface_texture_created"),
+    SURFACE_TEXTURE_DESTROYED("surface_texture_destroyed"),
+    SURFACE_OUTPUT_SUBMISSIONS("surface_output_submissions"),
+    TEXTURE_VISIBLE_COMPOSITE("texture_visible_composite"),
     GECKO_RUNTIME_CREATIONS("gecko_runtime_creations"),
     GECKO_WARMUPS("gecko_warmups"),
     GECKO_SESSION_CREATIONS("gecko_session_creations"),
@@ -70,6 +89,24 @@ internal object SplitPerformanceTracer {
 
     fun increment(counter: SplitPerformanceCounter) {
         if (enabled) counters.incrementAndGet(counter.ordinal)
+    }
+
+    fun snapshot(): LongArray = LongArray(SplitPerformanceCounter.entries.size) { index ->
+        counters.get(index)
+    }
+
+    fun summarySince(snapshot: LongArray): String? {
+        if (!enabled) return null
+        return deltaSummary(snapshot(), snapshot)
+    }
+
+    internal fun deltaSummary(current: LongArray, baseline: LongArray): String {
+        require(current.size == SplitPerformanceCounter.entries.size)
+        require(baseline.size == SplitPerformanceCounter.entries.size)
+        return SplitPerformanceCounter.entries.joinToString(", ") { counter ->
+            val index = counter.ordinal
+            "${counter.label}=${current[index] - baseline[index]}"
+        }
     }
 
     inline fun <T> section(name: String, action: () -> T): T {

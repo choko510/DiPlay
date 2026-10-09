@@ -292,6 +292,10 @@ Treat paint completion, timeout and cancellation as mutually exclusive terminal 
 
 Tag each primary-session `onPaintStatusReset()` with the current suspension generation. A measurement ending must not erase session evidence; a new distinct suspension advances the generation so older reset events cannot authorize its paint. Cold session creation starts a fresh generation. Start the timeout deadline on first activation and carry its absolute elapsed-realtime value across pause/resume and repeated same-profile opens.
 
+## Keep Dynamic ViewArea experimental until wire behavior is proven
+
+Default the Split View mode to `off` and force non-debuggable builds to the legacy mode. Treat `updateViewArea` as a candidate payload; a successful socket write is only a write result. Commit a requested index only after a unique output-geometry change and a subsequent TextureView update, and latch failures to local rendering for that session without restarting CarPlay.
+
 ## Keep wired NCM experiments isolated and debug-only
 
 Persist one NCM diagnostic profile only in debuggable builds. `AUTO` polls the status endpoint when available and keeps the 100 ms pre-ready OUT timeout; `NO_STATUS_POLLING` isolates the previous off behavior. Timeout, sync Bulk IN and forced function selection profiles inherit status polling so future timeout comparisons keep it enabled. Do not combine profiles or add CDC-NCM control requests without new A/B evidence.

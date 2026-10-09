@@ -1,6 +1,6 @@
 # Seamless CarPlay + YouTube Split View implementation log
 
-Specification: `DiPlay_Seamless_Split_View_Implementation_Spec_v1.md` (v1.0, 2026-10-09). Base: `db9853266c71e2351c08b8934f223f7df671fd74` (`origin/main`). Work branch: `codex/seamless-split-view-implementation`.
+Specification: `DiPlay_Seamless_Split_View_Implementation_Spec_v1.md` (v1.0, 2026-10-09). Initial analysis base: `db9853266c71e2351c08b8934f223f7df671fd74`. Final PR base: `95ba398f95ee104527812cd2b095977d71c51f98` (`origin/main` after PR #14 and #16 landed). Work branch: `codex/seamless-split-view-implementation`.
 
 Open PRs checked before implementation: #14 (audio DSP, open) and #16 (wired NCM diagnostics, draft). Their changes are not part of this branch.
 
@@ -55,7 +55,7 @@ Open PRs checked before implementation: #14 (audio DSP, open) and #16 (wired NCM
 - Named retry/timeout callbacks are removed on session replacement/end, restart, shutdown, and Activity destruction. New requests supersede the prior token; callbacks from another session/generation are ignored.
 - Tests: `:common:testDebugUnitTest --tests com.shilapi.xcertplay.youtube.DynamicViewAreaCoordinatorTest -PdiplaySplitViewMode=dynamic-experimental` passed (5 tests). Cases cover write-not-confirmation, matching geometry evidence, rapid toggles, stale callbacks, bounded retry, timeout, phone request gating, and session replacement.
 - Build/lint: `-PdiplaySplitViewMode=dynamic-experimental` mobile/automotive debug lint and both debug builds passed.
-- Geometry confirmation is wired in PR-06; until that integration, dynamic attempts conservatively time out to local rendering and remain unconfirmed.
+- Stage boundary: PR-05 introduced the state machine; PR-06 connects output geometry evidence. Actual phone acceptance and on-device geometry remain hardware-dependent.
 
 ## PR-06 — Rendering and MediaCodec geometry
 
@@ -72,7 +72,7 @@ Open PRs checked before implementation: #14 (audio DSP, open) and #16 (wired NCM
 - The same immutable `CarPlayRenderGeometry` now drives both `TextureView.setTransform()` and inverse HID mapping. Split-pane letterbox presses are dropped; changing the transform releases active contacts before a new gesture can use the updated coordinates.
 - Kept the existing `TextureView`/`SurfaceTexture` through pane-weight changes. Physical host display/IME resize handling still uses the existing debounce and restart handoff; split-only pane changes resolve to the existing full negotiated canvas.
 - Dynamic selection remains inside the existing AirPlay session and single event writer. MediaCodec adaptive playback or decoder-only reconfiguration does not replace `CarPlayController`, AirPlay session, or the audio renderer. No audio negotiation or Gecko profile/session implementation was changed; existing common/shared tests were rerun as integration regression coverage.
-- Tests: full shared and common unit suites passed (shared 383, common 126; 0 failures, 0 errors, 0 skipped), including render transform, crop/rotation, two-pointer/up, letterbox rejection, session fencing, existing Gecko reuse/profile, popup/fullscreen and IME coverage.
+- Tests before the upstream advance: shared 383 and common 126 passed, including render transform, crop/rotation, two-pointer/up, letterbox rejection, session fencing, existing Gecko reuse/profile, popup/fullscreen and IME coverage. Final post-rebase results are recorded under PR-08.
 - Review pass 2: verified pane-only resizing does not reach `restartCarPlay()`, `SurfaceTexture` callbacks are lifecycle-fenced, touch releases on geometry changes, and the existing Gecko warm-reuse path remains intact. The callback counter is explicitly only a `SurfaceTexture` update proxy; it does not prove compositor scanout or visible correctness.
 - Gate 1 local path: static code and unit tests PASS; no Android instrumentation device or head unit was available, so displayed output, HID calibration, audio continuity, Gecko interaction during an actual CarPlay split, and lifecycle/rotation on target hardware remain `NOT RUN — hardware required`.
 
@@ -82,14 +82,12 @@ Open PRs checked before implementation: #14 (audio DSP, open) and #16 (wired NCM
 - Added per-process counters for ViewArea advertisement/request/write/geometry observation/timeout/fallback, controller starts/closes, session changes, SETUP/TEARDOWN, screen streams, codec configuration/output formats/reconfiguration, Surface/TextureView callbacks, decoder submissions, and existing Gecko split/FCP events. The first Split request records a counter baseline; later exits log deltas to make repeated-cycle comparisons possible.
 - A successful event-channel write is counted on the writer thread even if a newer UI generation supersedes its callback. It still means only that bytes were written. `viewarea_transition_confirmed` is a local output-geometry plus `TextureView` update observation; it is not an iPhone protocol acknowledgement.
 - Review pass 1 found that stale UI callbacks could omit a successfully written command from the counter and that exit logs showed only cumulative totals. Moved write-success counting to the serialized writer, added baseline-delta output, and added a regression test for counter deltas. Re-review and targeted common tests passed.
-- Final tests: `:shared:testDebugUnitTest :common:testDebugUnitTest --continue` passed (383 + 126 tests). The initial baseline had one Windows IPv6 loopback permission failure; it did not recur in the final run.
-- Final debug validation with `-PdiplaySplitViewMode=dynamic-experimental`: mobile/automotive `lintDebug` and `assembleDebug` passed. Benchmark validation with the same property: mobile/automotive `assembleBenchmark` passed, and `python scripts/check_jni_mapping.py` verified both optimized mappings. Existing SDK duplicate-platform and unused NDK 28.2 warnings were non-fatal; pinned NDK 27 builds completed.
+- During the task, remote main advanced with PR #14 (audio DSP) and PR #16 (wired NCM diagnostics). Rebased onto `95ba398f95ee104527812cd2b095977d71c51f98`; the reviewed diff against that base contains only the Split View work and its records/tests.
+- Rebase review: verified that `AndroidMediaSink.createAudioRenderer()` and the host's DSP config provider are unchanged from the new base; this branch adds video geometry/decoder callbacks only. No NCM files are in the branch diff. The existing Gecko profile/session code also remains unchanged outside the split-host calls already covered above.
+- Final post-rebase tests: `:shared:testDebugUnitTest :common:testDebugUnitTest --continue` passed (shared 479, common 146; 0 failures, 0 errors, 0 skipped). The initial baseline had one Windows IPv6 loopback permission failure; it did not recur.
+- Revalidated after rebase with `-PdiplaySplitViewMode=dynamic-experimental`: mobile/automotive `lintDebug` and `assembleDebug` passed. Mobile/automotive `assembleBenchmark` passed with R8, and `python scripts/check_jni_mapping.py` verified both optimized mappings. The SDK duplicate-platform warning and unused local NDK 28.2 `source.properties`/strip warnings were non-fatal; pinned NDK 27 builds completed.
 - `git diff --check` passed after the metric correction. No connected-device instrumentation, emulator, head unit, iPhone, CPU/GC/PSS/thermal capture, black-frame duration, 20-cycle timing, call/Siri/navigation audio test, H.264/HEVC vendor behavior, or long-playback/memory test was available; each remains `NOT RUN — hardware required`.
 - The second review found no remaining code-level defect; the unresolved items below require device evidence rather than more local code changes.
-
-## PR-08 — Fallback, metrics, and quality audit
-
-Pending.
 
 ## Hardware verification status
 

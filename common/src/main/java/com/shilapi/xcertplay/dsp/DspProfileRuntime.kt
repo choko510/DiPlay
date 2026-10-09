@@ -18,6 +18,7 @@ internal class DspProfileRuntime private constructor(context: Context) {
     private val preferences = applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
     private val repository = DspProfileRepository(applicationContext.filesDir)
     private val impulseRepository = DspImpulseResponseRepository(applicationContext.filesDir)
+    private val cabinCalibrationRepository = DspCabinCalibrationRepository(applicationContext)
     private val impulseCache = ConcurrentHashMap<String, DspImpulseResponse>()
     private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "dsp-profile-io").apply { isDaemon = true }
@@ -33,7 +34,7 @@ internal class DspProfileRuntime private constructor(context: Context) {
         val initialEnabled = preferences.getBoolean(KEY_DSP_ENABLED, false)
         activeProfile = AtomicReference(loadedProfile)
         dspEnabled = AtomicBoolean(initialEnabled)
-        runtimeConfig.update(loadedProfile.toRuntimeConfig(initialEnabled, impulseResponseFor(loadedProfile)))
+        runtimeConfig.update(runtimeConfigFor(loadedProfile, initialEnabled, impulseResponseFor(loadedProfile)))
     }
 
     fun selectedProfile(): DspAudioProfile = activeProfile.get()
@@ -41,6 +42,24 @@ internal class DspProfileRuntime private constructor(context: Context) {
     fun isDspEnabled(): Boolean = dspEnabled.get()
 
     fun availableImpulseResponseIds(): List<String> = impulseRepository.ids()
+
+    fun availableCabinCalibrations(): List<DspCabinCalibrationSummary> = cabinCalibrationRepository.available()
+
+    fun cabinCalibration(id: String): DspCabinCalibrationData? = cabinCalibrationRepository.load(id)
+
+    fun availableCabinCalibrationsAsync(onComplete: (List<DspCabinCalibrationSummary>) -> Unit) {
+        ioExecutor.execute {
+            val calibrations = cabinCalibrationRepository.available()
+            Handler(Looper.getMainLooper()).post { onComplete(calibrations) }
+        }
+    }
+
+    fun cabinCalibrationAsync(id: String, onComplete: (DspCabinCalibrationData?) -> Unit) {
+        ioExecutor.execute {
+            val calibration = cabinCalibrationRepository.load(id)
+            Handler(Looper.getMainLooper()).post { onComplete(calibration) }
+        }
+    }
 
     fun availableProfiles(): List<DspAudioProfile> {
         val defaults = DspProfilePresets.all().associateBy(DspAudioProfile::id)
@@ -113,14 +132,49 @@ internal class DspProfileRuntime private constructor(context: Context) {
         }
     }
 
+    fun importCabinCalibrationAsync(
+        id: String,
+        openInput: () -> InputStream?,
+        onComplete: (DspCabinCalibrationImportResult) -> Unit,
+    ) {
+        ioExecutor.execute {
+            val result = cabinCalibrationRepository.import(id, openInput)
+            Handler(Looper.getMainLooper()).post { onComplete(result) }
+        }
+    }
+
+    fun deleteCabinCalibrationAsync(id: String, onComplete: (Boolean) -> Unit) {
+        ioExecutor.execute {
+            val result = cabinCalibrationRepository.delete(id)
+            Handler(Looper.getMainLooper()).post { onComplete(result) }
+        }
+    }
+
     private fun applyWithImpulse(profile: DspAudioProfile, enabled: Boolean, impulse: DspImpulseResponse?) {
         activeProfile.set(profile)
         dspEnabled.set(enabled)
-        runtimeConfig.update(profile.toRuntimeConfig(enabled, impulse))
+        runtimeConfig.update(runtimeConfigFor(profile, enabled, impulse))
         preferences.edit()
             .putBoolean(KEY_DSP_ENABLED, enabled)
             .putString(KEY_SELECTED_PROFILE_ID, profile.id)
             .apply()
+    }
+
+    private fun runtimeConfigFor(
+        profile: DspAudioProfile,
+        enabled: Boolean,
+        impulseResponse: DspImpulseResponse?,
+    ): DspRuntimeConfig {
+        val config = profile.toRuntimeConfig(enabled, impulseResponse)
+        val cabin = profile.cabinCorrection
+        val calibrationId = cabin.calibrationId
+        return if (cabin.enabled && calibrationId != null && !cabinCalibrationRepository.contains(calibrationId)) {
+            config.withCabinCorrection(
+                cabin.copy(enabled = false, bypassed = false, dynamicControlEnabled = false),
+            )
+        } else {
+            config
+        }
     }
 
     fun saveCustomAsync(profile: DspAudioProfile, enabled: Boolean, onComplete: (DspProfileSaveResult) -> Unit) {

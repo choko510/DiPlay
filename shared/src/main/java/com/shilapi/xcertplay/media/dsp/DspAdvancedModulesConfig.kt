@@ -176,6 +176,7 @@ data class DspCabinCut(
 
 data class DspCabinCorrectionConfig(
     val enabled: Boolean = false,
+    val bypassed: Boolean = false,
     val calibrationId: String? = null,
     val calibrationVersion: Int = CALIBRATION_FORMAT_VERSION,
     val cuts: List<DspCabinCut> = emptyList(),
@@ -187,6 +188,9 @@ data class DspCabinCorrectionConfig(
         require(calibrationVersion in 1..CALIBRATION_FORMAT_VERSION)
         require(cuts.size <= MAX_CUTS)
         require(maxDynamicCutDb.isFinite() && maxDynamicCutDb in 0.0..MAX_DYNAMIC_CUT_DB)
+        if (cuts.any { it.source == DspCabinCutSource.MEASUREMENT }) {
+            require(calibrationId != null)
+        }
         if (dynamicControlEnabled) {
             require(calibrationId != null)
             require(cuts.any { it.enabled && it.source == DspCabinCutSource.MEASUREMENT })

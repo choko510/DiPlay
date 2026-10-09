@@ -249,6 +249,69 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun cabinStaticFiltersAndMeasurementBoundedDynamicCutsArePreparedSeparately() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                cabinCorrection = DspCabinCorrectionConfig(
+                    enabled = true,
+                    calibrationId = "cal_front",
+                    dynamicControlEnabled = true,
+                    maxDynamicCutDb = 2.0,
+                    cuts = listOf(
+                        DspCabinCut(
+                            frequencyHz = 82.0,
+                            q = 4.0,
+                            reductionDb = -4.0,
+                            enabled = true,
+                            source = DspCabinCutSource.MEASUREMENT,
+                        ),
+                    ),
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(1.0, bindings.createdCabin?.get(0) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdCabin?.get(1) ?: 0.0, 0.0)
+        assertEquals(DspEqDesigner.COEFFICIENTS_PER_BAND, bindings.createdCabinStaticCoefficients?.size)
+        assertTrue(bindings.createdCabinStaticCoefficients?.all(Double::isFinite) == true)
+        assertEquals(DspDynamicEqConfig.NATIVE_VALUE_COUNT, bindings.createdCabinDynamicEq?.size)
+        assertEquals(1.0, bindings.createdCabinDynamicEq?.get(0) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdCabinDynamicEq?.get(1) ?: 0.0, 0.0)
+        assertEquals(DspDynamicEqMode.CUT.ordinal.toDouble(), bindings.createdCabinDynamicEq?.get(2) ?: -1.0, 0.0)
+        assertEquals(82.0, bindings.createdCabinDynamicEq?.get(3) ?: 0.0, 0.0)
+        assertEquals(2.0, bindings.createdCabinDynamicEq?.get(10) ?: 0.0, 0.0)
+        processor?.close()
+    }
+
+    @Test
+    fun temporaryCabinBypassUpdatesTheActiveNativeGraphInPlace() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                cabinCorrection = DspCabinCorrectionConfig(
+                    enabled = true,
+                    cuts = listOf(DspCabinCut(82.0, 4.0, -3.0, enabled = true)),
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(requireNotNull(processor).updateCabinBypass(true))
+        assertEquals(true, bindings.lastCabinBypass)
+        assertEquals(1, bindings.createCalls)
+        requireNotNull(processor).close()
+    }
+
+    @Test
     fun nativeProcessFailureReturnsAnErrorWithoutConsumingBuffers() {
         val format = DspAudioFormat(48_000, 2)
         val bindings = FakeNativeDspBindings(processStatus = 3)
@@ -335,6 +398,10 @@ class NativeDspProcessorTest {
         var createdSeatFocus: DoubleArray? = null
         var createdAdvancedMs: DoubleArray? = null
         var createdAdvancedMsEqCoefficients: DoubleArray? = null
+        var createdCabin: DoubleArray? = null
+        var createdCabinStaticCoefficients: DoubleArray? = null
+        var createdCabinDynamicEq: DoubleArray? = null
+        var lastCabinBypass: Boolean? = null
         var seatFocusUpdateCalls = 0
         var lastSeatFocusUpdate: DoubleArray? = null
         var lastAdvancedMsMonitorMode: Int? = null
@@ -356,6 +423,9 @@ class NativeDspProcessorTest {
             seatFocus: DoubleArray,
             advancedMs: DoubleArray,
             advancedMsEqCoefficients: DoubleArray,
+            cabin: DoubleArray,
+            cabinStaticCoefficients: DoubleArray,
+            cabinDynamicEq: DoubleArray,
         ): Long {
             createCalls++
             createdGainDb = gainDb
@@ -371,6 +441,9 @@ class NativeDspProcessorTest {
             createdSeatFocus = seatFocus.copyOf()
             createdAdvancedMs = advancedMs.copyOf()
             createdAdvancedMsEqCoefficients = advancedMsEqCoefficients.copyOf()
+            createdCabin = cabin.copyOf()
+            createdCabinStaticCoefficients = cabinStaticCoefficients.copyOf()
+            createdCabinDynamicEq = cabinDynamicEq.copyOf()
             return createHandle
         }
 
@@ -404,6 +477,10 @@ class NativeDspProcessorTest {
         }
         override fun updateAdvancedMsMonitorMode(handle: Long, monitorMode: Int): Int {
             lastAdvancedMsMonitorMode = monitorMode
+            return 0
+        }
+        override fun updateCabinBypass(handle: Long, bypassed: Boolean): Int {
+            lastCabinBypass = bypassed
             return 0
         }
         override fun latencyFrames(handle: Long): Int = 0

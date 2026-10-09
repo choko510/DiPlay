@@ -71,6 +71,21 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun cabinCutOnlyLayersDoNotAddPositiveHeadroomReduction() {
+        val prepared = DspRuntimeConfig(
+            enabled = true,
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                cuts = listOf(DspCabinCut(82.0, 4.0, -6.0, enabled = true)),
+            ),
+        ).prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals(1.0, prepared.headroom.reductionDb, 0.02)
+        assertEquals(5, prepared.cabinStaticCoefficients.size)
+        assertEquals(0.0, prepared.cabinDynamicEq[0], 0.0)
+    }
+
+    @Test
     fun sameFrequencyFiltersCombineTheirResponsesBeforeFindingThePeak() {
         val sameFrequency = listOf(
             DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 6.0, q = 4.0),

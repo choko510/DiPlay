@@ -1802,7 +1802,8 @@ internal class AudioRenderer(
             seatFocus.enabled && format.channels == 2 ||
             advancedMs.enabled && format.channels == 2 &&
                 advancedMs.lowMidCrossoverHz < format.sampleRate * 0.45 &&
-                advancedMs.midHighCrossoverHz < format.sampleRate * 0.45
+                advancedMs.midHighCrossoverHz < format.sampleRate * 0.45 ||
+            cabinCorrection.enabled && cabinCorrection.cuts.any { it.enabled }
         )
 
     private fun configureLiveUpdates(format: DspAudioFormat, forcePrepareCurrent: Boolean = false) {
@@ -1851,6 +1852,7 @@ internal class AudioRenderer(
             activeConfig = { activeDspConfig },
             onSeatFocusUpdate = ::applySeatFocusLiveUpdate,
             onAdvancedMsMonitorUpdate = ::applyAdvancedMsMonitorLiveUpdate,
+            onCabinBypassUpdate = ::applyCabinBypassLiveUpdate,
             canAdoptLatencyChange = { !trackGenerationContentCommitted },
             onPrepared = { update ->
                 runCatching { beforeDspUpdatePublishForTest?.invoke() }
@@ -1923,6 +1925,25 @@ internal class AudioRenderer(
             return false
         }
         if (!pipeline.updateAdvancedMsMonitorMode(snapshot.config.advancedMs.monitorMode)) return false
+        activeDspConfig = snapshot.config
+        activeDspGraphConfig = effectiveDspGraphConfig(pipeline.format, snapshot.config, pipeline)
+        activeDspGeneration = snapshot.generation
+        liveUpdateLatencyFrames.set(pipeline.algorithmicLatencyFrames)
+        livePreparationPending = false
+        deferredDspGeneration = null
+        DspLiveUpdateStatusStore.update(DspLiveUpdateState.APPLIED)
+        return true
+    }
+
+    private fun applyCabinBypassLiveUpdate(snapshot: DspConfigSnapshot): Boolean {
+        val pipeline = dspPipeline ?: return false
+        if (rendererReleased || liveUpdateFormat != pipeline.format || pendingDspUpdate.get() != null ||
+            liveFadeInProgress || requestedDspGeneration != snapshot.generation ||
+            (trackGenerationContentCommitted && pipeline.algorithmicLatencyFrames != trackGenerationLatencyFrames)
+        ) {
+            return false
+        }
+        if (!pipeline.updateCabinBypass(snapshot.config.cabinCorrection.bypassed)) return false
         activeDspConfig = snapshot.config
         activeDspGraphConfig = effectiveDspGraphConfig(pipeline.format, snapshot.config, pipeline)
         activeDspGeneration = snapshot.generation

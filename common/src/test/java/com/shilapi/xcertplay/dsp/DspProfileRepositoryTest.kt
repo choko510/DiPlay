@@ -149,6 +149,11 @@ class DspProfileRepositoryTest {
         )
 
         assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
+        val persistedCabin = JSONObject(
+            requireNotNull(repository.profileFileForTesting("custom1")).readText(),
+        ).getJSONObject("cabinCorrection")
+        assertFalse(persistedCabin.has("measurementPoints"))
+        assertFalse(persistedCabin.has("points"))
         val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
         assertEquals(profile, loaded.profile)
         assertEquals(null, loaded.migratedFromVersion)
@@ -175,17 +180,53 @@ class DspProfileRepositoryTest {
 
     @Test
     fun temporaryAdvancedMsMonitorModeIsNotPersistedInTheProfile() {
+        val repository = DspProfileRepository(temporaryFolder.newFolder("transient-profile")) { file, contents ->
+            file.writeBytes(contents)
+        }
+        val base = DspProfilePresets.customProfile("custom1").copy(
+            advancedMs = DspAdvancedMsConfig(enabled = true),
+        )
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(base))
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        val persisted = JSONObject(profileFile.readText())
+        persisted.getJSONObject("advancedMs").put("monitorMode", DspAdvancedMsMonitorMode.SIDE_ONLY.name)
+        persisted.getJSONObject("cabinCorrection").put("bypassed", true)
+        profileFile.writeText(persisted.toString())
+        val profile = base.copy(
+            advancedMs = base.advancedMs.copy(monitorMode = DspAdvancedMsMonitorMode.SIDE_ONLY),
+            cabinCorrection = base.cabinCorrection.copy(bypassed = true),
+        )
+
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
+        val writtenProfile = JSONObject(profileFile.readText())
+        assertFalse(writtenProfile.getJSONObject("advancedMs").has("monitorMode"))
+        assertFalse(writtenProfile.getJSONObject("cabinCorrection").has("bypassed"))
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertEquals(DspAdvancedMsMonitorMode.SIDE_ONLY, profile.advancedMs.monitorMode)
+        assertEquals(DspAdvancedMsMonitorMode.NORMAL, loaded.profile.advancedMs.monitorMode)
+        assertTrue(profile.cabinCorrection.bypassed)
+        assertFalse(loaded.profile.cabinCorrection.bypassed)
+        assertTrue(loaded.profile.advancedMs.enabled)
+    }
+
+    @Test
+    fun temporaryCabinBypassIsNotPersistedInTheProfile() {
         val repository = repository()
         val profile = DspProfilePresets.customProfile("custom1").copy(
-            advancedMs = DspAdvancedMsConfig(enabled = true, monitorMode = DspAdvancedMsMonitorMode.SIDE_ONLY),
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                bypassed = true,
+                cuts = listOf(DspCabinCut(82.0, 4.0, -3.0, enabled = true)),
+            ),
         )
 
         assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
         val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
 
-        assertEquals(DspAdvancedMsMonitorMode.SIDE_ONLY, profile.advancedMs.monitorMode)
-        assertEquals(DspAdvancedMsMonitorMode.NORMAL, loaded.profile.advancedMs.monitorMode)
-        assertTrue(loaded.profile.advancedMs.enabled)
+        assertTrue(profile.cabinCorrection.bypassed)
+        assertFalse(loaded.profile.cabinCorrection.bypassed)
+        assertEquals(profile.cabinCorrection.cuts, loaded.profile.cabinCorrection.cuts)
     }
 
     @Test

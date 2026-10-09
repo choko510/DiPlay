@@ -21,7 +21,11 @@ int dsp_graph_prepare(
     const dsp_seat_focus_config *seat_focus_config,
     const dsp_advanced_ms_config *advanced_ms_config,
     const double *advanced_ms_coefficients,
-    size_t advanced_ms_coefficient_count) {
+    size_t advanced_ms_coefficient_count,
+    const dsp_cabin_config *cabin_config,
+    const double *cabin_static_coefficients,
+    int cabin_static_coefficient_count,
+    const dsp_dynamic_eq_config *cabin_dynamic_eq_config) {
     if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
@@ -44,6 +48,15 @@ int dsp_graph_prepare(
         return 0;
     }
     if (!dsp_dynamic_eq_prepare(&graph->dynamic_eq, sample_rate, dynamic_eq_config)) {
+        return 0;
+    }
+    if (!dsp_cabin_prepare(
+            &graph->cabin,
+            sample_rate,
+            cabin_config,
+            cabin_static_coefficients,
+            cabin_static_coefficient_count,
+            cabin_dynamic_eq_config)) {
         return 0;
     }
     if (!dsp_spatial_prepare(
@@ -77,6 +90,7 @@ void dsp_graph_reset(dsp_graph *graph) {
     dsp_dynamics_reset(&graph->dynamics);
     dsp_multiband_reset(&graph->multiband);
     dsp_dynamic_eq_reset(&graph->dynamic_eq);
+    dsp_cabin_reset(&graph->cabin);
     dsp_spatial_reset(&graph->spatial);
     dsp_seat_focus_reset(&graph->seat_focus);
     dsp_convolver_reset(&graph->convolver);
@@ -98,6 +112,10 @@ int dsp_graph_latency_frames(const dsp_graph *graph) {
 
 int dsp_graph_update_advanced_ms_monitor_mode(dsp_graph *graph, int monitor_mode) {
     return graph != NULL && dsp_spatial_update_monitor_mode(&graph->spatial, monitor_mode);
+}
+
+int dsp_graph_update_cabin_bypass(dsp_graph *graph, int bypassed) {
+    return graph != NULL && dsp_cabin_update_bypass(&graph->cabin, bypassed);
 }
 
 void dsp_graph_process(
@@ -146,6 +164,7 @@ void dsp_graph_process(
         dsp_dynamics_process_compressor_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
         dsp_multiband_process_frame(&graph->multiband, &output_left, &output_right, (int)channels);
         dsp_dynamic_eq_process_frame(&graph->dynamic_eq, &output_left, &output_right, (int)channels);
+        dsp_cabin_process_frame(&graph->cabin, &output_left, &output_right, (int)channels);
         dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
         dsp_convolver_process_frame(&graph->convolver, &output_left, &output_right, (int)channels);
         dsp_dynamics_process_limiter_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
@@ -173,5 +192,6 @@ void dsp_graph_process(
     dsp_spatial_flush_denormals(&graph->spatial);
     dsp_multiband_flush_denormals(&graph->multiband);
     dsp_dynamic_eq_flush_denormals(&graph->dynamic_eq);
+    dsp_cabin_flush_denormals(&graph->cabin);
     dsp_convolver_flush_denormals(&graph->convolver);
 }

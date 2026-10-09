@@ -18,6 +18,7 @@ class DspRuntimeConfig(
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
     val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
     val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
+    val cabinCorrection: DspCabinCorrectionConfig = DspCabinCorrectionConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double
@@ -39,15 +40,40 @@ class DspRuntimeConfig(
         dynamicEq = dynamicEq,
         seatFocus = seatFocus,
         advancedMs = advancedMs,
+        cabinCorrection = cabinCorrection,
+    )
+
+    fun withCabinCorrection(cabinCorrection: DspCabinCorrectionConfig): DspRuntimeConfig = DspRuntimeConfig(
+        enabled = enabled,
+        gainDb = gainDb,
+        peqBands = peqBands,
+        autoHeadroomEnabled = autoHeadroomEnabled,
+        autoHeadroomMarginDb = autoHeadroomMarginDb,
+        bass = bass,
+        compressor = compressor,
+        safetyLimiter = safetyLimiter,
+        stereoWidth = stereoWidth,
+        monoBass = monoBass,
+        convolver = convolver,
+        multiband = multiband,
+        dynamicEq = dynamicEq,
+        seatFocus = seatFocus,
+        advancedMs = advancedMs,
+        cabinCorrection = cabinCorrection,
     )
 
     internal fun hasSameNonSeatFocusConfig(other: DspRuntimeConfig): Boolean =
-        hasSameBaseConfig(other) && advancedMs == other.advancedMs
+        hasSameBaseConfig(other) && advancedMs == other.advancedMs && cabinCorrection == other.cabinCorrection
 
     internal fun hasSameExceptAdvancedMsMonitorConfig(other: DspRuntimeConfig): Boolean =
         hasSameBaseConfig(other) && seatFocus == other.seatFocus &&
             advancedMs.copy(monitorMode = DspAdvancedMsMonitorMode.NORMAL) ==
-            other.advancedMs.copy(monitorMode = DspAdvancedMsMonitorMode.NORMAL)
+            other.advancedMs.copy(monitorMode = DspAdvancedMsMonitorMode.NORMAL) &&
+            cabinCorrection == other.cabinCorrection
+
+    internal fun hasSameExceptCabinBypassConfig(other: DspRuntimeConfig): Boolean =
+        hasSameBaseConfig(other) && seatFocus == other.seatFocus && advancedMs == other.advancedMs &&
+            cabinCorrection.copy(bypassed = false) == other.cabinCorrection.copy(bypassed = false)
 
     private fun hasSameBaseConfig(other: DspRuntimeConfig): Boolean =
         enabled == other.enabled &&

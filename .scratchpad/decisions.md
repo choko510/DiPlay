@@ -315,3 +315,7 @@ Reserve 5.5 ms of native latency while the stereo Seat Focus node is active. Con
 ## Extend the existing spatial node for Advanced M/S
 
 Keep legacy global Stereo Width and Mono Bass in one `dsp_spatial` transform. Advanced M/S replaces that transform only while enabled. Split Side with complementary first-order all-pass crossovers so equal widths reconstruct the input without added algorithmic latency; combine band width as `clamp(globalWidth * bandWidth, 0, 2)`. Prepare biquad/all-pass coefficients off the render thread. Keep monitor modes transient and update them through an atomic target with a 20 ms crossfade; report last-block correlation and output peak risk as diagnostics.
+
+## Keep Cabin measurements separate and cuts evidence-based
+
+Store imported curves in app-private AtomicFiles and save only calibration IDs plus approved cuts in profiles. Require explicit measurement metadata and strict bounded CSV/JSON parsing. Detect candidates only from the imported 40–250 Hz response, keep them disabled until approval, and generate cut-only filters. If a referenced calibration is missing or invalid, disable only Cabin. Optional dynamic control is built only for approved measured bands and adds at most 3 dB of cut. Cabin A/B bypass crossfades over 20 ms and remains transient.

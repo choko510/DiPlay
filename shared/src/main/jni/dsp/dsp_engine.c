@@ -119,6 +119,13 @@ dsp_engine *dsp_engine_create_with_seat_focus(
     };
     const double disabled_advanced_ms_coefficients[
         DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0.0};
+    if (dynamic_eq_config == NULL) return NULL;
+    dsp_dynamic_eq_config disabled_cabin_dynamic_eq = *dynamic_eq_config;
+    disabled_cabin_dynamic_eq.enabled = 0;
+    for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
+        disabled_cabin_dynamic_eq.bands[band].enabled = 0;
+    }
+    const dsp_cabin_config disabled_cabin = {0, 0, 0};
     return dsp_engine_create_with_modules(
         sample_rate,
         channels,
@@ -138,7 +145,11 @@ dsp_engine *dsp_engine_create_with_seat_focus(
         seat_focus_config,
         &disabled_advanced_ms,
         disabled_advanced_ms_coefficients,
-        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT);
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT,
+        &disabled_cabin,
+        NULL,
+        0,
+        &disabled_cabin_dynamic_eq);
 }
 
 dsp_engine *dsp_engine_create_with_modules(
@@ -160,7 +171,11 @@ dsp_engine *dsp_engine_create_with_modules(
     const dsp_seat_focus_config *seat_focus_config,
     const dsp_advanced_ms_config *advanced_ms_config,
     const double *advanced_ms_coefficients,
-    size_t advanced_ms_coefficient_count) {
+    size_t advanced_ms_coefficient_count,
+    const dsp_cabin_config *cabin_config,
+    const double *cabin_static_coefficients,
+    int cabin_static_coefficient_count,
+    const dsp_dynamic_eq_config *cabin_dynamic_eq_config) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
         peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
@@ -172,7 +187,11 @@ dsp_engine *dsp_engine_create_with_modules(
         convolver_config == NULL || !dsp_seat_focus_validate_config(seat_focus_config) ||
         advanced_ms_config == NULL || advanced_ms_coefficients == NULL ||
         advanced_ms_coefficient_count !=
-            DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT) {
+            DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
+        cabin_config == NULL || cabin_dynamic_eq_config == NULL ||
+        cabin_static_coefficient_count < 0 ||
+        cabin_static_coefficient_count > DSP_CABIN_MAX_CUTS * DSP_BIQUAD_COEFFICIENT_COUNT ||
+        (cabin_static_coefficient_count > 0 && cabin_static_coefficients == NULL)) {
         return NULL;
     }
 
@@ -211,7 +230,11 @@ dsp_engine *dsp_engine_create_with_modules(
             seat_focus_config,
             advanced_ms_config,
             advanced_ms_coefficients,
-            advanced_ms_coefficient_count)) {
+            advanced_ms_coefficient_count,
+            cabin_config,
+            cabin_static_coefficients,
+            cabin_static_coefficient_count,
+            cabin_dynamic_eq_config)) {
         dsp_graph_close(&engine->graph);
         free(engine);
         return NULL;
@@ -329,6 +352,17 @@ dsp_status dsp_engine_update_advanced_ms_monitor_mode(dsp_engine *engine, int mo
         return DSP_STATUS_INVALID_HANDLE;
     }
     if (!dsp_graph_update_advanced_ms_monitor_mode(&engine->graph, monitor_mode)) {
+        saturating_add_counter(&engine->native_error_count, 1);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    return DSP_STATUS_OK;
+}
+
+dsp_status dsp_engine_update_cabin_bypass(dsp_engine *engine, int bypassed) {
+    if (!engine_is_prepared(engine)) {
+        return DSP_STATUS_INVALID_HANDLE;
+    }
+    if (!dsp_graph_update_cabin_bypass(&engine->graph, bypassed)) {
         saturating_add_counter(&engine->native_error_count, 1);
         return DSP_STATUS_INVALID_ARGUMENT;
     }

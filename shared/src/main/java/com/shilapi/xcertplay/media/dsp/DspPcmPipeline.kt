@@ -93,6 +93,9 @@ internal class DspPcmPipeline(
     internal fun updateAdvancedMsMonitorMode(mode: DspAdvancedMsMonitorMode): Boolean =
         (processor as? NativeDspProcessor)?.updateAdvancedMsMonitorMode(mode) == true
 
+    internal fun updateCabinBypass(bypassed: Boolean): Boolean =
+        (processor as? NativeDspProcessor)?.updateCabinBypass(bypassed) == true
+
     private fun processInternal(
         source: ByteArray,
         offset: Int,

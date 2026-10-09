@@ -57,3 +57,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 ## 2026-10-09 — Advanced M/S preparation and diagnostics
 
 - Prepare two first-order all-pass crossover coefficients and each active Mid/Side biquad before processing. The process path reuses the prepared state, does not allocate, and adds no fixed latency. A host C tone sweep measured Side gain 0.54533/1.01767/1.48678 at 40 Hz/1 kHz/15 kHz for configured low/mid/high widths 0.5/1.0/1.5; equal band widths reconstruct the legacy path within 2e-6. The Android pipeline p99 and allocation delta remain part of the final integration matrix.
+
+## 2026-10-10 — Cabin correction preparation
+
+- Prepare at most five static cut biquads and a separate five-band Dynamic EQ detector from approved measurement cuts. Static/dynamic coefficients are built before processing; the Cabin node adds no fixed latency or process-time allocation. The 20 ms A/B bypass continues filter/detector state while dry is selected. Native pipeline p99 and block allocation deltas remain part of the final integration matrix.

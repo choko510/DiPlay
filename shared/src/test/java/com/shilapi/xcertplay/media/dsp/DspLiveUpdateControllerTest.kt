@@ -100,6 +100,101 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
+    fun temporaryCabinBypassAppliesWithoutPreparingAReplacementGraph() {
+        val initial = DspRuntimeConfig(
+            enabled = true,
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                cuts = listOf(DspCabinCut(82.0, 4.0, -3.0, enabled = true)),
+            ),
+        )
+        val provider = MutableConfigProvider(initial)
+        val activeConfig = AtomicReference(initial)
+        val applied = LinkedBlockingQueue<DspConfigSnapshot>()
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val prepareCalls = AtomicInteger()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            activeConfig = { activeConfig.get() },
+            onCabinBypassUpdate = { snapshot ->
+                applied.offer(snapshot)
+                activeConfig.set(snapshot.config)
+                true
+            },
+            onPrepared = { prepared.offer(it) },
+            pipelinePreparer = { format, _ ->
+                prepareCalls.incrementAndGet()
+                trackingPipeline(format, 0) { }
+            },
+        )
+
+        provider.update(
+            DspRuntimeConfig(
+                enabled = true,
+                cabinCorrection = initial.cabinCorrection.copy(bypassed = true),
+            ),
+        )
+
+        val update = applied.poll(5, TimeUnit.SECONDS)
+        assertNotNull(update)
+        assertTrue(update?.config?.cabinCorrection?.bypassed == true)
+        assertEquals(0, prepareCalls.get())
+        assertNull(prepared.poll(100, TimeUnit.MILLISECONDS))
+        controller.close()
+    }
+
+    @Test
+    fun cabinAbBypassTargetsUpdateInPlaceWithoutRebuildingTheGraph() {
+        val initial = DspRuntimeConfig(
+            enabled = true,
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                cuts = listOf(DspCabinCut(82.0, 4.0, -3.0, enabled = true)),
+            ),
+        )
+        val provider = MutableConfigProvider(initial)
+        val activeConfig = AtomicReference(initial)
+        val applied = LinkedBlockingQueue<DspConfigSnapshot>()
+        val prepareCalls = AtomicInteger()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            activeConfig = { activeConfig.get() },
+            onCabinBypassUpdate = { snapshot ->
+                applied.offer(snapshot)
+                activeConfig.set(snapshot.config)
+                true
+            },
+            onPrepared = { it.pipeline?.close() },
+            pipelinePreparer = { format, _ ->
+                prepareCalls.incrementAndGet()
+                trackingPipeline(format, 0) { }
+            },
+        )
+
+        provider.update(
+            DspRuntimeConfig(
+                enabled = true,
+                cabinCorrection = initial.cabinCorrection.copy(bypassed = true),
+            ),
+        )
+
+        val update = applied.poll(5, TimeUnit.SECONDS)
+        assertNotNull(update)
+        assertTrue(update?.config?.cabinCorrection?.bypassed == true)
+        assertEquals(0, prepareCalls.get())
+        assertEquals(false, initial.cabinCorrection.bypassed)
+        controller.close()
+    }
+
+    @Test
     fun closeWaitsForAnInFlightSeatFocusUpdateBeforeRetiringTheActivePipeline() {
         val initial = DspRuntimeConfig(enabled = true, seatFocus = DspSeatFocusConfig(enabled = true))
         val provider = MutableConfigProvider(initial)

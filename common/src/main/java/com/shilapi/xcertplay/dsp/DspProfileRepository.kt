@@ -54,11 +54,11 @@ private val SEAT_FOCUS_KNOWN_FIELDS = setOf(
     "invertRight", "distanceMode", "leftDistanceCm", "rightDistanceCm",
 )
 private val ADVANCED_MS_KNOWN_FIELDS = setOf(
-    "enabled", "midGainDb", "sideGainDb", "midEqBands", "sideEqBands", "lowWidth", "midWidth", "highWidth",
+    "enabled", "monitorMode", "midGainDb", "sideGainDb", "midEqBands", "sideEqBands", "lowWidth", "midWidth", "highWidth",
     "lowMidCrossoverHz", "midHighCrossoverHz", "centerFocusDb",
 )
 private val CABIN_KNOWN_FIELDS = setOf(
-    "enabled", "calibrationId", "calibrationVersion", "cuts", "dynamicControlEnabled", "maxDynamicCutDb",
+    "enabled", "bypassed", "calibrationId", "calibrationVersion", "cuts", "dynamicControlEnabled", "maxDynamicCutDb",
 )
 private val CABIN_CUT_KNOWN_FIELDS = setOf(
     "frequencyHz", "q", "reductionDb", "enabled", "source", "prominenceDb", "confidence",

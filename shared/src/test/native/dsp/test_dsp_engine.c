@@ -143,6 +143,7 @@ static dsp_engine *create_test_engine_with_advanced_ms(
     const double *mono_bass_coefficients,
     int mono_bass_coefficient_count) {
     const dsp_seat_focus_config disabled_seat_focus = {0};
+    const dsp_cabin_config disabled_cabin = {0, 0, 0};
     return dsp_engine_create_with_modules(
         sample_rate,
         channels,
@@ -162,7 +163,53 @@ static dsp_engine *create_test_engine_with_advanced_ms(
         &disabled_seat_focus,
         advanced_ms_config,
         advanced_ms_coefficients,
-        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT);
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT,
+        &disabled_cabin,
+        NULL,
+        0,
+        &bypass_dynamic_eq);
+}
+
+static dsp_engine *create_test_engine_with_cabin(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_cabin_config *cabin_config,
+    const double *static_coefficients,
+    int static_coefficient_count,
+    const dsp_dynamic_eq_config *cabin_dynamic_eq_config) {
+    const dsp_seat_focus_config disabled_seat_focus = {0};
+    const dsp_advanced_ms_config disabled_advanced_ms = {
+        0, 0.0, 0.0, 1.0, 1.0, 1.0, 150.0, 4000.0, 0.0,
+        DSP_ADVANCED_MS_MONITOR_NORMAL, 0, 0,
+    };
+    const double disabled_advanced_ms_coefficients[
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0.0};
+    const dsp_spatial_config spatial = {1.0, 0, 120};
+    return dsp_engine_create_with_modules(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &spatial,
+        &bypass_convolver,
+        &disabled_seat_focus,
+        &disabled_advanced_ms,
+        disabled_advanced_ms_coefficients,
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT,
+        cabin_config,
+        static_coefficients,
+        static_coefficient_count,
+        cabin_dynamic_eq_config);
 }
 
 static dsp_engine *create_test_engine_with_convolver(
@@ -1171,6 +1218,80 @@ static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
     }
 }
 
+static void test_cabin_static_and_dynamic_cuts_are_measurement_band_limited(void) {
+    double static_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_peak(48000.0, 82.0, 4.0, -6.0, static_coefficients);
+    const dsp_cabin_config static_config = {1, 1, 0};
+    dsp_engine *engine = create_test_engine_with_cabin(
+        48000, 2, 512, &static_config, static_coefficients, DSP_BIQUAD_COEFFICIENT_COUNT,
+        &bypass_dynamic_eq);
+    assert_true(engine != NULL, "measurement-derived static cabin cut graph creates");
+    assert_true(measure_sine_gain(engine, 82.0, 2) < 0.6,
+        "static cabin cut attenuates only its measured resonance band");
+    assert_true(measure_sine_gain(engine, 1000.0, 2) > 0.95,
+        "static cabin cut leaves distant frequencies unchanged");
+    dsp_engine_destroy(engine);
+
+    dsp_dynamic_eq_config dynamic_config = bypass_dynamic_eq;
+    dynamic_config.enabled = 1;
+    dynamic_config.bands[0] = (dsp_dynamic_eq_band_config) {
+        1, DSP_DYNAMIC_EQ_CUT, 82.0, 4.0, -40.0, 2.0, 1.0, 100.0, 0.0, 3.0,
+    };
+    const dsp_cabin_config dynamic_only_config = {1, 0, 0};
+    engine = create_test_engine_with_cabin(
+        48000, 2, 512, &dynamic_only_config, NULL, 0, &dynamic_config);
+    assert_true(engine != NULL, "measurement-banded dynamic cabin control graph creates");
+    const double dynamic_gain = measure_sine_gain(engine, 82.0, 2);
+    assert_true(dynamic_gain < 0.9 && dynamic_gain > 0.6,
+        "dynamic cabin control stays within its three-dB maximum cut");
+    assert_true(measure_sine_gain(engine, 1000.0, 2) > 0.95,
+        "dynamic cabin control does not affect unmeasured bands");
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_cabin(
+        48000, 2, 512, &static_config, static_coefficients, DSP_BIQUAD_COEFFICIENT_COUNT,
+        &bypass_dynamic_eq);
+    assert_true(engine != NULL, "cabin A/B graph creates");
+    double phase = 0.0;
+    const double phase_step = 2.0 * 3.14159265358979323846 * 82.0 / 48000.0;
+    float input[512U * 2U];
+    float output[512U * 2U];
+    for (int block = 0; block < 16; block++) {
+        for (size_t frame = 0; frame < 512U; frame++) {
+            const float sample = (float)(0.4 * sin(phase));
+            phase += phase_step;
+            input[frame * 2U] = sample;
+            input[frame * 2U + 1U] = sample;
+        }
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "cabin filter state warms before A/B transition");
+    }
+    assert_true(dsp_engine_update_cabin_bypass(engine, 1) == DSP_STATUS_OK,
+        "temporary Cabin A/B bypass target is accepted");
+    float previous = output[1022];
+    float maximum_step = 0.0f;
+    for (int block = 0; block < 2; block++) {
+        for (size_t frame = 0; frame < 512U; frame++) {
+            const float sample = (float)(0.4 * sin(phase));
+            phase += phase_step;
+            input[frame * 2U] = sample;
+            input[frame * 2U + 1U] = sample;
+        }
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "cabin A/B transition block processes");
+        for (size_t frame = 0; frame < 512U; frame++) {
+            const float sample = output[frame * 2U];
+            maximum_step = fmaxf(maximum_step, fabsf(sample - previous));
+            previous = sample;
+        }
+    }
+    assert_true(maximum_step < 0.03f, "Cabin A/B bypass crossfades without a click");
+    assert_near(output[1022], input[1022], 1e-6, "Cabin A/B bypass settles to the latency-aligned dry signal");
+    assert_true(dsp_engine_update_cabin_bypass(engine, 2) == DSP_STATUS_INVALID_ARGUMENT,
+        "native Cabin A/B update rejects unknown values");
+    dsp_engine_destroy(engine);
+}
+
 static double measure_side_sine_gain(dsp_engine *engine, double frequency_hz) {
     const size_t total_frames = 8192U;
     const size_t warmup_frames = 2048U;
@@ -2053,6 +2174,7 @@ int main(void) {
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
+    test_cabin_static_and_dynamic_cuts_are_measurement_band_limited();
     test_advanced_ms_neutral_reconstruction_legacy_parity_and_monitor_modes();
     test_seat_focus_fixed_latency_mono_bypass_and_isolation();
     test_seat_focus_fractional_delay_accuracy_and_chunk_invariance();

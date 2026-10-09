@@ -290,3 +290,7 @@ At 44.1/48/96 kHz, validate the relative L/R delay using broadband correlation a
 ## Test complementary crossover signs with tones and unity reconstruction
 
 For the all-pass split, the coefficient sign determines whether low frequencies enter the low or high branch. Verify both the per-band response and exact unity-width reconstruction; a mistaken sign can still produce stable finite output while assigning every frequency to the wrong band.
+
+## Separate peak prominence from music spectrum
+
+Cabin candidates should come from a user-imported response curve and use a local logarithmic baseline. A one-sided baseline handles adjacent measured resonances better than averaging both peak skirts; estimate Q from local curvature so nearby peaks do not merge into an artificially broad cut. Keep confidence labelled as a prominence heuristic, not measured SNR.

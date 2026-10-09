@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -35,6 +37,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +47,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -51,6 +56,10 @@ import com.shilapi.xcertplay.dsp.DspAudioProfile
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.dsp.DspProfileSaveResult
 import com.shilapi.xcertplay.dsp.DspImpulseImportResult
+import com.shilapi.xcertplay.dsp.DspCabinCalibrationData
+import com.shilapi.xcertplay.dsp.DspCabinMeasurementPoint
+import com.shilapi.xcertplay.dsp.DspCabinCalibrationImportResult
+import com.shilapi.xcertplay.dsp.DspCabinCalibrationSummary
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsMonitorMode
@@ -60,6 +69,9 @@ import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCut
+import com.shilapi.xcertplay.media.dsp.DspCabinCutSource
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspLiveUpdateReason
@@ -74,6 +86,7 @@ import com.shilapi.xcertplay.media.dsp.DspSeatPreset
 import com.shilapi.xcertplay.shared.AppLanguage
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.pow
 
 internal enum class EqBandEditorControl {
     FREQUENCY,
@@ -142,6 +155,21 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var bandTypeDialog by remember { mutableStateOf<Int?>(null) }
     var impulseResponseIds by remember(runtime) { mutableStateOf(runtime.availableImpulseResponseIds()) }
+    var cabinCalibrations by remember(runtime) { mutableStateOf(emptyList<DspCabinCalibrationSummary>()) }
+    var cabinCalibrationData by remember(profile.cabinCorrection.calibrationId) {
+        mutableStateOf<DspCabinCalibrationData?>(null)
+    }
+    LaunchedEffect(runtime) {
+        runtime.availableCabinCalibrationsAsync { cabinCalibrations = it }
+    }
+    LaunchedEffect(profile.cabinCorrection.calibrationId) {
+        val calibrationId = profile.cabinCorrection.calibrationId
+        if (calibrationId == null) {
+            cabinCalibrationData = null
+        } else {
+            runtime.cabinCalibrationAsync(calibrationId) { cabinCalibrationData = it }
+        }
+    }
     val openImpulseResponse = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val irId = "ir_${UUID.randomUUID().toString().replace("-", "")}"
@@ -168,6 +196,44 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
             }
         }
     }
+    val openCabinMeasurement = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val calibrationId =
+                "cal_${UUID.randomUUID().toString().replace("-", "")}"
+            runtime.importCabinCalibrationAsync(
+                id = calibrationId,
+                openInput = { context.contentResolver.openInputStream(uri) },
+            ) { result ->
+                when (result) {
+                    is DspCabinCalibrationImportResult.Imported -> {
+                        cabinCalibrations = (cabinCalibrations + result.summary).distinctBy(DspCabinCalibrationSummary::id)
+                        profile = profile.copy(
+                            cabinCorrection = profile.cabinCorrection.copy(
+                                enabled = true,
+                                calibrationId = result.summary.id,
+                                calibrationVersion = DspCabinCorrectionConfig.CALIBRATION_FORMAT_VERSION,
+                                cuts = result.candidates.map { it.toCut() },
+                                dynamicControlEnabled = false,
+                            ),
+                        )
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.dsp_cabin_imported, result.candidates.size),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    DspCabinCalibrationImportResult.TooLarge ->
+                        Toast.makeText(context, R.string.dsp_cabin_too_large, Toast.LENGTH_LONG).show()
+                    DspCabinCalibrationImportResult.WriteFailed ->
+                        Toast.makeText(context, R.string.dsp_cabin_write_failed, Toast.LENGTH_LONG).show()
+                    DspCabinCalibrationImportResult.AlreadyExists ->
+                        Toast.makeText(context, R.string.dsp_cabin_import_failed, Toast.LENGTH_LONG).show()
+                    DspCabinCalibrationImportResult.InvalidMeasurement ->
+                        Toast.makeText(context, R.string.dsp_cabin_invalid, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
     DisposableEffect(runtime) {
         onDispose {
             val activeProfile = runtime.selectedProfile()
@@ -183,6 +249,14 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         advancedMs = activeProfile.advancedMs.copy(
                             monitorMode = DspAdvancedMsMonitorMode.NORMAL,
                         ),
+                    ),
+                    runtime.isDspEnabled(),
+                ) { }
+            }
+            if (activeProfile.cabinCorrection.bypassed) {
+                runtime.applyAsync(
+                    activeProfile.copy(
+                        cabinCorrection = activeProfile.cabinCorrection.copy(bypassed = false),
                     ),
                     runtime.isDspEnabled(),
                 ) { }
@@ -628,6 +702,148 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                             liveAudioMetrics.value.outputPeak,
                         ),
                     )
+                }
+                SectionCard(title = stringResource(R.string.dsp_cabin_correction)) {
+                    val cabin = profile.cabinCorrection
+                    val calibrationId = cabin.calibrationId
+                    val selectedCalibration = cabinCalibrations.firstOrNull { it.id == calibrationId }
+                    val enabledMeasurementCutExists = cabin.cuts.any {
+                        it.enabled && it.source == DspCabinCutSource.MEASUREMENT
+                    }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_cabin_enabled),
+                        checked = cabin.enabled,
+                        onCheckedChange = { profile = profile.copy(cabinCorrection = cabin.copy(enabled = it)) },
+                    )
+                    Text(stringResource(R.string.dsp_cabin_import_format))
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            openCabinMeasurement.launch(arrayOf("text/*", "application/json"))
+                        },
+                    ) { Text(stringResource(R.string.dsp_cabin_import)) }
+                    if (calibrationId != null) {
+                        if (selectedCalibration == null) {
+                            Text(
+                                stringResource(R.string.dsp_cabin_calibration_missing, calibrationId),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        } else {
+                            Text(
+                                stringResource(
+                                    R.string.dsp_cabin_calibration_active,
+                                    selectedCalibration.id,
+                                    selectedCalibration.position,
+                                    selectedCalibration.measuredAt,
+                                    selectedCalibration.sampleRate,
+                                    selectedCalibration.pointCount,
+                                    stringResource(
+                                        if (selectedCalibration.microphoneCorrectionApplied) {
+                                            R.string.dsp_cabin_mic_correction_applied
+                                        } else {
+                                            R.string.dsp_cabin_mic_correction_not_applied
+                                        },
+                                    ),
+                                ),
+                            )
+                        }
+                    }
+                    val measurement = cabinCalibrationData?.takeIf { it.id == cabin.calibrationId }
+                    if (measurement != null) {
+                        DspCabinResponsePreview(measurement, cabin.cuts)
+                    }
+                    if (cabin.enabled && cabin.cuts.any(DspCabinCut::enabled)) {
+                        DspSwitchRow(
+                            title = stringResource(R.string.dsp_cabin_ab_bypass),
+                            description = stringResource(R.string.dsp_cabin_ab_bypass_note),
+                            checked = cabin.bypassed,
+                            onCheckedChange = { bypassed ->
+                                val updated = profile.copy(
+                                    cabinCorrection = profile.cabinCorrection.copy(bypassed = bypassed),
+                                )
+                                profile = updated
+                                runtime.applyAsync(updated, dspEnabled) { }
+                            },
+                        )
+                    }
+                    Text(stringResource(R.string.dsp_cabin_cut_list))
+                    cabin.cuts.forEachIndexed { index, cut ->
+                        DspCabinCutEditor(
+                            cut = cut,
+                            index = index,
+                            onChange = { changed ->
+                                val cuts = profile.cabinCorrection.cuts.toMutableList().apply {
+                                    set(index, changed)
+                                }
+                                val dynamicEnabled = profile.cabinCorrection.dynamicControlEnabled && cuts.any {
+                                    it.enabled && it.source == DspCabinCutSource.MEASUREMENT
+                                }
+                                profile = profile.copy(
+                                    cabinCorrection = profile.cabinCorrection.copy(
+                                        cuts = cuts,
+                                        dynamicControlEnabled = dynamicEnabled,
+                                    ),
+                                )
+                            },
+                            onRemove = {
+                                val cuts = profile.cabinCorrection.cuts.toMutableList().apply {
+                                    removeAt(index)
+                                }
+                                val dynamicEnabled = cuts.any {
+                                    it.enabled && it.source == DspCabinCutSource.MEASUREMENT
+                                } && profile.cabinCorrection.dynamicControlEnabled
+                                profile = profile.copy(
+                                    cabinCorrection = profile.cabinCorrection.copy(
+                                        cuts = cuts,
+                                        dynamicControlEnabled = dynamicEnabled,
+                                    ),
+                                )
+                            },
+                        )
+                    }
+                    if (cabin.cuts.size < DspCabinCorrectionConfig.MAX_CUTS) {
+                        OutlinedButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                profile = profile.copy(
+                                    cabinCorrection = profile.cabinCorrection.copy(
+                                        cuts = profile.cabinCorrection.cuts +
+                                            DspCabinCut(80.0, 4.0, -3.0, source = DspCabinCutSource.MANUAL),
+                                    ),
+                                )
+                            },
+                        ) { Text(stringResource(R.string.dsp_cabin_add_manual_cut)) }
+                    }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_cabin_dynamic_control),
+                        description = stringResource(R.string.dsp_cabin_dynamic_description),
+                        checked = cabin.dynamicControlEnabled,
+                        onCheckedChange = { enabled ->
+                            if (!enabled || enabledMeasurementCutExists && cabin.calibrationId != null) {
+                                profile = profile.copy(
+                                    cabinCorrection = cabin.copy(dynamicControlEnabled = enabled),
+                                )
+                            } else {
+                                Toast.makeText(context, R.string.dsp_cabin_dynamic_requires_candidate, Toast.LENGTH_LONG).show()
+                            }
+                        },
+                    )
+                    if (cabin.dynamicControlEnabled) {
+                        DspValueSlider(
+                            stringResource(R.string.dsp_cabin_max_dynamic_cut),
+                            cabin.maxDynamicCutDb,
+                            0.0..3.0,
+                            "dB",
+                            decimals = 1,
+                        ) { value ->
+                            profile = profile.copy(
+                                cabinCorrection = cabin.copy(maxDynamicCutDb = value),
+                            )
+                        }
+                    }
+                    Text(stringResource(R.string.dsp_cabin_guided_unavailable))
+                    Text(stringResource(R.string.dsp_cabin_parked_note))
+                    Text(stringResource(dspLiveUpdateStatusMessage(liveUpdateStatus.value)))
                 }
                 SectionCard(title = stringResource(R.string.dsp_auto_headroom)) {
                     DspSwitchRow(
@@ -1086,6 +1302,136 @@ private fun profileLabel(context: Context, profile: DspAudioProfile): String = c
         else -> R.string.dsp_preset_flat
     },
 )
+
+@Composable
+private fun DspCabinCutEditor(
+    cut: DspCabinCut,
+    index: Int,
+    onChange: (DspCabinCut) -> Unit,
+    onRemove: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val title = if (cut.source == DspCabinCutSource.MEASUREMENT) {
+                stringResource(
+                    R.string.dsp_cabin_measurement_cut_title,
+                    index + 1,
+                    cut.frequencyHz,
+                    cut.q,
+                    cut.prominenceDb,
+                    cut.confidence * 100.0,
+                )
+            } else {
+                stringResource(R.string.dsp_cabin_manual_cut_title, index + 1)
+            }
+            DspSwitchRow(
+                title = title,
+                description = if (cut.source == DspCabinCutSource.MEASUREMENT) {
+                    stringResource(R.string.dsp_cabin_measurement_cut_note)
+                } else {
+                    stringResource(R.string.dsp_cabin_manual_cut_note)
+                },
+                checked = cut.enabled,
+                onCheckedChange = { onChange(cut.copy(enabled = it)) },
+            )
+            DspValueSlider(
+                stringResource(R.string.dsp_cabin_cut_frequency),
+                cut.frequencyHz,
+                40.0..250.0,
+                "Hz",
+                decimals = 0,
+            ) { onChange(cut.copy(frequencyHz = it)) }
+            DspValueSlider(
+                stringResource(R.string.dsp_cabin_cut_q),
+                cut.q,
+                0.5..8.0,
+                "",
+                decimals = 1,
+            ) { onChange(cut.copy(q = it)) }
+            DspValueSlider(
+                stringResource(R.string.dsp_cabin_cut_reduction),
+                cut.reductionDb,
+                -6.0..0.0,
+                "dB",
+                decimals = 1,
+            ) { onChange(cut.copy(reductionDb = it)) }
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = onRemove) {
+                Text(stringResource(R.string.dsp_cabin_remove_cut))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DspCabinResponsePreview(
+    calibration: DspCabinCalibrationData,
+    cuts: List<DspCabinCut>,
+) {
+    val measuredPoints = calibration.points.filter { it.frequencyHz in 40.0..250.0 }
+    val stride = maxOf(1, kotlin.math.ceil(measuredPoints.size / 600.0).toInt())
+    val points = measuredPoints.filterIndexed { index, _ -> index % stride == 0 || index == measuredPoints.lastIndex }
+    if (points.size < 2) return
+    val activeCuts = cuts.filter(DspCabinCut::enabled)
+    val beforeValues = points.map(DspCabinMeasurementPoint::magnitudeDb)
+    val afterValues = points.map { point ->
+        point.magnitudeDb + activeCuts.sumOf { cut ->
+            cabinPeakFilterGainDb(calibration.sampleRate, cut, point.frequencyHz)
+        }
+    }
+    val minimumDb = minOf(beforeValues.min(), afterValues.min()) - 1.0
+    val maximumDb = maxOf(beforeValues.max(), afterValues.max()) + 1.0
+    val rangeDb = maxOf(1.0, maximumDb - minimumDb)
+    val beforeColor = Color(0xFF4AA3FF)
+    val afterColor = Color(0xFFFFB74D)
+    Text(stringResource(R.string.dsp_cabin_response_preview))
+    Canvas(modifier = Modifier.fillMaxWidth().height(112.dp)) {
+        val before = Path()
+        val after = Path()
+        points.forEachIndexed { index, point ->
+            val x = (kotlin.math.ln(point.frequencyHz / 40.0) / kotlin.math.ln(250.0 / 40.0) * size.width).toFloat()
+            val beforeY = ((maximumDb - beforeValues[index]) / rangeDb * size.height).toFloat()
+            val afterY = ((maximumDb - afterValues[index]) / rangeDb * size.height).toFloat()
+            if (index == 0) {
+                before.moveTo(x, beforeY)
+                after.moveTo(x, afterY)
+            } else {
+                before.lineTo(x, beforeY)
+                after.lineTo(x, afterY)
+            }
+        }
+        drawPath(before, beforeColor, style = Stroke(width = 2.dp.toPx()))
+        drawPath(after, afterColor, style = Stroke(width = 2.dp.toPx()))
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(stringResource(R.string.dsp_cabin_preview_before), color = beforeColor)
+        Text(stringResource(R.string.dsp_cabin_preview_after_static), color = afterColor)
+    }
+}
+
+private fun cabinPeakFilterGainDb(
+    sampleRate: Int,
+    cut: DspCabinCut,
+    frequencyHz: Double,
+): Double {
+    val omega = 2.0 * kotlin.math.PI * cut.frequencyHz / sampleRate
+    val cosine = kotlin.math.cos(omega)
+    val sine = kotlin.math.sin(omega)
+    val alpha = sine / (2.0 * cut.q)
+    val amplitude = 10.0.pow(cut.reductionDb / 40.0)
+    val cosineAt = kotlin.math.cos(2.0 * kotlin.math.PI * frequencyHz / sampleRate)
+    val sineAt = kotlin.math.sin(2.0 * kotlin.math.PI * frequencyHz / sampleRate)
+    val cosineAt2 = kotlin.math.cos(4.0 * kotlin.math.PI * frequencyHz / sampleRate)
+    val sineAt2 = kotlin.math.sin(4.0 * kotlin.math.PI * frequencyHz / sampleRate)
+    val b0 = 1.0 + alpha * amplitude
+    val b1 = -2.0 * cosine
+    val b2 = 1.0 - alpha * amplitude
+    val a0 = 1.0 + alpha / amplitude
+    val a1 = -2.0 * cosine
+    val a2 = 1.0 - alpha / amplitude
+    val numerator = kotlin.math.hypot(b0 + b1 * cosineAt + b2 * cosineAt2, -(b1 * sineAt + b2 * sineAt2))
+    val denominator = kotlin.math.hypot(a0 + a1 * cosineAt + a2 * cosineAt2, -(a1 * sineAt + a2 * sineAt2))
+    return 20.0 * kotlin.math.log10(numerator / denominator)
+}
 
 @Composable
 private fun AdvancedMsEqBandEditor(

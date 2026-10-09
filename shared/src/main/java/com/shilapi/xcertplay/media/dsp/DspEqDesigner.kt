@@ -267,6 +267,9 @@ internal data class DspPreparedConfig(
     val seatFocus: DoubleArray,
     val advancedMs: DoubleArray,
     val advancedMsEqCoefficients: DoubleArray,
+    val cabin: DoubleArray,
+    val cabinStaticCoefficients: DoubleArray,
+    val cabinDynamicEq: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -371,6 +374,52 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         midBandCount.toDouble(),
         activeSideBands.size.toDouble(),
     )
+    val activeCabinCuts = if (cabinCorrection.enabled) {
+        cabinCorrection.cuts.filter { it.enabled }
+    } else {
+        emptyList()
+    }
+    val cabinStaticCoefficients = DoubleArray(activeCabinCuts.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
+    activeCabinCuts.forEachIndexed { index, cut ->
+        DspEqDesigner.design(
+            format.sampleRate,
+            DspEqBand(
+                DspEqType.PEAK,
+                cut.frequencyHz,
+                gainDb = cut.reductionDb,
+                q = cut.q,
+            ),
+        ).writeTo(cabinStaticCoefficients, index * DspEqDesigner.COEFFICIENTS_PER_BAND)
+    }
+    val dynamicCabinCuts = if (cabinCorrection.enabled && cabinCorrection.dynamicControlEnabled) {
+        activeCabinCuts.filter { it.source == DspCabinCutSource.MEASUREMENT }
+    } else {
+        emptyList()
+    }
+    val defaultCabinDynamicBands = DspDynamicEqConfig.defaultBands()
+    val cabinDynamicConfig = DspDynamicEqConfig(
+        enabled = dynamicCabinCuts.isNotEmpty() && cabinCorrection.maxDynamicCutDb > 0.0,
+        bands = defaultCabinDynamicBands.mapIndexed { index, defaultBand ->
+            val cut = dynamicCabinCuts.getOrNull(index)
+            if (cut == null || cabinCorrection.maxDynamicCutDb == 0.0) {
+                defaultBand.copy(enabled = false)
+            } else {
+                DspDynamicEqBandConfig(
+                    enabled = true,
+                    frequencyHz = cut.frequencyHz,
+                    q = cut.q,
+                    thresholdDb = CABIN_DYNAMIC_THRESHOLD_DB,
+                    ratio = CABIN_DYNAMIC_RATIO,
+                    attackMs = CABIN_DYNAMIC_ATTACK_MS,
+                    releaseMs = CABIN_DYNAMIC_RELEASE_MS,
+                    maxCutDb = cabinCorrection.maxDynamicCutDb,
+                    mode = DspDynamicEqMode.CUT,
+                )
+            }
+        },
+    )
+    val cabinProcessEnabled = cabinCorrection.enabled &&
+        (activeCabinCuts.isNotEmpty() || cabinDynamicConfig.enabled)
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
@@ -450,6 +499,13 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         seatFocus = seatFocus.toNativeValues(format.channels),
         advancedMs = advancedMsNativeValues,
         advancedMsEqCoefficients = advancedMsCoefficients,
+        cabin = doubleArrayOf(
+            if (cabinProcessEnabled) 1.0 else 0.0,
+            activeCabinCuts.size.toDouble(),
+            if (cabinProcessEnabled && cabinCorrection.bypassed) 1.0 else 0.0,
+        ),
+        cabinStaticCoefficients = cabinStaticCoefficients,
+        cabinDynamicEq = cabinDynamicConfig.toNativeValues(),
         headroom = headroom,
     )
 }
@@ -458,3 +514,7 @@ private const val MIN_APPLIED_PREAMP_DB = -700.0
 private const val BUTTERWORTH_Q = 0.7071067811865476
 private const val CENTER_FOCUS_FREQUENCY_HZ = 1_500.0
 private const val CENTER_FOCUS_Q = 0.5
+private const val CABIN_DYNAMIC_THRESHOLD_DB = -24.0
+private const val CABIN_DYNAMIC_RATIO = 2.0
+private const val CABIN_DYNAMIC_ATTACK_MS = 30.0
+private const val CABIN_DYNAMIC_RELEASE_MS = 300.0

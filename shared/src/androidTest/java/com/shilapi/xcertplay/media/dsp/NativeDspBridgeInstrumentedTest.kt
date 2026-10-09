@@ -42,6 +42,9 @@ class NativeDspBridgeInstrumentedTest {
             seatFocus = prepared.seatFocus,
             advancedMs = prepared.advancedMs,
             advancedMsEqCoefficients = prepared.advancedMsEqCoefficients,
+            cabin = prepared.cabin,
+            cabinStaticCoefficients = prepared.cabinStaticCoefficients,
+            cabinDynamicEq = prepared.cabinDynamicEq,
         )
         assertTrue(handle > 0L)
         try {
@@ -200,6 +203,78 @@ class NativeDspBridgeInstrumentedTest {
         } finally {
             processor.close()
         }
+    }
+
+    @Test
+    fun cabinStaticCutRunsThroughNativeBridgeWithoutAddingLatency() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val sampleRate = 48_000
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(sampleRate, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                cabinCorrection = DspCabinCorrectionConfig(
+                    enabled = true,
+                    cuts = listOf(
+                        DspCabinCut(
+                            frequencyHz = 82.0,
+                            q = 4.0,
+                            reductionDb = -4.0,
+                            enabled = true,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        assertNotNull(processor)
+        processor ?: return
+
+        try {
+            assertEquals(0, processor.latencyFrames)
+            val resonanceGain = measureCabinToneGain(processor, sampleRate, 82.0)
+            assertTrue(resonanceGain in 0.55..0.75)
+            assertTrue(processor.updateCabinBypass(true))
+            assertTrue(measureCabinToneGain(processor, sampleRate, 82.0) > 0.95)
+            assertTrue(processor.updateCabinBypass(false))
+            processor.reset()
+            val distantGain = measureCabinToneGain(processor, sampleRate, 1_000.0)
+            assertTrue(distantGain > 0.95)
+        } finally {
+            processor.close()
+        }
+    }
+
+    private fun measureCabinToneGain(
+        processor: NativeDspProcessor,
+        sampleRate: Int,
+        frequencyHz: Double,
+    ): Double {
+        var inputSquare = 0.0
+        var outputSquare = 0.0
+        var frameIndex = 0
+        repeat(16) { block ->
+            val input = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            val output = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            repeat(512) {
+                val sample = (0.4 * sin(2.0 * PI * frequencyHz * frameIndex / sampleRate)).toFloat()
+                input.putFloat(sample)
+                input.putFloat(sample)
+                frameIndex++
+            }
+            input.flip()
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, 512).status)
+            if (block >= 4) {
+                repeat(512) { frame ->
+                    val inputSample = input.getFloat(frame * 2 * Float.SIZE_BYTES).toDouble()
+                    val outputSample = output.getFloat(frame * 2 * Float.SIZE_BYTES).toDouble()
+                    inputSquare += inputSample * inputSample
+                    outputSquare += outputSample * outputSample
+                }
+            }
+        }
+        return sqrt(outputSquare / inputSquare)
     }
 
     private fun peakFrame(buffer: ByteBuffer, channel: Int, frames: Int, channels: Int): Int {

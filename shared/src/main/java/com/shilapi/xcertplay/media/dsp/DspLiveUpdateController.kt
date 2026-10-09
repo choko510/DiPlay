@@ -41,15 +41,24 @@ internal class DspLiveUpdateController(
     private val preparing = AtomicBoolean(false)
     private val lastHandledGeneration = AtomicLong(initialGeneration)
     private val desired = AtomicReference<DspConfigSnapshot?>(null)
+    private val generationLock = Any()
     private val retiredPipelines = AtomicReferenceArray<DspPcmPipeline?>(MAX_RETIRED_PIPELINES)
     private val overflowRetiredPipeline = AtomicReference<DspPcmPipeline?>(null)
     @Volatile private var maintenance: ScheduledFuture<*>? = null
     private val subscription = provider.addListener(::onConfigChanged)
 
     private fun onConfigChanged(snapshot: DspConfigSnapshot) {
-        if (closed.get() || snapshot.generation <= lastHandledGeneration.get()) return
-        desired.set(snapshot)
-        runCatching { onPreparing(snapshot) }
+        val accepted = synchronized(generationLock) {
+            if (closed.get()) return@synchronized false
+            val previous = desired.get()
+            val newestKnownGeneration = maxOf(lastHandledGeneration.get(), previous?.generation ?: Long.MIN_VALUE)
+            if (snapshot.generation <= newestKnownGeneration || !desired.compareAndSet(previous, snapshot)) {
+                return@synchronized false
+            }
+            runCatching { onPreparing(snapshot) }
+            true
+        }
+        if (!accepted) return
         ensureMaintenance()
         schedulePreparation()
     }
@@ -81,14 +90,14 @@ internal class DspLiveUpdateController(
                 val pipeline = pipelinePreparer(format, snapshot.config)
                 if (pipeline != null && pipeline.format != format) {
                     runCatching { pipeline.close() }
-                    lastHandledGeneration.set(snapshot.generation)
+                    lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
                     runCatching { onDeferred(snapshot.generation) }
                     continue
                 }
                 val latencyFrames = preparedLatencyFrames(pipeline).coerceAtLeast(0)
                 if (latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()) {
                     runCatching { pipeline?.close() }
-                    lastHandledGeneration.set(snapshot.generation)
+                    lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
                     runCatching { onDeferred(snapshot.generation) }
                     continue
                 }
@@ -100,7 +109,7 @@ internal class DspLiveUpdateController(
                     runCatching { pipeline?.close() }
                     return
                 }
-                lastHandledGeneration.set(snapshot.generation)
+                lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
                 runCatching { onPrepared(DspPreparedUpdate(snapshot.generation, format, snapshot.config, pipeline, latencyFrames)) }
                     .onFailure { runCatching { pipeline?.close() } }
             }

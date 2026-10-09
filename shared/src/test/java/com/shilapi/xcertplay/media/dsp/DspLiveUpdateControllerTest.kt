@@ -146,6 +146,50 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
+    fun lateOlderNotificationCannotRegressPreparingOrPreparedGeneration() {
+        val provider = MutableConfigProvider()
+        val generationTwoStarted = CountDownLatch(1)
+        val releaseGenerationTwo = CountDownLatch(1)
+        val preparing = LinkedBlockingQueue<Long>()
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPreparing = { preparing.offer(it.generation) },
+            onPrepared = { prepared.offer(it) },
+            pipelinePreparer = { format, config ->
+                if (config.gainDb == 2.0) {
+                    generationTwoStarted.countDown()
+                    check(releaseGenerationTwo.await(5, TimeUnit.SECONDS))
+                }
+                trackingPipeline(format, 0) { }
+            },
+        )
+
+        try {
+            provider.notifySnapshot(DspConfigSnapshot(2L, DspRuntimeConfig(enabled = true, gainDb = 2.0)))
+            assertTrue(generationTwoStarted.await(5, TimeUnit.SECONDS))
+            provider.notifySnapshot(DspConfigSnapshot(1L, DspRuntimeConfig(enabled = true, gainDb = 1.0)))
+            releaseGenerationTwo.countDown()
+
+            val latest = prepared.poll(5, TimeUnit.SECONDS)
+            assertNotNull(latest)
+            assertEquals(2L, latest?.generation)
+            assertEquals(2.0, latest?.config?.gainDb ?: 0.0, 0.0)
+            assertEquals(2L, preparing.poll(5, TimeUnit.SECONDS))
+            assertNull(preparing.poll(100, TimeUnit.MILLISECONDS))
+            assertNull(prepared.poll(100, TimeUnit.MILLISECONDS))
+            latest?.pipeline?.close()
+        } finally {
+            releaseGenerationTwo.countDown()
+            controller.close()
+        }
+    }
+
+    @Test
     fun equalLatencyGraphIsPreparedAndLatencyChangingGraphIsDeferred() {
         val initialImpulse = DspImpulseResponse("room_old", 48_000, 1, floatArrayOf(1.0f))
         val replacementImpulse = DspImpulseResponse("room_new", 48_000, 1, floatArrayOf(0.0f, 1.0f))
@@ -274,6 +318,10 @@ class DspLiveUpdateControllerTest {
         fun update(config: DspRuntimeConfig) {
             val updated = current.updateAndGet { DspConfigSnapshot(it.generation + 1, config) }
             listeners.forEach { it(updated) }
+        }
+
+        fun notifySnapshot(snapshot: DspConfigSnapshot) {
+            listeners.forEach { it(snapshot) }
         }
     }
 }

@@ -83,7 +83,46 @@ class NativeDspProcessorTest {
         assertEquals(5, bindings.createdConvolverConfig?.size)
         assertEquals(0.0, bindings.createdConvolverConfig?.get(0) ?: -1.0, 0.0)
         assertEquals(0, bindings.createdConvolverSamples?.size)
+        assertEquals(8, bindings.createdSeatFocus?.size)
+        assertEquals(0.0, bindings.createdSeatFocus?.get(0) ?: -1.0, 0.0)
         processor?.close()
+    }
+
+    @Test
+    fun seatFocusConfigurationIsPreparedAndUpdatedWithoutRecreatingTheProcessor() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                seatFocus = DspSeatFocusConfig(
+                    enabled = true,
+                    leftDelayMs = 0.0,
+                    rightDelayMs = 0.65,
+                    leftTrimDb = 1.0,
+                    rightTrimDb = -1.0,
+                    invertRight = true,
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(1.0, bindings.createdSeatFocus?.get(0) ?: 0.0, 0.0)
+        assertEquals(0.65, bindings.createdSeatFocus?.get(3) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdSeatFocus?.get(4) ?: 0.0, 0.0)
+        assertEquals(-1.0, bindings.createdSeatFocus?.get(5) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdSeatFocus?.get(7) ?: 0.0, 0.0)
+
+        val updated = requireNotNull(processor).updateSeatFocus(
+            DspSeatFocusConfig(enabled = true, bypassed = true),
+        )
+
+        assertTrue(updated)
+        assertEquals(1, bindings.seatFocusUpdateCalls)
+        assertEquals(1.0, bindings.lastSeatFocusUpdate?.get(1) ?: 0.0, 0.0)
+        processor.close()
     }
 
     @Test
@@ -194,6 +233,9 @@ class NativeDspProcessorTest {
         var createdSpatial: DoubleArray? = null
         var createdConvolverConfig: DoubleArray? = null
         var createdConvolverSamples: FloatArray? = null
+        var createdSeatFocus: DoubleArray? = null
+        var seatFocusUpdateCalls = 0
+        var lastSeatFocusUpdate: DoubleArray? = null
 
         override fun create(
             sampleRate: Int,
@@ -209,6 +251,7 @@ class NativeDspProcessorTest {
             spatial: DoubleArray,
             convolverConfig: DoubleArray,
             convolverSamples: FloatArray,
+            seatFocus: DoubleArray,
         ): Long {
             createdGainDb = gainDb
             createdEqCoefficients = eqCoefficients.copyOf()
@@ -220,6 +263,7 @@ class NativeDspProcessorTest {
             createdSpatial = spatial.copyOf()
             createdConvolverConfig = convolverConfig.copyOf()
             createdConvolverSamples = convolverSamples.copyOf()
+            createdSeatFocus = seatFocus.copyOf()
             return createHandle
         }
 
@@ -246,6 +290,11 @@ class NativeDspProcessorTest {
         }
 
         override fun reset(handle: Long): Int = 0
+        override fun updateSeatFocus(handle: Long, values: DoubleArray): Int {
+            seatFocusUpdateCalls++
+            lastSeatFocusUpdate = values.copyOf()
+            return 0
+        }
         override fun latencyFrames(handle: Long): Int = 0
         override fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int = 0
         override fun destroy(handle: Long) {

@@ -76,6 +76,43 @@ dsp_engine *dsp_engine_create(
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
     const dsp_convolver_config *convolver_config) {
+    const dsp_seat_focus_config disabled_seat_focus = {0};
+    return dsp_engine_create_with_seat_focus(
+        sample_rate,
+        channels,
+        max_frames,
+        gain_db,
+        peq_coefficients,
+        peq_band_count,
+        dynamics_config,
+        multiband_config,
+        dynamic_eq_config,
+        bass_coefficients,
+        bass_coefficient_count,
+        mono_bass_coefficients,
+        mono_bass_coefficient_count,
+        spatial_config,
+        convolver_config,
+        &disabled_seat_focus);
+}
+
+dsp_engine *dsp_engine_create_with_seat_focus(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const double *peq_coefficients,
+    int peq_band_count,
+    const dsp_dynamics_config *dynamics_config,
+    const dsp_multiband_config *multiband_config,
+    const dsp_dynamic_eq_config *dynamic_eq_config,
+    const double *bass_coefficients,
+    int bass_coefficient_count,
+    const double *mono_bass_coefficients,
+    int mono_bass_coefficient_count,
+    const dsp_spatial_config *spatial_config,
+    const dsp_convolver_config *convolver_config,
+    const dsp_seat_focus_config *seat_focus_config) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
         peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
@@ -84,7 +121,7 @@ dsp_engine *dsp_engine_create(
         (bass_coefficient_count > 0 && bass_coefficients == NULL) ||
         mono_bass_coefficient_count < 0 || mono_bass_coefficient_count > 1 ||
         (mono_bass_coefficient_count > 0 && mono_bass_coefficients == NULL) || spatial_config == NULL ||
-        convolver_config == NULL) {
+        convolver_config == NULL || !dsp_seat_focus_validate_config(seat_focus_config)) {
         return NULL;
     }
 
@@ -119,7 +156,8 @@ dsp_engine *dsp_engine_create(
             mono_bass_coefficients,
             mono_bass_coefficient_count,
             spatial_config,
-            convolver_config)) {
+            convolver_config,
+            seat_focus_config)) {
         dsp_graph_close(&engine->graph);
         free(engine);
         return NULL;
@@ -218,8 +256,19 @@ dsp_status dsp_engine_reset(dsp_engine *engine) {
     return DSP_STATUS_OK;
 }
 
+dsp_status dsp_engine_update_seat_focus(dsp_engine *engine, const dsp_seat_focus_config *config) {
+    if (!engine_is_prepared(engine)) {
+        return DSP_STATUS_INVALID_HANDLE;
+    }
+    if (!dsp_seat_focus_validate_config(config) || !dsp_seat_focus_update(&engine->graph.seat_focus, config)) {
+        saturating_add_counter(&engine->native_error_count, 1);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    return DSP_STATUS_OK;
+}
+
 int dsp_engine_get_latency_frames(const dsp_engine *engine) {
-    return engine_is_prepared(engine) ? dsp_convolver_latency_frames(&engine->graph.convolver) : -1;
+    return engine_is_prepared(engine) ? dsp_graph_latency_frames(&engine->graph) : -1;
 }
 
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics) {

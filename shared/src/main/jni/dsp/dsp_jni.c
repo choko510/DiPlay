@@ -26,6 +26,39 @@ typedef struct {
 
 static dsp_handle_slot dsp_handle_slots[DSP_HANDLE_SLOT_COUNT] = {0};
 
+#define DSP_SEAT_FOCUS_VALUES_COUNT 8
+
+static int seat_focus_config_from_array(
+    JNIEnv *env,
+    jdoubleArray values,
+    dsp_seat_focus_config *config) {
+    if (env == NULL || values == NULL || config == NULL ||
+        (*env)->GetArrayLength(env, values) != DSP_SEAT_FOCUS_VALUES_COUNT) {
+        return 0;
+    }
+    jdouble data[DSP_SEAT_FOCUS_VALUES_COUNT];
+    (*env)->GetDoubleArrayRegion(env, values, 0, DSP_SEAT_FOCUS_VALUES_COUNT, data);
+    if ((*env)->ExceptionCheck(env)) return 0;
+    for (size_t index = 0; index < DSP_SEAT_FOCUS_VALUES_COUNT; index++) {
+        if (!isfinite(data[index])) return 0;
+    }
+    if ((data[0] != 0.0 && data[0] != 1.0) || (data[1] != 0.0 && data[1] != 1.0) ||
+        (data[6] != 0.0 && data[6] != 1.0) || (data[7] != 0.0 && data[7] != 1.0)) {
+        return 0;
+    }
+    *config = (dsp_seat_focus_config) {
+        .enabled = (int)data[0],
+        .bypassed = (int)data[1],
+        .left_delay_ms = data[2],
+        .right_delay_ms = data[3],
+        .left_trim_db = data[4],
+        .right_trim_db = data[5],
+        .invert_left = (int)data[6],
+        .invert_right = (int)data[7],
+    };
+    return dsp_seat_focus_validate_config(config);
+}
+
 static uint32_t next_generation(uint32_t current) {
     return current >= DSP_MAX_HANDLE_GENERATION ? 1 : current + 1;
 }
@@ -138,13 +171,14 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jdoubleArray mono_bass_coefficients,
     jdoubleArray spatial_values,
     jdoubleArray convolver_values,
-    jfloatArray convolver_samples) {
+    jfloatArray convolver_samples,
+    jdoubleArray seat_focus_values) {
     (void)env;
     (void)receiver;
     if (peq_coefficients == NULL || dynamics_values == NULL || multiband_values == NULL ||
         dynamic_eq_values == NULL || bass_coefficients == NULL ||
         mono_bass_coefficients == NULL || spatial_values == NULL || convolver_values == NULL ||
-        convolver_samples == NULL) {
+        convolver_samples == NULL || seat_focus_values == NULL) {
         return 0;
     }
     const jsize coefficient_count = (*env)->GetArrayLength(env, peq_coefficients);
@@ -156,6 +190,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     const jsize spatial_count = (*env)->GetArrayLength(env, spatial_values);
     const jsize convolver_value_count = (*env)->GetArrayLength(env, convolver_values);
     const jsize convolver_sample_count = (*env)->GetArrayLength(env, convolver_samples);
+    const jsize seat_focus_count = (*env)->GetArrayLength(env, seat_focus_values);
     if (coefficient_count < 0 || coefficient_count >
             DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
         coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10 ||
@@ -163,7 +198,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         dynamic_eq_count != DSP_DYNAMIC_EQ_VALUES_COUNT ||
         (bass_coefficient_count != 0 && bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         (mono_bass_coefficient_count != 0 && mono_bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
-        spatial_count != 3 || convolver_value_count != 5 || convolver_sample_count < 0 ||
+        spatial_count != 3 || convolver_value_count != 5 || seat_focus_count != DSP_SEAT_FOCUS_VALUES_COUNT ||
+        convolver_sample_count < 0 ||
         convolver_sample_count > DSP_CONVOLVER_MAX_IR_FRAMES * 2) {
         return 0;
     }
@@ -322,7 +358,14 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         .wet = (float)convolver_values_data[4],
         .samples = impulse_samples,
     };
-    dsp_engine *engine = dsp_engine_create(
+    dsp_seat_focus_config seat_focus_config;
+    if (!seat_focus_config_from_array(env, seat_focus_values, &seat_focus_config)) {
+        if (impulse_samples != NULL) {
+            (*env)->ReleaseFloatArrayElements(env, convolver_samples, impulse_samples, JNI_ABORT);
+        }
+        return 0;
+    }
+    dsp_engine *engine = dsp_engine_create_with_seat_focus(
         sample_rate,
         channels,
         max_frames,
@@ -337,7 +380,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         mono_bass_coefficient_count > 0 ? mono_bass_coefficients_values : NULL,
         mono_bass_coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
         &spatial_config,
-        &convolver_config);
+        &convolver_config,
+        &seat_focus_config);
     if (impulse_samples != NULL) {
         (*env)->ReleaseFloatArrayElements(env, convolver_samples, impulse_samples, JNI_ABORT);
     }
@@ -428,6 +472,26 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeReset(
         return DSP_STATUS_INVALID_HANDLE;
     }
     const dsp_status status = dsp_engine_reset(lease.engine);
+    release_engine(&lease);
+    return (jint)status;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeUpdateSeatFocus(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jdoubleArray values) {
+    (void)receiver;
+    dsp_seat_focus_config config;
+    if (!seat_focus_config_from_array(env, values, &config)) {
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) {
+        return DSP_STATUS_INVALID_HANDLE;
+    }
+    const dsp_status status = dsp_engine_update_seat_focus(lease.engine, &config);
     release_engine(&lease);
     return (jint)status;
 }

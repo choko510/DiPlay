@@ -9,6 +9,7 @@
 #include "dsp_dynamic_eq.h"
 #include "dsp_spatial.h"
 #include "dsp_convolver.h"
+#include "dsp_seat_focus.h"
 
 typedef struct dsp_engine dsp_engine;
 
@@ -48,6 +49,23 @@ dsp_engine *dsp_engine_create(
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
     const dsp_convolver_config *convolver_config);
+dsp_engine *dsp_engine_create_with_seat_focus(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const double *peq_coefficients,
+    int peq_band_count,
+    const dsp_dynamics_config *dynamics_config,
+    const dsp_multiband_config *multiband_config,
+    const dsp_dynamic_eq_config *dynamic_eq_config,
+    const double *bass_coefficients,
+    int bass_coefficient_count,
+    const double *mono_bass_coefficients,
+    int mono_bass_coefficient_count,
+    const dsp_spatial_config *spatial_config,
+    const dsp_convolver_config *convolver_config,
+    const dsp_seat_focus_config *seat_focus_config);
 dsp_status dsp_engine_process(
     dsp_engine *engine,
     const float *input,
@@ -57,6 +75,7 @@ dsp_status dsp_engine_process(
     int frames,
     int channels);
 dsp_status dsp_engine_reset(dsp_engine *engine);
+dsp_status dsp_engine_update_seat_focus(dsp_engine *engine, const dsp_seat_focus_config *config);
 int dsp_engine_get_latency_frames(const dsp_engine *engine);
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics);
 void dsp_engine_destroy(dsp_engine *engine);

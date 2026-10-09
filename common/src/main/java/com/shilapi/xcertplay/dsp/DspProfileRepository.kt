@@ -50,8 +50,8 @@ private val DYNAMIC_EQ_BAND_KNOWN_FIELDS = setOf(
 private val LIMITER_KNOWN_FIELDS = setOf("enabled", "thresholdDb", "releaseMs")
 private val EQ_BAND_KNOWN_FIELDS = setOf("enabled", "type", "frequencyHz", "gainDb", "q")
 private val SEAT_FOCUS_KNOWN_FIELDS = setOf(
-    "enabled", "preset", "leftDelayMs", "rightDelayMs", "leftTrimDb", "rightTrimDb", "invertLeft", "invertRight",
-    "distanceMode", "leftDistanceCm", "rightDistanceCm",
+    "enabled", "bypassed", "preset", "leftDelayMs", "rightDelayMs", "leftTrimDb", "rightTrimDb", "invertLeft",
+    "invertRight", "distanceMode", "leftDistanceCm", "rightDistanceCm",
 )
 private val ADVANCED_MS_KNOWN_FIELDS = setOf(
     "enabled", "midGainDb", "sideGainDb", "midEqBands", "sideEqBands", "lowWidth", "midWidth", "highWidth",

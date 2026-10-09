@@ -87,6 +87,9 @@ internal class DspPcmPipeline(
         }
     }
 
+    internal fun updateSeatFocus(config: DspSeatFocusConfig): Boolean =
+        (processor as? NativeDspProcessor)?.updateSeatFocus(config) == true
+
     private fun processInternal(
         source: ByteArray,
         offset: Int,

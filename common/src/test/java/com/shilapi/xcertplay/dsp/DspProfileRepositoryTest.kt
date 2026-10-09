@@ -158,6 +158,21 @@ class DspProfileRepositoryTest {
     }
 
     @Test
+    fun temporarySeatFocusBypassIsNotPersistedInTheProfile() {
+        val repository = repository()
+        val profile = DspProfilePresets.customProfile("custom1").copy(
+            seatFocus = DspSeatFocusConfig(enabled = true, bypassed = true, rightDelayMs = 0.65),
+        )
+
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertTrue(profile.seatFocus.bypassed)
+        assertFalse(loaded.profile.seatFocus.bypassed)
+        assertEquals(0.65, loaded.profile.seatFocus.rightDelayMs, 0.0)
+    }
+
+    @Test
     fun profileMapsToAnImmutableRuntimeSnapshotAndRespectsTheMasterSwitch() {
         val profile = DspAudioProfile(
             id = "custom2",

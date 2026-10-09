@@ -17,9 +17,13 @@ int dsp_graph_prepare(
     const double *mono_bass_coefficients,
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
-    const dsp_convolver_config *convolver_config) {
+    const dsp_convolver_config *convolver_config,
+    const dsp_seat_focus_config *seat_focus_config) {
     if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
+        return 0;
+    }
+    if (!dsp_seat_focus_prepare(&graph->seat_focus, sample_rate, channels, seat_focus_config)) {
         return 0;
     }
     graph->peq_count = peq_count;
@@ -67,6 +71,7 @@ void dsp_graph_reset(dsp_graph *graph) {
     dsp_multiband_reset(&graph->multiband);
     dsp_dynamic_eq_reset(&graph->dynamic_eq);
     dsp_spatial_reset(&graph->spatial);
+    dsp_seat_focus_reset(&graph->seat_focus);
     dsp_convolver_reset(&graph->convolver);
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
@@ -74,7 +79,14 @@ void dsp_graph_reset(dsp_graph *graph) {
 
 void dsp_graph_close(dsp_graph *graph) {
     if (graph == NULL) return;
+    dsp_seat_focus_close(&graph->seat_focus);
     dsp_convolver_close(&graph->convolver);
+}
+
+int dsp_graph_latency_frames(const dsp_graph *graph) {
+    if (graph == NULL) return -1;
+    return dsp_seat_focus_latency_frames(&graph->seat_focus) +
+        dsp_convolver_latency_frames(&graph->convolver);
 }
 
 void dsp_graph_process(
@@ -111,6 +123,7 @@ void dsp_graph_process(
 
         float output_left = dsp_gain_apply(&graph->gain, input_left);
         float output_right = channels == 2 ? dsp_gain_apply(&graph->gain, input_right) : 0.0f;
+        dsp_seat_focus_process_frame(&graph->seat_focus, &output_left, &output_right, (int)channels);
         for (size_t index = 0; index < graph->peq_count; index++) {
             output_left = dsp_biquad_process_sample(&graph->peq[index], output_left, 0);
             if (channels == 2) {

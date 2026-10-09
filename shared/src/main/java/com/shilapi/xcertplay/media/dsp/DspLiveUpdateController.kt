@@ -29,6 +29,8 @@ internal class DspLiveUpdateController(
     private val onPrepared: (DspPreparedUpdate) -> Unit,
     private val onPreparing: (DspConfigSnapshot) -> Unit = { },
     private val onDeferred: (Long) -> Unit = { },
+    private val activeConfig: () -> DspRuntimeConfig = { provider.snapshot() },
+    private val onSeatFocusUpdate: (DspConfigSnapshot) -> Boolean = { false },
     private val canAdoptLatencyChange: () -> Boolean = { false },
     private val pipelinePreparer: DspPipelinePreparer =
         { targetFormat, config -> createNativePipeline(role, targetFormat, config) },
@@ -59,8 +61,30 @@ internal class DspLiveUpdateController(
             true
         }
         if (!accepted) return
+        if (applySeatFocusUpdateInPlace(snapshot)) return
         ensureMaintenance()
         schedulePreparation()
+    }
+
+    private fun applySeatFocusUpdateInPlace(snapshot: DspConfigSnapshot): Boolean {
+        return synchronized(generationLock) {
+            if (closed.get() || desired.get()?.generation != snapshot.generation) {
+                return@synchronized false
+            }
+            val currentConfig = runCatching { activeConfig() }.getOrNull() ?: return@synchronized false
+            val targetConfig = snapshot.config
+            if (!currentConfig.enabled || !targetConfig.enabled ||
+                !currentConfig.seatFocus.enabled || !targetConfig.seatFocus.enabled ||
+                currentConfig.seatFocus == targetConfig.seatFocus ||
+                !currentConfig.hasSameNonSeatFocusConfig(targetConfig)
+            ) {
+                return@synchronized false
+            }
+            if (!runCatching { onSeatFocusUpdate(snapshot) }.getOrDefault(false)) return@synchronized false
+            desired.compareAndSet(snapshot, null)
+            lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
+            true
+        }
     }
 
     private fun ensureMaintenance() {
@@ -140,7 +164,10 @@ internal class DspLiveUpdateController(
     }
 
     override fun close() {
-        if (!closed.compareAndSet(false, true)) return
+        val didClose = synchronized(generationLock) {
+            closed.compareAndSet(false, true)
+        }
+        if (!didClose) return
         subscription.close()
         maintenance?.cancel(false)
         closeRetiredPipeline()

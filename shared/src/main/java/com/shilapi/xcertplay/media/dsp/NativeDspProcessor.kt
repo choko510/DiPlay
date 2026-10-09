@@ -17,6 +17,7 @@ internal interface NativeDspBindings {
         spatial: DoubleArray,
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
+        seatFocus: DoubleArray,
     ): Long
     fun process(
         handle: Long,
@@ -30,6 +31,7 @@ internal interface NativeDspBindings {
         channels: Int,
     ): Int
     fun reset(handle: Long): Int
+    fun updateSeatFocus(handle: Long, values: DoubleArray): Int
     fun latencyFrames(handle: Long): Int
     fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
     fun destroy(handle: Long)
@@ -50,6 +52,7 @@ internal object NativeDspJni : NativeDspBindings {
         spatial: DoubleArray,
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
+        seatFocus: DoubleArray,
     ): Long = nativeCreate(
         sampleRate,
         channels,
@@ -64,6 +67,7 @@ internal object NativeDspJni : NativeDspBindings {
         spatial,
         convolverConfig,
         convolverSamples,
+        seatFocus,
     )
 
     override fun process(
@@ -89,6 +93,7 @@ internal object NativeDspJni : NativeDspBindings {
     )
 
     override fun reset(handle: Long): Int = nativeReset(handle)
+    override fun updateSeatFocus(handle: Long, values: DoubleArray): Int = nativeUpdateSeatFocus(handle, values)
     override fun latencyFrames(handle: Long): Int = nativeGetLatencyFrames(handle)
     override fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int =
         nativeGetDiagnostics(handle, values, counters)
@@ -108,6 +113,7 @@ internal object NativeDspJni : NativeDspBindings {
         spatial: DoubleArray,
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
+        seatFocus: DoubleArray,
     ): Long
     private external fun nativeProcess(
         handle: Long,
@@ -121,6 +127,7 @@ internal object NativeDspJni : NativeDspBindings {
         channels: Int,
     ): Int
     private external fun nativeReset(handle: Long): Int
+    private external fun nativeUpdateSeatFocus(handle: Long, values: DoubleArray): Int
     private external fun nativeGetLatencyFrames(handle: Long): Int
     private external fun nativeGetDiagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
     private external fun nativeDestroy(handle: Long)
@@ -223,6 +230,25 @@ internal class NativeDspProcessor internal constructor(
         if (status != NATIVE_OK) localNativeErrors++
     }
 
+    internal fun updateSeatFocus(config: DspSeatFocusConfig): Boolean {
+        val handle = nativeHandle
+        if (handle <= 0L || format.channels != 2 || !config.enabled) return false
+        val status = try {
+            bindings.updateSeatFocus(handle, config.toNativeValues(format.channels))
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        } catch (_: Exception) {
+            -1
+        }
+        if (status != NATIVE_OK) {
+            localNativeErrors++
+            return false
+        }
+        return true
+    }
+
     @Synchronized
     override fun diagnostics(): DspDiagnosticsSnapshot {
         val handle = nativeHandle
@@ -312,6 +338,7 @@ internal class NativeDspProcessor internal constructor(
                     spatial = prepared.spatial,
                     convolverConfig = prepared.convolverConfig,
                     convolverSamples = prepared.convolverSamples,
+                    seatFocus = prepared.seatFocus,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

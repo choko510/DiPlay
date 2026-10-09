@@ -8,6 +8,7 @@ import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -15,6 +16,94 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DspLiveUpdateControllerTest {
+    @Test
+    fun seatFocusOnlyChangesUpdateTheActivePipelineWithoutRebuildingItsDelayHistory() {
+        val initial = DspRuntimeConfig(enabled = true, seatFocus = DspSeatFocusConfig(enabled = true))
+        val provider = MutableConfigProvider(initial)
+        val activeConfig = AtomicReference(initial)
+        val applied = LinkedBlockingQueue<DspConfigSnapshot>()
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val prepareCalls = AtomicInteger()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 264 },
+            activeConfig = { activeConfig.get() },
+            onSeatFocusUpdate = { snapshot ->
+                applied.offer(snapshot)
+                activeConfig.set(snapshot.config)
+                true
+            },
+            onPrepared = { prepared.offer(it) },
+            pipelinePreparer = { format, _ ->
+                prepareCalls.incrementAndGet()
+                trackingPipeline(format, 264) { }
+            },
+        )
+
+        provider.update(DspRuntimeConfig(enabled = true, seatFocus = initial.seatFocus.copy(rightDelayMs = 0.65)))
+
+        val update = applied.poll(5, TimeUnit.SECONDS)
+        assertNotNull(update)
+        assertEquals(1L, update?.generation)
+        assertEquals(0.65, update?.config?.seatFocus?.rightDelayMs ?: 0.0, 0.0)
+        assertEquals(0, prepareCalls.get())
+        assertNull(prepared.poll(100, TimeUnit.MILLISECONDS))
+        controller.close()
+    }
+
+    @Test
+    fun closeWaitsForAnInFlightSeatFocusUpdateBeforeRetiringTheActivePipeline() {
+        val initial = DspRuntimeConfig(enabled = true, seatFocus = DspSeatFocusConfig(enabled = true))
+        val provider = MutableConfigProvider(initial)
+        val updateStarted = CountDownLatch(1)
+        val releaseUpdate = CountDownLatch(1)
+        val updateFinished = CountDownLatch(1)
+        val closeFinished = CountDownLatch(1)
+        val activeConfig = AtomicReference(initial)
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 264 },
+            onPrepared = { it.pipeline?.close() },
+            activeConfig = { activeConfig.get() },
+            onSeatFocusUpdate = { snapshot ->
+                updateStarted.countDown()
+                check(releaseUpdate.await(5, TimeUnit.SECONDS))
+                activeConfig.set(snapshot.config)
+                updateFinished.countDown()
+                true
+            },
+            pipelinePreparer = { format, _ -> trackingPipeline(format, 264) { } },
+        )
+
+        val updateThread = Thread {
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    seatFocus = initial.seatFocus.copy(rightDelayMs = 0.65),
+                ),
+            )
+        }
+        updateThread.start()
+        assertTrue(updateStarted.await(5, TimeUnit.SECONDS))
+
+        val closeThread = Thread {
+            controller.close()
+            closeFinished.countDown()
+        }
+        closeThread.start()
+        assertTrue(!closeFinished.await(100, TimeUnit.MILLISECONDS))
+
+        releaseUpdate.countDown()
+        assertTrue(updateFinished.await(5, TimeUnit.SECONDS))
+        assertTrue(closeFinished.await(5, TimeUnit.SECONDS))
+    }
+
     @Test
     fun initialLatencyCandidateIsAllowedBeforeAnyTrackContentIsCommitted() {
         val provider = MutableConfigProvider()

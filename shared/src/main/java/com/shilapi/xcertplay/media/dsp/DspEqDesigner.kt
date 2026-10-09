@@ -161,6 +161,7 @@ internal object DspAutoHeadroom {
         sampleRate: Int,
         preampDb: Double,
         peqBands: List<DspEqBand>,
+        maxSeatTrimDb: Double = 0.0,
         compressorMakeupDb: Double = 0.0,
         maxBandMakeupDb: Double = 0.0,
         dynamicBoostDb: Double = 0.0,
@@ -170,6 +171,7 @@ internal object DspAutoHeadroom {
     ): DspHeadroomResult {
         require(sampleRate in 8_000..192_000)
         require(preampDb.isFinite())
+        require(maxSeatTrimDb.isFinite() && maxSeatTrimDb in 0.0..6.0)
         require(compressorMakeupDb.isFinite())
         require(maxBandMakeupDb.isFinite())
         require(dynamicBoostDb.isFinite())
@@ -194,7 +196,7 @@ internal object DspAutoHeadroom {
         }
         if (filters.isEmpty()) peakDb = 0.0
         val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth))
-        val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
+        val staticWorstCaseDb = preampDb + peakDb + maxSeatTrimDb + max(0.0, compressorMakeupDb) +
             max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) + widthWorstCaseDb
         return DspHeadroomResult(
             filterPeakDb = peakDb,
@@ -214,6 +216,7 @@ internal data class DspPreparedConfig(
     val convolverSamples: FloatArray,
     val multiband: DoubleArray,
     val dynamicEq: DoubleArray,
+    val seatFocus: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -269,6 +272,11 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             sampleRate = format.sampleRate,
             preampDb = gainDb,
             peqBands = peqBands,
+            maxSeatTrimDb = if (seatFocus.enabled && !seatFocus.bypassed && format.channels == 2) {
+                maxOf(0.0, seatFocus.leftTrimDb, seatFocus.rightTrimDb)
+            } else {
+                0.0
+            },
             compressorMakeupDb = if (compressor.enabled) compressor.makeupDb else 0.0,
             maxBandMakeupDb = if (multiband.enabled) {
                 maxOf(
@@ -334,6 +342,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         convolverSamples = convolverSamples,
         multiband = multibandNativeValues,
         dynamicEq = dynamicEqNativeValues,
+        seatFocus = seatFocus.toNativeValues(format.channels),
         headroom = headroom,
     )
 }

@@ -282,3 +282,7 @@ When Gecko reports paint-status reset during `setActive(false)`, retain it throu
 ## Validate profile JSON before migration or replacement
 
 Bound the input byte count before parsing, reject duplicate object keys, and validate known fields without string-to-number or string-to-boolean coercion. When an existing file cannot be decoded, preserve it and refuse a save; merge unknown fields into supported-schema writes so a newer producer's extension data is not discarded.
+
+## Measure Seat Focus against the fixed-delay reference
+
+At 44.1/48/96 kHz, validate the relative L/R delay using broadband correlation after the full 5.5 ms fixed delay. A 1024-phase, four-tap Lagrange table measured within 0.0082 ms of the requested delay on the host C suite; keep a 0.05 ms acceptance bound and include chunk-size invariance plus live-target ramps.

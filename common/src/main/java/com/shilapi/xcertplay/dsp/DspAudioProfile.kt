@@ -63,6 +63,7 @@ data class DspAudioProfile(
         convolver = convolver.copy(impulseResponse = impulseResponse),
         multiband = multiband,
         dynamicEq = dynamicEq,
+        seatFocus = seatFocus,
     )
 
     companion object {

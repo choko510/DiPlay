@@ -23,6 +23,7 @@ data class DspSeatDistanceDelays(
 
 data class DspSeatFocusConfig(
     val enabled: Boolean = false,
+    val bypassed: Boolean = false,
     val preset: DspSeatPreset = DspSeatPreset.CUSTOM,
     val leftDelayMs: Double = 0.0,
     val rightDelayMs: Double = 0.0,
@@ -52,6 +53,21 @@ data class DspSeatFocusConfig(
         calculateDistanceDelays(requireNotNull(leftDistanceCm), requireNotNull(rightDistanceCm))
     } else {
         DspSeatDistanceDelays(leftDelayMs = leftDelayMs, rightDelayMs = rightDelayMs)
+    }
+
+    internal fun toNativeValues(channels: Int): DoubleArray {
+        val delays = effectiveDelays()
+        val active = enabled && channels == 2
+        return doubleArrayOf(
+            if (active) 1.0 else 0.0,
+            if (active && bypassed) 1.0 else 0.0,
+            delays.leftDelayMs,
+            delays.rightDelayMs,
+            leftTrimDb,
+            rightTrimDb,
+            if (invertLeft) 1.0 else 0.0,
+            if (invertRight) 1.0 else 0.0,
+        )
     }
 
     companion object {

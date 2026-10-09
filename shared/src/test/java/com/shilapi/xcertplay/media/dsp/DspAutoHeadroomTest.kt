@@ -16,6 +16,27 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun positiveSeatTrimIsIncludedOnlyWhenSeatFocusIsActive() {
+        val active = DspRuntimeConfig(
+            enabled = true,
+            seatFocus = DspSeatFocusConfig(enabled = true, leftTrimDb = 6.0, rightTrimDb = -6.0),
+        ).prepare(DspAudioFormat(48_000, 2))
+        val bypassed = DspRuntimeConfig(
+            enabled = true,
+            seatFocus = DspSeatFocusConfig(enabled = true, bypassed = true, leftTrimDb = 6.0),
+        ).prepare(DspAudioFormat(48_000, 2))
+        val mono = DspRuntimeConfig(
+            enabled = true,
+            seatFocus = DspSeatFocusConfig(enabled = true, leftTrimDb = 6.0),
+        ).prepare(DspAudioFormat(48_000, 1))
+
+        assertEquals(7.0, active.headroom.reductionDb, 0.02)
+        assertEquals(1.0, bypassed.headroom.reductionDb, 0.02)
+        assertEquals(1.0, mono.headroom.reductionDb, 0.02)
+        assertEquals(0.0, mono.seatFocus[0], 0.0)
+    }
+
+    @Test
     fun sameFrequencyFiltersCombineTheirResponsesBeforeFindingThePeak() {
         val sameFrequency = listOf(
             DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 6.0, q = 4.0),

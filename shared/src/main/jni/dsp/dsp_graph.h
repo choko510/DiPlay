@@ -9,6 +9,7 @@
 #include "dsp_dynamic_eq.h"
 #include "dsp_spatial.h"
 #include "dsp_convolver.h"
+#include "dsp_seat_focus.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -21,6 +22,7 @@ typedef struct {
     dsp_multiband multiband;
     dsp_dynamic_eq dynamic_eq;
     dsp_spatial spatial;
+    dsp_seat_focus seat_focus;
     dsp_convolver convolver;
     dsp_meter input_meter;
     dsp_meter output_meter;
@@ -41,9 +43,11 @@ int dsp_graph_prepare(
     const double *mono_bass_coefficients,
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
-    const dsp_convolver_config *convolver_config);
+    const dsp_convolver_config *convolver_config,
+    const dsp_seat_focus_config *seat_focus_config);
 void dsp_graph_reset(dsp_graph *graph);
 void dsp_graph_close(dsp_graph *graph);
+int dsp_graph_latency_frames(const dsp_graph *graph);
 void dsp_graph_process(
     dsp_graph *graph,
     const float *input,

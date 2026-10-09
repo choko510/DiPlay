@@ -16,6 +16,7 @@ class DspRuntimeConfig(
     val convolver: DspConvolverConfig = DspConvolverConfig(),
     val multiband: DspMultibandConfig = DspMultibandConfig(),
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
+    val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double
@@ -35,7 +36,23 @@ class DspRuntimeConfig(
         convolver = convolver,
         multiband = multiband,
         dynamicEq = dynamicEq,
+        seatFocus = seatFocus,
     )
+
+    internal fun hasSameNonSeatFocusConfig(other: DspRuntimeConfig): Boolean =
+        enabled == other.enabled &&
+            gainDb == other.gainDb &&
+            peqBands == other.peqBands &&
+            autoHeadroomEnabled == other.autoHeadroomEnabled &&
+            autoHeadroomMarginDb == other.autoHeadroomMarginDb &&
+            bass == other.bass &&
+            compressor == other.compressor &&
+            safetyLimiter == other.safetyLimiter &&
+            stereoWidth == other.stereoWidth &&
+            monoBass == other.monoBass &&
+            convolver == other.convolver &&
+            multiband == other.multiband &&
+            dynamicEq == other.dynamicEq
 
     init {
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)

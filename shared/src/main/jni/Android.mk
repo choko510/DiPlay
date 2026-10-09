@@ -15,6 +15,7 @@ LOCAL_SRC_FILES := \
     dsp/dsp_multiband.c \
     dsp/dsp_dynamic_eq.c \
     dsp/dsp_spatial.c \
+    dsp/dsp_seat_focus.c \
     dsp/dsp_convolver.c \
     dsp/dsp_gain.c \
     dsp/dsp_meter.c \

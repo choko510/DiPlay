@@ -12,6 +12,7 @@ JNI_CLASSES = {
         "nativeCreate",
         "nativeProcess",
         "nativeReset",
+        "nativeUpdateSeatFocus",
         "nativeGetLatencyFrames",
         "nativeGetDiagnostics",
         "nativeDestroy",

@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -32,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,9 +58,15 @@ import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
+import com.shilapi.xcertplay.media.dsp.DspLiveUpdateReason
+import com.shilapi.xcertplay.media.dsp.DspLiveUpdateState
+import com.shilapi.xcertplay.media.dsp.DspLiveUpdateStatus
+import com.shilapi.xcertplay.media.dsp.DspLiveUpdateStatusStore
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatFocusConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatPreset
 import com.shilapi.xcertplay.shared.AppLanguage
 import java.util.Locale
 import java.util.UUID
@@ -100,6 +109,18 @@ class DspSettingsActivity : ComponentActivity() {
 @Composable
 private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
     val context = LocalContext.current
+    val liveUpdateStatus = remember { mutableStateOf(DspLiveUpdateStatusStore.snapshot()) }
+    DisposableEffect(runtime) {
+        val handler = Handler(Looper.getMainLooper())
+        val pollStatus = object : Runnable {
+            override fun run() {
+                liveUpdateStatus.value = DspLiveUpdateStatusStore.snapshot()
+                handler.postDelayed(this, DSP_STATUS_POLL_INTERVAL_MS)
+            }
+        }
+        handler.post(pollStatus)
+        onDispose { handler.removeCallbacks(pollStatus) }
+    }
     var profiles by remember(runtime) { mutableStateOf(runtime.availableProfiles()) }
     val profileSaver = remember(runtime) {
         Saver<DspAudioProfile, String>(
@@ -110,6 +131,8 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
     var profile by rememberSaveable(runtime, stateSaver = profileSaver) { mutableStateOf(runtime.selectedProfile()) }
     var dspEnabled by rememberSaveable { mutableStateOf(runtime.isDspEnabled()) }
     var advanced by rememberSaveable { mutableStateOf(false) }
+    var seatFocusBypassed by remember(profile.id) { mutableStateOf(profile.seatFocus.bypassed) }
+    var seatDistanceWarning by rememberSaveable(profile.id) { mutableStateOf(false) }
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var bandTypeDialog by remember { mutableStateOf<Int?>(null) }
     var impulseResponseIds by remember(runtime) { mutableStateOf(runtime.availableImpulseResponseIds()) }
@@ -136,6 +159,17 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                     DspImpulseImportResult.WriteFailed -> Toast.makeText(context, R.string.dsp_ir_write_failed, Toast.LENGTH_LONG).show()
                     else -> Toast.makeText(context, R.string.dsp_ir_invalid, Toast.LENGTH_LONG).show()
                 }
+            }
+        }
+    }
+    DisposableEffect(runtime) {
+        onDispose {
+            val activeProfile = runtime.selectedProfile()
+            if (activeProfile.seatFocus.bypassed) {
+                runtime.applyAsync(
+                    activeProfile.copy(seatFocus = activeProfile.seatFocus.copy(bypassed = false)),
+                    runtime.isDspEnabled(),
+                ) { }
             }
         }
     }
@@ -180,6 +214,8 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         itemLabel = { profileLabel(context, it) },
                         onSelect = { selected ->
                             profile = selected
+                            seatFocusBypassed = selected.seatFocus.bypassed
+                            seatDistanceWarning = false
                             profileMenuExpanded = false
                         },
                     )
@@ -229,6 +265,165 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
             }
 
             if (advanced) {
+                SectionCard(title = stringResource(R.string.dsp_seat_focus)) {
+                    val seatFocus = profile.seatFocus
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_focus_enabled),
+                        description = stringResource(R.string.dsp_seat_focus_enabled_description),
+                        checked = seatFocus.enabled,
+                        onCheckedChange = { enabled ->
+                            profile = profile.copy(seatFocus = seatFocus.copy(enabled = enabled, bypassed = false))
+                            seatFocusBypassed = false
+                        },
+                    )
+                    ChoiceField(
+                        title = stringResource(R.string.dsp_seat_preset),
+                        selected = seatPresetLabel(context, seatFocus.preset),
+                        choices = DspSeatPreset.entries.map { seatPresetLabel(context, it) },
+                        onSelect = { selected ->
+                            val preset = DspSeatPreset.entries.first { seatPresetLabel(context, it) == selected }
+                            profile = profile.copy(seatFocus = seatFocus.copy(preset = preset))
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_distance_mode),
+                        description = stringResource(R.string.dsp_seat_distance_mode_description),
+                        checked = seatFocus.distanceMode,
+                        onCheckedChange = { enabled ->
+                            val leftDistance = seatFocus.leftDistanceCm ?: DEFAULT_SEAT_DISTANCE_CM
+                            val rightDistance = seatFocus.rightDistanceCm ?: DEFAULT_SEAT_DISTANCE_CM
+                            val measured = DspSeatFocusConfig.calculateDistanceDelays(leftDistance, rightDistance)
+                            if (enabled && !measured.withinSupportedRange) {
+                                seatDistanceWarning = true
+                            } else {
+                                seatDistanceWarning = false
+                                profile = profile.copy(
+                                    seatFocus = seatFocus.copy(
+                                        distanceMode = enabled,
+                                        leftDistanceCm = leftDistance,
+                                        rightDistanceCm = rightDistance,
+                                    ),
+                                )
+                            }
+                        },
+                    )
+                    if (seatFocus.distanceMode) {
+                        DspValueSlider(
+                            title = stringResource(R.string.dsp_seat_left_distance),
+                            value = seatFocus.leftDistanceCm ?: DEFAULT_SEAT_DISTANCE_CM,
+                            range = DspSeatFocusConfig.MIN_DISTANCE_CM..DspSeatFocusConfig.MAX_DISTANCE_CM,
+                            unit = "cm",
+                            decimals = 0,
+                        ) { value ->
+                            val left = value
+                            val right = seatFocus.rightDistanceCm ?: DEFAULT_SEAT_DISTANCE_CM
+                            val delays = DspSeatFocusConfig.calculateDistanceDelays(left, right)
+                            if (delays.withinSupportedRange) {
+                                profile = profile.copy(
+                                    seatFocus = seatFocus.copy(leftDistanceCm = left, rightDistanceCm = right),
+                                )
+                                seatDistanceWarning = false
+                            } else {
+                                seatDistanceWarning = true
+                            }
+                        }
+                        DspValueSlider(
+                            title = stringResource(R.string.dsp_seat_right_distance),
+                            value = seatFocus.rightDistanceCm ?: DEFAULT_SEAT_DISTANCE_CM,
+                            range = DspSeatFocusConfig.MIN_DISTANCE_CM..DspSeatFocusConfig.MAX_DISTANCE_CM,
+                            unit = "cm",
+                            decimals = 0,
+                        ) { value ->
+                            val left = seatFocus.leftDistanceCm ?: DEFAULT_SEAT_DISTANCE_CM
+                            val right = value
+                            val delays = DspSeatFocusConfig.calculateDistanceDelays(left, right)
+                            if (delays.withinSupportedRange) {
+                                profile = profile.copy(
+                                    seatFocus = seatFocus.copy(leftDistanceCm = left, rightDistanceCm = right),
+                                )
+                                seatDistanceWarning = false
+                            } else {
+                                seatDistanceWarning = true
+                            }
+                        }
+                        val effectiveDelays = seatFocus.effectiveDelays()
+                        Text(
+                            stringResource(
+                                R.string.dsp_seat_effective_delays,
+                                effectiveDelays.leftDelayMs,
+                                effectiveDelays.rightDelayMs,
+                            ),
+                        )
+                    } else {
+                        DspValueSlider(
+                            title = stringResource(R.string.dsp_seat_left_delay),
+                            value = seatFocus.leftDelayMs,
+                            range = 0.0..DspSeatFocusConfig.MAX_DELAY_MS,
+                            unit = "ms",
+                            decimals = 2,
+                        ) { value ->
+                            profile = profile.copy(seatFocus = seatFocus.copy(leftDelayMs = value))
+                        }
+                        DspValueSlider(
+                            title = stringResource(R.string.dsp_seat_right_delay),
+                            value = seatFocus.rightDelayMs,
+                            range = 0.0..DspSeatFocusConfig.MAX_DELAY_MS,
+                            unit = "ms",
+                            decimals = 2,
+                        ) { value ->
+                            profile = profile.copy(seatFocus = seatFocus.copy(rightDelayMs = value))
+                        }
+                    }
+                    DspValueSlider(stringResource(R.string.dsp_seat_left_trim), seatFocus.leftTrimDb, -6.0..6.0, "dB", decimals = 1) {
+                        profile = profile.copy(seatFocus = seatFocus.copy(leftTrimDb = it))
+                    }
+                    DspValueSlider(stringResource(R.string.dsp_seat_right_trim), seatFocus.rightTrimDb, -6.0..6.0, "dB", decimals = 1) {
+                        profile = profile.copy(seatFocus = seatFocus.copy(rightTrimDb = it))
+                    }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_invert_left),
+                        description = stringResource(R.string.dsp_seat_invert_warning),
+                        checked = seatFocus.invertLeft,
+                        onCheckedChange = { profile = profile.copy(seatFocus = seatFocus.copy(invertLeft = it)) },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_invert_right),
+                        description = stringResource(R.string.dsp_seat_invert_warning),
+                        checked = seatFocus.invertRight,
+                        onCheckedChange = { profile = profile.copy(seatFocus = seatFocus.copy(invertRight = it)) },
+                    )
+                    if (seatFocus.enabled) {
+                        DspSwitchRow(
+                            title = stringResource(R.string.dsp_seat_ab_bypass),
+                            description = stringResource(R.string.dsp_seat_ab_bypass_description),
+                            checked = seatFocusBypassed,
+                            onCheckedChange = { bypassed ->
+                                seatFocusBypassed = bypassed
+                                val updatedProfile = profile.copy(
+                                    seatFocus = profile.seatFocus.copy(bypassed = bypassed),
+                                )
+                                profile = updatedProfile
+                                runtime.applyAsync(updatedProfile, dspEnabled) { }
+                            },
+                        )
+                    }
+                    if (seatDistanceWarning) {
+                        Text(stringResource(R.string.dsp_seat_distance_warning), color = MaterialTheme.colorScheme.error)
+                    }
+                    Text(stringResource(R.string.dsp_seat_focus_live_note))
+                    Text(stringResource(R.string.dsp_seat_focus_routing_note))
+                    Text(stringResource(dspLiveUpdateStatusMessage(liveUpdateStatus.value)))
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            profile = profile.copy(
+                                seatFocus = DspSeatFocusConfig(enabled = seatFocus.enabled),
+                            )
+                            seatFocusBypassed = false
+                            seatDistanceWarning = false
+                        },
+                    ) { Text(stringResource(R.string.dsp_seat_reset)) }
+                }
                 SectionCard(title = stringResource(R.string.dsp_auto_headroom)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_auto_headroom),
@@ -404,6 +599,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
 
             Button(
                 modifier = Modifier.fillMaxWidth(),
+                enabled = !seatDistanceWarning,
                 onClick = {
                     val applied = profile.copy(convolver = profile.convolver.copy(impulseResponse = null))
                     if (applied.id == CUSTOM_PROFILE_1 || applied.id == CUSTOM_PROFILE_2) {
@@ -424,6 +620,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
+                    enabled = !seatDistanceWarning,
                     onClick = {
                         val custom = profile.copy(id = CUSTOM_PROFILE_1, name = context.getString(R.string.dsp_preset_custom_1))
                         runtime.saveCustomAsync(custom, dspEnabled) { result ->
@@ -435,6 +632,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                 ) { Text(stringResource(R.string.dsp_save_custom_1)) }
                 OutlinedButton(
                     modifier = Modifier.weight(1f),
+                    enabled = !seatDistanceWarning,
                     onClick = {
                         val custom = profile.copy(id = CUSTOM_PROFILE_2, name = context.getString(R.string.dsp_preset_custom_2))
                         runtime.saveCustomAsync(custom, dspEnabled) { result ->
@@ -512,10 +710,11 @@ private fun DspValueSlider(
     value: Double,
     range: ClosedFloatingPointRange<Double>,
     unit: String,
+    decimals: Int = 1,
     onChange: (Double) -> Unit,
 ) {
     Column {
-        val formatted = String.format(Locale.getDefault(), "%.1f", value)
+        val formatted = String.format(Locale.getDefault(), "%.${decimals}f", value)
         Text(if (unit.isBlank()) "$title: $formatted" else "$title: $formatted $unit")
         Slider(
             value = value.toFloat().coerceIn(range.start.toFloat(), range.endInclusive.toFloat()),
@@ -683,6 +882,31 @@ private fun profileLabel(context: Context, profile: DspAudioProfile): String = c
     },
 )
 
+private fun seatPresetLabel(context: Context, preset: DspSeatPreset): String = context.getString(
+    when (preset) {
+        DspSeatPreset.CUSTOM -> R.string.dsp_seat_preset_custom
+        DspSeatPreset.DRIVER -> R.string.dsp_seat_preset_driver
+        DspSeatPreset.PASSENGER -> R.string.dsp_seat_preset_passenger
+        DspSeatPreset.CENTER -> R.string.dsp_seat_preset_center
+    },
+)
+
+private fun dspLiveUpdateStatusMessage(status: DspLiveUpdateStatus): Int = when (status.state) {
+    DspLiveUpdateState.IDLE -> R.string.dsp_update_idle
+    DspLiveUpdateState.PREPARING -> R.string.dsp_update_preparing
+    DspLiveUpdateState.PREPARED -> R.string.dsp_update_prepared
+    DspLiveUpdateState.APPLIED -> R.string.dsp_update_applied
+    DspLiveUpdateState.DEFERRED -> when (status.reason) {
+        DspLiveUpdateReason.STATEFUL_HISTORY -> R.string.dsp_update_deferred_stateful
+        else -> R.string.dsp_update_deferred_latency
+    }
+    DspLiveUpdateState.FAILED -> when (status.reason) {
+        DspLiveUpdateReason.PROCESS_FAILED -> R.string.dsp_update_failed_process
+        else -> R.string.dsp_update_failed_prepare
+    }
+    DspLiveUpdateState.DISABLED -> R.string.dsp_update_disabled
+}
+
 @Composable
 private fun dspColorScheme(): ColorScheme = darkColorScheme(
     primary = Color(0xFFA6C8FF),
@@ -703,3 +927,5 @@ private fun showProfileSaveResult(context: Context, result: DspProfileSaveResult
 
 private const val CUSTOM_PROFILE_1 = "custom1"
 private const val CUSTOM_PROFILE_2 = "custom2"
+private const val DEFAULT_SEAT_DISTANCE_CM = 100.0
+private const val DSP_STATUS_POLL_INTERVAL_MS = 500L

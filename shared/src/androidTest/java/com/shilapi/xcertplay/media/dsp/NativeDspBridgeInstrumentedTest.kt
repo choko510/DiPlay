@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -38,6 +39,7 @@ class NativeDspBridgeInstrumentedTest {
             spatial = prepared.spatial,
             convolverConfig = prepared.convolverConfig,
             convolverSamples = prepared.convolverSamples,
+            seatFocus = prepared.seatFocus,
         )
         assertTrue(handle > 0L)
         try {
@@ -103,6 +105,59 @@ class NativeDspBridgeInstrumentedTest {
         } finally {
             processor.close()
         }
+    }
+
+    @Test
+    fun seatFocusUsesFixedLatencyFractionalDelayAndLiveBypass() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val format = DspAudioFormat(sampleRate = 48_000, channels = 2)
+        val processor = NativeDspProcessor.createOrNull(
+            format = format,
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                seatFocus = DspSeatFocusConfig(enabled = true, rightDelayMs = 0.65),
+            ),
+        )
+        assertNotNull(processor)
+        processor ?: return
+        try {
+            assertEquals(264, processor.latencyFrames)
+            val input = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            val output = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            repeat(512) { frame ->
+                input.putFloat(if (frame == 0) 0.25f else 0.0f)
+                input.putFloat(if (frame == 0) 0.25f else 0.0f)
+            }
+            input.flip()
+
+            val result = processor.process(input, output, frames = 512)
+
+            assertEquals(DspProcessStatus.SUCCESS, result.status)
+            output.flip()
+            val leftPeakFrame = peakFrame(output, channel = 0, frames = 512, channels = 2)
+            val rightPeakFrame = peakFrame(output, channel = 1, frames = 512, channels = 2)
+            assertTrue(abs(leftPeakFrame - 232.8) <= 1.0)
+            assertEquals(264, rightPeakFrame)
+            assertTrue(processor.updateSeatFocus(DspSeatFocusConfig(enabled = true, bypassed = true)))
+            assertEquals(264, processor.latencyFrames)
+        } finally {
+            processor.close()
+        }
+    }
+
+    private fun peakFrame(buffer: ByteBuffer, channel: Int, frames: Int, channels: Int): Int {
+        var peakFrame = 0
+        var peak = 0.0f
+        for (frame in 0 until frames) {
+            val sample = buffer.getFloat((frame * channels + channel) * Float.SIZE_BYTES)
+            if (abs(sample) > peak) {
+                peak = abs(sample)
+                peakFrame = frame
+            }
+        }
+        return peakFrame
     }
 
     @Test

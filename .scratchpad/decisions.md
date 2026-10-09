@@ -307,3 +307,7 @@ Explicitly configure the mobile debug signing config for v1 and v2 so OEM instal
 ## Add four DSP modules through profile schema v4
 
 Keep all new module settings disabled by default and add them as separate profile objects so v0-v3 profiles retain their existing DSP values. Seat presets store a listening position only; they do not guess left/right delays from vehicle layout. Calibration files stay outside the profile and are referenced by ID. Preserve unknown JSON properties at each object and band level, reject duplicate keys and invalid known-field types, and leave future schemas untouched.
+
+## Keep Seat Focus latency fixed and protect its native update lifetime
+
+Reserve 5.5 ms of native latency while the stereo Seat Focus node is active. Convert user-relative delay to per-channel reads inside that fixed budget, and apply new targets with a smooth readhead ramp. Precompute the four-tap Lagrange table during graph preparation. Preserve the graph's prepared Auto Headroom reference during live trim updates so a +6 dB trim cannot exceed its original peak budget. Serialize the in-place JNI update with controller close so a delayed provider callback cannot update a destroyed graph; report prepare, apply, defer and processing failure through one atomic status snapshot.

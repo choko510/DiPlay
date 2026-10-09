@@ -179,6 +179,51 @@ static dsp_engine *create_test_engine_with_dynamic_eq(
         &bypass_convolver);
 }
 
+static dsp_engine *create_test_engine_with_seat_focus_and_gain(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const dsp_seat_focus_config *seat_focus_config);
+
+static dsp_engine *create_test_engine_with_seat_focus(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_seat_focus_config *seat_focus_config) {
+    return create_test_engine_with_seat_focus_and_gain(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        seat_focus_config);
+}
+
+static dsp_engine *create_test_engine_with_seat_focus_and_gain(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const dsp_seat_focus_config *seat_focus_config) {
+    return dsp_engine_create_with_seat_focus(
+        sample_rate,
+        channels,
+        max_frames,
+        gain_db,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        &bypass_convolver,
+        seat_focus_config);
+}
+
 static void assert_true(int condition, const char *message) {
     if (!condition) {
         fail(message);
@@ -190,6 +235,235 @@ static void assert_near(double actual, double expected, double tolerance, const 
         fprintf(stderr, "FAIL: %s (actual %.12f, expected %.12f)\n", message, actual, expected);
         exit(1);
     }
+}
+
+static void process_seat_focus_signal(
+    dsp_engine *engine,
+    const float *input,
+    float *output,
+    size_t frames,
+    size_t channels,
+    const size_t *block_sizes,
+    size_t block_size_count) {
+    size_t offset = 0;
+    size_t block_index = 0;
+    while (offset < frames) {
+        size_t block_frames = block_sizes[block_index % block_size_count];
+        if (block_frames > frames - offset) block_frames = frames - offset;
+        assert_true(dsp_engine_process(
+                engine,
+                input + offset * channels,
+                block_frames * channels,
+                output + offset * channels,
+                block_frames * channels,
+                (int)block_frames,
+                (int)channels) == DSP_STATUS_OK,
+            "seat focus block processes");
+        offset += block_frames;
+        block_index++;
+    }
+}
+
+static void test_seat_focus_fixed_latency_mono_bypass_and_isolation(void) {
+    const dsp_seat_focus_config config = {1, 0, 0.0, 0.0, 0.0, 0.0, 0, 0};
+    dsp_engine *stereo = create_test_engine_with_seat_focus(48000, 2, 512, &config);
+    assert_true(stereo != NULL, "seat focus graph creates");
+    assert_true(dsp_engine_get_latency_frames(stereo) == 264, "seat focus reserves a fixed 5.5ms delay budget");
+
+    float input[512 * 2] = {0.0f};
+    float output[512 * 2] = {0.0f};
+    input[0] = 1.0f;
+    input[1] = 0.5f;
+    assert_true(dsp_engine_process(stereo, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "seat focus stereo impulse processes");
+    assert_near(output[264 * 2], 1.0, 1e-6, "left impulse aligns to reserved latency");
+    assert_near(output[264 * 2 + 1], 0.5, 1e-6, "right impulse aligns to reserved latency");
+    for (size_t frame = 0; frame < 512; frame++) {
+        if (frame == 264) continue;
+        assert_near(output[frame * 2], 0.0, 1e-6, "seat focus left impulse has one output tap");
+        assert_near(output[frame * 2 + 1], 0.0, 1e-6, "seat focus right impulse has one output tap");
+    }
+    assert_true(dsp_engine_reset(stereo) == DSP_STATUS_OK, "seat focus reset is accepted");
+    memset(input, 0, sizeof(input));
+    memset(output, 0, sizeof(output));
+    input[0] = 0.25f;
+    assert_true(dsp_engine_process(stereo, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "single-channel seat focus impulse processes");
+    for (size_t frame = 0; frame < 512; frame++) {
+        assert_near(output[frame * 2 + 1], 0.0, 1e-7, "seat focus does not leak an impulse across channels");
+    }
+    dsp_engine_destroy(stereo);
+
+    dsp_engine *mono = create_test_engine_with_seat_focus(48000, 1, 512, &config);
+    assert_true(mono != NULL, "mono graph bypasses stereo-only seat focus");
+    assert_true(dsp_engine_get_latency_frames(mono) == 0, "mono bypass adds no seat latency");
+    float mono_input[4] = {0.25f, -0.5f, 0.75f, -1.0f};
+    float mono_output[4] = {0.0f};
+    assert_true(dsp_engine_process(mono, mono_input, 4, mono_output, 4, 4, 1) == DSP_STATUS_OK,
+        "mono seat focus bypass processes");
+    for (size_t index = 0; index < 4; index++) {
+        assert_near(mono_output[index], mono_input[index], 1e-7, "mono seat focus is identity");
+    }
+    dsp_engine_destroy(mono);
+}
+
+static void test_seat_focus_fractional_delay_accuracy_and_chunk_invariance(void) {
+    const int sample_rates[] = {44100, 48000, 96000};
+    const size_t frame_count = 8192;
+    const size_t channels = 2;
+    const size_t block_sizes[] = {1, 128, 512, 1537, 2048};
+    const size_t reference_block_sizes[] = {512};
+    float *input = (float *)calloc(frame_count * channels, sizeof(float));
+    float *output = (float *)calloc(frame_count * channels, sizeof(float));
+    float *reference = (float *)calloc(frame_count * channels, sizeof(float));
+    assert_true(input != NULL && output != NULL && reference != NULL, "seat focus correlation buffers allocate");
+    uint32_t random_state = UINT32_C(0x13579bdf);
+    for (size_t frame = 0; frame < frame_count; frame++) {
+        random_state = random_state * UINT32_C(1664525) + UINT32_C(1013904223);
+        const float sample = (float)(random_state >> 8) / 8388607.5f - 1.0f;
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = sample;
+    }
+
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        const dsp_seat_focus_config config = {1, 0, 0.0, 0.65, 0.0, 0.0, 0, 0};
+        const int expected_latency = (int)ceil((double)sample_rate * 0.0055);
+        dsp_engine *reference_engine = create_test_engine_with_seat_focus(sample_rate, 2, 2048, &config);
+        assert_true(reference_engine != NULL, "fractional seat focus reference graph creates");
+        assert_true(dsp_engine_get_latency_frames(reference_engine) == expected_latency,
+            "fractional seat focus reference latency is rate-specific and fixed");
+        memset(reference, 0, frame_count * channels * sizeof(float));
+        process_seat_focus_signal(reference_engine, input, reference, frame_count, channels, reference_block_sizes, 1);
+        dsp_engine_destroy(reference_engine);
+
+        dsp_engine *engine = create_test_engine_with_seat_focus(sample_rate, 2, 2048, &config);
+        assert_true(engine != NULL, "fractional seat focus graph creates");
+        assert_true(dsp_engine_get_latency_frames(engine) == expected_latency,
+            "fractional seat focus latency is rate-specific and fixed");
+        memset(output, 0, frame_count * channels * sizeof(float));
+        process_seat_focus_signal(engine, input, output, frame_count, channels, block_sizes,
+            sizeof(block_sizes) / sizeof(block_sizes[0]));
+        double maximum_chunk_error = 0.0;
+        for (size_t sample = 0; sample < frame_count * channels; sample++) {
+            const double error = fabs((double)output[sample] - reference[sample]);
+            if (error > maximum_chunk_error) maximum_chunk_error = error;
+        }
+        assert_true(maximum_chunk_error <= 1e-7, "seat focus output is invariant to process block boundaries");
+
+        const int expected_lag = (int)lround(0.00065 * (double)sample_rate);
+        double best_correlation = -DBL_MAX;
+        int best_lag = 0;
+        double correlations[9];
+        for (int lag = expected_lag - 4; lag <= expected_lag + 4; lag++) {
+            double correlation = 0.0;
+            const size_t start = (size_t)expected_latency + 128U;
+            const size_t end = frame_count - (size_t)lag - 128U;
+            for (size_t frame = start; frame < end; frame++) {
+                correlation += (double)output[frame * 2] * output[(frame + (size_t)lag) * 2 + 1U];
+            }
+            if (correlation > best_correlation) {
+                best_correlation = correlation;
+                best_lag = lag;
+            }
+            correlations[lag - (expected_lag - 4)] = correlation;
+        }
+        const size_t peak_index = (size_t)(best_lag - (expected_lag - 4));
+        double fractional_offset = 0.0;
+        if (peak_index > 0U && peak_index + 1U < 9U) {
+            const double left_correlation = correlations[peak_index - 1U];
+            const double center_correlation = correlations[peak_index];
+            const double right_correlation = correlations[peak_index + 1U];
+            const double denominator = left_correlation - 2.0 * center_correlation + right_correlation;
+            if (fabs(denominator) > DBL_EPSILON) {
+                fractional_offset = 0.5 * (left_correlation - right_correlation) / denominator;
+            }
+        }
+        const double measured_lag = (double)best_lag + fractional_offset;
+        const double expected_fractional_lag = 0.00065 * (double)sample_rate;
+        const double error_ms = (measured_lag - expected_fractional_lag) * 1000.0 / (double)sample_rate;
+        printf(
+            "DSP_SEAT_DELAY sampleRate=%d expectedSamples=%.4f measuredSamples=%.4f errorMs=%.6f\n",
+            sample_rate,
+            expected_fractional_lag,
+            measured_lag,
+            error_ms);
+        assert_true(fabs(error_ms) <= 0.05,
+            "fractional L/R delay correlation is within 0.05ms");
+        dsp_engine_destroy(engine);
+    }
+    free(input);
+    free(output);
+    free(reference);
+}
+
+static void test_seat_focus_trim_polarity_and_live_targets_are_smooth(void) {
+    const dsp_seat_focus_config initial = {1, 0, 0.0, 0.0, 0.0, 0.0, 0, 0};
+    dsp_engine *engine = create_test_engine_with_seat_focus(48000, 2, 512, &initial);
+    assert_true(engine != NULL, "live seat focus graph creates");
+    const int initial_latency = dsp_engine_get_latency_frames(engine);
+    float input[512 * 2];
+    float output[512 * 2];
+    for (size_t frame = 0; frame < 512U; frame++) {
+        input[frame * 2] = 0.25f;
+        input[frame * 2 + 1U] = 0.125f;
+    }
+    for (int block = 0; block < 2; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "seat focus state warms before live update");
+    }
+
+    const dsp_seat_focus_config updated = {1, 0, 0.0, 0.65, 6.0, -6.0, 1, 0};
+    assert_true(dsp_engine_update_seat_focus(engine, &updated) == DSP_STATUS_OK,
+        "live seat focus target is accepted");
+    assert_true(dsp_engine_get_latency_frames(engine) == initial_latency,
+        "seat delay edits do not change prepared graph latency");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "live seat focus update processes");
+    float maximum_step = 0.0f;
+    float previous_left = 0.25f;
+    for (size_t frame = 0; frame < 512U; frame++) {
+        const float current_left = output[frame * 2];
+        const float step = fabsf(current_left - previous_left);
+        if (step > maximum_step) maximum_step = step;
+        previous_left = current_left;
+    }
+    assert_true(maximum_step < 0.01f, "live trim and polarity changes are ramped without a click");
+
+    const dsp_seat_focus_config invalid = {1, 0, 0.0, 5.1, 0.0, 0.0, 0, 0};
+    assert_true(dsp_engine_update_seat_focus(engine, &invalid) == DSP_STATUS_INVALID_ARGUMENT,
+        "native live update rejects out-of-range delay");
+    dsp_engine_destroy(engine);
+}
+
+static void test_seat_focus_live_trim_keeps_prepared_headroom_safe(void) {
+    const dsp_seat_focus_config initial = {1, 0, 0.0, 0.0, 0.0, 0.0, 0, 0};
+    dsp_engine *engine = create_test_engine_with_seat_focus_and_gain(48000, 2, 1024, -1.0, &initial);
+    assert_true(engine != NULL, "headroom seat focus graph creates");
+    float input[1024 * 2];
+    float output[1024 * 2];
+    for (size_t frame = 0; frame < 1024U; frame++) {
+        input[frame * 2U] = 0.75f;
+        input[frame * 2U + 1U] = 0.75f;
+    }
+    assert_true(dsp_engine_process(engine, input, 2048, output, 2048, 1024, 2) == DSP_STATUS_OK,
+        "headroom reference block processes");
+    const float prepared_level = output[1023U * 2U];
+    assert_near(prepared_level, 0.75 * pow(10.0, -1.0 / 20.0), 1e-4,
+        "prepared preamp margin is the level reference");
+
+    const dsp_seat_focus_config boosted = {1, 0, 0.0, 0.0, 6.0, 6.0, 0, 0};
+    assert_true(dsp_engine_update_seat_focus(engine, &boosted) == DSP_STATUS_OK,
+        "maximum live trim is accepted");
+    assert_true(dsp_engine_process(engine, input, 2048, output, 2048, 1024, 2) == DSP_STATUS_OK,
+        "maximum live trim block processes");
+    for (size_t frame = 900U; frame < 1024U; frame++) {
+        assert_near(output[frame * 2U], prepared_level, 1e-4,
+            "live positive trim remains inside the prepared headroom budget");
+        assert_near(output[frame * 2U + 1U], prepared_level, 1e-4,
+            "live positive trim preserves both channels");
+    }
+    dsp_engine_destroy(engine);
 }
 
 static double measure_sine_gain(dsp_engine *engine, double frequency, int channels);
@@ -1595,6 +1869,10 @@ int main(void) {
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
+    test_seat_focus_fixed_latency_mono_bypass_and_isolation();
+    test_seat_focus_fractional_delay_accuracy_and_chunk_invariance();
+    test_seat_focus_trim_polarity_and_live_targets_are_smooth();
+    test_seat_focus_live_trim_keeps_prepared_headroom_safe();
     test_multiband_unity_reconstruction_and_phase();
     test_multiband_compression_is_band_selective();
     test_multiband_chunk_invariance_reset_and_validation();

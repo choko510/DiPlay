@@ -39,21 +39,42 @@ class EthernetIpv6CodecTest {
     }
 
     @Test
-    fun `classifies only IPv6 neighbor solicitation and advertisement as NDP`() {
-        val packet = ByteArray(41)
-        packet[0] = 0x60
-        packet[6] = 58
-        packet[40] = 135.toByte()
-        assertEquals(true, EthernetIpv6Codec.isNeighborDiscovery(packet))
+    fun `classifies router and neighbor discovery types separately from retryable resolution`() {
+        for (type in 133..136) {
+            val packet = icmpv6Packet(type)
+            assertEquals(true, EthernetIpv6Codec.isNeighborDiscovery(packet))
+            assertEquals(type >= 135, EthernetIpv6Codec.isNeighborResolution(packet))
+        }
 
-        packet[40] = 136.toByte()
-        assertEquals(true, EthernetIpv6Codec.isNeighborDiscovery(packet))
+        assertEquals(false, EthernetIpv6Codec.isNeighborDiscovery(icmpv6Packet(137)))
+        assertEquals(false, EthernetIpv6Codec.isNeighborDiscovery(icmpv6Packet(135).also { it[6] = 6 }))
+    }
 
-        packet[40] = 137.toByte()
-        assertEquals(false, EthernetIpv6Codec.isNeighborDiscovery(packet))
-        packet[40] = 135.toByte()
-        packet[6] = 6
-        assertEquals(false, EthernetIpv6Codec.isNeighborDiscovery(packet))
+    @Test
+    fun `classifies neighbor discovery through extension headers with bounded parsing`() {
+        val packet = ByteArray(49).apply {
+            this[0] = 0x60
+            this[5] = 9
+            this[6] = 0
+            this[40] = 58
+            this[41] = 0
+            this[48] = 135.toByte()
+        }
+
+        assertEquals("NDP_NS", EthernetIpv6Codec.packetType(packet))
+        assertEquals(true, EthernetIpv6Codec.isNeighborDiscovery(packet))
+        assertEquals(false, EthernetIpv6Codec.isNeighborDiscovery(packet, length = 44))
+        assertEquals(false, EthernetIpv6Codec.isNeighborResolution(packet.copyOfRange(0, 44)))
+    }
+
+    @Test
+    fun `classifies NDP in Ethernet frame views and after NA link option addition`() {
+        val packet = icmpv6Packet(133)
+        val frame = EthernetIpv6Codec.build(ByteArray(6), ByteArray(6), packet)
+        val view = EthernetIpv6Codec.parseIpv6View(frame)!!
+
+        assertEquals("NDP_RS", EthernetIpv6Codec.packetType(frame, view.payloadOffset, view.payloadLength))
+        assertEquals(true, EthernetIpv6Codec.isNeighborDiscovery(frame, view.payloadOffset, view.payloadLength))
     }
 
     @Test
@@ -78,6 +99,15 @@ class EthernetIpv6CodecTest {
         assertEquals(1, result[65].toInt() and 0xff)
         assertArrayEquals(mac, result.copyOfRange(66, 72))
         assertEquals(0xffff, ipv6IcmpChecksumSum(result))
+        assertEquals("NDP_NA", EthernetIpv6Codec.packetType(result))
+        assertEquals(true, EthernetIpv6Codec.isNeighborResolution(result))
+    }
+
+    private fun icmpv6Packet(type: Int): ByteArray = ByteArray(41).apply {
+        this[0] = 0x60
+        this[5] = 1
+        this[6] = 58
+        this[40] = type.toByte()
     }
 
     private fun ipv6IcmpChecksumSum(packet: ByteArray): Int {

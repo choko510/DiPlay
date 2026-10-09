@@ -44,9 +44,13 @@ Use the existing debug-log preference for syslog relay capture and small CarKit 
 
 Keep the received TCP `word8` field diagnostic-only because observed iPhone replies omit the host's `0xfeedface` value. The version handshake still validates its response version; do not reject TCP frames on an unconfirmed magic-field rule.
 
-## Keep NCM bulk-IN requests persistent and status polling off
+## Keep NCM bulk-IN persistent and drain an available status endpoint
 
-Treat `requestWait` timeout as idle while preserving the queued request; treat a null result, queue failure, or unexpected completion as a terminal NCM transport error. Close the full bridge on terminal errors. Do not run synchronous status-endpoint transfers on the shared connection by default; retain an explicit diagnostic switch for A/B testing.
+Treat `requestWait` timeout as idle while preserving the queued request; treat a null result, queue failure, or unexpected completion as terminal for the current NCM connection. Let the controller's existing clean retry reopen the connection when the device remains present. Poll and drain the CDC status endpoint by default whenever one is available, but do not gate NCM or AirPlay startup on a `NETWORK_CONNECTION` notification. Keep `NO_STATUS_POLLING` as a debug-only comparator.
+
+## Separate NCM packet proof from CarPlay startup milestones
+
+Classify NCM directionality only from observed inbound and successful outbound IPv6 proof. The readiness phase may also be advanced by accepted AirPlay control traffic, so report that signal, screen-stream opening, and the overall attempt outcome separately. Keep short result fields before long descriptor summaries so bounded log export retains them.
 
 ## Retry only idempotent NDP during NCM startup
 
@@ -287,3 +291,15 @@ Treat paint completion, timeout and cancellation as mutually exclusive terminal 
 ## Preserve paint-reset evidence through warm activation
 
 Tag each primary-session `onPaintStatusReset()` with the current suspension generation. A measurement ending must not erase session evidence; a new distinct suspension advances the generation so older reset events cannot authorize its paint. Cold session creation starts a fresh generation. Start the timeout deadline on first activation and carry its absolute elapsed-realtime value across pause/resume and repeated same-profile opens.
+
+## Keep wired NCM experiments isolated and debug-only
+
+Persist one NCM diagnostic profile only in debuggable builds. `AUTO` polls the status endpoint when available and keeps the 100 ms pre-ready OUT timeout; `NO_STATUS_POLLING` isolates the previous off behavior. Timeout, sync Bulk IN and forced function selection profiles inherit status polling so future timeout comparisons keep it enabled. Do not combine profiles or add CDC-NCM control requests without new A/B evidence.
+
+## Keep local MFi identity outside tracked source
+
+Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Allow only the expected identity and certificate assets, and reject every other key-like file from APK asset inputs. Never copy those local assets into the worktree.
+
+## Include both APK signing schemes for mobile debug distribution
+
+Explicitly configure the mobile debug signing config for v1 and v2 so OEM installers that depend on JAR signatures can parse the APK. Verify the resulting artifact with `apksigner`; the manifest minSdk can affect which scheme is reported as applicable.

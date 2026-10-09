@@ -64,6 +64,32 @@ class NcmStartupNdpRetryTest {
     }
 
     @Test
+    fun selectedPreReadyTimeoutAppliesToOrdinaryAndBoundedResolutionAttempts() {
+        val ordinaryTimeouts = mutableListOf<Int>()
+        NcmStartupNdpRetry.send(
+            startupNeighborDiscovery = false,
+            linkReady = false,
+            preReadyOutTimeoutMillis = 2_000,
+            isActive = { true },
+            sendOnce = { timeout -> ordinaryTimeouts += timeout; NcmSendResult.NotReady },
+            pause = { error("ordinary packets must not retry") },
+        )
+
+        val resolutionTimeouts = mutableListOf<Int>()
+        NcmStartupNdpRetry.send(
+            startupNeighborDiscovery = true,
+            linkReady = false,
+            preReadyOutTimeoutMillis = 2_000,
+            isActive = { true },
+            sendOnce = { timeout -> resolutionTimeouts += timeout; NcmSendResult.NotReady },
+            pause = {},
+        )
+
+        assertEquals(listOf(2_000), ordinaryTimeouts)
+        assertEquals(List(5) { 2_000 }, resolutionTimeouts)
+    }
+
+    @Test
     fun linkReadyUsesNormalTimeoutWithoutRetrying() {
         val timeouts = mutableListOf<Int>()
 

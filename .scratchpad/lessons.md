@@ -257,4 +257,24 @@ Gecko can deliver page-stop and process-crash callbacks after a session becomes 
 
 If a paint timeout closes a trace but leaves its pending flag set, later callbacks or Activity resume can count both timeout and success or schedule repeated timeouts. Store completion, timeout and cancellation as mutually exclusive measurement outcomes; clear the Back affordance explicitly when destroying its controller.
 
+## Separate NDP accounting from startup retries
+
+For diagnostic classification, resolve ICMPv6 through bounded extension-header parsing and distinguish RS/RA/NS/NA (133–136). Keep ambiguous Bulk OUT retries limited to NS/NA (135/136); packet typing and counters must not silently change retry behavior.
+
+## Bundle local MFi identity only through an explicit input
+
+Use the external `DIPLAY_AUTH_ASSETS_DIR` input for a local-only debug build, and gate packaging with an exact two-file allowlist. Generated APKs may contain those user-requested assets; keep them out of source, commits, and logs.
+
+## Verify the APK signature schemes explicitly
+
+Use `apksigner verify --verbose --min-sdk-version 23` when confirming v1 compatibility on an APK whose manifest minSdk is 28 or higher; the default report can show v1 as not applicable while v2 remains valid. Check the exact final APK file rather than assuming Gradle's successful package task alone resolved an installer error.
+
+## Keep NCM evidence distinct from readiness state
+
+The NCM readiness phase can be advanced by an AirPlay control milestone, so `NCM_LINK_READY` alone does not prove bidirectional NCM traffic. Derive the NCM result from explicit RX/TX proof and log AirPlay acceptance and screen opening separately. Put summary fields before descriptor details because diagnostic export truncates long lines.
+
+## Treat CDC status notifications as observations, not startup gates
+
+The 2026-10-09 trace recorded both `NETWORK_CONNECTION` connected and disconnected values while successful screen startup also occurred during intervals with no new status packet. Poll/drain the endpoint when present, but do not wait for a connected notification before NCM or AirPlay startup. In the same report, request queue/wait errors coincided with physical USB disconnects; only add request-level recovery if the error reproduces while the device remains present.
+
 When Gecko reports paint-status reset during `setActive(false)`, retain it through profile-resolution timeout and warm reopen. Associate it with a suspension generation instead of clearing a boolean on measurement end; a later suspension must observe its own reset before primary paint is accepted.

@@ -68,10 +68,11 @@ import com.shilapi.xcertplay.transport.LinuxI2cTransport
 import com.shilapi.xcertplay.transport.LockdownCarKitClient
 import com.shilapi.xcertplay.transport.LockdownPairingClient
 import com.shilapi.xcertplay.transport.LockdownPairRecord
-import com.shilapi.xcertplay.transport.rejectedLockdownPairRecordError
+import com.shilapi.xcertplay.transport.NcmDiagnosticProfileStore
 import com.shilapi.xcertplay.transport.NcmFunctionDiscovery
 import com.shilapi.xcertplay.transport.NcmDiagnosticEvent
 import com.shilapi.xcertplay.transport.NcmUsbBridge
+import com.shilapi.xcertplay.transport.rejectedLockdownPairRecordError
 import java.io.Closeable
 import java.io.IOException
 import java.net.InetAddress
@@ -1853,7 +1854,7 @@ class CarPlayController(
                     is IphoneUsbHost.Iap2SessionResult.Connected -> {
                         try {
                             traceConnection(ConnectionTraceStage.USB_IAP2_SESSION_OPENED)
-                            val ncm = openNcm(device)
+                            val ncm = openNcm(device, startupAttempt)
                             if (isCurrentWiredDataPath(dataPathGeneration)) {
                                 runStack(result.session, ncm, device, startupAttempt)
                             } else {
@@ -1950,7 +1951,7 @@ class CarPlayController(
         }
     }
 
-    private fun openNcm(device: UsbDevice): NcmUsbBridge {
+    private fun openNcm(device: UsbDevice, startupAttempt: Int): NcmUsbBridge {
         val configuration = IphoneCarPlayConfiguration.find(device)
             ?: throw IphoneUsbException.Protocol(
                 "iPhone exposes no CarPlay configuration for NCM",
@@ -1960,13 +1961,23 @@ class CarPlayController(
         var connectionTransferred = false
         try {
             val mode = iphoneHost.queryAppleUsbMode(device, connection, queryDevice = connectionTraceEnabled)
-            val discovery = NcmFunctionDiscovery.discover(configuration, connection.rawDescriptors)
+            val diagnosticsEnabled = NcmDiagnosticProfileStore.isDebuggable(appContext)
+            val diagnosticProfile = NcmDiagnosticProfileStore.load(appContext)
+            val discovery = NcmFunctionDiscovery.discover(
+                configuration,
+                connection.rawDescriptors,
+                diagnosticProfile.forcedFunctionPair,
+            )
+            val selection = mode.summary() + " " + discovery.diagnosticSummary(configuration)
+            if (diagnosticsEnabled) {
+                debugLog("NCM_AB profile=${diagnosticProfile.name} attempt=$startupAttempt $selection")
+            }
             val function = discovery.selected
                 ?: throw IphoneUsbException.Protocol(
-                    "iPhone configuration does not expose an unambiguous CDC-NCM function: " +
+                    "iPhone configuration does not expose the requested CDC-NCM function " +
+                        "for profile=${diagnosticProfile.name}: " +
                         discovery.selectionReason,
                 )
-            val selection = mode.summary() + " " + discovery.diagnosticSummary(configuration)
             debugLog("ncm discovery $selection")
             connectionTransferred = true
             return NcmUsbBridge.open(
@@ -1974,6 +1985,10 @@ class CarPlayController(
                 function = function,
                 selectionDiagnostics = selection,
                 queryNtbParameters = connectionTraceEnabled,
+                diagnosticProfile = diagnosticProfile,
+                diagnosticAttempt = startupAttempt,
+                diagnosticsEnabled = diagnosticsEnabled,
+                onDiagnosticLog = { message -> debugLog(message) },
             )
         } finally {
             if (!connectionTransferred) runCatching { connection.close() }
@@ -2169,7 +2184,7 @@ class CarPlayController(
             debugLog("wired iAP2 CSM channel opened")
 
             val ncmHostMac = ncm.hostMac ?: config.hostMac
-            debugLog("ncm using hostMac=${ncmHostMac.macString()}")
+            debugLog("ncm using hostMacPresent=${ncm.hostMac != null}")
             if (!attachVpn(ncm, ncmHostMac, startupAttempt)) {
                 throw IphoneUsbException.DeviceUnavailable("Could not attach the NCM/VPN AirPlay transport")
             }
@@ -2291,7 +2306,18 @@ class CarPlayController(
                 } else {
                     failureCategory ?: ConnectionTraceError.USB
                 }
-                val ncmReport = ncm.diagnosticSnapshot().report()
+                val ncmSnapshot = ncm.diagnosticSnapshot()
+                val ncmReport = ncmSnapshot.report()
+                debugLog(
+                    "WIRED_AB_RESULT profile=${ncmSnapshot.profile.name} attempt=$startupAttempt " +
+                        "ncmOutcome=${ncmSnapshot.ncmOutcome.name} rxProven=${ncmSnapshot.rxProven} " +
+                        "txProven=${ncmSnapshot.txProven} " +
+                        "airplayControlAccepted=${wiredAirPlayControlAccepted.get()} " +
+                        "airplayEncryptionStarted=${wiredAirPlayEncryptionStarted.get()} " +
+                        "airplayEncrypted=${wiredAirPlayEncrypted.get()} " +
+                        "airplayEventAccepted=${wiredAirPlayEventAccepted.get()} " +
+                        "screenOpened=$streamWasOpened overallOutcome=$finalCategory",
+                )
                 if (connectionTraceErrorReported.compareAndSet(false, true)) {
                     traceConnection(
                         ConnectionTraceStage.ERROR,

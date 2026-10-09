@@ -575,15 +575,49 @@ static void test_stereo_limiter_caps_sample_peaks_and_preserves_image(void) {
     assert_near(output[0], -output[1], 1e-6, "linked limiter preserves anti-phase image");
 
     assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "limiter resets before sustained overload");
-    const float sustained_overload[] = {2.0f, -2.0f, 1.0f, -1.0f};
-    float overload_output[4] = {0.0f};
-    assert_true(dsp_engine_process(engine, sustained_overload, 4, overload_output, 4, 2, 2) == DSP_STATUS_OK,
-        "limiter processes consecutive over-threshold peaks");
+    const float initial_overload[] = {2.0f, -2.0f};
+    float overload_output[2] = {0.0f};
+    assert_true(dsp_engine_process(engine, initial_overload, 2, overload_output, 2, 1, 2) == DSP_STATUS_OK,
+        "limiter processes an initial high peak");
     assert_near(fabs(overload_output[0]), threshold, 1e-6, "first overload frame reaches the hard ceiling");
-    assert_true(fabs(overload_output[2]) < threshold,
-        "limiter does not recover gain while the signal remains over threshold");
-    assert_near(overload_output[2], threshold / 2.0, 1e-6,
-        "limiter retains the gain reduction across a still-hot frame");
+    assert_near(fabs(overload_output[0]), fabs(overload_output[1]), 1e-6,
+        "initial overload keeps linked stereo gain");
+
+    float first_recovery_output = 0.0f;
+    float last_recovery_output = 0.0f;
+    int recovery_output_finite = 1;
+    int recovery_stays_below_ceiling = 1;
+    int recovery_preserves_stereo_image = 1;
+    size_t recovery_remaining = 9600;
+    while (recovery_remaining > 0) {
+        const size_t frames = recovery_remaining < 512 ? recovery_remaining : 512;
+        float steady_overload[1024];
+        float recovered[1024];
+        for (size_t frame = 0; frame < frames; frame++) {
+            steady_overload[frame * 2] = 1.2f;
+            steady_overload[frame * 2 + 1] = -1.2f;
+        }
+        assert_true(dsp_engine_process(engine, steady_overload, frames * 2, recovered, frames * 2,
+            (int)frames, 2) == DSP_STATUS_OK, "limiter releases toward the required gain during overload");
+        for (size_t frame = 0; frame < frames; frame++) {
+            const float left = recovered[frame * 2];
+            const float right = recovered[frame * 2 + 1];
+            if (!isfinite(left) || !isfinite(right)) recovery_output_finite = 0;
+            if (fabs(left) > threshold + 1e-6 || fabs(right) > threshold + 1e-6) {
+                recovery_stays_below_ceiling = 0;
+            }
+            if (fabsf(left + right) > 1e-6f) recovery_preserves_stereo_image = 0;
+            if (recovery_remaining == 9600 && frame == 0) first_recovery_output = fabsf(left);
+            if (recovery_remaining <= frames && frame == frames - 1) last_recovery_output = fabsf(left);
+        }
+        recovery_remaining -= frames;
+    }
+    assert_true(recovery_output_finite, "sustained limiter output remains finite");
+    assert_true(recovery_stays_below_ceiling,
+        "sustained over-threshold input never exceeds the sample ceiling");
+    assert_true(recovery_preserves_stereo_image, "sustained overload keeps linked stereo gain");
+    assert_true(last_recovery_output > first_recovery_output + 0.25f,
+        "limiter recovers toward the lower sustained peak while it remains over threshold");
 
     assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "limiter reset succeeds");
     for (size_t index = 0; index < 512; index++) {

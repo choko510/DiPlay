@@ -100,13 +100,12 @@ void dsp_dynamics_process_limiter_frame(dsp_dynamics *dynamics, float *left, flo
     if (dynamics->config.limiter_enabled) {
         float peak = fabsf(*left);
         if (channels == 2) peak = fmaxf(peak, fabsf(*right));
-        if (peak > dynamics->limiter_threshold_linear) {
-            const float required_gain = dynamics->limiter_threshold_linear / peak;
-            dynamics->limiter_gain = fminf(dynamics->limiter_gain, required_gain);
-        } else {
-            dynamics->limiter_gain = dynamics->limiter_release_coefficient * dynamics->limiter_gain +
-                (1.0f - dynamics->limiter_release_coefficient);
-        }
+        const float required_gain = peak > dynamics->limiter_threshold_linear
+            ? dynamics->limiter_threshold_linear / peak
+            : 1.0f;
+        const float released_gain = dynamics->limiter_release_coefficient * dynamics->limiter_gain +
+            (1.0f - dynamics->limiter_release_coefficient);
+        dynamics->limiter_gain = fminf(released_gain, required_gain);
         *left *= dynamics->limiter_gain;
         if (channels == 2) *right *= dynamics->limiter_gain;
     }

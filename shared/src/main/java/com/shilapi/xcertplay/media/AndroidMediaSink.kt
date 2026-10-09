@@ -23,6 +23,22 @@ import com.shilapi.xcertplay.airplay.Unsigned32FrameTracker
 import com.shilapi.xcertplay.airplay.framesToNanos
 import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
+import com.shilapi.xcertplay.media.dsp.DspConfigProvider
+import com.shilapi.xcertplay.media.dsp.DspConfigSnapshot
+import com.shilapi.xcertplay.media.dsp.DspAudioFormat
+import com.shilapi.xcertplay.media.dsp.DspBufferSizing
+import com.shilapi.xcertplay.media.dsp.DspLiveUpdateController
+import com.shilapi.xcertplay.media.dsp.DspLatencyPreservingBypass
+import com.shilapi.xcertplay.media.dsp.DspPcmCrossfade
+import com.shilapi.xcertplay.media.dsp.DspPcmEncoding
+import com.shilapi.xcertplay.media.dsp.DspPcmConverter
+import com.shilapi.xcertplay.media.dsp.DspPcmPipeline
+import com.shilapi.xcertplay.media.dsp.DspTpdfDither
+import com.shilapi.xcertplay.media.dsp.DspPreparedUpdate
+import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
+import com.shilapi.xcertplay.media.dsp.DspPipelinePreparer
+import com.shilapi.xcertplay.media.dsp.createNativePipeline
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -31,7 +47,12 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
+
+internal fun interface AudioTrackWriteAdapterForTest {
+    fun write(data: ByteArray, offset: Int, length: Int, writeMode: Int): Int
+}
 
 /**
  * Android rendering backend for the CarPlay media engine. Video frames are
@@ -39,6 +60,7 @@ import java.util.concurrent.TimeUnit
  * played through AudioTrack. Call [close] when the session tears down.
  */
 class AndroidMediaSink(
+    private val dspConfigProvider: DspConfigProvider,
     surface: Surface? = null,
     private val videoWidth: Int = 1280,
     private val videoHeight: Int = 720,
@@ -52,6 +74,32 @@ class AndroidMediaSink(
     private val onAudioDiagnostic: (String) -> Unit = {},
     onVideoFrameSubmittedToSurface: ((Int) -> Unit)? = null,
 ) : MediaSink {
+    constructor(
+        surface: Surface? = null,
+        videoWidth: Int = 1280,
+        videoHeight: Int = 720,
+        preferSoftwareHevcDecoder: Boolean = false,
+        advancedAudioChannelMapping: Boolean = false,
+        navigationAudioRoute: NavigationAudioRoute = NavigationAudioRoute.FULL_BAND,
+        transport: String = "wired",
+        audioManager: AudioManager? = null,
+        onScreenStreamActiveChanged: ((Int, Boolean) -> Unit)? = null,
+        mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
+        onAudioDiagnostic: (String) -> Unit = {},
+    ) : this(
+        dspConfigProvider = DspConfigProvider { DspRuntimeConfig.disabled() },
+        surface = surface,
+        videoWidth = videoWidth,
+        videoHeight = videoHeight,
+        preferSoftwareHevcDecoder = preferSoftwareHevcDecoder,
+        advancedAudioChannelMapping = advancedAudioChannelMapping,
+        navigationAudioRoute = navigationAudioRoute,
+        transport = transport,
+        audioManager = audioManager,
+        onScreenStreamActiveChanged = onScreenStreamActiveChanged,
+        mediaBufferMillis = mediaBufferMillis,
+        onAudioDiagnostic = onAudioDiagnostic,
+    )
     private data class AudioRendererEntry(val token: AudioOwnerToken, val renderer: AudioRenderer)
     private data class MicrophoneEntry(val token: AudioOwnerToken, val uplink: MicrophoneUplinkController)
 
@@ -75,6 +123,10 @@ class AndroidMediaSink(
         Thread(task, "carplay-video-recovery").apply { isDaemon = true }
     }
     internal var audioRendererThreadFactoryForTest: ((Runnable, String) -> Thread)? = null
+    internal var dspPipelinePreparerForTest: DspPipelinePreparer? = null
+    internal var audioTrackWriteAdapterForTest: AudioTrackWriteAdapterForTest? = null
+    internal var beforeDspUpdatePublishForTest: (() -> Unit)? = null
+    internal var onDspUpdatePreparedForTest: (() -> Unit)? = null
     internal var microphoneUplinkFactoryForTest:
         ((MicrophoneConfig, () -> Boolean) -> MicrophoneUplinkController)? = null
 
@@ -310,16 +362,51 @@ class AndroidMediaSink(
             )
         }
 
-    private fun createAudioRenderer(format: AudioFormat): AudioRenderer = AudioRenderer(
-        format = format,
-        advancedAudioChannelMapping = advancedAudioChannelMapping,
-        navigationAudioRoute = navigationAudioRoute,
-        transport = transport,
-        audioManager = audioManager,
-        mediaBufferMillis = mediaBufferMillis,
-        report = onAudioDiagnostic,
-        threadFactory = audioRendererThreadFactoryForTest ?: { task, name -> Thread(task, name) },
-    )
+    private fun createAudioRenderer(format: AudioFormat): AudioRenderer {
+        val mappingMode = if (advancedAudioChannelMapping) {
+            AudioChannelMappingMode.AUTOMOTIVE_BUS
+        } else {
+            AudioChannelMappingMode.MOBILE_COMPATIBLE
+        }
+        val classification = AudioStreamClassifier.classify(
+            audioType = format.audioType,
+            payloadType = format.payloadType,
+            mappingMode = mappingMode,
+            navigationRoute = navigationAudioRoute,
+        )
+        val configSnapshot = snapshotDspConfig()
+        return AudioRenderer(
+            format = format,
+            classification = classification,
+            dspRuntimeConfig = configSnapshot.config,
+            advancedAudioChannelMapping = advancedAudioChannelMapping,
+            navigationAudioRoute = navigationAudioRoute,
+            transport = transport,
+            audioManager = audioManager,
+            mediaBufferMillis = mediaBufferMillis,
+            report = onAudioDiagnostic,
+            threadFactory = audioRendererThreadFactoryForTest ?: { task, name -> Thread(task, name) },
+            dspConfigProvider = dspConfigProvider,
+            dspConfigGeneration = configSnapshot.generation,
+            dspPipelinePreparer = dspPipelinePreparerForTest ?: { targetFormat, config ->
+                createNativePipeline(classification.dspRole, targetFormat, config)
+            },
+            audioTrackWriteAdapterForTest = audioTrackWriteAdapterForTest,
+            beforeDspUpdatePublishForTest = beforeDspUpdatePublishForTest,
+            onDspUpdatePreparedForTest = onDspUpdatePreparedForTest,
+        )
+    }
+
+    private fun snapshotDspConfig(): DspConfigSnapshot = try {
+        dspConfigProvider.versionedSnapshot()
+    } catch (_: Exception) {
+        runCatching {
+            onAudioDiagnostic(
+                "DSP unavailable: reason=CONFIG_SNAPSHOT_FAILED fallback=LEGACY_PCM",
+            )
+        }
+        DspConfigSnapshot(0L, DspRuntimeConfig.disabled())
+    }
 
     private fun audioTypeLock(type: Int): Any = audioTypeLocks.computeIfAbsent(type) { Any() }
 
@@ -683,15 +770,25 @@ private fun MediaFormat.intOrNull(key: String): Int? =
     }
 
 /** Decodes AAC-LC/Opus to PCM and plays it, or plays wired LPCM directly. */
-private class AudioRenderer(
+internal class AudioRenderer(
     val format: AudioFormat,
+    private val classification: AudioStreamClassification,
+    private val dspRuntimeConfig: DspRuntimeConfig,
     private val advancedAudioChannelMapping: Boolean,
     private val navigationAudioRoute: NavigationAudioRoute,
     private val transport: String,
     private val audioManager: AudioManager?,
     private val mediaBufferMillis: Int,
     private val report: (String) -> Unit,
-    threadFactory: (Runnable, String) -> Thread,
+    threadFactory: (Runnable, String) -> Thread = { task, name -> Thread(task, name) },
+    private val dspConfigProvider: DspConfigProvider = DspConfigProvider { dspRuntimeConfig },
+    private val dspConfigGeneration: Long = 0L,
+    private val dspPipelinePreparer: DspPipelinePreparer = { targetFormat, config ->
+        createNativePipeline(classification.dspRole, targetFormat, config)
+    },
+    private val audioTrackWriteAdapterForTest: AudioTrackWriteAdapterForTest? = null,
+    private val beforeDspUpdatePublishForTest: (() -> Unit)? = null,
+    private val onDspUpdatePreparedForTest: (() -> Unit)? = null,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
     private data class DecoderPcmFormat(
@@ -710,7 +807,38 @@ private class AudioRenderer(
     private val lifecycle = AudioRendererLifecycle()
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
-    private var pcm = ByteArray(64 * 1024)
+    @Volatile internal var dspPipeline: DspPcmPipeline? = null
+    private val pendingDspUpdate = AtomicReference<DspPreparedUpdate?>(null)
+    private var liveUpdateController: DspLiveUpdateController? = null
+    @Volatile private var liveUpdateFormat: DspAudioFormat? = null
+    private var liveUpdateLatencyFrames = AtomicInteger(0)
+    private var trackGenerationLatencyFrames = 0
+    @Volatile private var trackGenerationContentCommitted = false
+    private var latencyPreservingBypass: DspLatencyPreservingBypass? = null
+    private var liveFadeFrom: DspPcmPipeline? = null
+    private var liveFadeTo: DspPcmPipeline? = null
+    private var liveFadeGeneration = dspConfigGeneration
+    private var liveFadeConfig = dspRuntimeConfig
+    private var liveFadeInProgress = false
+    private var liveCrossfade = DspPcmCrossfade(
+        format.channels.coerceIn(1, 2),
+        maxOf(1, format.sampleRate / LIVE_CROSSFADE_DIVISOR),
+    )
+    private var liveCrossfadeFloats = FloatArray(
+        DspBufferSizing.MAX_DECODER_PCM_FRAMES * format.channels.coerceIn(1, 2),
+    )
+    private var liveCrossfadeSourceFloats = FloatArray(
+        DspBufferSizing.MAX_DECODER_PCM_FRAMES * format.channels.coerceIn(1, 2),
+    )
+    private val liveCrossfadeDither = DspTpdfDither(System.nanoTime())
+    private var activeDspGeneration = dspConfigGeneration
+    @Volatile private var activeDspConfig = dspRuntimeConfig
+    @Volatile private var activeDspGraphConfig = DspRuntimeConfig.disabled()
+    @Volatile private var rendererReleased = false
+    @Volatile private var livePreparationPending = false
+    @Volatile private var deferredDspGeneration: Long? = null
+    @Volatile private var requestedDspGeneration = dspConfigGeneration
+    private var pcm = ByteArray(DspBufferSizing.MAX_DECODER_PCM_BYTES)
     private var normalizedPcm = ByteArray(64 * 1024)
     private var activeDecoderPcmFormat: DecoderPcmFormat? = null
     // Pending follows the decoder output; active describes the initialized AudioTrack.
@@ -763,6 +891,7 @@ private class AudioRenderer(
     private var outputBuffers = 0
     private var decoderOutputFailureLogged = false
     private var firstPcmLogged = false
+    private var latencyFallbackFailureLogged = false
     private var unalignedPcmLogged = false
     private val packetsReceived = AtomicInteger()
     private val packetsDropped = AtomicInteger()
@@ -783,12 +912,92 @@ private class AudioRenderer(
 
     fun playbackClock(): AudioPlaybackClock? = playbackClockSnapshot
 
+    internal val dspGenerationForTesting: Long
+        get() = activeDspGeneration
+
+    internal val deferredDspGenerationForTesting: Long?
+        get() = deferredDspGeneration
+
+    internal val hasPreparedDspUpdateForTesting: Boolean
+        get() = pendingDspUpdate.get() != null
+
+    internal val trackLatencyForTesting: Int
+        get() = trackGenerationLatencyFrames
+
+    internal val liveFadeInProgressForTesting: Boolean
+        get() = liveFadeInProgress
+
+    internal val effectiveConvolverEnabledForTesting: Boolean
+        get() = activeDspGraphConfig.convolver.enabled
+
+    internal val trackContentCommittedForTesting: Boolean
+        get() = trackGenerationContentCommitted
+
+    internal val queuedPacketsForTesting: Int
+        get() = queue.size
+
+    internal fun prepareDecoderPcmFormatForTesting(sampleRate: Int, channels: Int, encoding: Int) {
+        val decoderFormat = DecoderPcmFormat(sampleRate = sampleRate, channels = channels, encoding = encoding)
+        pendingDecoderPcmFormat = decoderFormat
+        prepareDspPipeline(decoderFormat)
+    }
+
+    internal fun prepareLpcmPipelineForTesting() {
+        val decoderFormat = DecoderPcmFormat(
+            sampleRate = format.sampleRate,
+            channels = format.channels.coerceIn(1, 2),
+            encoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+        )
+        pendingDecoderPcmFormat = decoderFormat
+        prepareDspPipeline(decoderFormat)
+    }
+
+    internal fun handleRtpForTesting(rtp: ByteArray, sample: Int) {
+        handle(AudioPacket(rtp, sample))
+    }
+
+    internal fun processDecodedPcmForTesting(
+        source: ByteArray,
+        offset: Int,
+        length: Int,
+        decoderEncoding: Int,
+        sourceSample: Long,
+    ) {
+        writeDecodedPcm(source, offset, length, decoderEncoding, sourceSample)
+    }
+
+    internal fun playbackClockForTesting(framePosition: Long = 0L): AudioPlaybackClock? =
+        playbackClockMapper.snapshot(
+            framePosition,
+            System.nanoTime(),
+            "test",
+            trackGenerationLatencyFrames,
+        )
+
+    internal fun beginTrackGenerationForTesting() {
+        val decoderFormat = pendingDecoderPcmFormat ?: activeDecoderPcmFormat
+        val trackFormat = DspAudioFormat(
+            decoderFormat?.sampleRate ?: format.sampleRate,
+            decoderFormat?.channels ?: format.channels.coerceIn(1, 2),
+        )
+        completeLiveCrossfadeForTrackGeneration(trackFormat)
+        beginTrackGeneration(trackFormat)
+        playbackClockMapper.reset(format.sampleRate, trackFormat.sampleRate)
+        playbackClockSnapshot = null
+    }
+
+    internal fun releaseForTesting() = release()
+
     fun start(): Boolean {
         val started = lifecycle.start(thread) {
             report(
                 "Audio: stream start transport=$transport type=${format.payloadType} audioType=${format.audioType} " +
                     "codec=${format.codec} sampleRate=${format.sampleRate} channels=${format.channels} " +
                     "routingPolicy=${if (advancedAudioChannelMapping) "AUTOMOTIVE_BUS" else navigationAudioRoute}",
+            )
+            report(
+                "DSP: configuredEnabled=${dspRuntimeConfig.enabled} role=${classification.dspRole} " +
+                    "fullDspAllowed=${DspStreamPolicy.allowsFullDsp(classification.dspRole)} active=false",
             )
         }
         return started || lifecycle.isRunning
@@ -824,13 +1033,15 @@ private class AudioRenderer(
             when (format.codec) {
                 AudioCodecKind.AAC_LC -> configureCodec(MediaFormat.MIMETYPE_AUDIO_AAC)
                 AudioCodecKind.OPUS -> configureCodec(MediaFormat.MIMETYPE_AUDIO_OPUS)
-                AudioCodecKind.LPCM -> createTrack(
-                    DecoderPcmFormat(
+                AudioCodecKind.LPCM -> {
+                    val pcmFormat = DecoderPcmFormat(
                         format.sampleRate,
                         format.channels.coerceIn(1, 2),
                         AndroidAudioFormat.ENCODING_PCM_16BIT,
-                    ),
-                )
+                    )
+                    prepareDspPipeline(pcmFormat)
+                    createTrack(pcmFormat)
+                }
             }
             while (lifecycle.isRunning) {
                 queue.poll(AUDIO_POLL_MILLIS, TimeUnit.MILLISECONDS)?.let(::handle)
@@ -1002,6 +1213,9 @@ private class AudioRenderer(
         lastTrackFailureLogNs = 0L
         lastTrackRetryLogNs = null
         track = built
+        val trackDspFormat = DspAudioFormat(sampleRate, channels)
+        completeLiveCrossfadeForTrackGeneration(trackDspFormat)
+        beginTrackGeneration(trackDspFormat)
         activeTrackAttributes = attributes
         playbackRouteLogged = false
         statsLastUnderruns = runCatching { built.underrunCount }.getOrDefault(0)
@@ -1101,12 +1315,7 @@ private class AudioRenderer(
         } else {
             AudioChannelMappingMode.MOBILE_COMPATIBLE
         }
-        val selection = AudioChannelMapper.map(
-            audioType = format.audioType,
-            payloadType = format.payloadType,
-            mode = mode,
-            navigationRoute = navigationAudioRoute,
-        )
+        val selection = classification.route
         val usage = usageFor(selection.channel)
         val contentType = contentTypeFor(selection.contentType)
         val builder = AudioAttributes.Builder()
@@ -1199,7 +1408,21 @@ private class AudioRenderer(
                         return
                     }
                     val pcmBytes = byteSwapS16(rtp.copyOfRange(RTP_HEADER_BYTES, rtp.size))
-                    writePcm(pcmBytes, sourceSample = packet.sample.toLong() and 0xffff_ffffL)
+                    val sourceSample = packet.sample.toLong() and 0xffff_ffffL
+                    if (!writePcmWithLiveUpdates(
+                            source = pcmBytes,
+                            offset = 0,
+                            length = pcmBytes.size,
+                            dspEncoding = DspPcmEncoding.PCM16,
+                            sourceSample = sourceSample,
+                        )
+                    ) {
+                        if (trackGenerationLatencyFrames > 0) {
+                            reportLatencyFallbackFailure()
+                        } else {
+                            writePcm(pcmBytes, sourceSample = sourceSample)
+                        }
+                    }
                 }
                 AudioCodecKind.AAC_LC -> {
                     val payload = rtp.copyOfRange(RTP_HEADER_BYTES, rtp.size)
@@ -1384,15 +1607,15 @@ private class AudioRenderer(
                                     val decoderEncoding = pendingDecoderPcmFormat?.encoding
                                         ?: activeDecoderPcmFormat?.encoding
                                         ?: AndroidAudioFormat.ENCODING_PCM_16BIT
-                                    val normalized = normalizePcm16(pcm, 0, size, decoderEncoding)
-                                    if (normalized != null) {
-                                        writePcm(
-                                            normalized.bytes,
-                                            normalized.offset,
-                                            normalized.length,
-                                            sampleTimestampMapper.sampleAtPresentationTimeUs(info.presentationTimeUs),
-                                        )
-                                    }
+                                    val sourceSample =
+                                        sampleTimestampMapper.sampleAtPresentationTimeUs(info.presentationTimeUs)
+                                    writeDecodedPcm(
+                                        source = pcm,
+                                        offset = 0,
+                                        length = size,
+                                        decoderEncoding = decoderEncoding,
+                                        sourceSample = sourceSample,
+                                    )
                                 }
                             }
                         }
@@ -1461,8 +1684,9 @@ private class AudioRenderer(
             fallbackReason = reasons.takeIf { it.isNotEmpty() }?.joinToString(",") ?: "none",
         )
         if (pendingDecoderPcmFormat?.hasSameTrackFormat(next) == true) return
-        trackOperationRecovery.reset()
         pendingDecoderPcmFormat = next
+        prepareDspPipeline(next)
+        trackOperationRecovery.reset()
         rejectedDecoderOutputFormat = null
         val message = "Audio: decoder output format sampleRate=$sampleRate channels=$channels " +
             "encoding=${encodingName(encoding)} fallback=${next.fallbackReason}"
@@ -1474,9 +1698,606 @@ private class AudioRenderer(
     private fun DecoderPcmFormat.hasSameTrackFormat(other: DecoderPcmFormat): Boolean =
         sampleRate == other.sampleRate && channels == other.channels && encoding == other.encoding
 
-    private data class PcmChunk(val bytes: ByteArray, val offset: Int, val length: Int)
+    private fun prepareDspPipeline(pcmFormat: DecoderPcmFormat) {
+        val nextFormat = runCatching { DspAudioFormat(pcmFormat.sampleRate, pcmFormat.channels) }.getOrNull()
+        if (nextFormat != liveUpdateFormat) {
+            trackGenerationContentCommitted = false
+            trackGenerationLatencyFrames = 0
+            liveUpdateLatencyFrames.set(0)
+        }
+        if (liveFadeInProgress && (nextFormat == null || liveUpdateFormat != nextFormat ||
+                liveFadeFrom?.let { it.format != nextFormat } == true ||
+                liveFadeTo?.let { it.format != nextFormat } == true)
+        ) {
+            abandonLiveFade()
+        }
+        if (dspPcmEncoding(pcmFormat.encoding) == null) {
+            runCatching { dspPipeline?.close() }
+            dspPipeline = null
+            activeDspGraphConfig = DspRuntimeConfig.disabled()
+            reportDsp("DSP unavailable: reason=UNSUPPORTED_PCM_ENCODING fallback=LEGACY_PCM")
+            return
+        }
+        if (nextFormat == null) {
+            runCatching { dspPipeline?.close() }
+            dspPipeline = null
+            activeDspGraphConfig = DspRuntimeConfig.disabled()
+            reportDsp("DSP unavailable: reason=UNSUPPORTED_AUDIO_FORMAT fallback=LEGACY_PCM")
+            return
+        }
+        if (liveUpdateFormat == nextFormat && liveUpdateController != null) {
+            val providerGeneration = runCatching { dspConfigProvider.versionedSnapshot().generation }.getOrNull()
+            if (dspPipeline?.format == nextFormat || livePreparationPending || pendingDspUpdate.get() != null ||
+                deferredDspGeneration == providerGeneration
+            ) {
+                return
+            }
+        }
+        val latestSnapshot = runCatching { dspConfigProvider.versionedSnapshot() }.getOrElse {
+            reportDsp("DSP unavailable: reason=CONFIG_SNAPSHOT_FAILED fallback=LEGACY_PCM")
+            DspConfigSnapshot(activeDspGeneration, activeDspConfig)
+        }
+        activeDspConfig = latestSnapshot.config
+        activeDspGeneration = latestSnapshot.generation
+        runCatching { dspPipeline?.close() }
+        dspPipeline = null
+        if (!DspStreamPolicy.shouldProcess(activeDspConfig.enabled, classification.dspRole)) {
+            activeDspGraphConfig = DspRuntimeConfig.disabled()
+            configureLiveUpdates(nextFormat)
+            return
+        }
+        val graphConfig = configuredDspGraph(nextFormat, activeDspConfig)
+        val preparedPipeline = try {
+            dspPipelinePreparer(nextFormat, graphConfig)
+        } catch (_: Exception) {
+            null
+        } catch (_: LinkageError) {
+            null
+        }
+        if (preparedPipeline == null) {
+            activeDspGraphConfig = DspRuntimeConfig.disabled()
+            reportDsp("DSP unavailable: reason=NATIVE_CREATE_FAILED fallback=LEGACY_PCM")
+            configureLiveUpdates(nextFormat, forcePrepareCurrent = true)
+            return
+        }
+        val requiredLatency = liveUpdateLatencyFrames.get()
+        if (preparedPipeline.algorithmicLatencyFrames < requiredLatency) {
+            preparedPipeline.preserveLatencyWithDelay(requiredLatency - preparedPipeline.algorithmicLatencyFrames)
+        }
+        dspPipeline = preparedPipeline.also {
+            reportDsp("DSP: Float32 pipeline ready sampleRate=${nextFormat.sampleRate} channels=${nextFormat.channels}")
+        }
+        activeDspGraphConfig = effectiveDspGraphConfig(nextFormat, activeDspConfig, preparedPipeline)
+        liveUpdateLatencyFrames.set(preparedPipeline.algorithmicLatencyFrames)
+        configureLiveUpdates(nextFormat)
+    }
 
-    private fun normalizePcm16(source: ByteArray, offset: Int, length: Int, encoding: Int): PcmChunk? {
+    private fun effectiveDspGraphConfig(
+        format: DspAudioFormat,
+        config: DspRuntimeConfig,
+        pipeline: DspPcmPipeline?,
+    ): DspRuntimeConfig = if (pipeline == null) DspRuntimeConfig.disabled()
+    else configuredDspGraph(format, config)
+
+    private fun configuredDspGraph(format: DspAudioFormat, config: DspRuntimeConfig): DspRuntimeConfig {
+        if (!config.enabled) return DspRuntimeConfig.disabled()
+        val convolver = config.convolver
+        val impulse = convolver.impulseResponse
+        val convolverAvailable = convolver.enabled && convolver.wet > 0.0 && impulse != null &&
+            impulse.sampleRate == format.sampleRate
+        return if (convolver.enabled && !convolverAvailable) {
+            config.withConvolver(convolver.copy(enabled = false, impulseResponse = null))
+        } else {
+            config
+        }
+    }
+
+    private fun DspRuntimeConfig.requiresStateContinuity(): Boolean = enabled && (
+        convolver.enabled && convolver.wet > 0.0 && convolver.impulseResponse != null ||
+            compressor.enabled || multiband.enabled || dynamicEq.enabled && dynamicEq.bands.any { it.enabled }
+        )
+
+    private fun configureLiveUpdates(format: DspAudioFormat, forcePrepareCurrent: Boolean = false) {
+        if (!DspStreamPolicy.allowsFullDsp(classification.dspRole)) {
+            liveUpdateController?.close()
+            liveUpdateController = null
+            liveUpdateFormat = null
+            livePreparationPending = false
+            deferredDspGeneration = null
+            pendingDspUpdate.getAndSet(null)?.pipeline?.close()
+            return
+        }
+        if (liveUpdateFormat == format && liveUpdateController != null) return
+        liveUpdateController?.close()
+        liveUpdateController = null
+        pendingDspUpdate.getAndSet(null)?.pipeline?.close()
+        livePreparationPending = false
+        deferredDspGeneration = null
+        liveCrossfade = DspPcmCrossfade(format.channels, maxOf(1, format.sampleRate / LIVE_CROSSFADE_DIVISOR))
+        liveCrossfadeFloats = FloatArray(DspBufferSizing.MAX_DECODER_PCM_FRAMES * format.channels)
+        liveCrossfadeSourceFloats = FloatArray(DspBufferSizing.MAX_DECODER_PCM_FRAMES * format.channels)
+        liveUpdateFormat = format
+        requestedDspGeneration = activeDspGeneration
+        liveUpdateController = DspLiveUpdateController(
+            format = format,
+            role = classification.dspRole,
+            provider = dspConfigProvider,
+            initialGeneration = if (forcePrepareCurrent) activeDspGeneration - 1 else activeDspGeneration,
+            activeLatencyFrames = { liveUpdateLatencyFrames.get() },
+            onPreparing = { snapshot ->
+                requestedDspGeneration = snapshot.generation
+                livePreparationPending = true
+                deferredDspGeneration = null
+            },
+            onDeferred = { generation ->
+                if (requestedDspGeneration == generation) {
+                    livePreparationPending = false
+                    deferredDspGeneration = generation
+                }
+            },
+            canAdoptLatencyChange = { !trackGenerationContentCommitted },
+            onPrepared = { update ->
+                runCatching { beforeDspUpdatePublishForTest?.invoke() }
+                if (rendererReleased || liveUpdateFormat != format || update.generation < requestedDspGeneration) {
+                    runCatching { update.pipeline?.close() }
+                } else {
+                    if (update.generation == requestedDspGeneration) livePreparationPending = false
+                    pendingDspUpdate.getAndSet(update)?.pipeline?.let { old -> runCatching { old.close() } }
+                    if (rendererReleased && pendingDspUpdate.compareAndSet(update, null)) {
+                        runCatching { update.pipeline?.close() }
+                    }
+                    runCatching { onDspUpdatePreparedForTest?.invoke() }
+                }
+            },
+            pipelinePreparer = { candidateFormat, config ->
+                val graphConfig = configuredDspGraph(candidateFormat, config)
+                val pipeline = dspPipelinePreparer(candidateFormat, graphConfig)
+                val requiredLatency = liveUpdateLatencyFrames.get()
+                if (pipeline != null && pipeline.algorithmicLatencyFrames < requiredLatency) {
+                    pipeline.preserveLatencyWithDelay(requiredLatency - pipeline.algorithmicLatencyFrames)
+                }
+                pipeline
+            },
+            preparedLatencyFrames = { pipeline ->
+                pipeline?.algorithmicLatencyFrames
+                    ?: if (trackGenerationContentCommitted) liveUpdateLatencyFrames.get() else 0
+            },
+        )
+    }
+
+    private fun writePcmWithLiveUpdates(
+        source: ByteArray,
+        offset: Int,
+        length: Int,
+        dspEncoding: DspPcmEncoding,
+        sourceSample: Long?,
+    ): Boolean {
+        adoptPreparedDspUpdate()
+        val latencyFallback = if (trackGenerationLatencyFrames > 0) {
+            val bypass = latencyPreservingBypass
+            val outputLength = bypass?.process(source, offset, length, dspEncoding) ?: -1
+            if (outputLength > 0) {
+                PcmChunk(
+                    requireNotNull(bypass).output,
+                    0,
+                    outputLength,
+                    bypass.outputFloats,
+                    bypass.outputFrameCount,
+                )
+            } else {
+                null
+            }
+        } else {
+            null
+        }
+        if (!liveFadeInProgress) {
+            val pipeline = dspPipeline
+            if (pipeline == null) {
+                if (latencyFallback != null) {
+                    writePcm(latencyFallback.bytes, latencyFallback.offset, latencyFallback.length, sourceSample)
+                    return true
+                }
+                return false
+            }
+            val handled = writeDspIfAvailable(pipeline, source, offset, length, dspEncoding, sourceSample)
+            if (!handled && latencyFallback != null) {
+                writePcm(latencyFallback.bytes, latencyFallback.offset, latencyFallback.length, sourceSample)
+                return true
+            }
+            return handled
+        }
+        return writeLiveCrossfade(source, offset, length, dspEncoding, sourceSample, latencyFallback)
+    }
+
+    private fun writeDecodedPcm(
+        source: ByteArray,
+        offset: Int,
+        length: Int,
+        decoderEncoding: Int,
+        sourceSample: Long,
+    ) {
+        val dspEncoding = dspPcmEncoding(decoderEncoding)
+        if (dspEncoding != null) {
+            val channels = pendingDecoderPcmFormat?.channels ?: activeDecoderPcmFormat?.channels
+                ?: format.channels.coerceIn(1, 2)
+            val sourceFrameBytes = dspEncoding.bytesPerSample * channels
+            val frameCount = length / sourceFrameBytes
+            if (frameCount > DspBufferSizing.MAX_DECODER_PCM_FRAMES) {
+                val trailingBytes = length % sourceFrameBytes
+                var framesConsumed = 0
+                while (framesConsumed < frameCount) {
+                    val chunkFrames = minOf(DspBufferSizing.MAX_DECODER_PCM_FRAMES, frameCount - framesConsumed)
+                    val finalChunk = framesConsumed + chunkFrames == frameCount
+                    val chunkLength = chunkFrames * sourceFrameBytes + if (finalChunk) trailingBytes else 0
+                    val chunkOffset = offset + framesConsumed * sourceFrameBytes
+                    val chunkSourceSample = sourceSample.takeIf { framesConsumed == 0 }
+                    if (!writePcmWithLiveUpdates(
+                            source = source,
+                            offset = chunkOffset,
+                            length = chunkLength,
+                            dspEncoding = dspEncoding,
+                            sourceSample = chunkSourceSample,
+                        )
+                    ) {
+                        if (trackGenerationLatencyFrames > 0) {
+                            reportLatencyFallbackFailure()
+                            return
+                        }
+                        val normalized = normalizePcm16(source, chunkOffset, chunkLength, decoderEncoding) ?: return
+                        writePcm(normalized.bytes, normalized.offset, normalized.length, chunkSourceSample)
+                    }
+                    framesConsumed += chunkFrames
+                }
+                return
+            }
+            if (writePcmWithLiveUpdates(
+                    source = source,
+                    offset = offset,
+                    length = length,
+                    dspEncoding = dspEncoding,
+                    sourceSample = sourceSample,
+            )
+            ) {
+                return
+            }
+        }
+        if (trackGenerationLatencyFrames > 0) {
+            reportLatencyFallbackFailure()
+            return
+        }
+        val normalized = normalizePcm16(source, offset, length, decoderEncoding) ?: return
+        writePcm(normalized.bytes, normalized.offset, normalized.length, sourceSample)
+    }
+
+    private fun reportLatencyFallbackFailure() {
+        if (latencyFallbackFailureLogged) return
+        latencyFallbackFailureLogged = true
+        reportDsp("DSP unavailable: reason=LATENCY_PRESERVING_FALLBACK_FAILED output=DROP_BLOCK")
+    }
+
+    private fun adoptPreparedDspUpdate() {
+        if (liveFadeInProgress) return
+        val update = pendingDspUpdate.get() ?: return
+        val controller = liveUpdateController ?: return
+        if (!controller.canAdoptUpdate()) return
+        val decoderFormat = pendingDecoderPcmFormat ?: activeDecoderPcmFormat
+        val effectiveFormat = decoderFormat?.let {
+            runCatching { DspAudioFormat(it.sampleRate, it.channels) }.getOrNull()
+        } ?: liveUpdateFormat
+        if (update.format != liveUpdateFormat || update.format != effectiveFormat ||
+            update.pipeline?.format?.let { it != update.format } == true
+        ) {
+            if (pendingDspUpdate.compareAndSet(update, null)) controller.retire(update.pipeline)
+            return
+        }
+        val latestGeneration = runCatching { dspConfigProvider.versionedSnapshot().generation }
+            .getOrDefault(update.generation)
+        if (update.generation < latestGeneration) {
+            if (pendingDspUpdate.compareAndSet(update, null)) controller.retire(update.pipeline)
+            return
+        }
+        if (trackGenerationContentCommitted && deferredDspGeneration == update.generation) return
+        val candidateLatencyFrames = when {
+            !trackGenerationContentCommitted -> update.pipeline?.algorithmicLatencyFrames ?: 0
+            update.pipeline == null -> trackGenerationLatencyFrames
+            else -> update.pipeline.algorithmicLatencyFrames
+        }
+        val graphConfig = effectiveDspGraphConfig(update.format, update.config, update.pipeline)
+        if (trackGenerationContentCommitted && graphConfig.requiresStateContinuity()) {
+            if (deferredDspGeneration != update.generation) {
+                deferredDspGeneration = update.generation
+                reportDsp("DSP update deferred until next AudioTrack generation: stateful graph needs fresh history")
+            }
+            return
+        }
+        if (!trackGenerationContentCommitted) {
+            if (!pendingDspUpdate.compareAndSet(update, null)) return
+            val oldPipeline = dspPipeline
+            dspPipeline = update.pipeline
+            activeDspConfig = update.config
+            activeDspGraphConfig = graphConfig
+            activeDspGeneration = update.generation
+            beginTrackGeneration(update.format)
+            controller.retire(oldPipeline?.takeIf { it !== dspPipeline })
+            return
+        }
+        if (candidateLatencyFrames != trackGenerationLatencyFrames) {
+            if (pendingDspUpdate.compareAndSet(update, null)) {
+                deferredDspGeneration = update.generation
+                controller.retire(update.pipeline)
+            }
+            return
+        }
+        if (!pendingDspUpdate.compareAndSet(update, null)) return
+        if (update.pipeline === dspPipeline || (update.pipeline == null && dspPipeline == null)) {
+            activeDspConfig = update.config
+            activeDspGraphConfig = graphConfig
+            activeDspGeneration = update.generation
+            liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
+            return
+        }
+        liveFadeFrom = dspPipeline
+        liveFadeTo = update.pipeline
+        liveFadeGeneration = update.generation
+        liveFadeConfig = update.config
+        liveCrossfade.begin()
+        liveFadeInProgress = true
+    }
+
+    private fun writeLiveCrossfade(
+        source: ByteArray,
+        offset: Int,
+        length: Int,
+        encoding: DspPcmEncoding,
+        sourceSample: Long?,
+        latencyFallback: PcmChunk?,
+    ): Boolean {
+        val fromPipeline = liveFadeFrom
+        val toPipeline = liveFadeTo
+        val crossfadeFormat = liveUpdateFormat ?: return false
+        if (fromPipeline?.format?.let { it != crossfadeFormat } == true ||
+            toPipeline?.format?.let { it != crossfadeFormat } == true
+        ) {
+            abandonLiveFade()
+            return false
+        }
+        val frameBytes = encoding.bytesPerSample * crossfadeFormat.channels
+        if (length % frameBytes != 0) return false
+        val frameCount = length / frameBytes
+        if (frameCount <= 0 || frameCount > DspBufferSizing.MAX_DECODER_PCM_FRAMES) return false
+        val fallbackFloats = latencyFallback?.takeIf { it.outputFrameCount == frameCount }?.outputFloats
+        val fromFloats = fromPipeline?.let { pipeline ->
+            val outputLength = runCatching {
+                pipeline.process(source, offset, length, encoding, encodeOutput = false)
+            }.getOrDefault(-1)
+            if (outputLength < 0) {
+                if (dspPipeline === pipeline) {
+                    dspPipeline = null
+                    activeDspGraphConfig = DspRuntimeConfig.disabled()
+                }
+                abandonLiveFade()
+                reportDsp("DSP unavailable: reason=PROCESS_FAILED fallback=LEGACY_PCM")
+                if (latencyFallback != null) {
+                    writePcm(latencyFallback.bytes, latencyFallback.offset, latencyFallback.length, sourceSample)
+                    return true
+                }
+                return false
+            }
+            if (outputLength == 0 || pipeline.outputFrameCount != frameCount) return false
+            pipeline.outputFloats
+        } ?: fallbackFloats ?: liveCrossfadeSourceFloats.also { destination ->
+            if (DspPcmConverter.pcmToFloatArray(source, offset, length, encoding, crossfadeFormat, destination) != frameCount) {
+                abandonLiveFade()
+                return false
+            }
+        }
+        val toFloats = toPipeline?.let { pipeline ->
+            val outputLength = runCatching {
+                pipeline.process(source, offset, length, encoding, encodeOutput = false)
+            }.getOrDefault(-1)
+            if (outputLength < 0) {
+                liveUpdateController?.retire(pipeline)
+                liveFadeFrom = null
+                liveFadeTo = null
+                liveFadeInProgress = false
+                liveCrossfade.cancel()
+                if (fromPipeline != null) {
+                    dspPipeline = fromPipeline
+                    val fromLength = DspBufferSizing.pcm16ByteCount(fromPipeline.outputFrameCount, crossfadeFormat.channels)
+                    if (!fromPipeline.encodeFloatPcm16(
+                            fromPipeline.outputFloats,
+                            fromPipeline.outputFrameCount,
+                            normalizedPcm,
+                            0,
+                        )
+                    ) {
+                        return false
+                    }
+                    writePcm(normalizedPcm, 0, fromLength, sourceSample)
+                    return true
+                }
+                if (latencyFallback != null) {
+                    writePcm(latencyFallback.bytes, latencyFallback.offset, latencyFallback.length, sourceSample)
+                    return true
+                }
+                return false
+            }
+            if (outputLength == 0 || pipeline.outputFrameCount != frameCount) return false
+            pipeline.outputFloats
+        } ?: fallbackFloats ?: liveCrossfadeSourceFloats.also { destination ->
+            if (DspPcmConverter.pcmToFloatArray(source, offset, length, encoding, crossfadeFormat, destination) != frameCount) {
+                abandonLiveFade()
+                return false
+            }
+        }
+        val fadeCompleted = liveCrossfade.blend(fromFloats, toFloats, liveCrossfadeFloats, frameCount)
+        if (!fadeCompleted && !liveCrossfade.isActive) {
+            abandonLiveFade()
+            return false
+        }
+        val outputLength = DspBufferSizing.pcm16ByteCount(frameCount, crossfadeFormat.channels)
+        val encoder = toPipeline ?: fromPipeline
+        val encoded = if (encoder != null) {
+            encoder.encodeFloatPcm16(liveCrossfadeFloats, frameCount, normalizedPcm, 0)
+        } else {
+            DspPcmConverter.floatArrayToPcm16(
+                liveCrossfadeFloats,
+                frameCount,
+                crossfadeFormat,
+                normalizedPcm,
+                0,
+                liveCrossfadeDither,
+            )
+        }
+        if (!encoded) {
+            abandonLiveFade()
+            return false
+        }
+        writePcm(normalizedPcm, 0, outputLength, sourceSample)
+        if (fadeCompleted) finishLiveCrossfade()
+        return true
+    }
+
+    private fun finishLiveCrossfade() {
+        val oldPipeline = liveFadeFrom
+        dspPipeline = liveFadeTo
+        liveFadeFrom = null
+        liveFadeTo = null
+        liveFadeInProgress = false
+        activeDspConfig = liveFadeConfig
+        activeDspGeneration = liveFadeGeneration
+        activeDspGraphConfig = effectiveDspGraphConfig(
+            liveUpdateFormat ?: liveFadeTo?.format ?: liveFadeFrom?.format ?: DspAudioFormat(
+                format.sampleRate,
+                format.channels.coerceIn(1, 2),
+            ),
+            activeDspConfig,
+            dspPipeline,
+        )
+        liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
+        liveUpdateController?.retire(oldPipeline?.takeIf { it !== dspPipeline })
+    }
+
+    private fun completeLiveCrossfadeForTrackGeneration(trackFormat: DspAudioFormat? = null) {
+        if (!liveFadeInProgress) return
+        if (trackFormat != null && (liveUpdateFormat != trackFormat ||
+                liveFadeFrom?.let { it.format != trackFormat } == true ||
+                liveFadeTo?.let { it.format != trackFormat } == true)
+        ) {
+            abandonLiveFade()
+            return
+        }
+        val oldPipeline = liveFadeFrom
+        dspPipeline = liveFadeTo
+        liveFadeFrom = null
+        liveFadeTo = null
+        liveFadeInProgress = false
+        activeDspConfig = liveFadeConfig
+        activeDspGeneration = liveFadeGeneration
+        liveCrossfade.cancel()
+        activeDspGraphConfig = effectiveDspGraphConfig(
+            liveUpdateFormat ?: trackFormat ?: DspAudioFormat(format.sampleRate, format.channels.coerceIn(1, 2)),
+            activeDspConfig,
+            dspPipeline,
+        )
+        liveUpdateController?.retire(oldPipeline?.takeIf { it !== dspPipeline })
+    }
+
+    private fun beginTrackGeneration(trackFormat: DspAudioFormat? = null) {
+        val effectiveFormat = trackFormat ?: DspAudioFormat(
+            activeDecoderPcmFormat?.sampleRate ?: format.sampleRate,
+            activeDecoderPcmFormat?.channels ?: format.channels.coerceIn(1, 2),
+        )
+        val mismatchedPipeline = dspPipeline?.takeIf { it.format != effectiveFormat }
+        if (mismatchedPipeline != null) {
+            dspPipeline = null
+            activeDspGraphConfig = DspRuntimeConfig.disabled()
+            liveUpdateController?.retire(mismatchedPipeline) ?: runCatching { mismatchedPipeline.close() }
+        }
+        trackGenerationContentCommitted = false
+        deferredDspGeneration = null
+        trackGenerationLatencyFrames = dspPipeline?.algorithmicLatencyFrames ?: 0
+        liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
+        runCatching { dspPipeline?.reset() }
+        latencyPreservingBypass = if (trackGenerationLatencyFrames > 0) {
+            DspLatencyPreservingBypass(effectiveFormat, trackGenerationLatencyFrames)
+        } else {
+            null
+        }
+    }
+
+    private fun abandonLiveFade() {
+        liveUpdateController?.retire(liveFadeFrom?.takeIf { it !== dspPipeline })
+        liveUpdateController?.retire(liveFadeTo?.takeIf { it !== dspPipeline })
+        liveFadeFrom = null
+        liveFadeTo = null
+        liveFadeInProgress = false
+        liveCrossfade.cancel()
+    }
+
+    internal fun writeDspIfAvailable(
+        source: ByteArray,
+        offset: Int,
+        length: Int,
+        encoding: DspPcmEncoding,
+        sourceSample: Long,
+    ): Boolean {
+        val pipeline = dspPipeline ?: return false
+        return writeDspIfAvailable(pipeline, source, offset, length, encoding, sourceSample)
+    }
+
+    private fun writeDspIfAvailable(
+        pipeline: DspPcmPipeline,
+        source: ByteArray,
+        offset: Int,
+        length: Int,
+        encoding: DspPcmEncoding,
+        sourceSample: Long?,
+    ): Boolean {
+        val outputLength = try {
+            pipeline.process(source, offset, length, encoding)
+        } catch (_: Exception) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        }
+        if (outputLength < 0) {
+            if (dspPipeline === pipeline) {
+                dspPipeline = null
+                activeDspGraphConfig = DspRuntimeConfig.disabled()
+            }
+            liveUpdateController?.retire(pipeline)
+            reportDsp("DSP unavailable: reason=PROCESS_FAILED fallback=LEGACY_PCM")
+            return false
+        }
+        if (outputLength > 0) writePcm(pipeline.output, 0, outputLength, sourceSample)
+        return true
+    }
+
+    private fun dspPcmEncoding(encoding: Int): DspPcmEncoding? = when {
+        encoding == AndroidAudioFormat.ENCODING_PCM_8BIT -> DspPcmEncoding.PCM8
+        encoding == AndroidAudioFormat.ENCODING_PCM_16BIT -> DspPcmEncoding.PCM16
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            encoding == AndroidAudioFormat.ENCODING_PCM_24BIT_PACKED -> DspPcmEncoding.PCM24_PACKED
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            encoding == AndroidAudioFormat.ENCODING_PCM_32BIT -> DspPcmEncoding.PCM32
+        encoding == AndroidAudioFormat.ENCODING_PCM_FLOAT -> DspPcmEncoding.PCM_FLOAT
+        else -> null
+    }
+
+    private fun reportDsp(message: String) {
+        runCatching { report(message) }
+    }
+
+    internal data class PcmChunk(
+        val bytes: ByteArray,
+        val offset: Int,
+        val length: Int,
+        val outputFloats: FloatArray? = null,
+        val outputFrameCount: Int = 0,
+    )
+
+    internal fun normalizePcm16(source: ByteArray, offset: Int, length: Int, encoding: Int): PcmChunk? {
         val sourceBytesPerSample = when {
             encoding == AndroidAudioFormat.ENCODING_PCM_16BIT -> 2
             encoding == AndroidAudioFormat.ENCODING_PCM_8BIT -> 1
@@ -1568,7 +2389,9 @@ private class AudioRenderer(
         length: Int = data.size,
         sourceSample: Long? = null,
     ) {
-        val track = track ?: return
+        val track = track
+        val writeAdapter = audioTrackWriteAdapterForTest
+        if (track == null && writeAdapter == null) return
         val completeLength = length - length % frameBytes
         if (completeLength != length && !unalignedPcmLogged) {
             unalignedPcmLogged = true
@@ -1588,7 +2411,7 @@ private class AudioRenderer(
             applyFadeIn(data, offset, completeLength)
         }
         var written = 0
-        while (written < completeLength && lifecycle.isRunning) {
+        while (written < completeLength && (lifecycle.isRunning || writeAdapter != null)) {
             val writeLength = if (playbackStarted) {
                 completeLength - written
             } else {
@@ -1596,10 +2419,11 @@ private class AudioRenderer(
             }
             val writeStarted = System.nanoTime()
             val count = try {
-                track.write(data, offset + written, writeLength, AudioTrack.WRITE_NON_BLOCKING)
+                writeAdapter?.write(data, offset + written, writeLength, AudioTrack.WRITE_NON_BLOCKING)
+                    ?: track!!.write(data, offset + written, writeLength, AudioTrack.WRITE_NON_BLOCKING)
             } catch (error: Exception) {
                 writeStallPolicy.reset()
-                recoverTrackAfterOperationFailure(track, "write", error)
+                if (track != null) recoverTrackAfterOperationFailure(track, "write", error)
                 break
             }
             val writeFinishedNs = System.nanoTime()
@@ -1607,21 +2431,24 @@ private class AudioRenderer(
             val writeStalled = writeStallPolicy.onWriteResult(count, writeFinishedNs)
             if (count == 0) {
                 if (writeStalled) {
-                    recoverTrackAfterOperationFailure(
-                        track,
-                        "write",
-                        AudioTrackWriteStallException(TRACK_WRITE_STALL_TIMEOUT_NS),
-                    )
+                    if (track != null) {
+                        recoverTrackAfterOperationFailure(
+                            track,
+                            "write",
+                            AudioTrackWriteStallException(TRACK_WRITE_STALL_TIMEOUT_NS),
+                        )
+                    }
                     break
                 }
                 Thread.sleep(AUDIO_WRITE_RETRY_MILLIS)
                 continue
             }
             if (count < 0) {
-                recoverTrackAfterOperationFailure(track, "write", AudioTrackWriteException(count))
+                if (track != null) recoverTrackAfterOperationFailure(track, "write", AudioTrackWriteException(count))
                 break
             }
             if (!fadeApplied) fadeApplied = true
+            trackGenerationContentCommitted = true
             if (sourceSample != null) playbackClockMapper.onPcmWritten(sourceSample)
             written += count
             bufferProgress.written(count)
@@ -1629,7 +2456,11 @@ private class AudioRenderer(
             if (!playbackStarted) {
                 prebufferBytes += count
                 if (prebufferBytes >= startThresholdBytes) {
-                    if (!startPlayback(track)) break
+                    if (track != null) {
+                        if (!startPlayback(track)) break
+                    } else {
+                        playbackStarted = true
+                    }
                 }
             }
         }
@@ -1751,13 +2582,21 @@ private class AudioRenderer(
         val underrunDelta = (underruns - statsLastUnderruns).coerceAtLeast(0)
         val lastRx = lastArrivalNs.get()
         val timestampAnchorAgeMs = timestampAnchor?.let { ((now - it.nanoTime).coerceAtLeast(0L)) / 1_000_000L } ?: -1L
+        val dspTiming = dspPipeline?.diagnostics()?.let { diagnostics ->
+            val native = diagnostics.nativeProcessUs
+            val pipeline = diagnostics.pipelineProcessUs
+            " dspNativeUs=avg:${native.averageUs.toLong()},p50:${native.p50Us},p95:${native.p95Us}," +
+                "p99:${native.p99Us},max:${native.maxUs} " +
+                "dspPipelineUs=avg:${pipeline.averageUs.toLong()},p50:${pipeline.p50Us}," +
+                "p95:${pipeline.p95Us},p99:${pipeline.p99Us},max:${pipeline.maxUs}"
+        }.orEmpty()
         val line = "audio stats audioType=${format.audioType} codec=${format.codec} rx=${packetsReceived.getAndSet(0)} " +
             "dropped=${packetsDropped.getAndSet(0)} underruns=+$underrunDelta queue=${queue.size} " +
             "playing=$playbackStarted maxGapMs=${maxArrivalGapMs.getAndSet(0)} " +
             "sinceRxMs=${if (lastRx == 0L) -1 else (now - lastRx) / 1_000_000L} maxWriteMs=$maxWriteMs " +
             "decoderDroppedTotal=$inputDropped outputBuffersTotal=$outputBuffers rebuffers=$rebufferCount " +
             "timestampPollingMs=${timestampPollPolicy.pollingIntervalMs} timestampAnchorAgeMs=$timestampAnchorAgeMs " +
-            "feedbackClock=${playbackClockSnapshot?.source ?: "fallbackElapsed"} ended=$force"
+            "feedbackClock=${playbackClockSnapshot?.source ?: "fallbackElapsed"}$dspTiming ended=$force"
         Log.i(STATS_TAG, line)
         report(line)
         statsLastUnderruns = underruns
@@ -1866,7 +2705,12 @@ private class AudioRenderer(
         } else {
             "playbackHead"
         }
-        playbackClockSnapshot = playbackClockMapper.snapshot(headFrame, timestampNs, clockSource)
+        playbackClockSnapshot = playbackClockMapper.snapshot(
+            framePosition = headFrame,
+            timestampNs = timestampNs,
+            source = clockSource,
+            algorithmicLatencyFrames = trackGenerationLatencyFrames,
+        )
     }
 
     private fun maybeSwitchAacToAdtsFallback() {
@@ -1928,11 +2772,25 @@ private class AudioRenderer(
     }
 
     private fun release() {
+        rendererReleased = true
         playbackClockSnapshot = null
         queue.clear()
         pendingDecoderPcmFormat = null
         aacStartupCache.clear()
         aacStartupCacheEnabled = false
+        liveUpdateController?.close()
+        liveUpdateController = null
+        val pipelines = listOf(
+            dspPipeline,
+            liveFadeFrom,
+            liveFadeTo,
+            pendingDspUpdate.getAndSet(null)?.pipeline,
+        ).filterNotNull().distinct()
+        pipelines.forEach { runCatching { it.close() } }
+        dspPipeline = null
+        liveFadeFrom = null
+        liveFadeTo = null
+        liveFadeInProgress = false
         releaseCodec()
         releaseTrack()
         sampleTimestampMapper.reset()
@@ -2010,6 +2868,7 @@ private class AudioRenderer(
         const val OPUS_SEEK_PRE_ROLL_NANOS = 80_000_000L
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_POLL_MILLIS = 10L
+        const val LIVE_CROSSFADE_DIVISOR = 50
         const val AUDIO_WRITE_RETRY_MILLIS = 2L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         // Decoder/render queue for bursts; RTP ordering and its short jitter hold happen upstream.

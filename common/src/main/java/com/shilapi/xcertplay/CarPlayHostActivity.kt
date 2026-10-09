@@ -67,6 +67,7 @@ import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.CarPlayMediaEngine
 import com.shilapi.xcertplay.airplay.SafeAreaRect
+import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider
 import com.shilapi.xcertplay.media.AndroidMediaSink
@@ -3808,6 +3809,7 @@ class CarPlayHostActivity : ComponentActivity() {
         // Capture this session's log: late decoder shutdown must not write into a new session.
         val diagnosticLog = sessionLog
         return AndroidMediaSink(
+            dspConfigProvider = DspProfileRuntime.get(this).configProvider,
             surface = null,
             videoWidth = videoWidth,
             videoHeight = videoHeight,

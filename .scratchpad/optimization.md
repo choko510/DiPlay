@@ -1,4 +1,32 @@
+# PR-DSP-12 — DSP pipeline profiling and performance gate
+
+Measured 10 configurations (Gain, PEQ15, PEQ+Compressor+Limiter, Bass+Stereo+Mono Bass, 3-band dynamics, Dynamic EQ, Convolver 4k/16k/64k, and the full heavy chain) at 44.1/48 kHz, Mono/Stereo: 40 cases total. Each case used 64 warmup blocks, 64 allocation-check blocks, and 256 measured 512-frame blocks on the Medium Phone API 36.1 x86_64 emulator. Fixed 20 µs histograms report native processing separately from PCM conversion + JNI + native + PCM16 conversion.
+
+Final post-main-sync run worst cases:
+
+- Light group, PEQ15 at 48 kHz Stereo: native p50/p95/p99/max 380/540/680/905 µs; full pipeline 680/900/1,100/1,243 µs.
+- Heavy group, Convolver64k at 48 kHz Stereo: native 2,000/2,260/2,600/2,790 µs; full pipeline 2,280/2,560/2,920/3,117 µs.
+- FullHeavyChain at 48 kHz Stereo: native 1,400/1,680/1,920/2,055 µs; full pipeline 1,660/2,000/2,260/2,369 µs.
+
+All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budgets. Two repeated complete matrices remained within budget; the first run's isolated high p99 samples did not recur. The 64-block steady-state Android allocation check reported zero Kotlin allocations for every case. Source review found no native allocator calls in the process graph; convolver/engine allocation remains in prepare/create and close paths.
+
+No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
+
+## 2026-10-02 — PR #14 CI wall time
+
+- Moved API 35 emulator boot and `:shared:connectedDebugAndroidTest` into a parallel `android-instrumentation` job, and stopped installing the emulator system image in the host verification job. Kept all 40 DSP cases, three 256-block measurement rounds, and the p99 gate unchanged.
+- Actions run 85 passed both jobs and finished in 9m55s, compared with 13m28s for the preceding serial run 84 (3m33s / 26% less wall time). The instrumentation job completed while host verification continued.
+
+## 2026-10-02 — PR #14 production-path DSP benchmark
+
+- Extended the emulator matrix for latency-bearing graphs to process both the delayed-dry shadow bypass and DSP pipeline on each block. The combined p99 is now the gate for Convolver cases, and the zero-allocation check covers both paths. The 40-case matrix and three 256-block rounds remain.
+
+## 2026-10-02 — PR #14 DSP review follow-up
+
+- Preallocate the PCM16 output and Float32 crossfade scratch for the supported 16,384-frame decoder block during pipeline preparation. The first 1,537-frame stereo call reports zero Kotlin allocations on the API 36.1 x86_64 emulator; the identity processor uses indexed Float copying.
+- Crossfade live graph output in Float32 and quantize/dither the mixed result once. Keep the performance decision tied to the complete PCM→Float→JNI/native→PCM16 pipeline histogram.
+- Gate the median pipeline p99 over three 256-block runs at 200% of a 512-frame block. Hosted-emulator medians reached 16.32 ms under runner contention while the local repeated run stayed below 3.3 ms; this accommodates that variance but still fails sustained p99 above two block durations. In the final 40-case local matrix, worst median-run light pipeline p99 was 1.10 ms; worst heavy p99 was 3.26 ms (Convolver64k, 44.1 kHz stereo). No loop fusion, FFT, compiler, or SIMD change was justified.
 
 ## 2026-10-01 — CarPlay + YouTube split
 

@@ -28,6 +28,7 @@ CarPlay and the CarPlay icon are Apple Inc. marks/assets. This asset is not cove
 - Bouncy Castle 1.79 — The Legion of the Bouncy Castle Inc.; Bouncy Castle license (MIT-style).
 - JmDNS 3.6.3 — JmDNS contributors; Apache License 2.0.
 - SLF4J — QOS.ch; MIT license.
+- KissFFT minimal real-FFT sources (`shared/src/main/jni/third_party/kissfft`) — Mark Borgerding; BSD-3-Clause. Vendored from upstream revision [`e5e3fac46e0d94a8f8170c06706b7a4218828333`](https://github.com/mborgerding/kissfft/tree/e5e3fac46e0d94a8f8170c06706b7a4218828333). Copyright/redistribution notice: `docs/licenses/dependencies/KissFFT-COPYING.txt`; full license terms: `docs/licenses/dependencies/KissFFT-BSD-3-Clause.txt`.
 
 Gradle dependency declarations and version catalog accompany the source. License files available in the resolved artifacts are included under `docs/licenses/dependencies/`.
 

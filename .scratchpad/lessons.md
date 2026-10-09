@@ -218,4 +218,8 @@ Use `apksigner verify --verbose --min-sdk-version 23` when confirming v1 compati
 
 The NCM readiness phase can be advanced by an AirPlay control milestone, so `NCM_LINK_READY` alone does not prove bidirectional NCM traffic. Derive the NCM result from explicit RX/TX proof and log AirPlay acceptance and screen opening separately. Put summary fields before descriptor details because diagnostic export truncates long lines.
 
+## Treat CDC status notifications as observations, not startup gates
+
+The 2026-10-09 trace recorded both `NETWORK_CONNECTION` connected and disconnected values while successful screen startup also occurred during intervals with no new status packet. Poll/drain the endpoint when present, but do not wait for a connected notification before NCM or AirPlay startup. In the same report, request queue/wait errors coincided with physical USB disconnects; only add request-level recovery if the error reproduces while the device remains present.
+
 When Gecko reports paint-status reset during `setActive(false)`, retain it through profile-resolution timeout and warm reopen. Associate it with a suspension generation instead of clearing a boolean on measurement end; a later suspension must observe its own reset before primary paint is accepted.

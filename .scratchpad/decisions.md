@@ -28,9 +28,9 @@ Use the existing debug-log preference for syslog relay capture and small CarKit 
 
 Keep the received TCP `word8` field diagnostic-only because observed iPhone replies omit the host's `0xfeedface` value. The version handshake still validates its response version; do not reject TCP frames on an unconfirmed magic-field rule.
 
-## Keep NCM bulk-IN requests persistent and status polling off
+## Keep NCM bulk-IN persistent and drain an available status endpoint
 
-Treat `requestWait` timeout as idle while preserving the queued request; treat a null result, queue failure, or unexpected completion as a terminal NCM transport error. Close the full bridge on terminal errors. Do not run synchronous status-endpoint transfers on the shared connection by default; retain an explicit diagnostic switch for A/B testing.
+Treat `requestWait` timeout as idle while preserving the queued request; treat a null result, queue failure, or unexpected completion as terminal for the current NCM connection. Let the controller's existing clean retry reopen the connection when the device remains present. Poll and drain the CDC status endpoint by default whenever one is available, but do not gate NCM or AirPlay startup on a `NETWORK_CONNECTION` notification. Keep `NO_STATUS_POLLING` as a debug-only comparator.
 
 ## Separate NCM packet proof from CarPlay startup milestones
 
@@ -231,7 +231,7 @@ Tag each primary-session `onPaintStatusReset()` with the current suspension gene
 
 ## Keep wired NCM experiments isolated and debug-only
 
-Persist one NCM diagnostic profile only in debuggable builds. `AUTO` retains current shipping behavior; status polling, pre-ready OUT timeout, sync Bulk IN and forced function selection stay independent. Do not combine profiles or add CDC-NCM control requests until ordered real-device A/B results justify the next experiment.
+Persist one NCM diagnostic profile only in debuggable builds. `AUTO` polls the status endpoint when available and keeps the 100 ms pre-ready OUT timeout; `NO_STATUS_POLLING` isolates the previous off behavior. Timeout, sync Bulk IN and forced function selection profiles inherit status polling so future timeout comparisons keep it enabled. Do not combine profiles or add CDC-NCM control requests without new A/B evidence.
 
 ## Keep local MFi identity outside tracked source
 

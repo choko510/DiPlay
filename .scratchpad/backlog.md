@@ -1,4 +1,4 @@
 # Backlog
 
-- Repeat the K706/UIS8581 function-selection comparison using the mobile arm64 debug APK: the 2026-10-07 report shows FORCE_5_6 reaching NCM_LINK_READY once, while FORCE_3_4 has no link proof; neither report proves AirPlay screen startup. Alternate FORCE_3_4 and FORCE_5_6 several times before considering a default change, then test STATUS_POLLING or timeout profiles if still needed. Keep the post-startup UsbRequest queue/wait failure separate.
-- If INSTALL_PARSE_FAILED_NO_CERTIFICATES persists on the fresh v1/v2-signed mobile APK, compare the exact installed file against the generated artifact and inspect the installer/package-manager log before changing signing or NCM behavior further.
+- Validate the status-polling default with the mobile arm64 debug APK: alternate `AUTO` and `NO_STATUS_POLLING` on the same 3→4/1 setup and compare `SCREEN_STREAM_OPENED` plus first-frame counts. The 2026-10-09 report has four complete successes with status polling and 100 ms OUT; status-off paired runs and timeout comparisons with polling on remain pending. Do not change 5→6 or add CDC-NCM control requests.
+- Keep UsbRequest queue/wait recovery separate. The 2026-10-09 queue-false and wait-null events coincide with physical device removal; capture a device-present failure before changing request recreation or reopen behavior.

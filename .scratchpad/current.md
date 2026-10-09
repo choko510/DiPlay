@@ -2,10 +2,9 @@
 
 ## Pending real-device wired NCM A/B
 
-- The latest mobile arm64 debug APK includes the local authentication assets and verifies with v1/v2 signatures. Its updated diagnostics are built, but `adb devices -l` currently reports no connected device, so it has not been installed.
-- The 2026-10-07 report contains `AUTO`, `FORCE_3_4`, `FORCE_5_6`, and `SYNC_BULK_IN`; it has no `STATUS_POLLING` or non-100-ms OUT-timeout run.
-- `FORCE_5_6` previously printed `outcome=LINK_READY`, but this readiness phase can also be set by AirPlay control acceptance and the 700-character export clipped the RX/TX proof fields. The new logs separate `ncmOutcome` (derived only from RX/TX proof), AirPlay control acceptance, screen opening, and the overall outcome.
-- Prioritize `LEGACY_OUT_TIMEOUT` (2,000 ms) on 3→4/1 next, then `STATUS_POLLING`, then 500/1,000 ms if needed. The 5→6 pair remains a negative control; do not change AUTO or treat 5→6 as the production fix based on this report.
-- iOS's normal NCM plus Aux NCM layout is a plausible explanation for the descriptor difference, but the external analysis does not identify this device's interface numbers; treat the mapping as a hypothesis.
-- `NDP_RS` packets are now visible as a classification blind spot in old counters; retry behavior remains limited to NS/NA. The separate UsbRequest failure also remains open.
-- On the mobile arm64 debug APK, use DiPlay Settings → About & Diagnostics to select a profile and export each result report.
+- The 2026-10-09 report has four complete traces through AirPlay control acceptance, encryption/event acceptance, `SCREEN_STREAM_OPENED`, and first-frame submission. They correlate with 3→4/1, status polling on, async Bulk IN, and the unchanged 100 ms pre-ready OUT timeout.
+- Production `AUTO` now polls when the selected candidate exposes a status endpoint. Debug `NO_STATUS_POLLING` preserves the old off behavior for an alternating A/B comparison; timeout and other diagnostic profiles keep polling on. The saved debug name `STATUS_POLLING` now resolves to `AUTO`.
+- Next alternate `AUTO` / `NO_STATUS_POLLING` on the same phone and cable, comparing screen-open and first-frame counts. If status polling's effect is confirmed, compare timeout values while polling remains on.
+- The observed queue-false and requestWait-null errors coincided with physical USB disconnects; the existing controller closes and reopens the NCM connection on clean retries. Do not add request recreation unless the error recurs while the device is still present.
+- The rebuilt mobile arm64 APK verifies with v1/v2 and contains the two local authentication assets. The user asked not to install it, so keep it as a build artifact only.
+- Keep `FORCE_5_6` as a negative control; do not change the production function pair or add CDC-NCM control requests.

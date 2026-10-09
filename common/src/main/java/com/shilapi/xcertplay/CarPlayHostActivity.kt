@@ -2075,7 +2075,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         val labels = mapOf(
             NcmDiagnosticProfile.AUTO to R.string.host_ncm_profile_current,
-            NcmDiagnosticProfile.STATUS_POLLING to R.string.host_ncm_profile_status_polling,
+            NcmDiagnosticProfile.NO_STATUS_POLLING to R.string.host_ncm_profile_no_status_polling,
             NcmDiagnosticProfile.OUT_TIMEOUT_250 to R.string.host_ncm_profile_out_250,
             NcmDiagnosticProfile.OUT_TIMEOUT_500 to R.string.host_ncm_profile_out_500,
             NcmDiagnosticProfile.OUT_TIMEOUT_1000 to R.string.host_ncm_profile_out_1000,

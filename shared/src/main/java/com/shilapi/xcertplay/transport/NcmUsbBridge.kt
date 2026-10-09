@@ -148,7 +148,7 @@ class NcmUsbBridge internal constructor(
     private var buffered = ByteArray(0)
     private var bufferedSize = 0
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
-    private val statusPollingEnabled = diagnosticProfile.statusPolling && statusEndpoint != null
+    private val statusPollingEnabled = diagnosticProfile.shouldPollStatusEndpoint(statusEndpoint != null)
     // Bulk IN uses one persistent async request: bulkTransfer() pins its byte[] in a JNI critical
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no

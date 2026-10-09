@@ -13,8 +13,8 @@
     <string name="host_section_ncm_diagnostics">NCM diagnostics (debug build only)</string>
     <string name="host_ncm_diagnostic_profile">NCM startup diagnostic profile</string>
     <string name="host_ncm_diagnostic_help">For debug builds only. Change one variable at a time, then save and reconnect to apply.</string>
-    <string name="host_ncm_profile_current">Automatic selection (A0 baseline)</string>
-    <string name="host_ncm_profile_status_polling">Enable status interrupt polling only</string>
+    <string name="host_ncm_profile_current">Automatic (poll status endpoint when present)</string>
+    <string name="host_ncm_profile_no_status_polling">Disable status interrupt polling</string>
     <string name="host_ncm_profile_out_250">Pre-ready Bulk OUT timeout: 250 ms</string>
     <string name="host_ncm_profile_out_500">Pre-ready Bulk OUT timeout: 500 ms</string>
     <string name="host_ncm_profile_out_1000">Pre-ready Bulk OUT timeout: 1000 ms</string>

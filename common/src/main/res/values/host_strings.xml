@@ -13,8 +13,8 @@
     <string name="host_section_ncm_diagnostics">NCM 診断（デバッグビルドのみ）</string>
     <string name="host_ncm_diagnostic_profile">NCM 起動診断プロファイル</string>
     <string name="host_ncm_diagnostic_help">デバッグビルド専用です。1 度に 1 項目を選び、設定を保存して再接続すると適用されます。</string>
-    <string name="host_ncm_profile_current">自動選択（A0 基準）</string>
-    <string name="host_ncm_profile_status_polling">Status interrupt polling のみ有効</string>
+    <string name="host_ncm_profile_current">自動（status endpoint があれば poll）</string>
+    <string name="host_ncm_profile_no_status_polling">Status interrupt polling を無効</string>
     <string name="host_ncm_profile_out_250">起動前後の Bulk OUT timeout を 250 ms にする</string>
     <string name="host_ncm_profile_out_500">起動前後の Bulk OUT timeout を 500 ms にする</string>
     <string name="host_ncm_profile_out_1000">起動前後の Bulk OUT timeout を 1000 ms にする</string>

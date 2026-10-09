@@ -151,6 +151,104 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun advancedMsConfigAndSeparateEqBanksArePreparedForNativeCreation() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                advancedMs = DspAdvancedMsConfig(
+                    enabled = true,
+                    monitorMode = DspAdvancedMsMonitorMode.MID_ONLY,
+                    midGainDb = 2.0,
+                    sideGainDb = -1.0,
+                    midEqBands = listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 3.0, enabled = true)),
+                    sideEqBands = listOf(DspEqBand(DspEqType.NOTCH, 4_000.0, gainDb = -2.0, enabled = true)),
+                    lowWidth = 0.5,
+                    midWidth = 1.1,
+                    highWidth = 1.5,
+                    centerFocusDb = 1.0,
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(DspAdvancedMsConfig.NATIVE_VALUE_COUNT, bindings.createdAdvancedMs?.size)
+        assertEquals(1.0, bindings.createdAdvancedMs?.get(0) ?: 0.0, 0.0)
+        assertEquals(2.0, bindings.createdAdvancedMs?.get(1) ?: 0.0, 0.0)
+        assertEquals(-1.0, bindings.createdAdvancedMs?.get(2) ?: 0.0, 0.0)
+        assertEquals(0.5, bindings.createdAdvancedMs?.get(3) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdAdvancedMs?.get(9) ?: 0.0, 0.0)
+        assertEquals(2.0, bindings.createdAdvancedMs?.get(10) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdAdvancedMs?.get(11) ?: 0.0, 0.0)
+        assertEquals(DspAdvancedMsConfig.NATIVE_EQ_COEFFICIENT_COUNT, bindings.createdAdvancedMsEqCoefficients?.size)
+        assertTrue(bindings.createdAdvancedMsEqCoefficients?.all(Double::isFinite) == true)
+        assertTrue(bindings.createdAdvancedMsEqCoefficients?.take(5)?.any { it != 0.0 } == true)
+        assertTrue(bindings.createdAdvancedMsEqCoefficients?.drop(30)?.take(5)?.any { it != 0.0 } == true)
+        processor?.close()
+    }
+
+    @Test
+    fun crossoversAboveTheCurrentNyquistBypassAdvancedMsWithoutRejectingTheGraph() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(8_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                advancedMs = DspAdvancedMsConfig(enabled = true, midGainDb = 6.0),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(0.0, bindings.createdAdvancedMs?.get(0) ?: -1.0, 0.0)
+        assertEquals(0.0, bindings.createdAdvancedMs?.get(10) ?: -1.0, 0.0)
+        assertEquals(-1.0, requireNotNull(bindings.createdGainDb), 0.02)
+        processor?.close()
+    }
+
+    @Test
+    fun advancedMsIsAnIdentityBypassForMonoFormats() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 1),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                advancedMs = DspAdvancedMsConfig(enabled = true, midGainDb = 6.0, lowWidth = 0.0),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(0.0, bindings.createdAdvancedMs?.get(0) ?: -1.0, 0.0)
+        assertEquals(-1.0, requireNotNull(bindings.createdGainDb), 0.02)
+        processor?.close()
+    }
+
+    @Test
+    fun temporaryAdvancedMsMonitorModeUpdatesWithoutRecreatingTheProcessor() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                advancedMs = DspAdvancedMsConfig(enabled = true),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(requireNotNull(processor).updateAdvancedMsMonitorMode(DspAdvancedMsMonitorMode.SIDE_ONLY))
+        assertEquals(DspAdvancedMsMonitorMode.SIDE_ONLY.ordinal, bindings.lastAdvancedMsMonitorMode)
+        assertEquals(1, bindings.createCalls)
+        requireNotNull(processor).close()
+    }
+
+    @Test
     fun nativeProcessFailureReturnsAnErrorWithoutConsumingBuffers() {
         val format = DspAudioFormat(48_000, 2)
         val bindings = FakeNativeDspBindings(processStatus = 3)
@@ -219,6 +317,7 @@ class NativeDspProcessorTest {
         private val createHandle: Long = 42L,
         private val processStatus: Int = 0,
     ) : NativeDspBindings {
+        var createCalls = 0
         var processCalls = 0
         var lastFrames = 0
         var lastChannels = 0
@@ -234,8 +333,11 @@ class NativeDspProcessorTest {
         var createdConvolverConfig: DoubleArray? = null
         var createdConvolverSamples: FloatArray? = null
         var createdSeatFocus: DoubleArray? = null
+        var createdAdvancedMs: DoubleArray? = null
+        var createdAdvancedMsEqCoefficients: DoubleArray? = null
         var seatFocusUpdateCalls = 0
         var lastSeatFocusUpdate: DoubleArray? = null
+        var lastAdvancedMsMonitorMode: Int? = null
 
         override fun create(
             sampleRate: Int,
@@ -252,7 +354,10 @@ class NativeDspProcessorTest {
             convolverConfig: DoubleArray,
             convolverSamples: FloatArray,
             seatFocus: DoubleArray,
+            advancedMs: DoubleArray,
+            advancedMsEqCoefficients: DoubleArray,
         ): Long {
+            createCalls++
             createdGainDb = gainDb
             createdEqCoefficients = eqCoefficients.copyOf()
             createdDynamics = dynamics.copyOf()
@@ -264,6 +369,8 @@ class NativeDspProcessorTest {
             createdConvolverConfig = convolverConfig.copyOf()
             createdConvolverSamples = convolverSamples.copyOf()
             createdSeatFocus = seatFocus.copyOf()
+            createdAdvancedMs = advancedMs.copyOf()
+            createdAdvancedMsEqCoefficients = advancedMsEqCoefficients.copyOf()
             return createHandle
         }
 
@@ -293,6 +400,10 @@ class NativeDspProcessorTest {
         override fun updateSeatFocus(handle: Long, values: DoubleArray): Int {
             seatFocusUpdateCalls++
             lastSeatFocusUpdate = values.copyOf()
+            return 0
+        }
+        override fun updateAdvancedMsMonitorMode(handle: Long, monitorMode: Int): Int {
+            lastAdvancedMsMonitorMode = monitorMode
             return 0
         }
         override fun latencyFrames(handle: Long): Int = 0

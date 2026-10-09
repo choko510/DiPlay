@@ -37,6 +37,40 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun advancedMsGainEqAndBandWidthAreIncludedInHeadroom() {
+        val midGain = DspRuntimeConfig(
+            enabled = true,
+            advancedMs = DspAdvancedMsConfig(enabled = true, midGainDb = 6.0),
+        ).prepare(DspAudioFormat(48_000, 2))
+        val sideWidth = DspRuntimeConfig(
+            enabled = true,
+            advancedMs = DspAdvancedMsConfig(enabled = true, highWidth = 1.5),
+        ).prepare(DspAudioFormat(48_000, 2))
+        val midEq = DspRuntimeConfig(
+            enabled = true,
+            advancedMs = DspAdvancedMsConfig(
+                enabled = true,
+                midEqBands = listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 5.0, q = 2.0)),
+            ),
+        ).prepare(DspAudioFormat(48_000, 2))
+        val globallyWideButBandNarrow = DspRuntimeConfig(
+            enabled = true,
+            stereoWidth = 2.0,
+            advancedMs = DspAdvancedMsConfig(
+                enabled = true,
+                lowWidth = 0.5,
+                midWidth = 0.5,
+                highWidth = 0.5,
+            ),
+        ).prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals(10.0, midGain.headroom.reductionDb, 0.02)
+        assertTrue(sideWidth.headroom.reductionDb > 4.0)
+        assertTrue(midEq.headroom.reductionDb > 5.5)
+        assertEquals(1.0, globallyWideButBandNarrow.headroom.reductionDb, 0.02)
+    }
+
+    @Test
     fun sameFrequencyFiltersCombineTheirResponsesBeforeFindingThePeak() {
         val sameFrequency = listOf(
             DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 6.0, q = 4.0),

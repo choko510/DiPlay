@@ -53,3 +53,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 ## 2026-10-09 — Seat Focus coefficient preparation
 
 - Precompute a 1025-phase, four-tap Lagrange fractional-delay table during graph preparation; the audio process performs only table interpolation and ring reads. This moves polynomial coefficient design and allocation off the render thread. The host C correlation checks measured relative-delay error of -0.008169 ms at 44.1 kHz, -0.002922 ms at 48 kHz, and -0.002894 ms at 96 kHz. Module-specific pipeline p99 and allocation measurements remain part of the final integration benchmark.
+
+## 2026-10-09 — Advanced M/S preparation and diagnostics
+
+- Prepare two first-order all-pass crossover coefficients and each active Mid/Side biquad before processing. The process path reuses the prepared state, does not allocate, and adds no fixed latency. A host C tone sweep measured Side gain 0.54533/1.01767/1.48678 at 40 Hz/1 kHz/15 kHz for configured low/mid/high widths 0.5/1.0/1.5; equal band widths reconstruct the legacy path within 2e-6. The Android pipeline p99 and allocation delta remain part of the final integration matrix.

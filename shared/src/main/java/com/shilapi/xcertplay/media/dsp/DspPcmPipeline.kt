@@ -90,6 +90,9 @@ internal class DspPcmPipeline(
     internal fun updateSeatFocus(config: DspSeatFocusConfig): Boolean =
         (processor as? NativeDspProcessor)?.updateSeatFocus(config) == true
 
+    internal fun updateAdvancedMsMonitorMode(mode: DspAdvancedMsMonitorMode): Boolean =
+        (processor as? NativeDspProcessor)?.updateAdvancedMsMonitorMode(mode) == true
+
     private fun processInternal(
         source: ByteArray,
         offset: Int,
@@ -209,6 +212,8 @@ internal class DspPcmPipeline(
             outputPeakR = processorSnapshot.outputPeakR,
             outputRmsL = processorSnapshot.outputRmsL,
             outputRmsR = processorSnapshot.outputRmsR,
+            inputCorrelation = processorSnapshot.inputCorrelation,
+            outputCorrelation = processorSnapshot.outputCorrelation,
             nativeProcessUs = processorSnapshot.nativeProcessUs,
             pipelineProcessUs = pipelineProcessTiming.snapshot(),
         )

@@ -17,7 +17,7 @@ struct dsp_engine {
     int channels;
     int max_frames;
     dsp_graph graph;
-    _Atomic uint32_t diagnostic_values[8];
+    _Atomic uint32_t diagnostic_values[10];
     _Atomic uint32_t processed_frames;
     _Atomic uint32_t processed_blocks;
     _Atomic uint32_t non_finite_input_samples;
@@ -113,6 +113,54 @@ dsp_engine *dsp_engine_create_with_seat_focus(
     const dsp_spatial_config *spatial_config,
     const dsp_convolver_config *convolver_config,
     const dsp_seat_focus_config *seat_focus_config) {
+    const dsp_advanced_ms_config disabled_advanced_ms = {
+        0, 0.0, 0.0, 1.0, 1.0, 1.0, 150.0, 4000.0, 0.0,
+        DSP_ADVANCED_MS_MONITOR_NORMAL, 0, 0,
+    };
+    const double disabled_advanced_ms_coefficients[
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0.0};
+    return dsp_engine_create_with_modules(
+        sample_rate,
+        channels,
+        max_frames,
+        gain_db,
+        peq_coefficients,
+        peq_band_count,
+        dynamics_config,
+        multiband_config,
+        dynamic_eq_config,
+        bass_coefficients,
+        bass_coefficient_count,
+        mono_bass_coefficients,
+        mono_bass_coefficient_count,
+        spatial_config,
+        convolver_config,
+        seat_focus_config,
+        &disabled_advanced_ms,
+        disabled_advanced_ms_coefficients,
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT);
+}
+
+dsp_engine *dsp_engine_create_with_modules(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const double *peq_coefficients,
+    int peq_band_count,
+    const dsp_dynamics_config *dynamics_config,
+    const dsp_multiband_config *multiband_config,
+    const dsp_dynamic_eq_config *dynamic_eq_config,
+    const double *bass_coefficients,
+    int bass_coefficient_count,
+    const double *mono_bass_coefficients,
+    int mono_bass_coefficient_count,
+    const dsp_spatial_config *spatial_config,
+    const dsp_convolver_config *convolver_config,
+    const dsp_seat_focus_config *seat_focus_config,
+    const dsp_advanced_ms_config *advanced_ms_config,
+    const double *advanced_ms_coefficients,
+    size_t advanced_ms_coefficient_count) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
         peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
@@ -121,7 +169,10 @@ dsp_engine *dsp_engine_create_with_seat_focus(
         (bass_coefficient_count > 0 && bass_coefficients == NULL) ||
         mono_bass_coefficient_count < 0 || mono_bass_coefficient_count > 1 ||
         (mono_bass_coefficient_count > 0 && mono_bass_coefficients == NULL) || spatial_config == NULL ||
-        convolver_config == NULL || !dsp_seat_focus_validate_config(seat_focus_config)) {
+        convolver_config == NULL || !dsp_seat_focus_validate_config(seat_focus_config) ||
+        advanced_ms_config == NULL || advanced_ms_coefficients == NULL ||
+        advanced_ms_coefficient_count !=
+            DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT) {
         return NULL;
     }
 
@@ -129,7 +180,7 @@ dsp_engine *dsp_engine_create_with_seat_focus(
     if (engine == NULL) {
         return NULL;
     }
-    for (size_t index = 0; index < 8; index++) {
+    for (size_t index = 0; index < 10; index++) {
         atomic_init(&engine->diagnostic_values[index], float_to_bits(0.0f));
     }
     atomic_init(&engine->processed_frames, 0);
@@ -157,7 +208,10 @@ dsp_engine *dsp_engine_create_with_seat_focus(
             mono_bass_coefficient_count,
             spatial_config,
             convolver_config,
-            seat_focus_config)) {
+            seat_focus_config,
+            advanced_ms_config,
+            advanced_ms_coefficients,
+            advanced_ms_coefficient_count)) {
         dsp_graph_close(&engine->graph);
         free(engine);
         return NULL;
@@ -217,13 +271,16 @@ dsp_status dsp_engine_process(
     float output_peak[2];
     double input_rms[2];
     double output_rms[2];
-    dsp_meter_snapshot(&engine->graph.input_meter, input_peak, input_rms);
-    dsp_meter_snapshot(&engine->graph.output_meter, output_peak, output_rms);
-    const float metrics[8] = {
+    float input_correlation;
+    float output_correlation;
+    dsp_meter_snapshot(&engine->graph.input_meter, input_peak, input_rms, &input_correlation);
+    dsp_meter_snapshot(&engine->graph.output_meter, output_peak, output_rms, &output_correlation);
+    const float metrics[10] = {
         input_peak[0], input_peak[1], (float)input_rms[0], (float)input_rms[1],
         output_peak[0], output_peak[1], (float)output_rms[0], (float)output_rms[1],
+        input_correlation, output_correlation,
     };
-    for (size_t index = 0; index < 8; index++) {
+    for (size_t index = 0; index < 10; index++) {
         atomic_store_explicit(
             &engine->diagnostic_values[index],
             float_to_bits(metrics[index]),
@@ -250,7 +307,7 @@ dsp_status dsp_engine_reset(dsp_engine *engine) {
     atomic_store_explicit(&engine->non_finite_input_samples, 0, memory_order_relaxed);
     atomic_store_explicit(&engine->non_finite_output_samples, 0, memory_order_relaxed);
     atomic_store_explicit(&engine->native_error_count, 0, memory_order_relaxed);
-    for (size_t index = 0; index < 8; index++) {
+    for (size_t index = 0; index < 10; index++) {
         atomic_store_explicit(&engine->diagnostic_values[index], float_to_bits(0.0f), memory_order_relaxed);
     }
     return DSP_STATUS_OK;
@@ -261,6 +318,17 @@ dsp_status dsp_engine_update_seat_focus(dsp_engine *engine, const dsp_seat_focus
         return DSP_STATUS_INVALID_HANDLE;
     }
     if (!dsp_seat_focus_validate_config(config) || !dsp_seat_focus_update(&engine->graph.seat_focus, config)) {
+        saturating_add_counter(&engine->native_error_count, 1);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    return DSP_STATUS_OK;
+}
+
+dsp_status dsp_engine_update_advanced_ms_monitor_mode(dsp_engine *engine, int monitor_mode) {
+    if (!engine_is_prepared(engine)) {
+        return DSP_STATUS_INVALID_HANDLE;
+    }
+    if (!dsp_graph_update_advanced_ms_monitor_mode(&engine->graph, monitor_mode)) {
         saturating_add_counter(&engine->native_error_count, 1);
         return DSP_STATUS_INVALID_ARGUMENT;
     }
@@ -295,6 +363,10 @@ dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagn
         atomic_load_explicit(&engine->diagnostic_values[6], memory_order_relaxed));
     diagnostics->output_rms[1] = (double)bits_to_float(
         atomic_load_explicit(&engine->diagnostic_values[7], memory_order_relaxed));
+    diagnostics->input_correlation = (double)bits_to_float(
+        atomic_load_explicit(&engine->diagnostic_values[8], memory_order_relaxed));
+    diagnostics->output_correlation = (double)bits_to_float(
+        atomic_load_explicit(&engine->diagnostic_values[9], memory_order_relaxed));
     diagnostics->processed_frames = atomic_load_explicit(&engine->processed_frames, memory_order_relaxed);
     diagnostics->processed_blocks = atomic_load_explicit(&engine->processed_blocks, memory_order_relaxed);
     diagnostics->non_finite_input_samples =

@@ -7,6 +7,13 @@ enum class DspSeatPreset {
     CENTER,
 }
 
+enum class DspAdvancedMsMonitorMode {
+    NORMAL,
+    MID_ONLY,
+    SIDE_ONLY,
+    MONO_FOLD_DOWN,
+}
+
 data class DspSeatDistanceDelays(
     val leftDelayMs: Double,
     val rightDelayMs: Double,
@@ -92,6 +99,7 @@ data class DspSeatFocusConfig(
 
 data class DspAdvancedMsConfig(
     val enabled: Boolean = false,
+    val monitorMode: DspAdvancedMsMonitorMode = DspAdvancedMsMonitorMode.NORMAL,
     val midGainDb: Double = 0.0,
     val sideGainDb: Double = 0.0,
     val midEqBands: List<DspEqBand> = emptyList(),
@@ -118,6 +126,8 @@ data class DspAdvancedMsConfig(
 
     companion object {
         const val MAX_EQ_BANDS = 5
+        const val NATIVE_VALUE_COUNT = 12
+        const val NATIVE_EQ_COEFFICIENT_COUNT = 55
         const val DEFAULT_LOW_MID_CROSSOVER_HZ = 150.0
         const val DEFAULT_MID_HIGH_CROSSOVER_HZ = 4_000.0
         const val MIN_LOW_MID_CROSSOVER_HZ = 80.0

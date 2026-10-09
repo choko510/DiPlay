@@ -4,7 +4,8 @@
 
 - Goal: implement the attached v1 specification; PR #14 was merged into main, so open a new PR after completion.
 - Base: `95ba398f95ee104527812cd2b095977d71c51f98`; branch: `codex/diplay-4dsp`.
-- Status: Phase 0 baseline is `f9deb04`; Phase 1 models/schema v4 are `2943442`; Phase 2 Seat Focus is implemented and verified on the new PR branch. Continue with Phase 3 Advanced M/S, then Cabin Correction, Harmonic Engine, integration and final audit.
+- Status: Phase 0 baseline is `f9deb04`; Phase 1 models/schema v4 are `2943442`; Phase 2 Seat Focus is complete; Phase 3 Advanced M/S is implemented and verified. Continue with Phase 4 Cabin Correction, Phase 5 Harmonic Engine, integration and final audit.
 - Preserve DSP-master-off PCM16, MEDIA-only routing, existing two-channel output and M/S behavior, Convolver timing, playback-clock accounting, and CarPlay lifecycle.
 - Phase 2 verification: 38 targeted Kotlin unit cases, 17 API 36 x86_64 instrumentation cases, 3 ABI native builds, and the host C DSP suite pass. Fractional-delay correlation error is below 0.009 ms at 44.1/48/96 kHz.
+- Phase 3 verification: 51 targeted Kotlin unit/UI contract cases, 18 API 36 x86_64 instrumentation cases, 3 ABI native builds, and the host C suite pass. Neutral Advanced M/S matches legacy width/Mono Bass; the suite measures width factors at 40 Hz/1 kHz/15 kHz and checks monitor crossfades.
 - TS10 is not attached; real-device audio, CarPlay continuity, and long-run dropout remain unverified.

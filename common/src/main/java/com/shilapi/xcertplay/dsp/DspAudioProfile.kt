@@ -64,6 +64,7 @@ data class DspAudioProfile(
         multiband = multiband,
         dynamicEq = dynamicEq,
         seatFocus = seatFocus,
+        advancedMs = advancedMs,
     )
 
     companion object {

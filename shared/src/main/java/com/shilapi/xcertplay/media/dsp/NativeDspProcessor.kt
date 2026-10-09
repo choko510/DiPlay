@@ -18,6 +18,8 @@ internal interface NativeDspBindings {
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
         seatFocus: DoubleArray,
+        advancedMs: DoubleArray,
+        advancedMsEqCoefficients: DoubleArray,
     ): Long
     fun process(
         handle: Long,
@@ -32,6 +34,7 @@ internal interface NativeDspBindings {
     ): Int
     fun reset(handle: Long): Int
     fun updateSeatFocus(handle: Long, values: DoubleArray): Int
+    fun updateAdvancedMsMonitorMode(handle: Long, monitorMode: Int): Int
     fun latencyFrames(handle: Long): Int
     fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
     fun destroy(handle: Long)
@@ -53,6 +56,8 @@ internal object NativeDspJni : NativeDspBindings {
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
         seatFocus: DoubleArray,
+        advancedMs: DoubleArray,
+        advancedMsEqCoefficients: DoubleArray,
     ): Long = nativeCreate(
         sampleRate,
         channels,
@@ -68,6 +73,8 @@ internal object NativeDspJni : NativeDspBindings {
         convolverConfig,
         convolverSamples,
         seatFocus,
+        advancedMs,
+        advancedMsEqCoefficients,
     )
 
     override fun process(
@@ -94,6 +101,8 @@ internal object NativeDspJni : NativeDspBindings {
 
     override fun reset(handle: Long): Int = nativeReset(handle)
     override fun updateSeatFocus(handle: Long, values: DoubleArray): Int = nativeUpdateSeatFocus(handle, values)
+    override fun updateAdvancedMsMonitorMode(handle: Long, monitorMode: Int): Int =
+        nativeUpdateAdvancedMsMonitor(handle, monitorMode)
     override fun latencyFrames(handle: Long): Int = nativeGetLatencyFrames(handle)
     override fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int =
         nativeGetDiagnostics(handle, values, counters)
@@ -114,6 +123,8 @@ internal object NativeDspJni : NativeDspBindings {
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
         seatFocus: DoubleArray,
+        advancedMs: DoubleArray,
+        advancedMsEqCoefficients: DoubleArray,
     ): Long
     private external fun nativeProcess(
         handle: Long,
@@ -128,6 +139,7 @@ internal object NativeDspJni : NativeDspBindings {
     ): Int
     private external fun nativeReset(handle: Long): Int
     private external fun nativeUpdateSeatFocus(handle: Long, values: DoubleArray): Int
+    private external fun nativeUpdateAdvancedMsMonitor(handle: Long, monitorMode: Int): Int
     private external fun nativeGetLatencyFrames(handle: Long): Int
     private external fun nativeGetDiagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
     private external fun nativeDestroy(handle: Long)
@@ -249,6 +261,25 @@ internal class NativeDspProcessor internal constructor(
         return true
     }
 
+    internal fun updateAdvancedMsMonitorMode(mode: DspAdvancedMsMonitorMode): Boolean {
+        val handle = nativeHandle
+        if (handle <= 0L || format.channels != 2) return false
+        val status = try {
+            bindings.updateAdvancedMsMonitorMode(handle, mode.ordinal)
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        } catch (_: Exception) {
+            -1
+        }
+        if (status != NATIVE_OK) {
+            localNativeErrors++
+            return false
+        }
+        return true
+    }
+
     @Synchronized
     override fun diagnostics(): DspDiagnosticsSnapshot {
         val handle = nativeHandle
@@ -288,6 +319,8 @@ internal class NativeDspProcessor internal constructor(
             outputPeakR = meterValues[5],
             outputRmsL = meterValues[6],
             outputRmsR = meterValues[7],
+            inputCorrelation = meterValues[8],
+            outputCorrelation = meterValues[9],
             nativeProcessUs = nativeProcessTiming.snapshot(),
         )
     }
@@ -305,7 +338,7 @@ internal class NativeDspProcessor internal constructor(
 
     companion object {
         private const val NATIVE_OK = 0
-        private const val DIAGNOSTIC_VALUE_COUNT = 8
+        private const val DIAGNOSTIC_VALUE_COUNT = 10
         private const val DIAGNOSTIC_COUNTER_COUNT = 5
 
         fun createOrNull(
@@ -339,6 +372,8 @@ internal class NativeDspProcessor internal constructor(
                     convolverConfig = prepared.convolverConfig,
                     convolverSamples = prepared.convolverSamples,
                     seatFocus = prepared.seatFocus,
+                    advancedMs = prepared.advancedMs,
+                    advancedMsEqCoefficients = prepared.advancedMsEqCoefficients,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

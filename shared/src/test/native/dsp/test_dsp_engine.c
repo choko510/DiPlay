@@ -133,6 +133,38 @@ static dsp_engine *create_test_engine_with_spatial(
         &bypass_convolver);
 }
 
+static dsp_engine *create_test_engine_with_advanced_ms(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_spatial_config *spatial_config,
+    const dsp_advanced_ms_config *advanced_ms_config,
+    const double *advanced_ms_coefficients,
+    const double *mono_bass_coefficients,
+    int mono_bass_coefficient_count) {
+    const dsp_seat_focus_config disabled_seat_focus = {0};
+    return dsp_engine_create_with_modules(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        mono_bass_coefficients,
+        mono_bass_coefficient_count,
+        spatial_config,
+        &bypass_convolver,
+        &disabled_seat_focus,
+        advanced_ms_config,
+        advanced_ms_coefficients,
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT);
+}
+
 static dsp_engine *create_test_engine_with_convolver(
     int sample_rate,
     int channels,
@@ -489,6 +521,10 @@ static void test_gain_and_meter(void) {
         "diagnostics snapshot succeeds");
     assert_near(diagnostics.input_peak[0], 0.75, 1e-6, "input peak left");
     assert_near(diagnostics.input_peak[1], 1.0, 1e-6, "input peak right");
+    assert_near(diagnostics.input_correlation, -0.875 / sqrt(0.625 * 1.25), 1e-6,
+        "input correlation describes the most recent block");
+    assert_near(diagnostics.output_correlation, diagnostics.input_correlation, 1e-6,
+        "linear gain preserves correlation");
     assert_near(diagnostics.output_peak[0], 1.5, 1e-6, "output peak left");
     assert_near(diagnostics.output_peak[1], 2.0, 1e-6, "output peak right");
     assert_near(diagnostics.input_rms[0], sqrt(0.3125), 1e-6, "input RMS left");
@@ -1133,6 +1169,154 @@ static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
             "mono bass filters side energy with a Butterworth slope");
         dsp_engine_destroy(engine);
     }
+}
+
+static double measure_side_sine_gain(dsp_engine *engine, double frequency_hz) {
+    const size_t total_frames = 8192U;
+    const size_t warmup_frames = 2048U;
+    const size_t block_frames = 512U;
+    double input_energy = 0.0;
+    double output_energy = 0.0;
+    double phase = 0.0;
+    const double phase_step = 2.0 * 3.14159265358979323846 * frequency_hz / 48000.0;
+    for (size_t block = 0; block < total_frames / block_frames; block++) {
+        float input[block_frames * 2U];
+        float output[block_frames * 2U];
+        for (size_t frame = 0; frame < block_frames; frame++) {
+            const float sample = (float)sin(phase);
+            phase += phase_step;
+            input[frame * 2U] = sample;
+            input[frame * 2U + 1U] = -sample;
+        }
+        assert_true(dsp_engine_process(engine, input, block_frames * 2U, output,
+            block_frames * 2U, (int)block_frames, 2) == DSP_STATUS_OK,
+            "M/S width sine block processes");
+        const size_t block_start = block * block_frames;
+        if (block_start + block_frames <= warmup_frames) continue;
+        const size_t first_frame = warmup_frames > block_start ? warmup_frames - block_start : 0U;
+        for (size_t frame = first_frame; frame < block_frames; frame++) {
+            input_energy += (double)input[frame * 2U] * input[frame * 2U];
+            output_energy += (double)output[frame * 2U] * output[frame * 2U];
+        }
+    }
+    return sqrt(output_energy / input_energy);
+}
+
+static void test_advanced_ms_neutral_reconstruction_legacy_parity_and_monitor_modes(void) {
+    double mono_bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_high_pass(48000.0, 120.0, 0.7071067811865476, mono_bass_coefficients);
+    const dsp_spatial_config legacy_spatial = {1.5, 1, 120};
+    const dsp_advanced_ms_config neutral_advanced = {
+        1, 0.0, 0.0, 1.0, 1.0, 1.0, 150.0, 4000.0, 0.0,
+        DSP_ADVANCED_MS_MONITOR_NORMAL, 0, 0,
+    };
+    const double advanced_coefficients[
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0.0};
+    dsp_engine *legacy = create_test_engine_with_spatial(
+        48000, 2, 512, &legacy_spatial, NULL, 0, mono_bass_coefficients, 1);
+    dsp_engine *advanced = create_test_engine_with_advanced_ms(
+        48000, 2, 512, &legacy_spatial, &neutral_advanced,
+        advanced_coefficients, mono_bass_coefficients, 1);
+    assert_true(legacy != NULL && advanced != NULL, "legacy and Advanced M/S graphs create");
+    uint32_t random_state = UINT32_C(0x2468ace1);
+    for (size_t block = 0; block < 16U; block++) {
+        float input[512U * 2U];
+        float legacy_output[512U * 2U];
+        float advanced_output[512U * 2U];
+        for (size_t sample = 0; sample < 512U * 2U; sample++) {
+            random_state = random_state * UINT32_C(1664525) + UINT32_C(1013904223);
+            input[sample] = (float)(random_state >> 8) / 8388607.5f - 1.0f;
+        }
+        assert_true(dsp_engine_process(legacy, input, 1024, legacy_output, 1024, 512, 2) == DSP_STATUS_OK,
+            "legacy M/S reference block processes");
+        assert_true(dsp_engine_process(advanced, input, 1024, advanced_output, 1024, 512, 2) == DSP_STATUS_OK,
+            "Advanced M/S unity block processes");
+        for (size_t sample = 0; sample < 512U * 2U; sample++) {
+            assert_near(advanced_output[sample], legacy_output[sample], 2e-6,
+                "Advanced M/S unity settings preserve legacy width and mono bass");
+        }
+    }
+    dsp_engine_destroy(legacy);
+    dsp_engine_destroy(advanced);
+
+    const dsp_spatial_config width_one = {1.0, 0, 120};
+    dsp_advanced_ms_config width_bands = neutral_advanced;
+    width_bands.low_width = 0.5;
+    width_bands.high_width = 1.5;
+    advanced = create_test_engine_with_advanced_ms(
+        48000, 2, 512, &width_one, &width_bands, advanced_coefficients, NULL, 0);
+    assert_true(advanced != NULL, "frequency-dependent width graph creates");
+    const double low_side_gain = measure_side_sine_gain(advanced, 40.0);
+    assert_true(dsp_engine_reset(advanced) == DSP_STATUS_OK, "low-band side state resets");
+    const double mid_side_gain = measure_side_sine_gain(advanced, 1000.0);
+    assert_true(dsp_engine_reset(advanced) == DSP_STATUS_OK, "mid-band side state resets");
+    const double high_side_gain = measure_side_sine_gain(advanced, 15000.0);
+    printf("DSP_ADVANCED_MS_WIDTH low=%.5f mid=%.5f high=%.5f\n",
+        low_side_gain, mid_side_gain, high_side_gain);
+    assert_true(low_side_gain < mid_side_gain && mid_side_gain < high_side_gain,
+        "low, mid and high Side width bands remain independent");
+    assert_true(low_side_gain < 0.85 && mid_side_gain > 0.85 && mid_side_gain < 1.15 && high_side_gain > 1.25,
+        "frequency-dependent width follows its configured band controls");
+    dsp_engine_destroy(advanced);
+
+    dsp_advanced_ms_config mid_only = neutral_advanced;
+    mid_only.monitor_mode = DSP_ADVANCED_MS_MONITOR_MID_ONLY;
+    advanced = create_test_engine_with_advanced_ms(
+        48000, 2, 512, &width_one, &mid_only, advanced_coefficients, NULL, 0);
+    assert_true(advanced != NULL, "temporary Mid-only monitor graph creates");
+    const float anti_phase[] = {0.25f, -0.25f, -0.5f, 0.5f};
+    float monitor_output[4] = {0};
+    assert_true(dsp_engine_process(advanced, anti_phase, 4, monitor_output, 4, 2, 2) == DSP_STATUS_OK,
+        "Mid-only monitor block processes");
+    for (size_t index = 0; index < 4; index++) {
+        assert_near(monitor_output[index], 0.0, 1e-7, "Mid-only monitor removes Side-only input");
+    }
+    dsp_engine_destroy(advanced);
+
+    dsp_advanced_ms_config side_only = neutral_advanced;
+    side_only.monitor_mode = DSP_ADVANCED_MS_MONITOR_SIDE_ONLY;
+    advanced = create_test_engine_with_advanced_ms(
+        48000, 2, 512, &width_one, &side_only, advanced_coefficients, NULL, 0);
+    assert_true(advanced != NULL, "temporary Side-only monitor graph creates");
+    const float center_input[] = {0.25f, 0.25f, -0.5f, -0.5f};
+    memset(monitor_output, 0, sizeof(monitor_output));
+    assert_true(dsp_engine_process(advanced, center_input, 4, monitor_output, 4, 2, 2) == DSP_STATUS_OK,
+        "Side-only monitor block processes");
+    for (size_t index = 0; index < 4; index++) {
+        assert_near(monitor_output[index], 0.0, 1e-7, "Side-only monitor removes Mid-only input");
+    }
+    dsp_engine_destroy(advanced);
+
+    advanced = create_test_engine_with_advanced_ms(
+        48000, 2, 512, &width_one, &neutral_advanced, advanced_coefficients, NULL, 0);
+    assert_true(advanced != NULL, "live monitor graph creates");
+    float live_input[512U * 2U];
+    float live_output[512U * 2U];
+    for (size_t frame = 0; frame < 512U; frame++) {
+        live_input[frame * 2U] = 0.5f;
+        live_input[frame * 2U + 1U] = -0.5f;
+    }
+    assert_true(dsp_engine_process(advanced, live_input, 1024, live_output, 1024, 512, 2) == DSP_STATUS_OK,
+        "normal monitor warmup block processes");
+    assert_true(dsp_engine_update_advanced_ms_monitor_mode(
+        advanced, DSP_ADVANCED_MS_MONITOR_MID_ONLY) == DSP_STATUS_OK,
+        "temporary Mid-only mode updates in place");
+    assert_true(dsp_engine_process(advanced, live_input, 1024, live_output, 1024, 512, 2) == DSP_STATUS_OK,
+        "temporary monitor transition processes");
+    float maximum_step = 0.0f;
+    float previous_sample = 0.5f;
+    for (size_t frame = 0; frame < 512U; frame++) {
+        const float current_sample = live_output[frame * 2U];
+        maximum_step = fmaxf(maximum_step, fabsf(current_sample - previous_sample));
+        previous_sample = current_sample;
+    }
+    assert_true(maximum_step < 0.01f, "temporary monitor changes crossfade without a click");
+    assert_true(dsp_engine_process(advanced, live_input, 1024, live_output, 1024, 512, 2) == DSP_STATUS_OK,
+        "temporary monitor transition completes");
+    assert_near(live_output[1022], 0.0, 1e-5, "Mid-only monitor settles to the center channel");
+    assert_true(dsp_engine_update_advanced_ms_monitor_mode(advanced, 99) == DSP_STATUS_INVALID_ARGUMENT,
+        "native monitor update rejects unknown enum values");
+    dsp_engine_destroy(advanced);
 }
 
 static void test_multiband_unity_reconstruction_and_phase(void) {
@@ -1869,6 +2053,7 @@ int main(void) {
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
+    test_advanced_ms_neutral_reconstruction_legacy_parity_and_monitor_modes();
     test_seat_focus_fixed_latency_mono_bypass_and_isolation();
     test_seat_focus_fractional_delay_accuracy_and_chunk_invariance();
     test_seat_focus_trim_polarity_and_live_targets_are_smooth();

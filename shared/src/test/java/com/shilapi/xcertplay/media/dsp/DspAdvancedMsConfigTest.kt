@@ -10,6 +10,7 @@ class DspAdvancedMsConfigTest {
         val config = DspAdvancedMsConfig()
 
         assertFalse(config.enabled)
+        assertEquals(DspAdvancedMsMonitorMode.NORMAL, config.monitorMode)
         assertEquals(0.0, config.midGainDb, 0.0)
         assertEquals(0.0, config.sideGainDb, 0.0)
         assertEquals(emptyList<DspEqBand>(), config.midEqBands)

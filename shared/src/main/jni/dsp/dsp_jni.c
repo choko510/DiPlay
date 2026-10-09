@@ -172,13 +172,16 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jdoubleArray spatial_values,
     jdoubleArray convolver_values,
     jfloatArray convolver_samples,
-    jdoubleArray seat_focus_values) {
+    jdoubleArray seat_focus_values,
+    jdoubleArray advanced_ms_values,
+    jdoubleArray advanced_ms_coefficients) {
     (void)env;
     (void)receiver;
     if (peq_coefficients == NULL || dynamics_values == NULL || multiband_values == NULL ||
         dynamic_eq_values == NULL || bass_coefficients == NULL ||
         mono_bass_coefficients == NULL || spatial_values == NULL || convolver_values == NULL ||
-        convolver_samples == NULL || seat_focus_values == NULL) {
+        convolver_samples == NULL || seat_focus_values == NULL || advanced_ms_values == NULL ||
+        advanced_ms_coefficients == NULL) {
         return 0;
     }
     const jsize coefficient_count = (*env)->GetArrayLength(env, peq_coefficients);
@@ -191,6 +194,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     const jsize convolver_value_count = (*env)->GetArrayLength(env, convolver_values);
     const jsize convolver_sample_count = (*env)->GetArrayLength(env, convolver_samples);
     const jsize seat_focus_count = (*env)->GetArrayLength(env, seat_focus_values);
+    const jsize advanced_ms_count = (*env)->GetArrayLength(env, advanced_ms_values);
+    const jsize advanced_ms_coefficient_count = (*env)->GetArrayLength(env, advanced_ms_coefficients);
     if (coefficient_count < 0 || coefficient_count >
             DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
         coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10 ||
@@ -199,6 +204,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         (bass_coefficient_count != 0 && bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         (mono_bass_coefficient_count != 0 && mono_bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         spatial_count != 3 || convolver_value_count != 5 || seat_focus_count != DSP_SEAT_FOCUS_VALUES_COUNT ||
+        advanced_ms_count != 12 || advanced_ms_coefficient_count !=
+            DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
         convolver_sample_count < 0 ||
         convolver_sample_count > DSP_CONVOLVER_MAX_IR_FRAMES * 2) {
         return 0;
@@ -211,6 +218,9 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     double dynamic_values[10];
     double spatial_values_data[3];
     double convolver_values_data[5];
+    double advanced_ms_values_data[12];
+    double advanced_ms_coefficients_data[
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT];
     if (coefficient_count > 0) {
         (*env)->GetDoubleArrayRegion(env, peq_coefficients, 0, coefficient_count, coefficients);
         if ((*env)->ExceptionCheck(env)) {
@@ -269,6 +279,43 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         (double)(int)spatial_values_data[2] != spatial_values_data[2]) {
         return 0;
     }
+    (*env)->GetDoubleArrayRegion(env, advanced_ms_values, 0, advanced_ms_count, advanced_ms_values_data);
+    if ((*env)->ExceptionCheck(env) ||
+        (advanced_ms_values_data[0] != 0.0 && advanced_ms_values_data[0] != 1.0) ||
+        !isfinite(advanced_ms_values_data[1]) || !isfinite(advanced_ms_values_data[2]) ||
+        !isfinite(advanced_ms_values_data[3]) || !isfinite(advanced_ms_values_data[4]) ||
+        !isfinite(advanced_ms_values_data[5]) || !isfinite(advanced_ms_values_data[6]) ||
+        !isfinite(advanced_ms_values_data[7]) || !isfinite(advanced_ms_values_data[8]) ||
+        advanced_ms_values_data[1] < -6.0 || advanced_ms_values_data[1] > 6.0 ||
+        advanced_ms_values_data[2] < -6.0 || advanced_ms_values_data[2] > 6.0 ||
+        advanced_ms_values_data[3] < 0.0 || advanced_ms_values_data[3] > 1.5 ||
+        advanced_ms_values_data[4] < 0.0 || advanced_ms_values_data[4] > 1.5 ||
+        advanced_ms_values_data[5] < 0.0 || advanced_ms_values_data[5] > 1.5 ||
+        advanced_ms_values_data[6] < 80.0 || advanced_ms_values_data[6] > 500.0 ||
+        advanced_ms_values_data[7] < 1000.0 || advanced_ms_values_data[7] > 8000.0 ||
+        advanced_ms_values_data[6] >= advanced_ms_values_data[7] ||
+        advanced_ms_values_data[8] < -3.0 || advanced_ms_values_data[8] > 3.0 ||
+        advanced_ms_values_data[9] < DSP_ADVANCED_MS_MONITOR_NORMAL ||
+        advanced_ms_values_data[9] > DSP_ADVANCED_MS_MONITOR_MONO_FOLD_DOWN ||
+        (double)(int)advanced_ms_values_data[9] != advanced_ms_values_data[9] ||
+        advanced_ms_values_data[10] < 0.0 ||
+        advanced_ms_values_data[10] > DSP_ADVANCED_MS_MAX_MID_EQ_BANDS ||
+        (double)(int)advanced_ms_values_data[10] != advanced_ms_values_data[10] ||
+        advanced_ms_values_data[11] < 0.0 ||
+        advanced_ms_values_data[11] > DSP_ADVANCED_MS_MAX_SIDE_EQ_BANDS ||
+        (double)(int)advanced_ms_values_data[11] != advanced_ms_values_data[11]) {
+        return 0;
+    }
+    (*env)->GetDoubleArrayRegion(
+        env,
+        advanced_ms_coefficients,
+        0,
+        advanced_ms_coefficient_count,
+        advanced_ms_coefficients_data);
+    if ((*env)->ExceptionCheck(env)) return 0;
+    for (size_t index = 0; index < DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT; index++) {
+        if (!isfinite(advanced_ms_coefficients_data[index])) return 0;
+    }
     (*env)->GetDoubleArrayRegion(env, convolver_values, 0, convolver_value_count, convolver_values_data);
     if ((*env)->ExceptionCheck(env) || (convolver_values_data[0] != 0.0 && convolver_values_data[0] != 1.0) ||
         !isfinite(convolver_values_data[1]) || !isfinite(convolver_values_data[2]) ||
@@ -308,6 +355,20 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         .width = spatial_values_data[0],
         .mono_bass_enabled = (int)spatial_values_data[1],
         .mono_bass_cutoff_hz = (int)spatial_values_data[2],
+    };
+    const dsp_advanced_ms_config advanced_ms_config = {
+        .enabled = (int)advanced_ms_values_data[0],
+        .mid_gain_db = advanced_ms_values_data[1],
+        .side_gain_db = advanced_ms_values_data[2],
+        .low_width = advanced_ms_values_data[3],
+        .mid_width = advanced_ms_values_data[4],
+        .high_width = advanced_ms_values_data[5],
+        .low_mid_crossover_hz = advanced_ms_values_data[6],
+        .mid_high_crossover_hz = advanced_ms_values_data[7],
+        .center_focus_db = advanced_ms_values_data[8],
+        .monitor_mode = (int)advanced_ms_values_data[9],
+        .mid_eq_band_count = (int)advanced_ms_values_data[10],
+        .side_eq_band_count = (int)advanced_ms_values_data[11],
     };
     dsp_multiband_config multiband_config = {
         .enabled = (int)multiband_values_data[0],
@@ -365,7 +426,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         }
         return 0;
     }
-    dsp_engine *engine = dsp_engine_create_with_seat_focus(
+    dsp_engine *engine = dsp_engine_create_with_modules(
         sample_rate,
         channels,
         max_frames,
@@ -381,7 +442,10 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         mono_bass_coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
         &spatial_config,
         &convolver_config,
-        &seat_focus_config);
+        &seat_focus_config,
+        &advanced_ms_config,
+        advanced_ms_coefficients_data,
+        (size_t)advanced_ms_coefficient_count);
     if (impulse_samples != NULL) {
         (*env)->ReleaseFloatArrayElements(env, convolver_samples, impulse_samples, JNI_ABORT);
     }
@@ -513,6 +577,23 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetLatencyFrames(
 }
 
 JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeUpdateAdvancedMsMonitor(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jint monitor_mode) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) {
+        return DSP_STATUS_INVALID_HANDLE;
+    }
+    const dsp_status status = dsp_engine_update_advanced_ms_monitor_mode(lease.engine, monitor_mode);
+    release_engine(&lease);
+    return (jint)status;
+}
+
+JNIEXPORT jint JNICALL
 Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetDiagnostics(
     JNIEnv *env,
     jobject receiver,
@@ -524,7 +605,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetDiagnostics(
     if (!acquire_engine(handle, &lease)) {
         return DSP_STATUS_INVALID_HANDLE;
     }
-    if (values == NULL || counters == NULL || (*env)->GetArrayLength(env, values) < 8 ||
+    if (values == NULL || counters == NULL || (*env)->GetArrayLength(env, values) < 10 ||
         (*env)->GetArrayLength(env, counters) < 5) {
         release_engine(&lease);
         return DSP_STATUS_INVALID_ARGUMENT;
@@ -536,7 +617,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetDiagnostics(
         release_engine(&lease);
         return (jint)status;
     }
-    const jdouble metrics[8] = {
+    const jdouble metrics[10] = {
         snapshot.input_peak[0],
         snapshot.input_peak[1],
         snapshot.input_rms[0],
@@ -545,6 +626,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetDiagnostics(
         snapshot.output_peak[1],
         snapshot.output_rms[0],
         snapshot.output_rms[1],
+        snapshot.input_correlation,
+        snapshot.output_correlation,
     };
     const jlong counts[5] = {
         (jlong)snapshot.processed_frames,
@@ -553,7 +636,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetDiagnostics(
         (jlong)snapshot.non_finite_output_samples,
         (jlong)snapshot.native_error_count,
     };
-    (*env)->SetDoubleArrayRegion(env, values, 0, 8, metrics);
+    (*env)->SetDoubleArrayRegion(env, values, 0, 10, metrics);
     (*env)->SetLongArrayRegion(env, counters, 0, 5, counts);
     release_engine(&lease);
     return DSP_STATUS_OK;

@@ -17,6 +17,7 @@ class DspRuntimeConfig(
     val multiband: DspMultibandConfig = DspMultibandConfig(),
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
     val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
+    val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double
@@ -37,9 +38,18 @@ class DspRuntimeConfig(
         multiband = multiband,
         dynamicEq = dynamicEq,
         seatFocus = seatFocus,
+        advancedMs = advancedMs,
     )
 
     internal fun hasSameNonSeatFocusConfig(other: DspRuntimeConfig): Boolean =
+        hasSameBaseConfig(other) && advancedMs == other.advancedMs
+
+    internal fun hasSameExceptAdvancedMsMonitorConfig(other: DspRuntimeConfig): Boolean =
+        hasSameBaseConfig(other) && seatFocus == other.seatFocus &&
+            advancedMs.copy(monitorMode = DspAdvancedMsMonitorMode.NORMAL) ==
+            other.advancedMs.copy(monitorMode = DspAdvancedMsMonitorMode.NORMAL)
+
+    private fun hasSameBaseConfig(other: DspRuntimeConfig): Boolean =
         enabled == other.enabled &&
             gainDb == other.gainDb &&
             peqBands == other.peqBands &&

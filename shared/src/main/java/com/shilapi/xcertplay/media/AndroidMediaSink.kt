@@ -25,6 +25,7 @@ import com.shilapi.xcertplay.airplay.VideoCodec
 import com.shilapi.xcertplay.airplay.toHexString
 import com.shilapi.xcertplay.media.dsp.DspConfigProvider
 import com.shilapi.xcertplay.media.dsp.DspConfigSnapshot
+import com.shilapi.xcertplay.media.dsp.DspAudioMetricsStore
 import com.shilapi.xcertplay.media.dsp.DspAudioFormat
 import com.shilapi.xcertplay.media.dsp.DspBufferSizing
 import com.shilapi.xcertplay.media.dsp.DspLiveUpdateController
@@ -1795,10 +1796,13 @@ internal class AudioRenderer(
         }
     }
 
-    private fun DspRuntimeConfig.requiresStateContinuity(): Boolean = enabled && (
+    private fun DspRuntimeConfig.requiresStateContinuity(format: DspAudioFormat): Boolean = enabled && (
         convolver.enabled && convolver.wet > 0.0 && convolver.impulseResponse != null ||
             compressor.enabled || multiband.enabled || dynamicEq.enabled && dynamicEq.bands.any { it.enabled } ||
-            seatFocus.enabled
+            seatFocus.enabled && format.channels == 2 ||
+            advancedMs.enabled && format.channels == 2 &&
+                advancedMs.lowMidCrossoverHz < format.sampleRate * 0.45 &&
+                advancedMs.midHighCrossoverHz < format.sampleRate * 0.45
         )
 
     private fun configureLiveUpdates(format: DspAudioFormat, forcePrepareCurrent: Boolean = false) {
@@ -1846,6 +1850,7 @@ internal class AudioRenderer(
             },
             activeConfig = { activeDspConfig },
             onSeatFocusUpdate = ::applySeatFocusLiveUpdate,
+            onAdvancedMsMonitorUpdate = ::applyAdvancedMsMonitorLiveUpdate,
             canAdoptLatencyChange = { !trackGenerationContentCommitted },
             onPrepared = { update ->
                 runCatching { beforeDspUpdatePublishForTest?.invoke() }
@@ -1899,6 +1904,25 @@ internal class AudioRenderer(
             return false
         }
         if (!pipeline.updateSeatFocus(snapshot.config.seatFocus)) return false
+        activeDspConfig = snapshot.config
+        activeDspGraphConfig = effectiveDspGraphConfig(pipeline.format, snapshot.config, pipeline)
+        activeDspGeneration = snapshot.generation
+        liveUpdateLatencyFrames.set(pipeline.algorithmicLatencyFrames)
+        livePreparationPending = false
+        deferredDspGeneration = null
+        DspLiveUpdateStatusStore.update(DspLiveUpdateState.APPLIED)
+        return true
+    }
+
+    private fun applyAdvancedMsMonitorLiveUpdate(snapshot: DspConfigSnapshot): Boolean {
+        val pipeline = dspPipeline ?: return false
+        if (rendererReleased || liveUpdateFormat != pipeline.format || pendingDspUpdate.get() != null ||
+            liveFadeInProgress || requestedDspGeneration != snapshot.generation ||
+            (trackGenerationContentCommitted && pipeline.algorithmicLatencyFrames != trackGenerationLatencyFrames)
+        ) {
+            return false
+        }
+        if (!pipeline.updateAdvancedMsMonitorMode(snapshot.config.advancedMs.monitorMode)) return false
         activeDspConfig = snapshot.config
         activeDspGraphConfig = effectiveDspGraphConfig(pipeline.format, snapshot.config, pipeline)
         activeDspGeneration = snapshot.generation
@@ -2047,7 +2071,7 @@ internal class AudioRenderer(
             else -> update.pipeline.algorithmicLatencyFrames
         }
         val graphConfig = effectiveDspGraphConfig(update.format, update.config, update.pipeline)
-        if (trackGenerationContentCommitted && graphConfig.requiresStateContinuity()) {
+        if (trackGenerationContentCommitted && graphConfig.requiresStateContinuity(update.format)) {
             if (deferredDspGeneration != update.generation) {
                 deferredDspGeneration = update.generation
                 reportDsp("DSP update deferred until next AudioTrack generation: stateful graph needs fresh history")
@@ -2652,12 +2676,21 @@ internal class AudioRenderer(
         val lastRx = lastArrivalNs.get()
         val timestampAnchorAgeMs = timestampAnchor?.let { ((now - it.nanoTime).coerceAtLeast(0L)) / 1_000_000L } ?: -1L
         val dspTiming = dspPipeline?.diagnostics()?.let { diagnostics ->
+            DspAudioMetricsStore.update(diagnostics)
+            val outputPeak = maxOf(diagnostics.outputPeakL, diagnostics.outputPeakR)
+            val clipRisk = when {
+                outputPeak >= 1.0 -> "high"
+                outputPeak >= 0.90 -> "elevated"
+                else -> "low"
+            }
             val native = diagnostics.nativeProcessUs
             val pipeline = diagnostics.pipelineProcessUs
             " dspNativeUs=avg:${native.averageUs.toLong()},p50:${native.p50Us},p95:${native.p95Us}," +
                 "p99:${native.p99Us},max:${native.maxUs} " +
                 "dspPipelineUs=avg:${pipeline.averageUs.toLong()},p50:${pipeline.p50Us}," +
-                "p95:${pipeline.p95Us},p99:${pipeline.p99Us},max:${pipeline.maxUs}"
+                "p95:${pipeline.p95Us},p99:${pipeline.p99Us},max:${pipeline.maxUs} " +
+                "dspCorrelation=input:${diagnostics.inputCorrelation},output:${diagnostics.outputCorrelation} " +
+                "dspClipRisk=$clipRisk"
         }.orEmpty()
         val line = "audio stats audioType=${format.audioType} codec=${format.codec} rx=${packetsReceived.getAndSet(0)} " +
             "dropped=${packetsDropped.getAndSet(0)} underruns=+$underrunDelta queue=${queue.size} " +

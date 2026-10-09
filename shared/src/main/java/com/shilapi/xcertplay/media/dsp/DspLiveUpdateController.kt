@@ -31,6 +31,7 @@ internal class DspLiveUpdateController(
     private val onDeferred: (Long) -> Unit = { },
     private val activeConfig: () -> DspRuntimeConfig = { provider.snapshot() },
     private val onSeatFocusUpdate: (DspConfigSnapshot) -> Boolean = { false },
+    private val onAdvancedMsMonitorUpdate: (DspConfigSnapshot) -> Boolean = { false },
     private val canAdoptLatencyChange: () -> Boolean = { false },
     private val pipelinePreparer: DspPipelinePreparer =
         { targetFormat, config -> createNativePipeline(role, targetFormat, config) },
@@ -61,7 +62,7 @@ internal class DspLiveUpdateController(
             true
         }
         if (!accepted) return
-        if (applySeatFocusUpdateInPlace(snapshot)) return
+        if (applySeatFocusUpdateInPlace(snapshot) || applyAdvancedMsMonitorUpdateInPlace(snapshot)) return
         ensureMaintenance()
         schedulePreparation()
     }
@@ -81,6 +82,29 @@ internal class DspLiveUpdateController(
                 return@synchronized false
             }
             if (!runCatching { onSeatFocusUpdate(snapshot) }.getOrDefault(false)) return@synchronized false
+            desired.compareAndSet(snapshot, null)
+            lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
+            true
+        }
+    }
+
+    private fun applyAdvancedMsMonitorUpdateInPlace(snapshot: DspConfigSnapshot): Boolean {
+        return synchronized(generationLock) {
+            if (closed.get() || desired.get()?.generation != snapshot.generation) {
+                return@synchronized false
+            }
+            val currentConfig = runCatching { activeConfig() }.getOrNull() ?: return@synchronized false
+            val targetConfig = snapshot.config
+            if (!currentConfig.enabled || !targetConfig.enabled ||
+                !currentConfig.advancedMs.enabled || !targetConfig.advancedMs.enabled ||
+                currentConfig.advancedMs.monitorMode == targetConfig.advancedMs.monitorMode ||
+                !currentConfig.hasSameExceptAdvancedMsMonitorConfig(targetConfig)
+            ) {
+                return@synchronized false
+            }
+            if (!runCatching { onAdvancedMsMonitorUpdate(snapshot) }.getOrDefault(false)) {
+                return@synchronized false
+            }
             desired.compareAndSet(snapshot, null)
             lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
             true

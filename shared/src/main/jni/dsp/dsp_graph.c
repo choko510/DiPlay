@@ -18,7 +18,10 @@ int dsp_graph_prepare(
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
     const dsp_convolver_config *convolver_config,
-    const dsp_seat_focus_config *seat_focus_config) {
+    const dsp_seat_focus_config *seat_focus_config,
+    const dsp_advanced_ms_config *advanced_ms_config,
+    const double *advanced_ms_coefficients,
+    size_t advanced_ms_coefficient_count) {
     if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
@@ -45,7 +48,11 @@ int dsp_graph_prepare(
     }
     if (!dsp_spatial_prepare(
             &graph->spatial,
+            sample_rate,
             spatial_config,
+            advanced_ms_config,
+            advanced_ms_coefficients,
+            advanced_ms_coefficient_count,
             bass_coefficients,
             bass_coefficient_count,
             mono_bass_coefficients,
@@ -87,6 +94,10 @@ int dsp_graph_latency_frames(const dsp_graph *graph) {
     if (graph == NULL) return -1;
     return dsp_seat_focus_latency_frames(&graph->seat_focus) +
         dsp_convolver_latency_frames(&graph->convolver);
+}
+
+int dsp_graph_update_advanced_ms_monitor_mode(dsp_graph *graph, int monitor_mode) {
+    return graph != NULL && dsp_spatial_update_monitor_mode(&graph->spatial, monitor_mode);
 }
 
 void dsp_graph_process(

@@ -53,9 +53,13 @@ import com.shilapi.xcertplay.dsp.DspProfileSaveResult
 import com.shilapi.xcertplay.dsp.DspImpulseImportResult
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsMonitorMode
+import com.shilapi.xcertplay.media.dsp.DspAudioMetricsStore
+import com.shilapi.xcertplay.media.dsp.DspClipRisk
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspLiveUpdateReason
@@ -110,11 +114,13 @@ class DspSettingsActivity : ComponentActivity() {
 private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
     val context = LocalContext.current
     val liveUpdateStatus = remember { mutableStateOf(DspLiveUpdateStatusStore.snapshot()) }
+    val liveAudioMetrics = remember { mutableStateOf(DspAudioMetricsStore.snapshot()) }
     DisposableEffect(runtime) {
         val handler = Handler(Looper.getMainLooper())
         val pollStatus = object : Runnable {
             override fun run() {
                 liveUpdateStatus.value = DspLiveUpdateStatusStore.snapshot()
+                liveAudioMetrics.value = DspAudioMetricsStore.snapshot()
                 handler.postDelayed(this, DSP_STATUS_POLL_INTERVAL_MS)
             }
         }
@@ -168,6 +174,16 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
             if (activeProfile.seatFocus.bypassed) {
                 runtime.applyAsync(
                     activeProfile.copy(seatFocus = activeProfile.seatFocus.copy(bypassed = false)),
+                    runtime.isDspEnabled(),
+                ) { }
+            }
+            if (activeProfile.advancedMs.monitorMode != DspAdvancedMsMonitorMode.NORMAL) {
+                runtime.applyAsync(
+                    activeProfile.copy(
+                        advancedMs = activeProfile.advancedMs.copy(
+                            monitorMode = DspAdvancedMsMonitorMode.NORMAL,
+                        ),
+                    ),
                     runtime.isDspEnabled(),
                 ) { }
             }
@@ -423,6 +439,195 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                             seatDistanceWarning = false
                         },
                     ) { Text(stringResource(R.string.dsp_seat_reset)) }
+                }
+                SectionCard(title = stringResource(R.string.dsp_advanced_ms)) {
+                    val advancedMs = profile.advancedMs
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_advanced_ms_enabled),
+                        description = stringResource(R.string.dsp_advanced_ms_enabled_description),
+                        checked = advancedMs.enabled,
+                        onCheckedChange = { enabled ->
+                            profile = profile.copy(advancedMs = advancedMs.copy(enabled = enabled))
+                        },
+                    )
+                    if (advancedMs.enabled) {
+                        DspValueSlider(
+                            stringResource(R.string.dsp_advanced_ms_mid_gain),
+                            advancedMs.midGainDb,
+                            -6.0..6.0,
+                            "dB",
+                            decimals = 1,
+                        ) { value ->
+                            profile = profile.copy(advancedMs = advancedMs.copy(midGainDb = value))
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_advanced_ms_side_gain),
+                            advancedMs.sideGainDb,
+                            -6.0..6.0,
+                            "dB",
+                            decimals = 1,
+                        ) { value ->
+                            profile = profile.copy(advancedMs = advancedMs.copy(sideGainDb = value))
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_advanced_ms_low_width),
+                            advancedMs.lowWidth,
+                            0.0..1.5,
+                            "×",
+                            decimals = 2,
+                        ) { value ->
+                            profile = profile.copy(advancedMs = advancedMs.copy(lowWidth = value))
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_advanced_ms_mid_width),
+                            advancedMs.midWidth,
+                            0.0..1.5,
+                            "×",
+                            decimals = 2,
+                        ) { value ->
+                            profile = profile.copy(advancedMs = advancedMs.copy(midWidth = value))
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_advanced_ms_high_width),
+                            advancedMs.highWidth,
+                            0.0..1.5,
+                            "×",
+                            decimals = 2,
+                        ) { value ->
+                            profile = profile.copy(advancedMs = advancedMs.copy(highWidth = value))
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_advanced_ms_low_mid_crossover),
+                            advancedMs.lowMidCrossoverHz,
+                            DspAdvancedMsConfig.MIN_LOW_MID_CROSSOVER_HZ..
+                                DspAdvancedMsConfig.MAX_LOW_MID_CROSSOVER_HZ,
+                            "Hz",
+                            decimals = 0,
+                        ) { value ->
+                            profile = profile.copy(advancedMs = advancedMs.copy(lowMidCrossoverHz = value))
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_advanced_ms_mid_high_crossover),
+                            advancedMs.midHighCrossoverHz,
+                            DspAdvancedMsConfig.MIN_MID_HIGH_CROSSOVER_HZ..
+                                DspAdvancedMsConfig.MAX_MID_HIGH_CROSSOVER_HZ,
+                            "Hz",
+                            decimals = 0,
+                        ) { value ->
+                            profile = profile.copy(advancedMs = advancedMs.copy(midHighCrossoverHz = value))
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_advanced_ms_center_focus),
+                            advancedMs.centerFocusDb,
+                            -3.0..3.0,
+                            "dB",
+                            decimals = 1,
+                        ) { value ->
+                            profile = profile.copy(advancedMs = advancedMs.copy(centerFocusDb = value))
+                        }
+                        Text(stringResource(R.string.dsp_advanced_ms_width_note))
+                        Text(stringResource(R.string.dsp_advanced_ms_center_note))
+                        Text(stringResource(dspLiveUpdateStatusMessage(liveUpdateStatus.value)))
+                        ChoiceField(
+                            title = stringResource(R.string.dsp_advanced_ms_monitor),
+                            selected = advancedMsMonitorLabel(context, advancedMs.monitorMode),
+                            choices = DspAdvancedMsMonitorMode.entries.map { advancedMsMonitorLabel(context, it) },
+                            onSelect = { selected ->
+                                val mode = DspAdvancedMsMonitorMode.entries.first {
+                                    advancedMsMonitorLabel(context, it) == selected
+                                }
+                                val updated = profile.copy(
+                                    advancedMs = profile.advancedMs.copy(monitorMode = mode),
+                                )
+                                profile = updated
+                                runtime.applyAsync(updated, dspEnabled) { }
+                            },
+                        )
+                        Text(stringResource(R.string.dsp_advanced_ms_monitor_note))
+                        Text(stringResource(R.string.dsp_advanced_ms_mid_eq))
+                        advancedMs.midEqBands.forEachIndexed { index, band ->
+                            AdvancedMsEqBandEditor(
+                                band = band,
+                                bankLabel = stringResource(R.string.dsp_advanced_ms_mid_eq),
+                                index = index,
+                                onChange = { changed ->
+                                    val bands = profile.advancedMs.midEqBands.toMutableList().apply {
+                                        set(index, changed)
+                                    }
+                                    profile = profile.copy(advancedMs = profile.advancedMs.copy(midEqBands = bands))
+                                },
+                                onRemove = {
+                                    val bands = profile.advancedMs.midEqBands.toMutableList().apply {
+                                        removeAt(index)
+                                    }
+                                    profile = profile.copy(advancedMs = profile.advancedMs.copy(midEqBands = bands))
+                                },
+                            )
+                        }
+                        if (advancedMs.midEqBands.size < DspAdvancedMsConfig.MAX_EQ_BANDS) {
+                            OutlinedButton(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    profile = profile.copy(
+                                        advancedMs = profile.advancedMs.copy(
+                                            midEqBands = profile.advancedMs.midEqBands +
+                                                DspEqBand(DspEqType.PEAK, 1_000.0, q = 1.0, enabled = true),
+                                        ),
+                                    )
+                                },
+                            ) { Text(stringResource(R.string.dsp_advanced_ms_add_mid_band)) }
+                        }
+                        Text(stringResource(R.string.dsp_advanced_ms_side_eq))
+                        advancedMs.sideEqBands.forEachIndexed { index, band ->
+                            AdvancedMsEqBandEditor(
+                                band = band,
+                                bankLabel = stringResource(R.string.dsp_advanced_ms_side_eq),
+                                index = index,
+                                onChange = { changed ->
+                                    val bands = profile.advancedMs.sideEqBands.toMutableList().apply {
+                                        set(index, changed)
+                                    }
+                                    profile = profile.copy(advancedMs = profile.advancedMs.copy(sideEqBands = bands))
+                                },
+                                onRemove = {
+                                    val bands = profile.advancedMs.sideEqBands.toMutableList().apply {
+                                        removeAt(index)
+                                    }
+                                    profile = profile.copy(advancedMs = profile.advancedMs.copy(sideEqBands = bands))
+                                },
+                            )
+                        }
+                        if (advancedMs.sideEqBands.size < DspAdvancedMsConfig.MAX_EQ_BANDS) {
+                            OutlinedButton(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = {
+                                    profile = profile.copy(
+                                        advancedMs = profile.advancedMs.copy(
+                                            sideEqBands = profile.advancedMs.sideEqBands +
+                                                DspEqBand(DspEqType.PEAK, 1_000.0, q = 1.0, enabled = true),
+                                        ),
+                                    )
+                                },
+                            ) { Text(stringResource(R.string.dsp_advanced_ms_add_side_band)) }
+                        }
+                    }
+                    Text(
+                        stringResource(
+                            R.string.dsp_advanced_ms_correlation,
+                            liveAudioMetrics.value.inputCorrelation,
+                            liveAudioMetrics.value.outputCorrelation,
+                        ),
+                    )
+                    Text(
+                        stringResource(
+                            when (liveAudioMetrics.value.clipRisk) {
+                                DspClipRisk.LOW -> R.string.dsp_advanced_ms_clip_low
+                                DspClipRisk.ELEVATED -> R.string.dsp_advanced_ms_clip_elevated
+                                DspClipRisk.HIGH -> R.string.dsp_advanced_ms_clip_high
+                            },
+                            liveAudioMetrics.value.outputPeak,
+                        ),
+                    )
                 }
                 SectionCard(title = stringResource(R.string.dsp_auto_headroom)) {
                     DspSwitchRow(
@@ -879,6 +1084,74 @@ private fun profileLabel(context: Context, profile: DspAudioProfile): String = c
         "custom1" -> R.string.dsp_preset_custom_1
         "custom2" -> R.string.dsp_preset_custom_2
         else -> R.string.dsp_preset_flat
+    },
+)
+
+@Composable
+private fun AdvancedMsEqBandEditor(
+    band: DspEqBand,
+    bankLabel: String,
+    index: Int,
+    onChange: (DspEqBand) -> Unit,
+    onRemove: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("$bankLabel ${index + 1}")
+            DspSwitchRow(
+                title = stringResource(R.string.dsp_advanced_ms_band_enabled),
+                checked = band.enabled,
+                onCheckedChange = { onChange(band.copy(enabled = it)) },
+            )
+            ChoiceField(
+                title = stringResource(R.string.dsp_eq_type),
+                selected = band.type.name,
+                choices = DspEqType.entries.map { it.name },
+                onSelect = { selected ->
+                    onChange(band.copy(type = DspEqType.entries.first { it.name == selected }))
+                },
+            )
+            val controls = eqBandEditorControls(band.type)
+            if (EqBandEditorControl.FREQUENCY in controls) {
+                DspValueSlider(
+                    stringResource(R.string.dsp_frequency),
+                    band.frequencyHz,
+                    20.0..20_000.0,
+                    "Hz",
+                    decimals = 0,
+                ) { onChange(band.copy(frequencyHz = it)) }
+            }
+            if (EqBandEditorControl.GAIN in controls) {
+                DspValueSlider(
+                    stringResource(R.string.dsp_gain),
+                    band.gainDb,
+                    -6.0..6.0,
+                    "dB",
+                    decimals = 1,
+                ) { onChange(band.copy(gainDb = it)) }
+            }
+            if (EqBandEditorControl.Q in controls) {
+                DspValueSlider(
+                    stringResource(R.string.dsp_q),
+                    band.q,
+                    0.1..8.0,
+                    "",
+                    decimals = 1,
+                ) { onChange(band.copy(q = it)) }
+            }
+            OutlinedButton(modifier = Modifier.fillMaxWidth(), onClick = onRemove) {
+                Text(stringResource(R.string.dsp_advanced_ms_remove_band))
+            }
+        }
+    }
+}
+
+private fun advancedMsMonitorLabel(context: Context, mode: DspAdvancedMsMonitorMode): String = context.getString(
+    when (mode) {
+        DspAdvancedMsMonitorMode.NORMAL -> R.string.dsp_advanced_ms_monitor_normal
+        DspAdvancedMsMonitorMode.MID_ONLY -> R.string.dsp_advanced_ms_monitor_mid
+        DspAdvancedMsMonitorMode.SIDE_ONLY -> R.string.dsp_advanced_ms_monitor_side
+        DspAdvancedMsMonitorMode.MONO_FOLD_DOWN -> R.string.dsp_advanced_ms_monitor_mono
     },
 )
 

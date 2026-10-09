@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.dsp
 
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsMonitorMode
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCut
 import com.shilapi.xcertplay.media.dsp.DspCabinCutSource
@@ -173,6 +174,21 @@ class DspProfileRepositoryTest {
     }
 
     @Test
+    fun temporaryAdvancedMsMonitorModeIsNotPersistedInTheProfile() {
+        val repository = repository()
+        val profile = DspProfilePresets.customProfile("custom1").copy(
+            advancedMs = DspAdvancedMsConfig(enabled = true, monitorMode = DspAdvancedMsMonitorMode.SIDE_ONLY),
+        )
+
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertEquals(DspAdvancedMsMonitorMode.SIDE_ONLY, profile.advancedMs.monitorMode)
+        assertEquals(DspAdvancedMsMonitorMode.NORMAL, loaded.profile.advancedMs.monitorMode)
+        assertTrue(loaded.profile.advancedMs.enabled)
+    }
+
+    @Test
     fun profileMapsToAnImmutableRuntimeSnapshotAndRespectsTheMasterSwitch() {
         val profile = DspAudioProfile(
             id = "custom2",
@@ -185,6 +201,7 @@ class DspProfileRepositoryTest {
             convolver = DspConvolverConfig(enabled = true, impulseResponseId = "room1"),
             multiband = DspMultibandConfig(enabled = true, low = DspCompressorConfig(enabled = true)),
             dynamicEq = DspDynamicEqConfig(enabled = true),
+            advancedMs = DspAdvancedMsConfig(enabled = true, midGainDb = 2.0),
         )
 
         val disabled = profile.toRuntimeConfig(masterEnabled = false)
@@ -200,6 +217,7 @@ class DspProfileRepositoryTest {
         assertEquals(profile.convolver, enabled.convolver)
         assertEquals(profile.multiband, enabled.multiband)
         assertEquals(profile.dynamicEq, enabled.dynamicEq)
+        assertEquals(profile.advancedMs, enabled.advancedMs)
         assertTrue(runCatching { (enabled.peqBands as MutableList).clear() }.isFailure)
     }
 

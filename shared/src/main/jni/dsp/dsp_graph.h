@@ -44,10 +44,14 @@ int dsp_graph_prepare(
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
     const dsp_convolver_config *convolver_config,
-    const dsp_seat_focus_config *seat_focus_config);
+    const dsp_seat_focus_config *seat_focus_config,
+    const dsp_advanced_ms_config *advanced_ms_config,
+    const double *advanced_ms_coefficients,
+    size_t advanced_ms_coefficient_count);
 void dsp_graph_reset(dsp_graph *graph);
 void dsp_graph_close(dsp_graph *graph);
 int dsp_graph_latency_frames(const dsp_graph *graph);
+int dsp_graph_update_advanced_ms_monitor_mode(dsp_graph *graph, int monitor_mode);
 void dsp_graph_process(
     dsp_graph *graph,
     const float *input,

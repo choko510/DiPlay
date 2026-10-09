@@ -40,6 +40,8 @@ class NativeDspBridgeInstrumentedTest {
             convolverConfig = prepared.convolverConfig,
             convolverSamples = prepared.convolverSamples,
             seatFocus = prepared.seatFocus,
+            advancedMs = prepared.advancedMs,
+            advancedMsEqCoefficients = prepared.advancedMsEqCoefficients,
         )
         assertTrue(handle > 0L)
         try {
@@ -142,6 +144,59 @@ class NativeDspBridgeInstrumentedTest {
             assertEquals(264, rightPeakFrame)
             assertTrue(processor.updateSeatFocus(DspSeatFocusConfig(enabled = true, bypassed = true)))
             assertEquals(264, processor.latencyFrames)
+        } finally {
+            processor.close()
+        }
+    }
+
+    @Test
+    fun advancedMsUnityReconstructsStereoAndTemporaryMonitorCrossfadesThroughJni() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val sampleRate = 48_000
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(sampleRate, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                advancedMs = DspAdvancedMsConfig(enabled = true),
+            ),
+        )
+        assertNotNull(processor)
+        processor ?: return
+
+        try {
+            val input = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            val output = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            repeat(512) { frame ->
+                val sample = sin(2.0 * PI * 1_000.0 * frame / sampleRate).toFloat() * 0.25f
+                input.putFloat(sample)
+                input.putFloat(-sample)
+            }
+            input.flip()
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, 512).status)
+            repeat(512) { frame ->
+                assertEquals(input.getFloat(frame * 2 * Float.SIZE_BYTES), output.getFloat(frame * 2 * Float.SIZE_BYTES), 2e-6f)
+                assertEquals(input.getFloat((frame * 2 + 1) * Float.SIZE_BYTES), output.getFloat((frame * 2 + 1) * Float.SIZE_BYTES), 2e-6f)
+            }
+            assertTrue(processor.diagnostics().inputCorrelation < -0.99)
+            assertTrue(processor.diagnostics().outputCorrelation < -0.99)
+
+            assertTrue(processor.updateAdvancedMsMonitorMode(DspAdvancedMsMonitorMode.MID_ONLY))
+            var finalOutput: ByteBuffer? = null
+            repeat(2) {
+                val transitionInput = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+                val transitionOutput = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+                repeat(512) {
+                    transitionInput.putFloat(0.25f)
+                    transitionInput.putFloat(-0.25f)
+                }
+                transitionInput.flip()
+                assertEquals(DspProcessStatus.SUCCESS, processor.process(transitionInput, transitionOutput, 512).status)
+                finalOutput = transitionOutput
+            }
+            assertTrue(abs(requireNotNull(finalOutput).getFloat((511 * 2) * Float.SIZE_BYTES)) < 1e-5f)
+            assertTrue(abs(requireNotNull(finalOutput).getFloat((511 * 2 + 1) * Float.SIZE_BYTES)) < 1e-5f)
         } finally {
             processor.close()
         }

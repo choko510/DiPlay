@@ -55,6 +55,51 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
+    fun temporaryAdvancedMsMonitorChangesApplyWithoutRebuildingTheActivePipeline() {
+        val initial = DspRuntimeConfig(
+            enabled = true,
+            advancedMs = DspAdvancedMsConfig(enabled = true),
+        )
+        val provider = MutableConfigProvider(initial)
+        val activeConfig = AtomicReference(initial)
+        val applied = LinkedBlockingQueue<DspConfigSnapshot>()
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val prepareCalls = AtomicInteger()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            activeConfig = { activeConfig.get() },
+            onAdvancedMsMonitorUpdate = { snapshot ->
+                applied.offer(snapshot)
+                activeConfig.set(snapshot.config)
+                true
+            },
+            onPrepared = { prepared.offer(it) },
+            pipelinePreparer = { format, _ ->
+                prepareCalls.incrementAndGet()
+                trackingPipeline(format, 0) { }
+            },
+        )
+
+        provider.update(
+            DspRuntimeConfig(
+                enabled = true,
+                advancedMs = initial.advancedMs.copy(monitorMode = DspAdvancedMsMonitorMode.SIDE_ONLY),
+            ),
+        )
+
+        val update = applied.poll(5, TimeUnit.SECONDS)
+        assertNotNull(update)
+        assertEquals(DspAdvancedMsMonitorMode.SIDE_ONLY, update?.config?.advancedMs?.monitorMode)
+        assertEquals(0, prepareCalls.get())
+        assertNull(prepared.poll(100, TimeUnit.MILLISECONDS))
+        controller.close()
+    }
+
+    @Test
     fun closeWaitsForAnInFlightSeatFocusUpdateBeforeRetiringTheActivePipeline() {
         val initial = DspRuntimeConfig(enabled = true, seatFocus = DspSeatFocusConfig(enabled = true))
         val provider = MutableConfigProvider(initial)

@@ -311,3 +311,7 @@ Keep all new module settings disabled by default and add them as separate profil
 ## Keep Seat Focus latency fixed and protect its native update lifetime
 
 Reserve 5.5 ms of native latency while the stereo Seat Focus node is active. Convert user-relative delay to per-channel reads inside that fixed budget, and apply new targets with a smooth readhead ramp. Precompute the four-tap Lagrange table during graph preparation. Preserve the graph's prepared Auto Headroom reference during live trim updates so a +6 dB trim cannot exceed its original peak budget. Serialize the in-place JNI update with controller close so a delayed provider callback cannot update a destroyed graph; report prepare, apply, defer and processing failure through one atomic status snapshot.
+
+## Extend the existing spatial node for Advanced M/S
+
+Keep legacy global Stereo Width and Mono Bass in one `dsp_spatial` transform. Advanced M/S replaces that transform only while enabled. Split Side with complementary first-order all-pass crossovers so equal widths reconstruct the input without added algorithmic latency; combine band width as `clamp(globalWidth * bandWidth, 0, 2)`. Prepare biquad/all-pass coefficients off the render thread. Keep monitor modes transient and update them through an atomic target with a 20 ms crossfade; report last-block correlation and output peak risk as diagnostics.

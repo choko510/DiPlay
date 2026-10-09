@@ -168,6 +168,7 @@ internal object DspAutoHeadroom {
         stereoWidth: Double = 1.0,
         marginDb: Double = 1.0,
         staticBassBands: List<DspEqBand> = emptyList(),
+        advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
     ): DspHeadroomResult {
         require(sampleRate in 8_000..192_000)
         require(preampDb.isFinite())
@@ -179,6 +180,8 @@ internal object DspAutoHeadroom {
         require(marginDb.isFinite() && marginDb >= 0.0)
         require(peqBands.size <= DspEqDesigner.MAX_BANDS)
         require(staticBassBands.size <= DspEqDesigner.MAX_BANDS)
+        require(advancedMs.midEqBands.size <= DspAdvancedMsConfig.MAX_EQ_BANDS)
+        require(advancedMs.sideEqBands.size <= DspAdvancedMsConfig.MAX_EQ_BANDS)
 
         val bands = (peqBands + staticBassBands).filter(DspEqBand::enabled)
         val filters = bands.map { DspEqDesigner.design(sampleRate, it) }
@@ -195,14 +198,59 @@ internal object DspAutoHeadroom {
             if (magnitude > 0.0) peakDb = max(peakDb, 20.0 * log10(magnitude))
         }
         if (filters.isEmpty()) peakDb = 0.0
-        val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth))
+        val effectiveMaxWidth = if (advancedMs.enabled) {
+            minOf(2.0, stereoWidth * maxOf(advancedMs.lowWidth, advancedMs.midWidth, advancedMs.highWidth))
+        } else {
+            stereoWidth
+        }
+        val widthWorstCaseDb = 20.0 * log10(max(1.0, effectiveMaxWidth))
+        val advancedMsBoostDb = if (advancedMs.enabled) {
+            val centerFocusBand = if (advancedMs.centerFocusDb == 0.0) {
+                emptyList()
+            } else {
+                listOf(DspEqBand(DspEqType.PEAK, CENTER_FOCUS_FREQUENCY_HZ, advancedMs.centerFocusDb, CENTER_FOCUS_Q))
+            }
+            val midBranchDb = advancedMs.midGainDb + filterPeakDb(sampleRate, advancedMs.midEqBands + centerFocusBand)
+            val sideBranchDb = advancedMs.sideGainDb + filterPeakDb(sampleRate, advancedMs.sideEqBands)
+            val branchPeakDb = max(midBranchDb, sideBranchDb)
+            val branchesDiffer = advancedMs.midGainDb != advancedMs.sideGainDb ||
+                advancedMs.midEqBands != advancedMs.sideEqBands || advancedMs.centerFocusDb != 0.0 ||
+                effectiveMaxWidth != stereoWidth
+            val branchMixMarginDb = if (branchPeakDb > 0.0 && branchesDiffer) 3.0 else 0.0
+            max(0.0, branchPeakDb + branchMixMarginDb)
+        } else {
+            0.0
+        }
         val staticWorstCaseDb = preampDb + peakDb + maxSeatTrimDb + max(0.0, compressorMakeupDb) +
-            max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) + widthWorstCaseDb
+            max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) + widthWorstCaseDb + advancedMsBoostDb
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
         )
     }
+
+    private fun filterPeakDb(sampleRate: Int, bands: List<DspEqBand>): Double {
+        val filters = bands.filter {
+            it.enabled && it.frequencyHz < sampleRate * 0.45
+        }.map { DspEqDesigner.design(sampleRate, it) }
+        if (filters.isEmpty()) return 0.0
+        val maxFrequency = minOf(20_000.0, sampleRate * 0.45)
+        val logMin = kotlin.math.ln(20.0)
+        val logMax = kotlin.math.ln(maxFrequency)
+        var peakDb = Double.NEGATIVE_INFINITY
+        for (point in 0 until SCAN_POINTS) {
+            val fraction = point.toDouble() / (SCAN_POINTS - 1)
+            val frequency = kotlin.math.exp(logMin + (logMax - logMin) * fraction)
+            var magnitude = 1.0
+            for (filter in filters) magnitude *= filter.magnitudeAt(sampleRate, frequency)
+            require(magnitude.isFinite() && magnitude >= 0.0)
+            if (magnitude > 0.0) peakDb = max(peakDb, 20.0 * log10(magnitude))
+        }
+        return peakDb
+    }
+
+    private const val CENTER_FOCUS_FREQUENCY_HZ = 1_500.0
+    private const val CENTER_FOCUS_Q = 0.5
 }
 
 internal data class DspPreparedConfig(
@@ -217,6 +265,8 @@ internal data class DspPreparedConfig(
     val multiband: DoubleArray,
     val dynamicEq: DoubleArray,
     val seatFocus: DoubleArray,
+    val advancedMs: DoubleArray,
+    val advancedMsEqCoefficients: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -259,6 +309,10 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         require(multiband.lowMidCrossoverHz < format.sampleRate * 0.45)
         require(multiband.midHighCrossoverHz < format.sampleRate * 0.45)
     }
+    val advancedMsRateSupported = !advancedMs.enabled ||
+        format.channels == 2 &&
+        advancedMs.lowMidCrossoverHz < format.sampleRate * 0.45 &&
+        advancedMs.midHighCrossoverHz < format.sampleRate * 0.45
     val multibandNativeValues = multiband.toNativeValues()
     val rateSafeDynamicEq = DspDynamicEqConfig(
         enabled = dynamicEq.enabled,
@@ -267,6 +321,56 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         },
     )
     val dynamicEqNativeValues = rateSafeDynamicEq.toNativeValues()
+    val activeMidBands = if (advancedMsRateSupported && advancedMs.enabled) {
+        advancedMs.midEqBands.filter { it.enabled && it.frequencyHz < format.sampleRate * 0.45 }
+    } else {
+        emptyList()
+    }
+    val activeSideBands = if (advancedMsRateSupported && advancedMs.enabled) {
+        advancedMs.sideEqBands.filter { it.enabled && it.frequencyHz < format.sampleRate * 0.45 }
+    } else {
+        emptyList()
+    }
+    val activeCenterFocus = advancedMsRateSupported && advancedMs.enabled && advancedMs.centerFocusDb != 0.0
+    val midBandCount = activeMidBands.size + if (activeCenterFocus) 1 else 0
+    val advancedMsCoefficients = DoubleArray(DspAdvancedMsConfig.NATIVE_EQ_COEFFICIENT_COUNT)
+    activeMidBands.forEachIndexed { index, band ->
+        DspEqDesigner.design(format.sampleRate, band).writeTo(
+            advancedMsCoefficients,
+            index * DspEqDesigner.COEFFICIENTS_PER_BAND,
+        )
+    }
+    if (activeCenterFocus) {
+        DspEqDesigner.design(
+            format.sampleRate,
+            DspEqBand(
+                DspEqType.PEAK,
+                CENTER_FOCUS_FREQUENCY_HZ,
+                gainDb = advancedMs.centerFocusDb,
+                q = CENTER_FOCUS_Q,
+            ),
+        ).writeTo(advancedMsCoefficients, activeMidBands.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
+    }
+    activeSideBands.forEachIndexed { index, band ->
+        DspEqDesigner.design(format.sampleRate, band).writeTo(
+            advancedMsCoefficients,
+            (DspAdvancedMsConfig.MAX_EQ_BANDS + 1 + index) * DspEqDesigner.COEFFICIENTS_PER_BAND,
+        )
+    }
+    val advancedMsNativeValues = doubleArrayOf(
+        if (advancedMsRateSupported && advancedMs.enabled) 1.0 else 0.0,
+        advancedMs.midGainDb,
+        advancedMs.sideGainDb,
+        advancedMs.lowWidth,
+        advancedMs.midWidth,
+        advancedMs.highWidth,
+        advancedMs.lowMidCrossoverHz,
+        advancedMs.midHighCrossoverHz,
+        advancedMs.centerFocusDb,
+        advancedMs.monitorMode.ordinal.toDouble(),
+        midBandCount.toDouble(),
+        activeSideBands.size.toDouble(),
+    )
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
@@ -293,6 +397,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             } else {
                 0.0
             },
+            advancedMs = if (advancedMsRateSupported) advancedMs else advancedMs.copy(enabled = false),
             stereoWidth = stereoWidth,
             marginDb = autoHeadroomMarginDb,
             staticBassBands = if (bass.enabled) {
@@ -343,9 +448,13 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         multiband = multibandNativeValues,
         dynamicEq = dynamicEqNativeValues,
         seatFocus = seatFocus.toNativeValues(format.channels),
+        advancedMs = advancedMsNativeValues,
+        advancedMsEqCoefficients = advancedMsCoefficients,
         headroom = headroom,
     )
 }
 
 private const val MIN_APPLIED_PREAMP_DB = -700.0
 private const val BUTTERWORTH_Q = 0.7071067811865476
+private const val CENTER_FOCUS_FREQUENCY_HZ = 1_500.0
+private const val CENTER_FOCUS_Q = 0.5

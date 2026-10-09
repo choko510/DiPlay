@@ -286,3 +286,7 @@ Bound the input byte count before parsing, reject duplicate object keys, and val
 ## Measure Seat Focus against the fixed-delay reference
 
 At 44.1/48/96 kHz, validate the relative L/R delay using broadband correlation after the full 5.5 ms fixed delay. A 1024-phase, four-tap Lagrange table measured within 0.0082 ms of the requested delay on the host C suite; keep a 0.05 ms acceptance bound and include chunk-size invariance plus live-target ramps.
+
+## Test complementary crossover signs with tones and unity reconstruction
+
+For the all-pass split, the coefficient sign determines whether low frequencies enter the low or high branch. Verify both the per-band response and exact unity-width reconstruction; a mistaken sign can still produce stable finite output while assigning every frequency to the wrong band.

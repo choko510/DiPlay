@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DiPlay DSP profile schema v4",
+  "description": "Unknown properties are retained by the repository so future versions can round-trip through older clients.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "const": 4 },
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 48 },
+    "enabled": { "type": "boolean" },
+    "preampDb": { "type": "number", "minimum": -120, "maximum": 24 },
+    "autoHeadroom": { "type": "boolean" },
+    "autoHeadroomMarginDb": { "type": "number", "minimum": 0, "maximum": 12 },
+    "peq": {
+      "type": "array",
+      "maxItems": 15,
+      "items": { "$ref": "#/$defs/eqBand" }
+    },
+    "bass": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "gainDb": { "type": "number", "minimum": -18, "maximum": 18 },
+        "frequencyHz": { "type": "number", "minimum": 20, "maximum": 300 }
+      },
+      "additionalProperties": true
+    },
+    "compressor": { "$ref": "#/$defs/compressor" },
+    "stereo": {
+      "type": "object",
+      "properties": {
+        "width": { "type": "number", "minimum": 0, "maximum": 2 },
+        "monoBass": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "cutoffHz": { "enum": [60, 80, 100, 120, 150, 200] }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "convolver": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "impulseResponseId": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+        "wet": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "multiband": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "lowMidCrossoverHz": { "type": "number", "minimum": 20, "maximum": 1000 },
+        "midHighCrossoverHz": { "type": "number", "minimum": 500, "maximum": 3500 },
+        "low": { "$ref": "#/$defs/compressor" },
+        "mid": { "$ref": "#/$defs/compressor" },
+        "high": { "$ref": "#/$defs/compressor" }
+      },
+      "additionalProperties": true
+    },
+    "dynamicEq": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "bands": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/dynamicEqBand" } }
+      },
+      "additionalProperties": true
+    },
+    "limiter": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "thresholdDb": { "type": "number", "minimum": -12, "maximum": 0 },
+        "releaseMs": { "type": "number", "minimum": 1, "maximum": 2000 }
+      },
+      "additionalProperties": true
+    },
+    "seatFocus": { "$ref": "#/$defs/seatFocus" },
+    "advancedMs": { "$ref": "#/$defs/advancedMs" },
+    "cabinCorrection": { "$ref": "#/$defs/cabinCorrection" },
+    "harmonicEngine": { "$ref": "#/$defs/harmonicEngine" }
+  },
+  "required": [
+    "schemaVersion", "id", "name", "enabled", "preampDb", "autoHeadroom", "autoHeadroomMarginDb", "peq",
+    "bass", "compressor", "stereo", "convolver", "multiband", "dynamicEq", "limiter", "seatFocus",
+    "advancedMs", "cabinCorrection", "harmonicEngine"
+  ],
+  "additionalProperties": true,
+  "$defs": {
+    "eqBand": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "type": { "enum": ["PEAK", "LOW_SHELF", "HIGH_SHELF", "HIGH_PASS", "LOW_PASS", "NOTCH", "ALL_PASS"] },
+        "frequencyHz": { "type": "number", "minimum": 20 },
+        "gainDb": { "type": "number", "minimum": -18, "maximum": 18 },
+        "q": { "type": "number", "minimum": 0.1, "maximum": 20 }
+      },
+      "additionalProperties": true
+    },
+    "compressor": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "thresholdDb": { "type": "number", "minimum": -60, "maximum": 0 },
+        "ratio": { "type": "number", "minimum": 1, "maximum": 20 },
+        "attackMs": { "type": "number", "minimum": 0.1, "maximum": 2000 },
+        "releaseMs": { "type": "number", "minimum": 0.1, "maximum": 2000 },
+        "kneeDb": { "type": "number", "minimum": 0, "maximum": 24 },
+        "makeupDb": { "type": "number", "minimum": -24, "maximum": 24 }
+      },
+      "additionalProperties": true
+    },
+    "dynamicEqBand": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "frequencyHz": { "type": "number", "minimum": 20, "maximum": 20000 },
+        "q": { "type": "number", "minimum": 0.1, "maximum": 20 },
+        "thresholdDb": { "type": "number", "minimum": -60, "maximum": 0 },
+        "ratio": { "type": "number", "minimum": 1, "maximum": 20 },
+        "attackMs": { "type": "number", "minimum": 0.1, "maximum": 2000 },
+        "releaseMs": { "type": "number", "minimum": 0.1, "maximum": 2000 },
+        "maxBoostDb": { "type": "number", "minimum": 0, "maximum": 12 },
+        "maxCutDb": { "type": "number", "minimum": 0, "maximum": 12 },
+        "mode": { "enum": ["CUT", "BOOST"] }
+      },
+      "additionalProperties": true
+    },
+    "seatFocus": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "preset": { "enum": ["CUSTOM", "DRIVER", "PASSENGER", "CENTER"] },
+        "leftDelayMs": { "type": "number", "minimum": 0, "maximum": 5 },
+        "rightDelayMs": { "type": "number", "minimum": 0, "maximum": 5 },
+        "leftTrimDb": { "type": "number", "minimum": -6, "maximum": 6 },
+        "rightTrimDb": { "type": "number", "minimum": -6, "maximum": 6 },
+        "invertLeft": { "type": "boolean" },
+        "invertRight": { "type": "boolean" },
+        "distanceMode": { "type": "boolean" },
+        "leftDistanceCm": { "type": ["number", "null"], "minimum": 20, "maximum": 300 },
+        "rightDistanceCm": { "type": ["number", "null"], "minimum": 20, "maximum": 300 }
+      },
+      "additionalProperties": true
+    },
+    "advancedMs": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "midGainDb": { "type": "number", "minimum": -6, "maximum": 6 },
+        "sideGainDb": { "type": "number", "minimum": -6, "maximum": 6 },
+        "midEqBands": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/eqBand" } },
+        "sideEqBands": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/eqBand" } },
+        "lowWidth": { "type": "number", "minimum": 0, "maximum": 1.5 },
+        "midWidth": { "type": "number", "minimum": 0, "maximum": 1.5 },
+        "highWidth": { "type": "number", "minimum": 0, "maximum": 1.5 },
+        "lowMidCrossoverHz": { "type": "number", "minimum": 80, "maximum": 500 },
+        "midHighCrossoverHz": { "type": "number", "minimum": 1000, "maximum": 8000 },
+        "centerFocusDb": { "type": "number", "minimum": -3, "maximum": 3 }
+      },
+      "additionalProperties": true
+    },
+    "cabinCut": {
+      "type": "object",
+      "properties": {
+        "frequencyHz": { "type": "number", "minimum": 40, "maximum": 250 },
+        "q": { "type": "number", "minimum": 0.5, "maximum": 8 },
+        "reductionDb": { "type": "number", "minimum": -6, "maximum": 0 },
+        "enabled": { "type": "boolean" },
+        "source": { "enum": ["MANUAL", "MEASUREMENT"] },
+        "prominenceDb": { "type": "number", "minimum": 0, "maximum": 24 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "cabinCorrection": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "calibrationId": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_-]{1,64}$" },
+        "calibrationVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+        "cuts": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/cabinCut" } },
+        "dynamicControlEnabled": { "type": "boolean" },
+        "maxDynamicCutDb": { "type": "number", "minimum": 0, "maximum": 3 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "dynamicControlEnabled": { "const": true } }, "required": ["dynamicControlEnabled"] },
+          "then": {
+            "required": ["calibrationId", "cuts"],
+            "properties": {
+              "calibrationId": { "type": "string" },
+              "cuts": { "contains": { "properties": { "enabled": { "const": true }, "source": { "const": "MEASUREMENT" } }, "required": ["enabled", "source"] } }
+            }
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "highExciter": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "frequencyHz": { "type": "number", "minimum": 1000, "maximum": 16000 },
+        "drive": { "type": "number", "minimum": 0, "maximum": 8 },
+        "amount": { "type": "number", "minimum": 0, "maximum": 1 },
+        "mode": { "enum": ["EVEN", "ODD", "MIXED"] },
+        "wet": { "type": "number", "minimum": 0, "maximum": 1 },
+        "outputCompensationDb": { "type": "number", "minimum": -12, "maximum": 6 }
+      },
+      "additionalProperties": true
+    },
+    "virtualBass": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "fundamentalLowHz": { "type": "number", "minimum": 35, "maximum": 80 },
+        "fundamentalHighHz": { "type": "number", "minimum": 35, "maximum": 80 },
+        "drive": { "type": "number", "minimum": 0, "maximum": 8 },
+        "amount": { "type": "number", "minimum": 0, "maximum": 1 },
+        "secondHarmonicAmount": { "type": "number", "minimum": 0, "maximum": 1 },
+        "thirdHarmonicAmount": { "type": "number", "minimum": 0, "maximum": 1 },
+        "wet": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "additionalProperties": true
+    },
+    "harmonicEngine": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "quality": { "enum": ["TWO_X", "FOUR_X"] },
+        "highExciter": { "$ref": "#/$defs/highExciter" },
+        "virtualBass": { "$ref": "#/$defs/virtualBass" }
+      },
+      "additionalProperties": true
+    }
+  }
+}

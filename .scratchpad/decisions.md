@@ -303,3 +303,7 @@ Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Al
 ## Include both APK signing schemes for mobile debug distribution
 
 Explicitly configure the mobile debug signing config for v1 and v2 so OEM installers that depend on JAR signatures can parse the APK. Verify the resulting artifact with `apksigner`; the manifest minSdk can affect which scheme is reported as applicable.
+
+## Add four DSP modules through profile schema v4
+
+Keep all new module settings disabled by default and add them as separate profile objects so v0-v3 profiles retain their existing DSP values. Seat presets store a listening position only; they do not guess left/right delays from vehicle layout. Calibration files stay outside the profile and are referenced by ID. Preserve unknown JSON properties at each object and band level, reject duplicate keys and invalid known-field types, and leave future schemas untouched.

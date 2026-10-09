@@ -1,16 +1,20 @@
 package com.shilapi.xcertplay.dsp
 
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
+import com.shilapi.xcertplay.media.dsp.DspHarmonicEngineConfig
 import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatFocusConfig
 
 data class DspAudioProfile(
     val id: String,
@@ -28,6 +32,10 @@ data class DspAudioProfile(
     val multiband: DspMultibandConfig = DspMultibandConfig(),
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
     val limiter: DspSafetyLimiterConfig = DspSafetyLimiterConfig(),
+    val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
+    val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
+    val cabinCorrection: DspCabinCorrectionConfig = DspCabinCorrectionConfig(),
+    val harmonicEngine: DspHarmonicEngineConfig = DspHarmonicEngineConfig(),
 ) {
     init {
         require(ID_PATTERN.matches(id))

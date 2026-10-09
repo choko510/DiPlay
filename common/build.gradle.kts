@@ -3,6 +3,11 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val splitViewMode = providers.gradleProperty("diplaySplitViewMode").orElse("off").get()
+require(splitViewMode in setOf("off", "local", "dynamic-experimental")) {
+    "diplaySplitViewMode must be 'off', 'local', or 'dynamic-experimental'"
+}
+
 android {
     namespace = "com.shilapi.xcertplay.host"
     compileSdk {
@@ -13,6 +18,7 @@ android {
 
     defaultConfig {
         minSdk = 28
+        buildConfigField("String", "SPLIT_VIEW_MODE", "\"$splitViewMode\"")
     }
 
     compileOptions {
@@ -21,6 +27,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 

@@ -115,7 +115,12 @@ class AirPlaySession(
     val isControllerIdentityVerified: Boolean get() = pairVerify.isVerified
     val isControllerIdentityResolved: Boolean get() = pairVerify.isIdentityVerificationResolved
     val isClosed: Boolean get() = closed.get()
+    val mainDisplayWidthPixels: Int get() = config.main.widthPixels
+    val mainDisplayHeightPixels: Int get() = config.main.heightPixels
     val sharedSecret: ByteArray? get() = pairVerify.shared?.copyOf()
+
+    fun declaredViewArea(index: Int): CarPlayViewArea? =
+        config.main.dynamicViewAreas?.areas?.getOrNull(index)
 
     fun syncedNtp(): BigInteger = ntp.syncedNtp()
 
@@ -153,6 +158,34 @@ class AirPlaySession(
 
     fun sendCommand(command: Map<String, Any?>): Boolean = synchronized(eventWriteLock) {
         sendCommandLocked(command)
+    }
+
+    val declaredViewAreaCount: Int
+        get() = config.main.dynamicViewAreas?.areas?.size ?: 1
+
+    fun writeViewAreaSelection(index: Int): ViewAreaCommandWriteResult = synchronized(eventWriteLock) {
+        if (closed.get()) return@synchronized ViewAreaCommandWriteResult.SESSION_CLOSED
+        val areaCount = declaredViewAreaCount
+        if (areaCount != 2) return@synchronized ViewAreaCommandWriteResult.DYNAMIC_AREAS_NOT_DECLARED
+        val command = AirPlayViewAreaCommand.update(index, areaCount)
+            ?: return@synchronized ViewAreaCommandWriteResult.INVALID_INDEX
+        val socket = eventSocket ?: return@synchronized ViewAreaCommandWriteResult.EVENT_CHANNEL_NOT_READY
+        val cipher = eventCipher ?: return@synchronized ViewAreaCommandWriteResult.EVENT_CHANNEL_NOT_READY
+        eventCseq++
+        val body = BplistCodec.encode(command)
+        val head = "POST /command RTSP/1.0\r\n" +
+            "Content-Type: $PLIST_CONTENT_TYPE\r\n" +
+            "Content-Length: ${body.size}\r\n" +
+            "CSeq: $eventCseq\r\n\r\n"
+        try {
+            val output = socket.getOutputStream()
+            output.write(cipher.encrypt(head.toByteArray(Charsets.US_ASCII) + body))
+            output.flush()
+            ViewAreaCommandWriteResult.WRITTEN
+        } catch (error: Exception) {
+            Log.w(TAG, "experimental ViewArea command write failed index=$index", error)
+            ViewAreaCommandWriteResult.WRITE_FAILED
+        }
     }
 
     private fun sendCommandLocked(command: Map<String, Any?>): Boolean {

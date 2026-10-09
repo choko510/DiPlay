@@ -278,3 +278,7 @@ The NCM readiness phase can be advanced by an AirPlay control milestone, so `NCM
 The 2026-10-09 trace recorded both `NETWORK_CONNECTION` connected and disconnected values while successful screen startup also occurred during intervals with no new status packet. Poll/drain the endpoint when present, but do not wait for a connected notification before NCM or AirPlay startup. In the same report, request queue/wait errors coincided with physical USB disconnects; only add request-level recovery if the error reproduces while the device remains present.
 
 When Gecko reports paint-status reset during `setActive(false)`, retain it through profile-resolution timeout and warm reopen. Associate it with a suspension generation instead of clearing a boolean on measurement end; a later suspension must observe its own reset before primary paint is accepted.
+
+## Keep video milestones separate during split diagnostics
+
+MediaCodec output-format change, `releaseOutputBuffer(..., true)`, `SurfaceTexture.onSurfaceTextureUpdated`, and actual compositor scanout are separate events. Count and report decoder submission and TextureView updates independently; without device instrumentation, neither callback proves that the frame was visibly presented. Video-only reconfiguration must leave the AirPlay and audio owners untouched.

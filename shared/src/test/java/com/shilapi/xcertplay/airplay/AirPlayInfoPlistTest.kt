@@ -35,6 +35,59 @@ class AirPlayInfoPlistTest {
     }
 
     @Test
+    fun dynamicViewAreasKeepTheMainDisplayParentAndRoundTripInOrder() {
+        val baseDisplay = AirPlayDisplayConfig(widthPixels = 1280, heightPixels = 720)
+        val dynamic = DynamicViewAreaFactory.twoAreas(baseDisplay)!!
+        val info = AirPlayInfoPlist.build(
+            AirPlayConfig(
+                deviceName = "test",
+                deviceId = "02:00:00:00:00:02",
+                btMac = "02:00:00:00:00:02",
+                sourceVersion = "366.0",
+                main = baseDisplay.copy(dynamicViewAreas = DynamicViewAreaConfig(dynamic.areas, initialIndex = 1)),
+            ),
+        )
+
+        fun assertAreas(document: Map<*, *>) {
+            val display = (document["displays"] as List<*>).single() as Map<*, *>
+            val areas = display["viewAreas"] as List<*>
+            assertEquals(AirPlayInfoPlist.MAIN_UUID, display["uuid"])
+            assertEquals(1280, (display["widthPixels"] as Number).toInt())
+            assertEquals(720, (display["heightPixels"] as Number).toInt())
+            assertEquals(1, (display["initialViewArea"] as Number).toInt())
+            assertEquals(2, areas.size)
+            val full = areas[0] as Map<*, *>
+            val split = areas[1] as Map<*, *>
+            assertEquals(1280, (full["widthPixels"] as Number).toInt())
+            assertEquals(704, (split["widthPixels"] as Number).toInt())
+            val splitSafeArea = split["safeArea"] as Map<*, *>
+            assertEquals(704, (splitSafeArea["widthPixels"] as Number).toInt())
+            assertEquals(0, (splitSafeArea["originXPixels"] as Number).toInt())
+        }
+
+        assertAreas(info)
+        @Suppress("UNCHECKED_CAST")
+        val roundTrip = BplistCodec.decode(BplistCodec.encode(info)) as Map<*, *>
+        assertAreas(roundTrip)
+    }
+
+    @Test
+    fun defaultDeclarationRemainsOneLegacyAreaWhenExperimentalAreasAreAbsent() {
+        val info = AirPlayInfoPlist.build(
+            AirPlayConfig(
+                deviceName = "test",
+                deviceId = "02:00:00:00:00:02",
+                btMac = "02:00:00:00:00:02",
+                sourceVersion = "366.0",
+                main = AirPlayDisplayConfig(1280, 720),
+            ),
+        )
+        val display = (info["displays"] as List<*>).single() as Map<*, *>
+        assertEquals(0, display["initialViewArea"])
+        assertEquals(1, (display["viewAreas"] as List<*>).size)
+    }
+
+    @Test
     fun hevcCapabilityIsAdvertisedOnlyWhenEnabled() {
         val base = AirPlayConfig(
             deviceName = "test",

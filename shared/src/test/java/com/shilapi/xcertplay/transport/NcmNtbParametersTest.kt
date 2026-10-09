@@ -8,8 +8,9 @@ import org.junit.Test
 
 class NcmNtbParametersTest {
     @Test
-    fun statusInterruptPollingIsDisabledByDefault() {
-        assertFalse(NcmUsbBridge.statusPollingEnabledForDiagnostics)
+    fun statusInterruptPollingIsEnabledByDefaultAndCanBeDisabledForComparison() {
+        assertTrue(NcmDiagnosticProfile.AUTO.statusPolling)
+        assertFalse(NcmDiagnosticProfile.NO_STATUS_POLLING.statusPolling)
     }
 
     @Test

@@ -10,6 +10,18 @@
 
     <string name="host_settings_title">CarPlay の設定</string>
     <string name="host_section_connection">接続</string>
+    <string name="host_section_ncm_diagnostics">NCM 診断（デバッグビルドのみ）</string>
+    <string name="host_ncm_diagnostic_profile">NCM 起動診断プロファイル</string>
+    <string name="host_ncm_diagnostic_help">デバッグビルド専用です。1 度に 1 項目を選び、設定を保存して再接続すると適用されます。</string>
+    <string name="host_ncm_profile_current">自動（status endpoint があれば poll）</string>
+    <string name="host_ncm_profile_no_status_polling">Status interrupt polling を無効</string>
+    <string name="host_ncm_profile_out_250">起動前後の Bulk OUT timeout を 250 ms にする</string>
+    <string name="host_ncm_profile_out_500">起動前後の Bulk OUT timeout を 500 ms にする</string>
+    <string name="host_ncm_profile_out_1000">起動前後の Bulk OUT timeout を 1000 ms にする</string>
+    <string name="host_ncm_profile_out_2000">旧設定相当の Bulk OUT timeout（2000 ms）</string>
+    <string name="host_ncm_profile_sync_bulk_in">診断用の同期 Bulk IN</string>
+    <string name="host_ncm_profile_force_3_4">CDC-NCM 3→4/1 を強制選択</string>
+    <string name="host_ncm_profile_force_5_6">CDC-NCM 5→6/1 を強制選択</string>
     <string name="host_wireless_carplay">ワイヤレス CarPlay</string>
     <string name="host_accessibility_wireless_carplay">ワイヤレス CarPlay 接続</string>
     <string name="host_hotspot_status_title">ホットスポットの状態</string>

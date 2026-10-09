@@ -25,8 +25,27 @@ class Ntb16CodecTest {
         assertEquals(0xff, block[9].toInt() and 0xff)
     }
 
+    @Test
+    fun outputOffsetsSatisfyObservedFourByteNtbAlignment() {
+        val frame = ByteArray(128)
+        val block = Ntb16Codec.build(frame, 0)
+        val blockLength = readU16(block, 8)
+        val ndpOffset = readU16(block, 10)
+        val datagramOffset = readU16(block, 20)
+
+        assertEquals(0, ndpOffset % 4)
+        assertEquals(0, datagramOffset % 4)
+        assertEquals(28, datagramOffset)
+        assertEquals(frame.size, readU16(block, 22))
+        assertEquals(12 + 16 + frame.size, blockLength)
+        assertEquals(true, blockLength <= 32_764)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun datagramThatWouldOverflowBlockLengthIsRejected() {
         Ntb16Codec.build(ByteArray(65_508), 0x1234)
     }
+
+    private fun readU16(source: ByteArray, offset: Int): Int =
+        (source[offset].toInt() and 0xff) or ((source[offset + 1].toInt() and 0xff) shl 8)
 }

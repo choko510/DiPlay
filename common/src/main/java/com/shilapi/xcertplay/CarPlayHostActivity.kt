@@ -85,6 +85,8 @@ import com.shilapi.xcertplay.orchestration.isManualHotspotChannelCompatible
 import com.shilapi.xcertplay.shared.AppLanguage
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import com.shilapi.xcertplay.transport.Iap2LocationProvider
+import com.shilapi.xcertplay.transport.NcmDiagnosticProfile
+import com.shilapi.xcertplay.transport.NcmDiagnosticProfileStore
 import com.shilapi.xcertplay.transport.UsbDeviceId
 import com.shilapi.xcertplay.youtube.CarPlayRestartHandoff
 import com.shilapi.xcertplay.youtube.DisplayResizeCoordinator
@@ -379,6 +381,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var microphoneAvailable = false
     private var microphonePermissionResolved = false
     private var wirelessEnabled = false
+    private var ncmDiagnosticProfile = NcmDiagnosticProfile.AUTO
     private var mfiTarget = MfiTarget.USB_CH341
     private var mfiI2cPath = AirPlayPersistence.DEFAULT_MFI_I2C_PATH
     private var remoteMfiServer = ""
@@ -690,6 +693,7 @@ class CarPlayHostActivity : ComponentActivity() {
         locationReportingEnabled = AirPlayPersistence.loadLocationReportingEnabled(this)
         locationPermissionAvailable = hasFineLocationPermission()
         wirelessEnabled = AirPlayPersistence.loadWirelessEnabled(this)
+        ncmDiagnosticProfile = NcmDiagnosticProfileStore.load(this)
         mfiTarget = AirPlayPersistence.loadMfiTarget(this)
         mfiI2cPath = AirPlayPersistence.loadMfiI2cPath(this)
         remoteMfiServer = AirPlayPersistence.loadRemoteMfiServer(this)
@@ -1550,6 +1554,16 @@ class CarPlayHostActivity : ComponentActivity() {
             ).apply { topMargin = dp(6) },
         )
 
+        if (NcmDiagnosticProfileStore.isDebuggable(this)) {
+            content.addView(
+                buildNcmDiagnosticProfileSection(),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply { topMargin = dp(36) },
+            )
+        }
+
         content.addView(
             settingsCategoryHeader(getString(R.string.host_section_location)),
             LinearLayout.LayoutParams(
@@ -2047,6 +2061,45 @@ class CarPlayHostActivity : ComponentActivity() {
         return overlay
     }
 
+    private fun buildNcmDiagnosticProfileSection(): View = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        addView(
+            settingsCategoryHeader(getString(R.string.host_section_ncm_diagnostics)),
+        )
+        addView(
+            menuText(getString(R.string.host_ncm_diagnostic_help), 15f, MENU_SECONDARY),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(8) },
+        )
+        val labels = mapOf(
+            NcmDiagnosticProfile.AUTO to R.string.host_ncm_profile_current,
+            NcmDiagnosticProfile.NO_STATUS_POLLING to R.string.host_ncm_profile_no_status_polling,
+            NcmDiagnosticProfile.OUT_TIMEOUT_250 to R.string.host_ncm_profile_out_250,
+            NcmDiagnosticProfile.OUT_TIMEOUT_500 to R.string.host_ncm_profile_out_500,
+            NcmDiagnosticProfile.OUT_TIMEOUT_1000 to R.string.host_ncm_profile_out_1000,
+            NcmDiagnosticProfile.LEGACY_OUT_TIMEOUT to R.string.host_ncm_profile_out_2000,
+            NcmDiagnosticProfile.SYNC_BULK_IN to R.string.host_ncm_profile_sync_bulk_in,
+            NcmDiagnosticProfile.FORCE_3_4 to R.string.host_ncm_profile_force_3_4,
+            NcmDiagnosticProfile.FORCE_5_6 to R.string.host_ncm_profile_force_5_6,
+        )
+        addView(
+            settingsChoiceRow(
+                label = getString(R.string.host_ncm_diagnostic_profile),
+                options = NcmDiagnosticProfile.entries.map { it to getString(labels.getValue(it)) },
+                selected = ncmDiagnosticProfile,
+            ) { selected ->
+                ncmDiagnosticProfile = selected
+                appendLog("NCM diagnostic profile=${selected.name}; applies after saving and reconnecting")
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { topMargin = dp(10) },
+        )
+    }
+
     private fun persistMenuSettings(): Boolean {
         carPlayName = AirPlayPersistence.normalizeCarPlayName(carPlayName)
         if (!AirPlayPersistence.saveCarPlayName(this, carPlayName)) {
@@ -2082,6 +2135,7 @@ class CarPlayHostActivity : ComponentActivity() {
         AirPlayPersistence.saveHideTopBar(this, hideTopBar)
         AirPlayPersistence.saveHideBottomBar(this, hideBottomBar)
         AirPlayPersistence.saveSafeAreaDrawOutside(this, safeAreaDrawOutside)
+        NcmDiagnosticProfileStore.save(this, ncmDiagnosticProfile)
         return true
     }
 

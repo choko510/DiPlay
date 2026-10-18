@@ -247,6 +247,10 @@ public final class FakeUsbDeviceConnection extends UsbDeviceConnection {
             return queueCalls;
         }
 
+        public synchronized int getQueuedBufferCapacity() {
+            return queuedBuffer == null ? 0 : queuedBuffer.capacity();
+        }
+
         public synchronized int getCancelCalls() {
             return cancelCalls;
         }

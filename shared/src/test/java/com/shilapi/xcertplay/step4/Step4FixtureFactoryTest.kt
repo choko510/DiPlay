@@ -7,6 +7,7 @@ import com.shilapi.xcertplay.diagnostics.WiredPathDiagnostics
 import com.shilapi.xcertplay.diagnostics.WiredPathEvent
 import com.shilapi.xcertplay.diagnostics.WiredPathReportReason
 import com.shilapi.xcertplay.media.MediaCodecSupport
+import com.shilapi.xcertplay.transport.IphoneUsbException
 import com.shilapi.xcertplay.transport.NcmDiagnosticEvent
 import com.shilapi.xcertplay.transport.NcmDiagnosticProfile
 import com.shilapi.xcertplay.transport.NcmSendResult
@@ -171,12 +172,35 @@ class Step4FixtureFactoryTest {
             assertArrayEquals(frame, bridge.recv(1_000))
             assertEquals(1, request.getQueueCalls())
             assertEquals(2, connection.getRequestWaitCalls())
+            assertEquals(32 * 1024, request.queuedBufferCapacity)
             assertEquals(1, bridge.diagnosticSnapshot().readTimeouts)
             assertEquals(1, bridge.diagnosticSnapshot().readCompletions)
         } finally {
             bridge.close()
         }
         assertTrue(request.isClosed())
+    }
+
+    @Test
+    fun ncmAsyncReadDeliversAlignedBlockWithoutOptionalShortPad() {
+        val frame = ByteArray(484) { it.toByte() }
+        val block = Step4PacketFixtures.ntb16(frame)
+        val request = FakeUsbRequest(true).apply {
+            enqueueQueueResult(true)
+            enqueueQueueResult(true)
+        }
+        val connection = FakeUsbDeviceConnection().apply {
+            enqueueWaitCompletion(byteArrayOf())
+            enqueueWaitCompletion(block)
+        }
+        val bridge = bridge(connection, request)
+
+        try {
+            assertArrayEquals(frame, bridge.recv(1_000))
+            assertEquals(2, request.queueCalls)
+        } finally {
+            bridge.close()
+        }
     }
 
     @Test
@@ -195,6 +219,194 @@ class Step4FixtureFactoryTest {
             assertArrayEquals(frame1, bridge.recv(1_000))
             assertArrayEquals(frame2, bridge.recv(1_000))
             assertEquals(3, bridge.diagnosticSnapshot().syncReadCalls)
+        } finally {
+            bridge.close()
+        }
+    }
+
+    @Test
+    fun ncmSyncReadDeliversAlignedBlockWithoutOptionalShortPad() {
+        val frame = ByteArray(484) { it.toByte() }
+        val block = Step4PacketFixtures.ntb16(frame)
+        assertEquals(512, block.size)
+        val bridge = bridge(
+            FakeUsbDeviceConnection().apply {
+                enqueueBulkIn(byteArrayOf())
+                block.forEach { enqueueBulkIn(byteArrayOf(it)) }
+            },
+            profile = NcmDiagnosticProfile.SYNC_BULK_IN,
+        )
+
+        try {
+            assertArrayEquals(frame, bridge.recv(1_000))
+            assertEquals(1, bridge.diagnosticSnapshot().syncReadNoData)
+        } finally {
+            bridge.close()
+        }
+    }
+
+    @Test
+    fun ncmSyncReadDoesNotAssumePadAroundPacketSizeBoundary() {
+        val frames = (510..514).map { blockLength ->
+            ByteArray(blockLength - 28) { (blockLength + it).toByte() }
+        }
+        val combined = frames.foldIndexed(ByteArray(0)) { index, data, frame ->
+            data + Step4PacketFixtures.ntb16(frame, sequence = index)
+        }
+        val bridge = bridge(
+            FakeUsbDeviceConnection().apply { enqueueBulkIn(combined) },
+            profile = NcmDiagnosticProfile.SYNC_BULK_IN,
+        )
+
+        try {
+            frames.forEach { frame -> assertArrayEquals(frame, bridge.recv(1_000)) }
+        } finally {
+            bridge.close()
+        }
+    }
+
+    @Test
+    fun ncmSyncReadSkipsOptionalPadAndPreservesNextAlignedNtb() {
+        val frame1 = ByteArray(484) { it.toByte() }
+        val frame2 = ByteArray(484) { (it xor 0x55).toByte() }
+        val padded = Step4PacketFixtures.ntb16(frame1, shortPad = true)
+        val unpadded = Step4PacketFixtures.ntb16(frame2, sequence = 1)
+        val bridge = bridge(
+            FakeUsbDeviceConnection().apply { enqueueBulkIn(padded + unpadded) },
+            profile = NcmDiagnosticProfile.SYNC_BULK_IN,
+        )
+
+        try {
+            assertArrayEquals(frame1, bridge.recv(1_000))
+            assertArrayEquals(frame2, bridge.recv(1_000))
+        } finally {
+            bridge.close()
+        }
+    }
+
+    @Test
+    fun ncmSyncReadUsesActualEndpointPacketSizeForOptionalPad() {
+        val frame64 = ByteArray(36) { it.toByte() }
+        val block64 = Step4PacketFixtures.ntb16(frame64)
+        assertEquals(64, block64.size)
+        val bridge64 = bridge(
+            FakeUsbDeviceConnection().apply { enqueueBulkIn(block64 + byteArrayOf(0)) },
+            profile = NcmDiagnosticProfile.SYNC_BULK_IN,
+            inMaxPacketSize = 64,
+        )
+        val frame1024 = ByteArray(484) { (it xor 0x33).toByte() }
+        val block512 = Step4PacketFixtures.ntb16(frame1024)
+        val bridge1024 = bridge(
+            FakeUsbDeviceConnection().apply { enqueueBulkIn(block512) },
+            profile = NcmDiagnosticProfile.SYNC_BULK_IN,
+            inMaxPacketSize = 1_024,
+        )
+
+        try {
+            assertArrayEquals(frame64, bridge64.recv(1_000))
+            assertArrayEquals(frame1024, bridge1024.recv(1_000))
+        } finally {
+            bridge64.close()
+            bridge1024.close()
+        }
+    }
+
+    @Test
+    fun ncmSyncReadResynchronizesDamagedNthsAndNdpBeforeNextValidBlocks() {
+        val damagedNth = Step4PacketFixtures.ntb16(byteArrayOf(1, 2, 3)).copyOf().also {
+            it[4] = 0
+        }
+        val damagedLength = Step4PacketFixtures.ntb16(byteArrayOf(19, 20, 21)).copyOf().also {
+            it[8] = 1
+            it[9] = 0
+        }
+        val damagedNdpHeader = Step4PacketFixtures.ntb16(byteArrayOf(4, 5, 6)).copyOf().also {
+            it[10] = 0xff.toByte()
+            it[11] = 0xff.toByte()
+        }
+        val damagedNdpLength = Step4PacketFixtures.ntb16(byteArrayOf(22, 23, 24)).copyOf().also {
+            it[16] = 4
+            it[17] = 0
+        }
+        val damagedNdpSignature = Step4PacketFixtures.ntb16(byteArrayOf(7, 8, 9)).copyOf().also {
+            it[12] = 0
+            it[13] = 0
+            it[14] = 0
+            it[15] = 0
+        }
+        val valid1 = byteArrayOf(10, 11, 12)
+        val valid2 = byteArrayOf(13, 14, 15)
+        val valid3 = byteArrayOf(16, 17, 18)
+        val connection = FakeUsbDeviceConnection().apply {
+            enqueueBulkIn(
+                damagedNth + damagedLength + Step4PacketFixtures.ntb16(valid1, sequence = 1) +
+                    damagedNdpHeader + damagedNdpLength + Step4PacketFixtures.ntb16(valid2, sequence = 2) +
+                    damagedNdpSignature + Step4PacketFixtures.ntb16(valid3, sequence = 3),
+            )
+        }
+        val bridge = bridge(connection, profile = NcmDiagnosticProfile.SYNC_BULK_IN)
+
+        try {
+            assertArrayEquals(valid1, bridge.recv(1_000))
+            assertArrayEquals(valid2, bridge.recv(1_000))
+            assertArrayEquals(valid3, bridge.recv(1_000))
+        } finally {
+            bridge.close()
+        }
+    }
+
+    @Test
+    fun ncmSyncReadResynchronizesGarbageToValidNtbAndBoundsLongCorruptRuns() {
+        val expected = byteArrayOf(21, 22, 23)
+        val validBlock = Step4PacketFixtures.ntb16(expected)
+        val falseNtbHeader = ByteArray(28).also {
+            it[0] = 0x4e
+            it[1] = 0x43
+            it[2] = 0x4d
+            it[3] = 0x48
+            it[4] = 12
+            it[8] = 28
+            it[10] = 12
+        }
+        val recoverable = bridge(
+            FakeUsbDeviceConnection().apply {
+                enqueueBulkIn(ByteArray(1_024) { 0x55.toByte() } + falseNtbHeader + validBlock)
+            },
+            profile = NcmDiagnosticProfile.SYNC_BULK_IN,
+        )
+        val corruptRun = bridge(
+            FakeUsbDeviceConnection().apply {
+                enqueueBulkIn(ByteArray((1 shl 20) + 1) { 0x55.toByte() })
+            },
+            profile = NcmDiagnosticProfile.SYNC_BULK_IN,
+        )
+
+        try {
+            assertArrayEquals(expected, recoverable.recv(1_000))
+            val error = runCatching { corruptRun.recv(1_000) }.exceptionOrNull()
+            assertTrue(error is com.shilapi.xcertplay.transport.IphoneUsbException.DeviceUnavailable)
+            assertTrue(error?.message.orEmpty().contains("NCM_RESYNC_ERROR"))
+        } finally {
+            recoverable.close()
+            corruptRun.close()
+        }
+    }
+
+    @Test
+    fun ncmRxRecoveryRetainsTheExistingFrameQueueLimit() {
+        val output = java.io.ByteArrayOutputStream()
+        repeat(257) { sequence ->
+            output.write(Step4PacketFixtures.ntb16(byteArrayOf(sequence.toByte()), sequence))
+        }
+        val bridge = bridge(
+            FakeUsbDeviceConnection().apply { enqueueBulkIn(output.toByteArray()) },
+            profile = NcmDiagnosticProfile.SYNC_BULK_IN,
+        )
+
+        try {
+            val error = runCatching { bridge.recv(1_000) }.exceptionOrNull()
+            assertTrue(error is IphoneUsbException.DeviceUnavailable)
+            assertTrue(error?.message.orEmpty().contains("frame queue exceeded its bounds"))
         } finally {
             bridge.close()
         }
@@ -330,10 +542,11 @@ class Step4FixtureFactoryTest {
         request: FakeUsbRequest = FakeUsbRequest(false),
         profile: NcmDiagnosticProfile = NcmDiagnosticProfile.AUTO,
         wiredPathDiagnostics: WiredPathDiagnostics? = null,
+        inMaxPacketSize: Int = 512,
     ): NcmUsbBridge = NcmUsbBridge(
         connection = connection,
         outEndpoint = FakeUsbDeviceConnection.bulkOut(2, 512),
-        inEndpoint = FakeUsbDeviceConnection.bulkIn(1, 512),
+        inEndpoint = FakeUsbDeviceConnection.bulkIn(1, inMaxPacketSize),
         statusEndpoint = null,
         descriptorHostMac = null,
         selectionDiagnostics = "step4-fixture",

@@ -1,18 +1,18 @@
 # STEP4 acceptance test matrix
 
-Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix preserves every named case. Status describes current evidence on frozen main plus PR-00 fixtures; it does not imply hardware behavior. `OPEN` means the required test still has to be implemented/run in its dependent phase. `PARTIAL` means a related component test exists but does not prove the full acceptance condition. `FIXTURE_ONLY` validates the test double, not production behavior.
+Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix preserves every named case. Status describes current local test evidence and separate device gates; it does not imply hardware behavior. `OPEN` means the required test still has to be implemented/run in its dependent phase. `PARTIAL` means a related component test exists but does not prove the full acceptance condition. `FIXTURE_ONLY` validates the test double, not production behavior.
 
 ## Original acceptance set U01–U75
 
 | ID | Case | Current evidence / status |
 |---|---|---|
-| U01 | Exact 512-byte NTB without pad | `KNOWN_GAP`: `drainFrames()` waits for the optional byte; PR-01 |
-| U02 | Exact 512-byte NTB with one zero pad | `PARTIAL`: fixture builds both forms; bridge RX integration remains PR-01 |
-| U03 | Two NTBs split/coalesced, order retained | `PASS_LOCAL`: synchronous bridge test splits the first block and coalesces the second |
-| U04 | Garbage followed by valid NTB, bounded resync | `OPEN`: PR-01 |
-| U05 | Invalid NTH/NDP offsets without OOB or loop | `OPEN`: malformed offset matrix and stream resync remain PR-01 |
-| U06 | More than 1 MiB corrupt input without OOM | `OPEN`: PR-01 |
-| U07 | 32 KiB queue success and request reuse | `PARTIAL`: existing persistent-state tests; fake-request bridge coverage does not yet assert 32 KiB |
+| U01 | Exact 512-byte NTB without pad | `PASS_LOCAL`: synchronous and asynchronous bridge tests deliver the complete block |
+| U02 | Exact 512-byte NTB with one zero pad | `PASS_LOCAL`: padded boundary block and following unpadded NTB are both delivered |
+| U03 | Two NTBs split/coalesced, order retained | `PASS_LOCAL`: synchronous bridge tests one-byte fragmentation and coalesced blocks in order |
+| U04 | Garbage followed by valid NTB, bounded resync | `PASS_LOCAL`: 1 KiB garbage is skipped and the valid NTB is delivered |
+| U05 | Invalid NTH/NDP offsets without OOB or loop | `PASS_LOCAL`: malformed NTH and NDP cases resynchronize to later valid blocks |
+| U06 | More than 1 MiB corrupt input without OOM | `PASS_LOCAL`: receiver stops with bounded typed error before scanning the full corrupt stream |
+| U07 | 32 KiB queue success and request reuse | `PASS_LOCAL`: fake-request bridge asserts 32 KiB capacity and reuse after wait timeout |
 | U08 | Queue false size fallback 16/8/4/2 KiB | `OPEN/CONDITIONAL`: API28+ device-present reproduction required, PR-02 |
 | U09 | Already queued request after timeout, no requeue | `PASS_LOCAL`: `PersistentUsbReadRequestStateTest` and `Step4FixtureFactoryTest.ncmAsyncReadReusesQueuedRequestAfterTimeout` |
 | U10 | `requestWait` completion for another endpoint | `PASS_LOCAL`: unexpected completion is rejected and the queued request is cancelled on close; EX-06 shared reaper remains conditional |
@@ -93,10 +93,10 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-USB-03 | Unexpected status completion exposes current ownership failure; shared reaper only if designed | FIXTURE_ONLY / EX-06 |
 | R04-USB-04 | Same USB node at 10s cannot duplicate permission prompt | OPEN / EX-04 |
 | R04-USB-05 | Unusual but valid interface altitude/CDC Union remains safely selected | OPEN |
-| R04-USB-06 | Complete aligned 512-byte NTB without optional pad is delivered | KNOWN_GAP / PR-01 |
-| R04-USB-07 | 512-byte NTB plus one pad leaves next NTB untouched | OPEN / PR-01 |
-| R04-USB-08 | USB chunks split/coalesce blocks; zeros and ZLP are handled | OPEN / PR-01 |
-| R04-USB-09 | Invalid NTH/NDP resync is bounded and cannot create false frames | OPEN / PR-01 |
+| R04-USB-06 | Complete aligned 512-byte NTB without optional pad is delivered | PASS_LOCAL: sync and async fake USB paths / PR-01 |
+| R04-USB-07 | 512-byte NTB plus one pad leaves next NTB untouched | PASS_LOCAL: pad is skipped and following aligned block is retained / PR-01 |
+| R04-USB-08 | USB chunks split/coalesce blocks; zeros and ZLP are handled | PASS_LOCAL: split/coalesce and zero-byte read fixtures / PR-01 |
+| R04-USB-09 | Invalid NTH/NDP resync is bounded and cannot create false frames | PASS_LOCAL: malformed NTH/NDP, false header, and bounded-garbage cases / PR-01 |
 | R04-USB-10 | USBMUX trailer and 1+N frames across three reads preserve bytes | PARTIAL: decoder tests; combined read fixture open |
 | R04-USB-11 | 32 KiB queue false falls back finitely without stale request; minSdk stays 28 | OPEN / CONDITIONAL PR-02 |
 | R04-USB-12 | Partial `NcmSendResult` and NotReady remain distinct | PASS_LOCAL: U24–U26 |
@@ -142,6 +142,13 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 ## EX-01 verification note
 
 - The packet classifier validates bounds and header structure; IP/TCP checksums are not checked. It does not replace or change transport parsing.
-- Latest local suite: shared 482 tests and common 136 tests, with zero failures, errors, or skips. It covers fake USB/TUN send and receive paths, packet boundary and seeded-fuzz cases, attempt isolation, and final-seal concurrency.
+- At the EX-01 local gate, shared 482 and common 136 tests passed with zero failures, errors, or skips. That suite covers fake USB/TUN send and receive paths, packet boundary and seeded-fuzz cases, attempt isolation, and final-seal concurrency.
 - Android instrumentation: 16 tests passed on an API 36 x86_64 emulator, with zero failures/skips. This includes the existing DSP smoke/benchmark; it is not a WiredPath performance measurement.
 - WiredPath performance measurement and TS10/iPhone observations are `NOT_RUN`; required successful/failed TS10 runs remain `UNKNOWN`. Native host DSP scripts are `NOT_RUN` because WSL could not launch Ubuntu and no Windows C compiler was found.
+
+## PR-01 verification note
+
+- Latest local suite: shared 491 and common 136 tests, zero failures/errors/skips. The full local unit, lint, debug APK, and benchmark APK tasks pass; JNI mapping, public-tree, and whitespace checks pass.
+- Fake USB coverage exercises sync and async RX, exact-boundary blocks with and without a pad, packet-size variation, one-byte fragmentation, zero-length reads, coalesced blocks, malformed NTH/NDP recovery, 1 MiB corrupt-input bounds, the existing 32 KiB request, and the frame-queue limit.
+- Android instrumentation passes 16/16 on the API 36.1 x86_64 emulator; those existing DSP tests do not exercise NCM USB RX.
+- TS10/K706+iPhone NCM runs, receive-rate/CPU measurement, and paired RX success rates remain `NOT_RUN` / `UNKNOWN`. Emulator instrumentation is not USB-device evidence.

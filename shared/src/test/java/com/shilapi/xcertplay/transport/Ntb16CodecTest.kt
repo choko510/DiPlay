@@ -6,6 +6,17 @@ import org.junit.Test
 
 class Ntb16CodecTest {
     @Test
+    fun parserAcceptsExactBoundaryBlockWithOrWithoutItsOptionalPad() {
+        val frame = ByteArray(484) { it.toByte() }
+        val padded = Ntb16Codec.build(frame, 7)
+        val unpadded = padded.copyOf(padded.size - 1)
+
+        assertEquals(513, padded.size)
+        assertArrayEquals(frame, Ntb16Codec.parse(unpadded).single())
+        assertArrayEquals(frame, Ntb16Codec.parse(padded, 0, unpadded.size).single())
+    }
+
+    @Test
     fun parseCanReadBlockFromLargerBuffer() {
         val frame = byteArrayOf(0x33, 0x33, 0, 0, 0, 1, 0x86.toByte(), 0xdd.toByte())
         val block = Ntb16Codec.build(frame, 7)

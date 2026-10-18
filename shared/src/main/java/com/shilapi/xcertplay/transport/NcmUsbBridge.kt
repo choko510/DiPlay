@@ -151,6 +151,8 @@ class NcmUsbBridge internal constructor(
     private var queuedBytes = 0
     private var buffered = ByteArray(0)
     private var bufferedSize = 0
+    private var optionalShortPadPending = false
+    private var resyncDiscardedBytes = 0
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
     private val statusPollingEnabled = diagnosticProfile.shouldPollStatusEndpoint(statusEndpoint != null)
     // Bulk IN uses one persistent async request: bulkTransfer() pins its byte[] in a JNI critical
@@ -498,23 +500,84 @@ class NcmUsbBridge internal constructor(
 
     private fun drainFrames() {
         while (true) {
-            if (bufferedSize < 12) return
-            if (readU32(buffered, 0) != Ntb16Codec.NTH16_SIG) {
-                throw failSession("NCM read buffer does not begin with an NTB16 header")
+            if (bufferedSize == 0) return
+            if (optionalShortPadPending) {
+                if (buffered[0].toInt() == 0) discardBuffered(1)
+                optionalShortPadPending = false
+                if (bufferedSize == 0) return
             }
+
+            if (!isValidNtb16HeaderAt(0)) {
+                if (!resynchronizeBuffered()) return
+                continue
+            }
+
             val blockLength = readU16(buffered, 8)
-            if (blockLength < 28) throw failSession("Invalid NTB16 block length $blockLength")
-            val padded = blockLength % USB_PACKET_SIZE == 0
-            val wireLength = blockLength + if (padded) 1 else 0
-            if (bufferedSize < wireLength) return
-            if (padded && buffered[blockLength].toInt() != 0) {
-                throw failSession("Invalid NTB16 short-packet pad")
+            if (bufferedSize < blockLength) return
+
+            val frames = Ntb16Codec.parse(buffered, 0, blockLength)
+            if (frames.isEmpty()) {
+                if (!resynchronizeBuffered()) return
+                continue
             }
-            for (frame in Ntb16Codec.parse(buffered, 0, blockLength)) enqueueFrame(frame)
-            val remaining = bufferedSize - wireLength
-            buffered.copyInto(buffered, 0, wireLength, bufferedSize)
-            bufferedSize = remaining
+
+            val packetSize = inEndpoint.maxPacketSize.takeIf { it > 0 } ?: USB_PACKET_SIZE
+            val boundaryAligned = blockLength % packetSize == 0
+            val hasShortPad = boundaryAligned && bufferedSize > blockLength && buffered[blockLength].toInt() == 0
+            val wireLength = blockLength + if (hasShortPad) 1 else 0
+            for (frame in frames) enqueueFrame(frame)
+            discardBuffered(wireLength)
+            optionalShortPadPending = boundaryAligned && !hasShortPad
+            resyncDiscardedBytes = 0
         }
+    }
+
+    private fun isValidNtb16HeaderAt(offset: Int): Boolean {
+        if (offset < 0 || bufferedSize - offset < NTH16_HEADER_BYTES) return false
+        if (readU32(buffered, offset) != Ntb16Codec.NTH16_SIG) return false
+        if (readU16(buffered, offset + 4) != NTH16_HEADER_BYTES) return false
+
+        val blockLength = readU16(buffered, offset + 8)
+        val ndpOffset = readU16(buffered, offset + 10)
+        return blockLength in MIN_NTB16_BLOCK_BYTES..MAX_NTB16_BLOCK_BYTES &&
+            ndpOffset >= NTH16_HEADER_BYTES && ndpOffset <= blockLength - NDP16_HEADER_MIN_BYTES
+    }
+
+    private fun resynchronizeBuffered(): Boolean {
+        val remainingBudget = MAX_RESYNC_BYTES - resyncDiscardedBytes
+        if (remainingBudget <= 0) {
+            throw failSession("NCM_RESYNC_ERROR: exceeded the bounded NTB16 recovery window")
+        }
+
+        val lastCandidateOffset = minOf(bufferedSize - NTH16_HEADER_BYTES, remainingBudget)
+        var offset = 1
+        while (offset <= lastCandidateOffset) {
+            if (isValidNtb16HeaderAt(offset)) {
+                discardBuffered(offset)
+                resyncDiscardedBytes += offset
+                return true
+            }
+            offset++
+        }
+
+        val discardBytes = minOf(
+            (bufferedSize - (NTH16_HEADER_BYTES - 1)).coerceAtLeast(0),
+            remainingBudget,
+        )
+        if (discardBytes > 0) {
+            discardBuffered(discardBytes)
+            resyncDiscardedBytes += discardBytes
+        }
+        if (resyncDiscardedBytes >= MAX_RESYNC_BYTES) {
+            throw failSession("NCM_RESYNC_ERROR: exceeded the bounded NTB16 recovery window")
+        }
+        return false
+    }
+
+    private fun discardBuffered(length: Int) {
+        val remaining = bufferedSize - length
+        buffered.copyInto(buffered, 0, length, bufferedSize)
+        bufferedSize = remaining
     }
 
     private fun appendBuffered(source: ByteArray, length: Int) {
@@ -753,6 +816,12 @@ class NcmUsbBridge internal constructor(
     companion object {
         private const val READ_CHUNK_BYTES = 32 * 1024
         private const val USB_PACKET_SIZE = 512
+        private const val NTH16_HEADER_BYTES = 12
+        private const val NDP16_HEADER_MIN_BYTES = 16
+        private const val MIN_NTB16_BLOCK_BYTES = NTH16_HEADER_BYTES + NDP16_HEADER_MIN_BYTES
+        private const val MAX_NTB16_BLOCK_BYTES = 0xffff
+        // Bound scan work and retained corrupt input while preserving partial NTH16 headers.
+        private const val MAX_RESYNC_BYTES = 64 * 1024
         private const val STATUS_POLL_TIMEOUT_MILLIS = 20
         private const val STATUS_POLL_INTERVAL_MILLIS = 500L
         private const val STATUS_POLL_LOG_EVERY = 20L

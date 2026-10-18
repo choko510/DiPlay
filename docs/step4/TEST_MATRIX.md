@@ -50,9 +50,9 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U42 | Owner transfer/Activity recreation rejects old callback | `PARTIAL`: retry owner/generation gate is covered; full Activity handoff integration remains `NOT_RUN` |
 | U43 | Same generation at 10s schedules one re-enumeration probe | `NOT_RUN/NO_GO_PENDING_EVIDENCE`: no TS10/K706+iPhone same-node mode stall was reproduced; no production probe added |
 | U44 | Detach or USB generation change makes probe a no-op | `NOT_RUN/NO_GO_PENDING_EVIDENCE`: no probe was added without same-node evidence |
-| U45 | First bulk OUT after 15s detects unreachable recovery proposal | `OPEN/CONDITIONAL`: EX-05 virtual-time gate |
-| U46 | Healthy initial SYN/accept suppresses another StartSession | `OPEN/CONDITIONAL`: EX-05 |
-| U47 | Stale CSM/reconnect never receives an extra send | `OPEN/CONDITIONAL`: EX-05 |
+| U45 | First bulk OUT after 15s detects unreachable recovery proposal | `NOT_RUN/NO_GO_PENDING_EX01_DEVICE_EVIDENCE`: no causal TS10 trace to evaluate; do not add recovery |
+| U46 | Healthy initial SYN/accept suppresses another StartSession | `NOT_RUN/NO_GO_PENDING_EX01_DEVICE_EVIDENCE`: keep extra StartSession disabled |
+| U47 | Stale CSM/reconnect never receives an extra send | `NOT_RUN/NO_GO_PENDING_EX01_DEVICE_EVIDENCE`: no EX-05 send path added |
 | U48 | Local bind/address validation separates destination from accept | `OPEN/CONDITIONAL`: EX-07 |
 | U49 | Old server accept cannot read new attachment | `OPEN/CONDITIONAL`: EX-07 |
 | U50 | `input=false` with valid port never starts recording | `PARTIAL`: existing mic lifecycle tests; classifier case is PR-04 |
@@ -177,3 +177,7 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 ## PR-03 decision
 
 - `NO_GO_PENDING_CAUSAL_LOG`: keep `AUTO`'s existing 100 ms pre-ready OUT timeout and the bounded NDP-only retry. EX-01 provides per-attempt counters in code, but no TS10/K706+iPhone timing log shows first bulk OUT or SYN-ACK `NotReady` as the connection cause. Do not switch to a 20 ms timeout or extend waits without A/B evidence.
+
+## EX-05 decision
+
+- `NO_GO_PENDING_EX01_DEVICE_EVIDENCE`: none of the six required EX-01 packet-timing conditions has been captured on TS10/K706+iPhone. Do not add a second StartSession or guessed EndSession. The 15s watchdog also makes any OUT recovery after 15s unreachable without a separate virtual-time design; no such policy is introduced.

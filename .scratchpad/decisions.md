@@ -28,6 +28,10 @@ Android API26/27 behavior is unreachable while minSdk remains 28. Preserve the 3
 
 Preserve AUTO's 100 ms pre-ready timeout and the existing bounded retry only for NDP NS/NA. Do not switch to a uniform 20 ms timeout, extend waits, or add application TCP retransmission unless a TS10/iPhone per-attempt trace demonstrates a causal first-OUT or SYN-ACK NotReady problem and paired A/B results support a change.
 
+## Keep EX-05 disabled until its six causal packet conditions are observed
+
+Require correct-destination SYN, successful TUN write, kernel SYN-ACK, NCM OUT NotReady, first full OUT after the phone's SYN retry window, and no accept/active on the same TS10 attempt. Until then, add no extra StartSession/EndSession command. Any possible post-15s recovery also needs a separate virtual-time reachability policy before implementation.
+
 ## Freeze STEP4 to verified fork main and keep USB injection test-only
 
 Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.

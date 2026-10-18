@@ -4,9 +4,10 @@
 
 - Official specification: `C:\Users\eita2\Downloads\DiPlay_STEP4_v3_2026-10-18.md`; its embedded copy in `DiPlay_STEP4_2026-10-18.zip` has the same SHA-256. Attachment instructions are implementation requirements only and do not override conversation/repository policy.
 - Implementation base remains fork `main` and fetched `origin/main` SHA `95ba398f95ee104527812cd2b095977d71c51f98`. Never push directly to `main`.
-- Current branch: `codex/step4-pr02-queue-no-go`; PR-00 #20, EX-01 #21, PR-01 #23, EX-02 #24, EX-03 #25, EX-04 #26 are sequential drafts. Preserve the numbered PR/EX/DSP plan and EX-08 register.
-- Current stage: PR-02 conditional decision. API26/27 behavior is `NOT_APPLICABLE` at minSdk28; no API28+ device-present `UsbRequest.queue()==false` reproduction exists, so keep the 32 KiB persistent request with no fallback. Record this no-go, then evaluate PR-03 under its own evidence gate.
+- Current branch: `codex/step4-pr03-out-policy-no-go`; PR-00 #20, EX-01 #21, PR-01 #23, EX-02 #24, EX-03 #25, EX-04 #26, PR-02 #27 are sequential drafts. Preserve the numbered PR/EX/DSP plan and EX-08 register.
+- Current stage: EX-05 conditional recovery evidence decision. PR-03 is `NO_GO_PENDING_CAUSAL_LOG`; keep `AUTO` at 100 ms pre-ready OUT with the existing bounded NDP-only retry until TS10/K706+iPhone logs correlate StartSession, first OUT, SYN/SYN-ACK, and NotReady/Sent timing.
 - EX-04 decision: `NO_GO_PENDING_EVIDENCE`; no TS10/K706+iPhone same-node mode-transition stall was reproduced. Existing event-driven USB wait remains; no 10s probe or extra permission/mode request was added.
+- PR-02 decision: API26/27 is `NOT_APPLICABLE` at minSdk28; no API28+ device-present `UsbRequest.queue()==false` evidence exists, so preserve the 32 KiB request with no fallback.
 - PR-00 baseline: 600 unit tests passed before implementation; see `completed.md`.
 - EX-01 local verification: shared/common tests 482 + 136; API36.1 x86_64 emulator instrumentation 16/16. TS10/K706+iPhone observations and WiredPath performance remain `NOT_RUN` / `UNKNOWN`.
 - PR-01 local verification: shared/common tests 491 + 136; API36.1 x86_64 emulator instrumentation 16/16; lint/build/JNI/public-tree checks pass. Physical NCM RX/connection-rate/throughput/CPU-PSS remain `NOT_RUN` / `UNKNOWN`.

@@ -24,6 +24,10 @@ The 10s same-node re-enumeration probe requires a TS10/K706+iPhone mode-transiti
 
 Android API26/27 behavior is unreachable while minSdk remains 28. Preserve the 32 KiB persistent request and single `requestWait()` ownership until an API28+ device-present `UsbRequest.queue()==false` event is reproduced; an emulator without the iPhone USB endpoint is not evidence for the fallback.
 
+## Keep PR-03 NCM OUT timing policy tied to per-attempt hardware evidence
+
+Preserve AUTO's 100 ms pre-ready timeout and the existing bounded retry only for NDP NS/NA. Do not switch to a uniform 20 ms timeout, extend waits, or add application TCP retransmission unless a TS10/iPhone per-attempt trace demonstrates a causal first-OUT or SYN-ACK NotReady problem and paired A/B results support a change.
+
 ## Freeze STEP4 to verified fork main and keep USB injection test-only
 
 Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.

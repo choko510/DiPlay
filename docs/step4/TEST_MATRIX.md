@@ -173,3 +173,7 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 ## PR-02 decision
 
 - `NO_GO_PENDING_DEVICE_REPRO`: the API26/27 workaround is `NOT_APPLICABLE` because minSdk is 28, and no API28+ device-present `UsbRequest.queue()==false` event was observed. Keep the 32 KiB persistent request and timeout ownership unchanged; reconsider fallback only after a device-present reproduction.
+
+## PR-03 decision
+
+- `NO_GO_PENDING_CAUSAL_LOG`: keep `AUTO`'s existing 100 ms pre-ready OUT timeout and the bounded NDP-only retry. EX-01 provides per-attempt counters in code, but no TS10/K706+iPhone timing log shows first bulk OUT or SYN-ACK `NotReady` as the connection cause. Do not switch to a 20 ms timeout or extend waits without A/B evidence.

@@ -10,6 +10,7 @@
 | `hostRetryEpochGuard` | Not present as a loss-epoch guard | Enable after EX-02 tests | Revert Host retry policy only |
 | `reenumerationProbe` | Not present; EX-04 conditional not reproduced on TS10/K706+iPhone | NO-GO for this iteration; keep OFF | Keep existing USB-mode wait; reconsider only with same-node evidence |
 | `usbQueueFallback` | Current request uses the existing 32 KiB buffer and persistent-request state | `NO_GO_PENDING_DEVICE_REPRO`; keep OFF until API28+ device-present `queue()==false` is observed | Restore 32 KiB request path |
+| `firstOutTimeoutPolicy` | Existing `AUTO` uses 100 ms before link ready; NDP NS/NA retries are bounded and TCP is not retried | `NO_GO_PENDING_CAUSAL_LOG`; keep current profile defaults | Restore current pre-ready timeout and NDP-only retry |
 | `statusEndpointExperiment` | Existing `AUTO` and debug-only `NO_STATUS_POLLING` profile | Keep A/B in debug; no new reaper in PR-00 | Return to current profile behavior |
 | `wiredLateOutRecovery` | Not present | OFF; EX-05 requires all six packet-timing evidence conditions | Existing watchdog and retry path |
 | `splitLocalNoRestart` | Existing GeckoView split and resize/handoff paths; exact restart behavior is to be revalidated for PR-06 | OFF until LOCAL tests pass | `LEGACY_RECONNECT` behavior |

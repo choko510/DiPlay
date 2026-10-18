@@ -8,6 +8,10 @@ Reuse the existing debug connection-trace opt-in rather than adding a preference
 
 Read the selected bulk-IN endpoint's `maxPacketSize` to detect optional short-pad boundaries. Deliver a complete NTB immediately; consume exactly one following zero byte only if it is present. Preserve outgoing `Ntb16Codec.build()` bytes, persistent async request, 32 KiB buffer, sync/async selection, and timeout ownership. Bound corrupt-stream resynchronization to 64 KiB, recovering the next structurally valid NTH16 or using the existing typed connection failure.
 
+## Bind Host reconnect timers to the loss and session they observed
+
+Represent a scheduled Host retry with a one-shot ticket containing owner identity/generation, Controller identity, Host restart generation, connection epoch, and loss epoch. A current `onSessionActive` cancels that ticket; a subsequent loss creates a new one. At execution, require the ticket still pending and the current owner/controller/session/Host state still match. Controller-managed wired recovery never schedules a Host retry.
+
 ## Freeze STEP4 to verified fork main and keep USB injection test-only
 
 Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.

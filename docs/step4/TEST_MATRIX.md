@@ -13,7 +13,7 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U05 | Invalid NTH/NDP offsets without OOB or loop | `PASS_LOCAL`: malformed NTH and NDP cases resynchronize to later valid blocks |
 | U06 | More than 1 MiB corrupt input without OOM | `PASS_LOCAL`: receiver stops with bounded typed error before scanning the full corrupt stream |
 | U07 | 32 KiB queue success and request reuse | `PASS_LOCAL`: fake-request bridge asserts 32 KiB capacity and reuse after wait timeout |
-| U08 | Queue false size fallback 16/8/4/2 KiB | `OPEN/CONDITIONAL`: API28+ device-present reproduction required, PR-02 |
+| U08 | Queue false size fallback 16/8/4/2 KiB | `NOT_RUN/NO_GO_PENDING_DEVICE_REPRO`: no API28+ device-present `queue()==false` evidence; preserve 32 KiB, PR-02 |
 | U09 | Already queued request after timeout, no requeue | `PASS_LOCAL`: `PersistentUsbReadRequestStateTest` and `Step4FixtureFactoryTest.ncmAsyncReadReusesQueuedRequestAfterTimeout` |
 | U10 | `requestWait` completion for another endpoint | `PASS_LOCAL`: unexpected completion is rejected and the queued request is cancelled on close; EX-06 shared reaper remains conditional |
 | U11 | Concurrent close and `requestWait` | `PARTIAL`: state-machine close tests; real bridge race remains open |
@@ -98,7 +98,7 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-USB-08 | USB chunks split/coalesce blocks; zeros and ZLP are handled | PASS_LOCAL: split/coalesce and zero-byte read fixtures / PR-01 |
 | R04-USB-09 | Invalid NTH/NDP resync is bounded and cannot create false frames | PASS_LOCAL: malformed NTH/NDP, false header, and bounded-garbage cases / PR-01 |
 | R04-USB-10 | USBMUX trailer and 1+N frames across three reads preserve bytes | PARTIAL: decoder tests; combined read fixture open |
-| R04-USB-11 | 32 KiB queue false falls back finitely without stale request; minSdk stays 28 | OPEN / CONDITIONAL PR-02 |
+| R04-USB-11 | 32 KiB queue false falls back finitely without stale request; minSdk stays 28 | NOT_RUN / NO_GO_PENDING_DEVICE_REPRO: no device-present queue-false observation, PR-02 |
 | R04-USB-12 | Partial `NcmSendResult` and NotReady remain distinct | PASS_LOCAL: U24–U26 |
 | R04-IP-01 | Valid IPv4 SYN to actual listener is counted by family | PASS_LOCAL: IPv4 classifier case / EX-01; device evidence NOT_RUN |
 | R04-IP-02 | IPv6 extension parses bounded; incomplete fragment is unknown | PASS_LOCAL: bounded extension and fragment cases / EX-01 |
@@ -169,3 +169,7 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 
 - `NO_GO_PENDING_EVIDENCE`: no TS10/K706+iPhone same-node mode-transition stall has been reproduced. Keep the existing event-driven USB wait; no 10s probe, extra permission request, or additional mode request is added.
 - The API 36 emulator test environment has no iPhone USB mode transition, so it is not evidence for this condition. Reconsider only after a same-node, USB-generation, permission-state trace is captured.
+
+## PR-02 decision
+
+- `NO_GO_PENDING_DEVICE_REPRO`: the API26/27 workaround is `NOT_APPLICABLE` because minSdk is 28, and no API28+ device-present `UsbRequest.queue()==false` event was observed. Keep the 32 KiB persistent request and timeout ownership unchanged; reconsider fallback only after a device-present reproduction.

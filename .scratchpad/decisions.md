@@ -20,6 +20,10 @@ Record RTSP RECORD, ALT setup, MAIN setup, MAIN first-frame submission, soft 8s,
 
 The 10s same-node re-enumeration probe requires a TS10/K706+iPhone mode-transition stall with device/USB-generation/permission state evidence. No such reproduction is available, so retain the event-driven attach path and add no timer or permission/mode request. The API 36 emulator is not evidence for physical USB re-enumeration.
 
+## Keep PR-02 USB queue fallback conditional on device-present failure
+
+Android API26/27 behavior is unreachable while minSdk remains 28. Preserve the 32 KiB persistent request and single `requestWait()` ownership until an API28+ device-present `UsbRequest.queue()==false` event is reproduced; an emulator without the iPhone USB endpoint is not evidence for the fallback.
+
 ## Freeze STEP4 to verified fork main and keep USB injection test-only
 
 Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.

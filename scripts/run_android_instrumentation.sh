@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 set +e
+adb logcat -c >/dev/null 2>&1 || true
 ./gradlew :shared:connectedDebugAndroidTest --stacktrace
 test_result=$?
 
@@ -16,6 +17,9 @@ if [ "$test_result" -eq 0 ]; then
         echo "DSP benchmark evidence was not present in logcat"
         exit 1
     fi
+    python3 scripts/parse_dsp_benchmark.py \
+      shared/build/outputs/dsp-benchmark/logcat.txt \
+      shared/build/outputs/dsp-benchmark || exit $?
 fi
 
 exit "$test_result"

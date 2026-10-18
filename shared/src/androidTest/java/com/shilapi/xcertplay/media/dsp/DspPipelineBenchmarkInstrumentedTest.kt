@@ -54,6 +54,7 @@ class DspPipelineBenchmarkInstrumentedTest {
         val format = DspAudioFormat(sampleRate, channels)
         val source = inputBlock(format)
         for (benchmarkCase in benchmarkCases(sampleRate, channels)) {
+            val nativeHeapBefore = Debug.getNativeHeapAllocatedSize()
             val processor = NativeDspProcessor.createOrNull(format, benchmarkCase.config)
             assertNotNull("native graph: ${benchmarkCase.name}", processor)
             processor ?: continue
@@ -61,6 +62,7 @@ class DspPipelineBenchmarkInstrumentedTest {
             val latencyBypass = pipeline.algorithmicLatencyFrames.takeIf { it > 0 }?.let {
                 DspLatencyPreservingBypass(format, it)
             }
+            var nativeHeapPeakBytes = Debug.getNativeHeapAllocatedSize()
             try {
                 var block = 0
                 while (block < WARMUP_BLOCKS) {
@@ -70,7 +72,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                     assertEquals(source.size, pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16))
                     block++
                 }
-                assertNoSteadyStateAllocations(pipeline, latencyBypass, source)
+                val steadyStateAllocations = assertNoSteadyStateAllocations(pipeline, latencyBypass, source)
                 val pipelineRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
                 val productionRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
                 repeat(MEASURED_RUNS) { runIndex ->
@@ -89,6 +91,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                         block++
                     }
                     val diagnostics = pipeline.diagnostics()
+                    nativeHeapPeakBytes = maxOf(nativeHeapPeakBytes, Debug.getNativeHeapAllocatedSize())
                     val native = diagnostics.nativeProcessUs
                     val fullPipeline = diagnostics.pipelineProcessUs
                     assertEquals(MEASURED_BLOCKS.toLong(), native.sampleCount)
@@ -102,7 +105,9 @@ class DspPipelineBenchmarkInstrumentedTest {
                         "DSP_BENCHMARK case=${benchmarkCase.name} sampleRate=$sampleRate channels=$channels " +
                             "run=${runIndex + 1} blocks=$MEASURED_BLOCKS nativeProcessUs=${native.toMetricString()} " +
                             "pipelineProcessUs=${fullPipeline.toMetricString()} " +
-                            "latencyPreservingBypass=${latencyBypass != null} productionProcessUs=$production",
+                            "latencyPreservingBypass=${latencyBypass != null} productionProcessUs=$production " +
+                            "steadyStateAllocations=$steadyStateAllocations nativeHeapPeakBytes=$nativeHeapPeakBytes " +
+                            "nativeHeapDeltaBytes=${(nativeHeapPeakBytes - nativeHeapBefore).coerceAtLeast(0L)}",
                     )
                 }
                 val blockDurationUs =
@@ -127,7 +132,7 @@ class DspPipelineBenchmarkInstrumentedTest {
         pipeline: DspPcmPipeline,
         latencyBypass: DspLatencyPreservingBypass?,
         source: ByteArray,
-    ) {
+    ): Int {
         Debug.startAllocCounting()
         try {
             Debug.resetThreadAllocCount()
@@ -142,9 +147,86 @@ class DspPipelineBenchmarkInstrumentedTest {
                 }
                 block++
             }
-            assertEquals(0, Debug.getThreadAllocCount())
+            val allocationCount = Debug.getThreadAllocCount()
+            assertEquals(0, allocationCount)
+            return allocationCount
         } finally {
             Debug.stopAllocCounting()
+        }
+    }
+
+    @Test
+    fun reportsGraphSwapPeakMemoryForAllModulesAndConvolver64k() = recordGraphSwapMemory()
+
+    private fun recordGraphSwapMemory() {
+        val format = DspAudioFormat(sampleRate = 48_000, channels = 2)
+        val impulse = convolverConfig(format.sampleRate, format.channels, 65_536).convolver
+        val all4Config = DspRuntimeConfig(
+            enabled = true,
+            seatFocus = DspSeatFocusConfig(enabled = true, leftDelayMs = 2.25),
+            advancedMs = DspAdvancedMsConfig(enabled = true, highWidth = 1.4),
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                calibrationId = "bench_swap",
+                cuts = listOf(
+                    DspCabinCut(
+                        82.0,
+                        4.0,
+                        -3.0,
+                        enabled = true,
+                        source = DspCabinCutSource.MEASUREMENT,
+                    ),
+                ),
+            ),
+            harmonicEngine = DspHarmonicEngineConfig(
+                enabled = true,
+                quality = DspHarmonicQuality.FOUR_X,
+                highExciter = DspHighExciterConfig(enabled = true, wet = 0.8),
+                virtualBass = DspVirtualBassConfig(enabled = true, wet = 0.8),
+            ),
+            convolver = impulse,
+        )
+        val heapBefore = Debug.getNativeHeapAllocatedSize()
+        var activePipeline: DspPcmPipeline? = null
+        var candidatePipeline: DspPcmPipeline? = null
+        var rollbackPipeline: DspPcmPipeline? = null
+        try {
+            val activeProcessor = NativeDspProcessor.createOrNull(
+                format,
+                convolverConfig(format.sampleRate, format.channels, 65_536),
+            ) ?: throw AssertionError("active Convolver64k graph failed to prepare for memory sample")
+            val activeGraphPipeline = DspPcmPipeline(format, activeProcessor, forceInitialLatencySilence = false)
+            activePipeline = activeGraphPipeline
+            val candidateProcessor = NativeDspProcessor.createOrNull(format, all4Config)
+                ?: throw AssertionError("candidate All4+Convolver64k graph failed to prepare for memory sample")
+            val candidateGraphPipeline = DspPcmPipeline(format, candidateProcessor, forceInitialLatencySilence = false)
+            candidatePipeline = candidateGraphPipeline
+            val rollbackProcessor = NativeDspProcessor.createOrNull(format, all4Config)
+                ?: throw AssertionError("rollback All4+Convolver64k graph failed to prepare for memory sample")
+            val rollbackGraphPipeline = DspPcmPipeline(format, rollbackProcessor, forceInitialLatencySilence = false)
+            rollbackPipeline = rollbackGraphPipeline
+            val fallbackLatencyFrames = maxOf(
+                activeGraphPipeline.algorithmicLatencyFrames,
+                candidateGraphPipeline.algorithmicLatencyFrames,
+                rollbackGraphPipeline.algorithmicLatencyFrames,
+            )
+            val latencyFallback = DspLatencyPreservingBypass(format, fallbackLatencyFrames)
+            assertEquals(0, latencyFallback.outputLength)
+            val memoryInfo = Debug.MemoryInfo()
+            Debug.getMemoryInfo(memoryInfo)
+            val nativeHeapPeakBytes = Debug.getNativeHeapAllocatedSize()
+            Log.i(
+                TAG,
+                "DSP_BENCHMARK_MEMORY sampleRate=${format.sampleRate} channels=${format.channels} " +
+                    "graphCount=3 active=Convolver64k candidate=All4+Convolver64k rollback=All4+Convolver64k " +
+                    "fallbackLatencyFrames=$fallbackLatencyFrames nativeHeapBytes=$nativeHeapPeakBytes " +
+                    "nativeHeapDeltaBytes=${(nativeHeapPeakBytes - heapBefore).coerceAtLeast(0L)} " +
+                    "totalPssKb=${memoryInfo.totalPss} irFrames=65536",
+            )
+        } finally {
+            rollbackPipeline?.close()
+            candidatePipeline?.close()
+            activePipeline?.close()
         }
     }
 
@@ -186,6 +268,88 @@ class DspPipelineBenchmarkInstrumentedTest {
         )
         val base = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
         val peq = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, peqBands = peq15)
+        val seatFocus = DspSeatFocusConfig(
+            enabled = true,
+            leftDelayMs = 2.25,
+            rightDelayMs = 0.0,
+            leftTrimDb = 1.0,
+        )
+        val advancedMs = DspAdvancedMsConfig(
+            enabled = true,
+            midGainDb = 1.0,
+            sideGainDb = -1.0,
+            lowWidth = 0.8,
+            midWidth = 1.1,
+            highWidth = 1.4,
+        )
+        val cabinCorrection = DspCabinCorrectionConfig(
+            enabled = true,
+            calibrationId = "bench_cabin",
+            cuts = listOf(
+                DspCabinCut(
+                    54.0,
+                    4.0,
+                    -4.0,
+                    enabled = true,
+                    source = DspCabinCutSource.MEASUREMENT,
+                    prominenceDb = 6.0,
+                    confidence = 0.9,
+                ),
+                DspCabinCut(
+                    82.0,
+                    3.0,
+                    -3.0,
+                    enabled = true,
+                    source = DspCabinCutSource.MEASUREMENT,
+                    prominenceDb = 5.0,
+                    confidence = 0.8,
+                ),
+            ),
+            dynamicControlEnabled = true,
+        )
+        val highExciter = DspHighExciterConfig(
+            enabled = true,
+            frequencyHz = 6_000.0,
+            drive = 3.0,
+            amount = 0.8,
+            mode = DspHarmonicMode.MIXED,
+            wet = 0.8,
+        )
+        val virtualBass = DspVirtualBassConfig(
+            enabled = true,
+            fundamentalLowHz = 35.0,
+            fundamentalHighHz = 80.0,
+            drive = 3.0,
+            amount = 0.8,
+            secondHarmonicAmount = 1.0,
+            thirdHarmonicAmount = 0.5,
+            wet = 0.8,
+        )
+
+        fun allFourModules(convolverFrames: Int?): DspRuntimeConfig = DspRuntimeConfig(
+            enabled = true,
+            gainDb = 2.0,
+            autoHeadroomEnabled = true,
+            peqBands = peq15,
+            bass = bass,
+            compressor = compressor,
+            safetyLimiter = limiter,
+            stereoWidth = 1.25,
+            monoBass = monoBass,
+            convolver = convolverFrames?.let { convolverConfig(sampleRate, channels, it).convolver }
+                ?: DspConvolverConfig(),
+            multiband = multiband,
+            dynamicEq = dynamicEq,
+            seatFocus = seatFocus,
+            advancedMs = advancedMs,
+            cabinCorrection = cabinCorrection,
+            harmonicEngine = DspHarmonicEngineConfig(
+                enabled = true,
+                quality = DspHarmonicQuality.FOUR_X,
+                highExciter = highExciter,
+                virtualBass = virtualBass,
+            ),
+        )
 
         return listOf(
             BenchmarkCase("Gain", base.copyConfig(gainDb = 3.0)),
@@ -233,11 +397,79 @@ class DspPipelineBenchmarkInstrumentedTest {
             BenchmarkCase("Convolver16k", convolverConfig(sampleRate, channels, 16_384)),
             BenchmarkCase("Convolver64k", convolverConfig(sampleRate, channels, 65_536)),
             BenchmarkCase(
-                "FullHeavyChain",
+                "SeatOnly",
                 DspRuntimeConfig(
                     enabled = true,
-                    gainDb = 2.0,
                     autoHeadroomEnabled = false,
+                    seatFocus = seatFocus,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "AdvancedMsOnly",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    advancedMs = advancedMs,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "CabinOnly",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    cabinCorrection = cabinCorrection,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "Harmonic2x",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    harmonicEngine = DspHarmonicEngineConfig(
+                        enabled = true,
+                        quality = DspHarmonicQuality.TWO_X,
+                        highExciter = highExciter,
+                    ),
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "Harmonic4x",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    harmonicEngine = DspHarmonicEngineConfig(
+                        enabled = true,
+                        quality = DspHarmonicQuality.FOUR_X,
+                        highExciter = highExciter,
+                    ),
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "VirtualBass",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    harmonicEngine = DspHarmonicEngineConfig(
+                        enabled = true,
+                        quality = DspHarmonicQuality.FOUR_X,
+                        virtualBass = virtualBass,
+                    ),
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase("All4", allFourModules(convolverFrames = null)),
+            BenchmarkCase("All4+Convolver64k", allFourModules(convolverFrames = 65_536)),
+            BenchmarkCase(
+                "LegacyBaseline",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    gainDb = 2.0,
                     peqBands = peq15,
                     bass = bass,
                     compressor = compressor,

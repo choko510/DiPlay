@@ -305,3 +305,7 @@ Cabin candidates should come from a user-imported response curve and use a local
 
 - A native processor unit test with fake bindings must compare reported algorithmic latency to the fake binding's returned latency. Verify the real 64-frame Harmonic reservation through the actual JNI instrumented test.
 - Convolver fail-open must be checked at both supported-rate mismatch and unsupported output-rate cases. An IR may be valid by itself but cannot be processed at an unsupported active graph rate.
+
+## Summarize repeated performance histograms without hiding outliers
+
+- Use the median across repeated runs for p50/p95/p99, but retain the worst observed maximum separately. The maximum bucket is not another percentile; aggregating its median can conceal a run that exceeded the target.

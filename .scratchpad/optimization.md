@@ -65,3 +65,8 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 ## 2026-10-19 — Harmonic Engine preparation
 
 - Implement the oversampler as polyphase FIRs rather than filtering a fully zero-stuffed stream. Coefficients and independent high/bass histories are prepared off-thread; processing performs no allocation and skips biquad work for inactive branches. 2× uses 129 taps, 4× uses 257 taps, and both reserve 64 frames. Host tests measured -129.26/-129.56 dBc for the 18 kHz alias from a 10 kHz ODD-mode input at 2×/4×. Android pipeline p99, peak memory, and allocation deltas are still pending the integration benchmark.
+
+## 2026-10-19 — Four-module emulator performance matrix
+
+- Extended the API 36 x86_64 matrix to 18 configurations at 44.1/48 kHz Mono/Stereo, with three 256-block runs each (216 machine-validated records). All cases reported zero steady-state Kotlin allocations. At 48 kHz Stereo, Harmonic2x native p99 was 1.02 ms, Harmonic4x 1.84 ms, VirtualBass 1.88 ms, All4 production p99 4.22 ms, and All4+Convolver64k production p99/max 6.82/7.528 ms. The 48 kHz block is 10.67 ms; p99 stays below the 7.5 ms 30%-headroom target, while the worst sample remains below one block.
+- Kept a three-graph swap sample (active Convolver64k, All4+Convolver64k candidate and rollback, plus aligned dry fallback). The emulator reported 12,182,480 bytes native heap (6,484,256-byte increase) and 62,814 KiB process PSS. These are emulator process measurements, not TS10 capacity measurements.

@@ -129,6 +129,10 @@ High Exciter and Virtual Bass depend on filter, envelope, and oversampling histo
 ## Disable an unsupported Convolver before native graph preparation
 
 The native Convolver supports only 44.1/48/96 kHz. Match that rule in Kotlin and mark an unsupported or rate-mismatched Convolver inactive before JNI preparation; this lets the rest of the graph remain available without relying on a native graph-create failure.
+
+## Capture benchmark output before emulator teardown
+
+Run the complete timing matrix inside Android instrumentation and clear/capture its logcat in the same checked-in script. Parse the exact expected case/rate/channel/run set and fail artifact generation on missing records or nonzero steady-state allocation counts. Publish raw CSV/JSON plus an aggregate Markdown table as the workflow artifact.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

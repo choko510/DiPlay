@@ -4,6 +4,10 @@
 
 Reuse the existing debug connection-trace opt-in rather than adding a preference or schema. Create one recorder per `wiredStartupAttempt`, include VPN `attachGeneration` as a separate identifier, and send only aggregate counts/first monotonic times to the PII-free report. Seal after admitted callbacks drain so FINAL cannot omit an in-flight event. Leave USB/TUN/AirPlay behavior, request ownership, retry policy, and watchdog deadlines unchanged; hardware conclusions remain gated on TS10/iPhone evidence.
 
+## Keep PR-01 receive framing independent of NCM request ownership
+
+Read the selected bulk-IN endpoint's `maxPacketSize` to detect optional short-pad boundaries. Deliver a complete NTB immediately; consume exactly one following zero byte only if it is present. Preserve outgoing `Ntb16Codec.build()` bytes, persistent async request, 32 KiB buffer, sync/async selection, and timeout ownership. Bound corrupt-stream resynchronization to 64 KiB, recovering the next structurally valid NTH16 or using the existing typed connection failure.
+
 ## Freeze STEP4 to verified fork main and keep USB injection test-only
 
 Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.

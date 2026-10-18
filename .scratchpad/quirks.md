@@ -2,6 +2,7 @@
 
 - 2026-10-19: ADB now exposes `emulator-5554` as an API 36 x86_64 AVD; `:shared:connectedDebugAndroidTest` passed 16 tests. This is emulator evidence only. `wsl -d Ubuntu` failed with `HCS_E_SERVICE_NOT_AVAILABLE`, and no Windows `gcc`, `cc`, `clang`, or `cl` command was present, so host native DSP scripts remain `NOT_RUN`.
 - 2026-10-19: `gh` is unavailable in this checkout. Pushes use the configured Git remote; PR creation and metadata use the connected GitHub tool.
+- 2026-10-19: PR-01 fake USB RX cases can exercise the real `NcmUsbBridge` in sync mode through queued bulk-IN bytes, and async mode through `FakeUsbRequest`/`requestWait` completion events. `FakeUsbRequest` exposes the queued direct-buffer capacity to assert the existing 32 KiB contract.
 
 - 2026-10-18: This Windows host has Java 25 and the Android SDK/NDK, but no `cc`/`gcc` on PATH and no installed WSL distribution; `scripts/test_dsp_native.sh` cannot run locally. `adb devices -l` is empty, so instrumentation and TS10/iPhone checks are `NOT_RUN`.
 - 2026-10-02: `reactivecircus/android-emulator-runner` runs `script:` lines as separate shell invocations. Put multi-step test, logcat capture, and evidence assertions in a checked-in bash script and invoke it with a single command; capture before the action shuts down the emulator.

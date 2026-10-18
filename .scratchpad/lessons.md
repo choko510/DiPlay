@@ -2,6 +2,8 @@
 
 - 2026-10-19: A final snapshot can race with an already-admitted milestone callback. `seal()` must wait for `inFlight` to drain before returning the immutable snapshot; a blocking callback test proves the final event is included and later events are rejected.
 - Keep unknown IPv6 Next Header values distinct from common non-TCP traffic. Treating an unrecognized protocol as `NON_TCP` would make an unknown packet look like evidence that no TCP SYN occurred.
+- 2026-10-19: A short packet pad can arrive in a different USB completion from its NTB, or be absent before the next NTH16. Resolve that ambiguity on the read buffer without delaying the complete NTB or consuming a following header; test one-byte completions, coalesced blocks, and zero-byte reads.
+- For corruption recovery, preserve enough tail bytes for an NTH16 split across completions, bound cumulative scan work per corrupt run, and verify both valid-after-garbage recovery and typed failure on a >1 MiB corrupt stream.
 
 ## Make transport fakes fail unless a test scripts success
 

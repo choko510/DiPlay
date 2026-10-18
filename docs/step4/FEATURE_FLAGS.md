@@ -1,11 +1,11 @@
 # STEP4 feature flag register
 
-この表は仕様書の初期gateを記録したもの。planned entryはproduction flagとしてまだ実装されていない。各PRで現行設定/schemaとの重複を再確認し、OFF時にmainの既存動作へ戻ることを検証する。
+この表は仕様書の初期gateと実装状況を記録する。各PRで現行設定/schemaとの重複を再確認し、OFF時にmainの既存動作へ戻ることを検証する。
 
 | Feature | Main baseline | Planned initial state | Rollback / gate |
 |---|---|---|---|
 | NCM diagnostic profile | Existing debug-only `NcmDiagnosticProfileStore`; `AUTO` default; status polling is already part of current behavior when endpoint exists | Keep current profile; no change in PR-00 | Restore the existing profile selection |
-| `wiredPathDiagnosticsV1` | Not present in frozen main | OFF; debug opt-in for measurement | Disable recorder; USB/TUN/AirPlay path remains unchanged |
+| `wiredPathDiagnosticsV1` | Not present in frozen main; EX-01 uses existing `connectionTraceEnabled` | Off unless debug connection tracing is enabled; no new preference or schema | Disable recorder; USB/TUN/AirPlay path remains unchanged |
 | `ncmRxFiniteResync` | Not present; current parser requires a short pad at exact 512-byte boundary | Enable only after PR-01 CI and hardware gate | Revert receiver framing routine |
 | `hostRetryEpochGuard` | Not present as a loss-epoch guard | Enable after EX-02 tests | Revert Host retry policy only |
 | `reenumerationProbe` | Not present as the guarded 10-second probe | OFF | Keep existing USB-mode wait |

@@ -18,26 +18,26 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U10 | `requestWait` completion for another endpoint | `PASS_LOCAL`: unexpected completion is rejected and the queued request is cancelled on close; EX-06 shared reaper remains conditional |
 | U11 | Concurrent close and `requestWait` | `PARTIAL`: state-machine close tests; real bridge race remains open |
 | U12 | Sync/async diagnostic modes return consistent reads | `PARTIAL`: both modes exist; common bridge fixture comparison remains open |
-| U13 | IPv4 SYN to listener port counted once | `OPEN`: EX-01 |
-| U14 | IPv6 SYN with extension header bounded and classified | `OPEN`: EX-01 |
-| U15 | IPv6 fragment/jumbo is not called a confirmed SYN | `OPEN`: EX-01 |
-| U16 | VLAN and short Ethernet input safe classification | `OPEN`: EX-01 |
-| U17 | Invalid IPv6 version/length rejected | `OPEN`: EX-01 |
-| U18 | AirPlay-source-port SYN-ACK/RST counted outbound | `OPEN`: EX-01 |
-| U19 | Wrong family/port not counted as AirPlay SYN | `OPEN`: EX-01 |
-| U20 | 100,000 seeded random packets terminate safely | `OPEN`: EX-01 |
-| U21 | TUN write success counted only after successful write | `FIXTURE_ONLY`: fake TUN requires an explicit scripted success; EX-01 integration open |
-| U22 | TUN write exception/error category | `OPEN`: EX-01 |
-| U23 | Kernel SYN-ACK observed separately from USB OUT | `OPEN`: EX-01 |
-| U24 | SYN-ACK USB OUT `NotReady` counted without retry | `PARTIAL`: send result behavior covered; diagnostic correlation is EX-01 |
-| U25 | Full-byte SYN-ACK transfer counted as sent | `PARTIAL`: `NcmSendResult` direct fixture test; EX-01 correlation open |
+| U13 | IPv4 SYN to listener port counted once | `PASS_LOCAL`: `WiredTcpPacketClassifierTest.classifiesIpv4SynByDestinationPortAndChecksOptionalAddress` |
+| U14 | IPv6 SYN with extension header bounded and classified | `PASS_LOCAL`: destination-options extension and two VLAN tags are parsed |
+| U15 | IPv6 fragment/jumbo is not called a confirmed SYN | `PASS_LOCAL`: fragment and zero-payload jumbo cases stay unconfirmed |
+| U16 | VLAN and short Ethernet input safe classification | `PASS_LOCAL`: QinQ and truncated VLAN fixtures |
+| U17 | Invalid IPv6 version/length rejected | `PASS_LOCAL`: malformed version, length, and TCP offsets are rejected |
+| U18 | AirPlay-source-port SYN-ACK/RST counted outbound | `PASS_LOCAL`: TUN raw-IP SYN-ACK/RST parser cases |
+| U19 | Wrong family/port not counted as AirPlay SYN | `PASS_LOCAL`: wrong port and SYN-ACK input are excluded from ingress SYN |
+| U20 | 100,000 seeded random packets terminate safely | `PASS_LOCAL`: seeded Ethernet and TUN parser fuzz |
+| U21 | TUN write success counted only after successful write | `PASS_LOCAL`: production `writeNcmFrameToTun` path with scripted `FakeTunDevice`; device evidence is `NOT_RUN` |
+| U22 | TUN write exception/error category | `PASS_LOCAL`: scripted rejection and runtime exception are counted as write failures; device evidence is `NOT_RUN` |
+| U23 | Kernel SYN-ACK observed separately from USB OUT | `PASS_LOCAL`: TUN SYN-ACK is a separate event from listener accept |
+| U24 | SYN-ACK USB OUT `NotReady` counted without retry | `PASS_LOCAL`: same-attempt TUN SYN-ACK/NotReady correlation; ordinary-frame no-retry policy test; device evidence is `NOT_RUN` |
+| U25 | Full-byte SYN-ACK transfer counted as sent | `PASS_LOCAL`: full-byte NCM result and same-attempt sent counter mapping; device evidence is `NOT_RUN` |
 | U26 | Partial transfer is typed failure, not sent | `PASS_LOCAL`: `Step4FixtureFactoryTest.ncmBridgeUsesScriptedUsbOutResults` |
-| U27 | Missing peer MAC tracked separately | `OPEN`: EX-01 |
-| U28 | Old attachment accept cannot enter new attempt | `OPEN`: EX-01 / EX-07 |
-| U29 | Callback concurrent with FINAL leaves immutable snapshot | `OPEN`: EX-01 |
-| U30 | Concurrent counter increments lose no updates | `OPEN`: EX-01 |
-| U31 | Diagnostic ON/OFF has identical USB/TUN behavior | `OPEN`: EX-01 |
-| U32 | Exported diagnostics contain no PII or payload | `PARTIAL`: existing redactor tests; new report redaction is EX-01 |
+| U27 | Missing peer MAC tracked separately | `PARTIAL`: counter is wired at the drop site; fake bridge coverage and device evidence are `NOT_RUN` |
+| U28 | Old attachment accept cannot enter new attempt | `PARTIAL`: separate attempt/attach recorders are tested; service accept-loop integration is `NOT_RUN` |
+| U29 | Callback concurrent with FINAL leaves immutable snapshot | `PASS_LOCAL`: final waits for an in-flight event and rejects late updates |
+| U30 | Concurrent counter increments lose no updates | `PASS_LOCAL`: 10,000 increments across 10 workers |
+| U31 | Diagnostic ON/OFF has identical USB/TUN behavior | `PASS_LOCAL`: scripted USB bytes/results and fake TUN packet bytes match |
+| U32 | Exported diagnostics contain no PII or payload | `PASS_LOCAL`: report fixture excludes IPv6, MAC, source port, and payload |
 | U33 | No watchdog before StartSession send | `PARTIAL`: `WiredStartupWatchdogTest`; controller integration evidence open |
 | U34 | 8-second soft event does not tear down | `PARTIAL`: `WiredStartupWatchdogTest`; controller integration evidence open |
 | U35 | 15-second hard deadline tears down once | `PARTIAL`: watchdog state tests; controller teardown integration open |
@@ -100,15 +100,15 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-USB-10 | USBMUX trailer and 1+N frames across three reads preserve bytes | PARTIAL: decoder tests; combined read fixture open |
 | R04-USB-11 | 32 KiB queue false falls back finitely without stale request; minSdk stays 28 | OPEN / CONDITIONAL PR-02 |
 | R04-USB-12 | Partial `NcmSendResult` and NotReady remain distinct | PASS_LOCAL: U24–U26 |
-| R04-IP-01 | Valid IPv4 SYN to actual listener is counted by family | OPEN / EX-01 |
-| R04-IP-02 | IPv6 extension parses bounded; incomplete fragment is unknown | OPEN / EX-01 |
-| R04-IP-03 | Truncated IPv6 is invalid without transport changes | OPEN / EX-01 |
-| R04-IP-04 | VLAN packet has a distinct classification | OPEN / EX-01 |
-| R04-IP-05 | Wrong IPv6 destination/port is distinct from target SYN | OPEN / EX-01 |
-| R04-IP-06 | Failed TUN write does not set write-success | FIXTURE_ONLY / EX-01 |
-| R04-IP-07 | SYN-ACK plus NCM NotReady is correlated in the same attempt | OPEN / EX-01 |
-| R04-IP-08 | SYN-ACK sent without ACK/accept is not called socket success | OPEN / EX-01 |
-| R04-IP-09 | Old VPN accept loop cannot increment new generation | OPEN / EX-01 / EX-07 |
+| R04-IP-01 | Valid IPv4 SYN to actual listener is counted by family | PASS_LOCAL: IPv4 classifier case / EX-01; device evidence NOT_RUN |
+| R04-IP-02 | IPv6 extension parses bounded; incomplete fragment is unknown | PASS_LOCAL: bounded extension and fragment cases / EX-01 |
+| R04-IP-03 | Truncated IPv6 is invalid without transport changes | PASS_LOCAL: parser-only malformed input cases / EX-01 |
+| R04-IP-04 | VLAN packet has a distinct classification | PASS_LOCAL: QinQ fixture / EX-01 |
+| R04-IP-05 | Wrong IPv6 destination/port is distinct from target SYN | PASS_LOCAL: destination match/mismatch and port cases / EX-01 |
+| R04-IP-06 | Failed TUN write does not set write-success | PASS_LOCAL: production forwarder with scripted rejection/exception; device evidence NOT_RUN |
+| R04-IP-07 | SYN-ACK plus NCM NotReady is correlated in the same attempt | PASS_LOCAL: same recorder holds TUN SYN-ACK and NCM NotReady events |
+| R04-IP-08 | SYN-ACK sent without ACK/accept is not called socket success | PASS_LOCAL: SYN-ACK observation is separate from listener-accept event |
+| R04-IP-09 | Old VPN accept loop cannot increment new generation | PARTIAL: recorder isolation covered; service accept-loop integration NOT_RUN |
 | R04-IP-10 | Detach during read/write/status close does not deadlock | OPEN |
 | R04-REC-01 | Host retry skips after current session recovers | PARTIAL / EX-02 |
 | R04-REC-02 | Recovery then second loss creates the legitimate retry | OPEN / EX-02 |
@@ -138,3 +138,10 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-G-02 | BYD-only packages remain absent with no unresolved references | PARTIAL / PR-08 |
 | R04-G-03 | No old revert commit and no `0x4302` EndSession misuse | OPEN / PR-08 |
 | R04-G-04 | Android variants, unit, R8 mapping, ABI/native gates pass | PARTIAL: local workflow checks except native/instrumentation |
+
+## EX-01 verification note
+
+- The packet classifier validates bounds and header structure; IP/TCP checksums are not checked. It does not replace or change transport parsing.
+- Latest local suite: shared 482 tests and common 136 tests, with zero failures, errors, or skips. It covers fake USB/TUN send and receive paths, packet boundary and seeded-fuzz cases, attempt isolation, and final-seal concurrency.
+- Android instrumentation: 16 tests passed on an API 36 x86_64 emulator, with zero failures/skips. This includes the existing DSP smoke/benchmark; it is not a WiredPath performance measurement.
+- WiredPath performance measurement and TS10/iPhone observations are `NOT_RUN`; required successful/failed TS10 runs remain `UNKNOWN`. Native host DSP scripts are `NOT_RUN` because WSL could not launch Ubuntu and no Windows C compiler was found.

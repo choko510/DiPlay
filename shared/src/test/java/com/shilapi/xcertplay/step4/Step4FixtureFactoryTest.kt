@@ -3,6 +3,9 @@ package com.shilapi.xcertplay.step4
 import android.hardware.usb.FakeUsbDeviceConnection
 import android.hardware.usb.FakeUsbDeviceConnection.FakeUsbRequest
 import com.shilapi.xcertplay.airplay.VideoCodec
+import com.shilapi.xcertplay.diagnostics.WiredPathDiagnostics
+import com.shilapi.xcertplay.diagnostics.WiredPathEvent
+import com.shilapi.xcertplay.diagnostics.WiredPathReportReason
 import com.shilapi.xcertplay.media.MediaCodecSupport
 import com.shilapi.xcertplay.transport.NcmDiagnosticEvent
 import com.shilapi.xcertplay.transport.NcmDiagnosticProfile
@@ -91,6 +94,67 @@ class Step4FixtureFactoryTest {
         assertSame(NcmSendResult.Sent, sentBridge.send(frame, 100))
         assertEquals(1, sentConnection.getBulkOutTransfers().size)
         sentBridge.close()
+    }
+
+    @Test
+    fun ncmReceiveDiagnosticsCountAssembledAndDeliveredEthernetFrames() {
+        val frame = Step4PacketFixtures.ethernetIpv6Tcp()
+        val diagnostics = WiredPathDiagnostics(
+            enabled = true,
+            controllerRunId = "rx-test-run",
+            attempt = 1,
+            listenerPort = 7_000,
+        )
+        val request = FakeUsbRequest(true).apply { enqueueQueueResult(true) }
+        val connection = FakeUsbDeviceConnection().apply {
+            enqueueWaitCompletion(Step4PacketFixtures.ntb16(frame))
+        }
+        val bridge = bridge(connection, request, wiredPathDiagnostics = diagnostics)
+
+        try {
+            assertArrayEquals(frame, bridge.recv(1_000))
+            assertEquals(1L, diagnostics.count(WiredPathEvent.NCM_ETHERNET_COMPLETE))
+            assertEquals(1L, diagnostics.count(WiredPathEvent.NCM_ETHERNET_DELIVERED))
+        } finally {
+            bridge.close()
+        }
+    }
+
+    @Test
+    fun wiredDiagnosticsOnAndOffKeepNcmTransferBytesAndResultEqual() {
+        val frame = Step4PacketFixtures.ethernetIpv4Tcp()
+        val blockLength = Ntb16Codec.build(frame, 0).size
+        val disabled = WiredPathDiagnostics(
+            enabled = false,
+            controllerRunId = "disabled-run",
+            attempt = 1,
+            listenerPort = 7_000,
+        )
+        val enabled = WiredPathDiagnostics(
+            enabled = true,
+            controllerRunId = "enabled-run",
+            attempt = 1,
+            listenerPort = 7_000,
+        )
+        val offConnection = FakeUsbDeviceConnection().apply { enqueueBulkOutResult(blockLength) }
+        val onConnection = FakeUsbDeviceConnection().apply { enqueueBulkOutResult(blockLength) }
+        val offBridge = bridge(offConnection, wiredPathDiagnostics = disabled)
+        val onBridge = bridge(onConnection, wiredPathDiagnostics = enabled)
+
+        val offResult = offBridge.send(frame, 100)
+        val onResult = onBridge.send(frame, 100)
+        val offBytes = offConnection.getBulkOutTransfers().single()
+        val onBytes = onConnection.getBulkOutTransfers().single()
+        offBridge.close()
+        onBridge.close()
+
+        assertSame(NcmSendResult.Sent, offResult)
+        assertSame(NcmSendResult.Sent, onResult)
+        assertArrayEquals(offBytes, onBytes)
+        assertEquals(0, disabled.count(WiredPathEvent.FIRST_BULK_OUT_FULL_SENT))
+        assertEquals(1, enabled.count(WiredPathEvent.FIRST_BULK_OUT_FULL_SENT))
+        assertEquals(1, enabled.count(WiredPathEvent.NCM_WRITE_SENT))
+        assertNotNull(enabled.snapshot(WiredPathReportReason.FINAL))
     }
 
     @Test
@@ -265,6 +329,7 @@ class Step4FixtureFactoryTest {
         connection: FakeUsbDeviceConnection,
         request: FakeUsbRequest = FakeUsbRequest(false),
         profile: NcmDiagnosticProfile = NcmDiagnosticProfile.AUTO,
+        wiredPathDiagnostics: WiredPathDiagnostics? = null,
     ): NcmUsbBridge = NcmUsbBridge(
         connection = connection,
         outEndpoint = FakeUsbDeviceConnection.bulkOut(2, 512),
@@ -277,6 +342,7 @@ class Step4FixtureFactoryTest {
         diagnosticAttempt = 1,
         diagnosticsEnabled = false,
         onDiagnosticLog = {},
+        wiredPathDiagnostics = wiredPathDiagnostics,
         usbRequestFactory = { request },
     )
 }

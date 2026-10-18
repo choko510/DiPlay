@@ -6,6 +6,8 @@ import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbConstants
 import android.hardware.usb.UsbRequest
 import android.util.Log
+import com.shilapi.xcertplay.diagnostics.WiredPathDiagnostics
+import com.shilapi.xcertplay.diagnostics.WiredPathEvent
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.ArrayDeque
@@ -133,6 +135,7 @@ class NcmUsbBridge internal constructor(
     private val diagnosticAttempt: Int,
     private val diagnosticsEnabled: Boolean,
     private val onDiagnosticLog: (String) -> Unit,
+    private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
     private val usbRequestFactory: () -> UsbRequest = { UsbRequest() },
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
@@ -211,6 +214,14 @@ class NcmUsbBridge internal constructor(
         } == true
         val attempt = writeAttempts.incrementAndGet()
         fun finish(result: NcmSendResult, resultOverride: String? = null): NcmSendResult {
+            when (result) {
+                NcmSendResult.Sent -> wiredPathDiagnostics?.record(WiredPathEvent.NCM_WRITE_SENT)
+                NcmSendResult.NotReady -> wiredPathDiagnostics?.record(WiredPathEvent.NCM_WRITE_NOT_READY)
+                is NcmSendResult.Failed -> wiredPathDiagnostics?.record(WiredPathEvent.NCM_WRITE_FAILED)
+            }
+            if (resultOverride == "PARTIAL") {
+                wiredPathDiagnostics?.record(WiredPathEvent.NCM_WRITE_PARTIAL_FAILURE)
+            }
             logStartupTx(
                 phase,
                 packetType,
@@ -265,6 +276,7 @@ class NcmUsbBridge internal constructor(
         }
         writeSuccesses.incrementAndGet()
         writeBytes.addAndGet(transferred.toLong())
+        wiredPathDiagnostics?.record(WiredPathEvent.FIRST_BULK_OUT_FULL_SENT)
         if (ipv6 != null) {
             ipv6TxSuccesses.incrementAndGet()
             if (ndp) ndpTxSuccesses.incrementAndGet()
@@ -522,6 +534,7 @@ class NcmUsbBridge internal constructor(
             throw failSession("NCM frame queue exceeded its bounds")
         }
         ethernetRxFrames.incrementAndGet()
+        wiredPathDiagnostics?.record(WiredPathEvent.NCM_ETHERNET_COMPLETE)
         emitFirst(NcmDiagnosticEvent.FIRST_ETHERNET_RX)
         val ipv6 = EthernetIpv6Codec.parseIpv6View(frame)
         if (ipv6 != null) {
@@ -539,6 +552,7 @@ class NcmUsbBridge internal constructor(
     private fun pollFrame(): ByteArray {
         val frame = frames.removeFirst()
         queuedBytes -= frame.size
+        wiredPathDiagnostics?.record(WiredPathEvent.NCM_ETHERNET_DELIVERED)
         return frame
     }
 
@@ -568,11 +582,13 @@ class NcmUsbBridge internal constructor(
                         current.queue(directReadBuffer)
                     } catch (error: RuntimeException) {
                         readQueueFailures.incrementAndGet()
+                        wiredPathDiagnostics?.record(WiredPathEvent.NCM_READ_QUEUE_FAILURE)
                         readLifecycle.markQueueFailure()
                         throw failSession("NCM_QUEUE_ERROR: Android failed to queue the read request", error)
                     }
                     if (!queued) {
                         readQueueFailures.incrementAndGet()
+                        wiredPathDiagnostics?.record(WiredPathEvent.NCM_READ_QUEUE_FAILURE)
                         readLifecycle.markQueueFailure()
                         throw failSession("NCM_QUEUE_ERROR: Android could not queue the read request")
                     }
@@ -596,6 +612,7 @@ class NcmUsbBridge internal constructor(
         }
         if (newlyQueued) {
             emitFirst(NcmDiagnosticEvent.READ_QUEUED)
+            wiredPathDiagnostics?.record(WiredPathEvent.NCM_READ_QUEUED)
             reportDiagnostic(
                 "NCM_USB_READ profile=${diagnosticProfile.name} mode=ASYNC_USB_REQUEST " +
                     "readQueueResult=QUEUED count=${readQueues.get()}",
@@ -605,6 +622,7 @@ class NcmUsbBridge internal constructor(
             val completed = try {
                 connection.requestWait(timeoutMillis.coerceAtLeast(1))
             } catch (_: TimeoutException) {
+                wiredPathDiagnostics?.record(WiredPathEvent.NCM_READ_TIMEOUT)
                 val timeoutCount = synchronized(stateLock) {
                     if (readLifecycle.isClosing()) return null
                     readLifecycle.onTimeout()
@@ -619,6 +637,7 @@ class NcmUsbBridge internal constructor(
                 return null
             }
             if (completed == null) {
+                wiredPathDiagnostics?.record(WiredPathEvent.NCM_READ_NULL_ERROR)
                 synchronized(stateLock) {
                     if (!readLifecycle.onNullResult()) return null
                     readNullErrors.incrementAndGet()
@@ -634,11 +653,13 @@ class NcmUsbBridge internal constructor(
                 if (readLifecycle.isClosing()) return null
                 if (!readLifecycle.onCompletion(completed)) {
                     readUnexpectedCompletions.incrementAndGet()
+                    wiredPathDiagnostics?.record(WiredPathEvent.NCM_READ_UNEXPECTED_COMPLETION)
                     throw failSession("NCM_REQUEST_WAIT_ERROR: Android completed an unexpected NCM request")
                 }
                 firstCompletion = readCompletions.incrementAndGet() == 1L
                 directReadBuffer.position().also { readBytes.addAndGet(it.toLong()) }
             }
+            wiredPathDiagnostics?.record(WiredPathEvent.NCM_USB_COMPLETION)
             if (firstCompletion) {
                 emitFirst(NcmDiagnosticEvent.FIRST_USB_COMPLETION)
                 reportDiagnostic(
@@ -674,6 +695,7 @@ class NcmUsbBridge internal constructor(
         }
         if (readLifecycle.isClosing()) return null
         if (transferred <= 0) {
+            wiredPathDiagnostics?.record(WiredPathEvent.NCM_READ_TIMEOUT)
             val noData = syncReadNoData.incrementAndGet()
             readTimeouts.incrementAndGet()
             if (noData <= 3L || noData % READ_DIAGNOSTIC_LOG_EVERY == 0L) {
@@ -687,6 +709,7 @@ class NcmUsbBridge internal constructor(
         }
         val firstCompletion = readCompletions.incrementAndGet() == 1L
         readBytes.addAndGet(transferred.toLong())
+        wiredPathDiagnostics?.record(WiredPathEvent.NCM_USB_COMPLETION)
         if (firstCompletion) {
             emitFirst(NcmDiagnosticEvent.FIRST_USB_COMPLETION)
             reportDiagnostic(
@@ -760,6 +783,7 @@ class NcmUsbBridge internal constructor(
             diagnosticAttempt: Int = 0,
             diagnosticsEnabled: Boolean = false,
             onDiagnosticLog: (String) -> Unit = {},
+            wiredPathDiagnostics: WiredPathDiagnostics? = null,
         ): NcmUsbBridge {
             val claimed = ArrayList<UsbInterface>(2)
             try {
@@ -855,6 +879,7 @@ class NcmUsbBridge internal constructor(
                     diagnosticAttempt,
                     diagnosticsEnabled,
                     onDiagnosticLog,
+                    wiredPathDiagnostics,
                 )
             } catch (error: Throwable) {
                 for (usbInterface in claimed.asReversed()) {

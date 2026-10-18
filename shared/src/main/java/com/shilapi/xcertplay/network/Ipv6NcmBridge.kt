@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.network
 
 import android.os.ParcelFileDescriptor
+import com.shilapi.xcertplay.diagnostics.WiredPathDiagnostics
+import com.shilapi.xcertplay.diagnostics.WiredPathEvent
 import com.shilapi.xcertplay.transport.EthernetIpv6Codec
 import com.shilapi.xcertplay.transport.NcmLinkPhase
 import com.shilapi.xcertplay.transport.NcmUsbBridge
@@ -9,8 +11,42 @@ import java.io.Closeable
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.LockSupport
+
+internal fun writeNcmFrameToTun(
+    frame: ByteArray,
+    output: OutputStream,
+    diagnostics: WiredPathDiagnostics?,
+    onPeerMacLearned: (ByteArray) -> Unit = {},
+) {
+    val observation = diagnostics?.observeEthernetFrame(frame, frame.size)
+        ?: WiredTcpPacketClassification.EMPTY
+    val ipv6 = EthernetIpv6Codec.parseIpv6View(frame) ?: return
+    onPeerMacLearned(ipv6.sourceMac)
+    try {
+        output.write(frame, ipv6.payloadOffset, ipv6.payloadLength)
+        diagnostics?.recordTunWriteResult(observation, succeeded = true)
+    } catch (error: Exception) {
+        diagnostics?.recordTunWriteResult(observation, succeeded = false)
+        throw error
+    }
+}
+
+internal fun recordSynAckNcmResult(
+    observation: WiredTcpPacketClassification,
+    diagnostics: WiredPathDiagnostics?,
+    result: NcmSendResult,
+) {
+    if (diagnostics == null || !observation.isAirPlaySynAck(diagnostics.listenerPort)) return
+    val event = when (result) {
+        NcmSendResult.Sent -> WiredPathEvent.SYN_ACK_NCM_SENT
+        NcmSendResult.NotReady -> WiredPathEvent.SYN_ACK_NCM_NOT_READY
+        is NcmSendResult.Failed -> WiredPathEvent.SYN_ACK_NCM_FAILED
+    }
+    diagnostics.record(event)
+}
 
 /**
  * Moves IPv6 packets between an Android VpnService tun and the iPhone NCM Ethernet link.
@@ -25,6 +61,7 @@ class Ipv6NcmBridge(
     private val hostMac: ByteArray,
     private val onError: (Throwable) -> Unit,
     private val onBridgeStarted: () -> Unit = {},
+    private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
 ) : Closeable {
     init {
         require(hostMac.size == EthernetIpv6Codec.MAC_BYTES) { "hostMac must be 6 bytes" }
@@ -65,13 +102,14 @@ class Ipv6NcmBridge(
 
     private fun runNcmToTun() {
         val output = FileOutputStream(tun.fileDescriptor)
+        val onPeerMacLearned: (ByteArray) -> Unit = { mac ->
+            peerMac = mac
+            ncm.recordPeerMacLearned()
+        }
         try {
             while (running.get()) {
                 val frame = ncm.recv(READ_TIMEOUT_MILLIS) ?: continue
-                val ipv6 = EthernetIpv6Codec.parseIpv6View(frame) ?: continue
-                peerMac = ipv6.sourceMac
-                ncm.recordPeerMacLearned()
-                output.write(frame, ipv6.payloadOffset, ipv6.payloadLength)
+                writeNcmFrameToTun(frame, output, wiredPathDiagnostics, onPeerMacLearned)
             }
         } catch (error: IOException) {
             if (running.get()) onError(error)
@@ -96,11 +134,20 @@ class Ipv6NcmBridge(
                     LockSupport.parkNanos(ZERO_READ_BACKOFF_NANOS)
                     continue
                 }
+                val diagnostics = wiredPathDiagnostics
+                val observation = if (diagnostics == null) {
+                    WiredTcpPacketClassification.EMPTY
+                } else {
+                    diagnostics.observeTunPacket(buffer, length)
+                }
                 val tunPacket = buffer.copyOf(length)
                 val ipv6 = EthernetIpv6Codec.addNeighborAdvertisementTargetMac(tunPacket, hostMac)
                 val multicastMac = EthernetIpv6Codec.multicastDestinationMac(ipv6)
                 val mac = multicastMac ?: peerMac
-                if (mac == null) continue
+                if (mac == null) {
+                    diagnostics?.record(WiredPathEvent.PEER_MAC_MISSING_DROP)
+                    continue
+                }
                 val frame = EthernetIpv6Codec.build(hostMac, mac, ipv6)
                 val ndp = EthernetIpv6Codec.isNeighborResolution(ipv6)
                 val linkPhase = ncm.linkPhase()
@@ -114,6 +161,7 @@ class Ipv6NcmBridge(
                     sendOnce = { timeoutMillis -> ncm.send(frame, timeoutMillis) },
                     pause = { delayMillis -> LockSupport.parkNanos(delayMillis * NANOS_PER_MILLISECOND) },
                 )
+                recordSynAckNcmResult(observation, diagnostics, result)
                 if (result is NcmSendResult.Failed) {
                     throw result.error as? Exception ?: IOException("NCM send failed")
                 }

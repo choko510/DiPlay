@@ -19,6 +19,10 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.util.Log
+import com.shilapi.xcertplay.diagnostics.WiredPathDiagnostics
+import com.shilapi.xcertplay.diagnostics.WiredPathEvent
+import com.shilapi.xcertplay.diagnostics.WiredPathReportFormatter
+import com.shilapi.xcertplay.diagnostics.WiredPathReportReason
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayContact
 import com.shilapi.xcertplay.airplay.AirPlayDeviceInfo
@@ -251,6 +255,8 @@ class CarPlayController(
     private val wiredStartupStartedAtNanos = AtomicLong(0L)
     private val wiredDataPathGeneration = WiredDataPathGeneration()
     private val wiredStartupAttempt = AtomicInteger(0)
+    private val wiredControllerRunId = if (connectionTraceEnabled) UUID.randomUUID().toString() else ""
+    @Volatile private var currentWiredPathDiagnostics: WiredPathDiagnostics? = null
     private val activeWiredStartupAttempt = AtomicInteger(0)
     private val wiredStartupTimeoutAttempt = AtomicInteger(0)
     private val wiredTransportFailureAttempt = AtomicInteger(0)
@@ -449,6 +455,9 @@ class CarPlayController(
                         closeBestEffort("wireless stack") { closeWirelessStack(service) }
                     } else {
                         teardownWiredTransport(service)
+                        currentWiredPathDiagnostics?.let {
+                            finishWiredPathDiagnostics(it, WiredPathReportReason.FINAL)
+                        }
                     }
                     closeBestEffort("MFi") { mfiSession?.close() }
                     mfiSession = null
@@ -1839,6 +1848,22 @@ class CarPlayController(
     private fun openDataPaths(device: UsbDevice) {
         val dataPathGeneration = wiredDataPathGeneration.begin()
         val startupAttempt = wiredStartupAttempt.incrementAndGet()
+        currentWiredPathDiagnostics?.let { previous ->
+            finishWiredPathDiagnostics(previous, WiredPathReportReason.FINAL)
+        }
+        val pathDiagnostics = WiredPathDiagnostics(
+            enabled = connectionTraceEnabled,
+            controllerRunId = wiredControllerRunId,
+            attempt = startupAttempt,
+            listenerPort = airPlayConfig.port,
+            onReportRequested = if (connectionTraceEnabled) {
+                { reason -> requestWiredPathReport(startupAttempt, reason) }
+            } else {
+                null
+            },
+        )
+        currentWiredPathDiagnostics = pathDiagnostics
+        pathDiagnostics.record(WiredPathEvent.ATTEMPT_STARTED)
         connectionTraceErrorReported.set(false)
         phase = Phase.DATAPATHS
         debugLog("wired opening iPhone USB data paths")
@@ -1846,17 +1871,19 @@ class CarPlayController(
         onStatus(CarPlayStatus.OpeningDataPaths)
         iphoneHost.openIap2UsbSessionAsync(device, executor) { result ->
             if (!isCurrentWiredDataPath(dataPathGeneration)) {
+                pathDiagnostics.record(WiredPathEvent.STALE_CALLBACK)
                 if (result is IphoneUsbHost.Iap2SessionResult.Connected) {
                     closeBestEffort("stale wired USB data path") { result.session.close() }
                 }
+                finishWiredPathDiagnostics(pathDiagnostics, WiredPathReportReason.FINAL)
             } else {
                 when (result) {
                     is IphoneUsbHost.Iap2SessionResult.Connected -> {
                         try {
                             traceConnection(ConnectionTraceStage.USB_IAP2_SESSION_OPENED)
-                            val ncm = openNcm(device, startupAttempt)
+                            val ncm = openNcm(device, startupAttempt, pathDiagnostics)
                             if (isCurrentWiredDataPath(dataPathGeneration)) {
-                                runStack(result.session, ncm, device, startupAttempt)
+                                runStack(result.session, ncm, device, startupAttempt, pathDiagnostics)
                             } else {
                                 closeBestEffort("stale wired NCM bridge") { ncm.close() }
                                 closeBestEffort("stale wired USB data path") { result.session.close() }
@@ -1870,6 +1897,7 @@ class CarPlayController(
                                     device,
                                     "USB/NCM data-path open",
                                     error,
+                                    pathDiagnostics,
                                 )
                             }
                         }
@@ -1881,6 +1909,7 @@ class CarPlayController(
                             device,
                             "iAP2 USB session open",
                             result.error,
+                            pathDiagnostics,
                         )
                     }
                 }
@@ -1897,8 +1926,15 @@ class CarPlayController(
         device: UsbDevice,
         operation: String,
         error: Throwable,
+        pathDiagnostics: WiredPathDiagnostics,
     ) {
-        if (!isCurrentWiredDataPath(dataPathGeneration)) return
+        if (!isCurrentWiredDataPath(dataPathGeneration)) {
+            pathDiagnostics.record(WiredPathEvent.STALE_CALLBACK)
+            finishWiredPathDiagnostics(pathDiagnostics, WiredPathReportReason.FINAL)
+            return
+        }
+        pathDiagnostics.record(WiredPathEvent.FAILURE)
+        finishWiredPathDiagnostics(pathDiagnostics, WiredPathReportReason.FAIL)
         wiredDataPathGeneration.invalidate()
         debugLog("wired $operation failed attempt=$startupAttempt", error)
         val deviceStillPresent = isUsbDevicePresent(device)
@@ -1951,7 +1987,11 @@ class CarPlayController(
         }
     }
 
-    private fun openNcm(device: UsbDevice, startupAttempt: Int): NcmUsbBridge {
+    private fun openNcm(
+        device: UsbDevice,
+        startupAttempt: Int,
+        pathDiagnostics: WiredPathDiagnostics,
+    ): NcmUsbBridge {
         val configuration = IphoneCarPlayConfiguration.find(device)
             ?: throw IphoneUsbException.Protocol(
                 "iPhone exposes no CarPlay configuration for NCM",
@@ -1989,6 +2029,7 @@ class CarPlayController(
                 diagnosticAttempt = startupAttempt,
                 diagnosticsEnabled = diagnosticsEnabled,
                 onDiagnosticLog = { message -> debugLog(message) },
+                wiredPathDiagnostics = pathDiagnostics,
             )
         } finally {
             if (!connectionTransferred) runCatching { connection.close() }
@@ -2000,6 +2041,7 @@ class CarPlayController(
         ncm: NcmUsbBridge,
         device: UsbDevice,
         startupAttempt: Int,
+        pathDiagnostics: WiredPathDiagnostics,
     ) {
         synchronized(wiredTeardownLock) {
             activeWiredStartupAttempt.set(startupAttempt)
@@ -2185,7 +2227,7 @@ class CarPlayController(
 
             val ncmHostMac = ncm.hostMac ?: config.hostMac
             debugLog("ncm using hostMacPresent=${ncm.hostMac != null}")
-            if (!attachVpn(ncm, ncmHostMac, startupAttempt)) {
+            if (!attachVpn(ncm, ncmHostMac, startupAttempt, pathDiagnostics)) {
                 throw IphoneUsbException.DeviceUnavailable("Could not attach the NCM/VPN AirPlay transport")
             }
             ncmOwnedLocally = false
@@ -2217,13 +2259,16 @@ class CarPlayController(
                 onTraceStage = { stage ->
                     traceConnection(stage)
                     if (stage == ConnectionTraceStage.CARPLAY_START_SENT) {
+                        pathDiagnostics.record(WiredPathEvent.START_SESSION_SENT)
                         ncm.markCarPlayStartSent()
                         armWiredStartupWatchdog(startupAttempt)
                     }
                 },
             )
             if (!wiredStartupComplete.get()) {
-                markWiredTransportFailure(startupAttempt, ConnectionTraceError.AIRPLAY_HANDSHAKE_ERROR)
+                if (markWiredTransportFailure(startupAttempt, ConnectionTraceError.AIRPLAY_HANDSHAKE_ERROR)) {
+                    pathDiagnostics.record(WiredPathEvent.FAILURE)
+                }
             }
             teardownWiredTransport(expectedAttempt = startupAttempt)
             if (
@@ -2251,6 +2296,7 @@ class CarPlayController(
             }
         } catch (error: Throwable) {
             debugLog("wired bring-up failed", error)
+            pathDiagnostics.record(WiredPathEvent.FAILURE)
             val failureCategory = when {
                 isUsbMuxTransportFailure(error) -> ConnectionTraceError.USBMUX_TRANSPORT_ERROR
                 else -> wiredTransportCategory(error.message.orEmpty())
@@ -2375,6 +2421,7 @@ class CarPlayController(
                     WiredRecoveryDecision.Suppressed -> Unit
                 }
             }
+            finishWiredPathDiagnostics(pathDiagnostics, WiredPathReportReason.FINAL)
         }
     }
 
@@ -2405,6 +2452,9 @@ class CarPlayController(
                     }
                 }
                 if (!snapshotClaimed) return@postDelayed
+                wiredPathDiagnosticsForAttempt(attempt)?.let { diagnostics ->
+                    diagnostics.record(WiredPathEvent.SOFT_TIMEOUT)
+                }
                 wiredStartupDiagnosticSnapshot(attempt, WIRED_STARTUP_SOFT_TIMEOUT_MILLIS)?.let { snapshot ->
                     traceConnection(ConnectionTraceStage.WIRED_STARTUP_SLOW, detail = snapshot)
                     debugLog(snapshot)
@@ -2524,6 +2574,9 @@ class CarPlayController(
         try {
             tunnelExecutor.execute {
                 teardownWiredTransport()
+                currentWiredPathDiagnostics?.let {
+                    finishWiredPathDiagnostics(it, WiredPathReportReason.FINAL)
+                }
                 if (closed) {
                     wiredReconnectRequested.set(false)
                     return@execute
@@ -2879,7 +2932,12 @@ class CarPlayController(
         else -> CONTROL_LOOP_TIMEOUT_MILLIS
     }
 
-    private fun attachVpn(ncm: NcmUsbBridge, hostMac: ByteArray, attempt: Int): Boolean {
+    private fun attachVpn(
+        ncm: NcmUsbBridge,
+        hostMac: ByteArray,
+        attempt: Int,
+        pathDiagnostics: WiredPathDiagnostics,
+    ): Boolean {
         onStatus(CarPlayStatus.AttachingNetwork)
         val service = awaitVpnService() ?: run {
             debugLog("wired VPN service bind failed")
@@ -2896,8 +2954,9 @@ class CarPlayController(
                 identity = identity,
                 pairings = pairings,
                 mfi = mfiSession?.client,
-                listener = wiredSessionListener(attempt),
+                listener = wiredSessionListener(attempt, pathDiagnostics),
                 media = media,
+                wiredPathDiagnostics = pathDiagnostics,
             )
         } catch (error: Throwable) {
             ncm.close()
@@ -2923,10 +2982,13 @@ class CarPlayController(
         }
     }
 
-    private fun wiredSessionListener(attempt: Int): AirPlaySessionListener =
+    private fun wiredSessionListener(attempt: Int, pathDiagnostics: WiredPathDiagnostics): AirPlaySessionListener =
         object : AirPlaySessionListener by sessionListener {
             override fun onConnectionTrace(stage: ConnectionTraceStage) {
-                if (!isCurrentWiredAttempt(attempt)) return
+                if (!isCurrentWiredAttempt(attempt)) {
+                    pathDiagnostics.record(WiredPathEvent.STALE_CALLBACK)
+                    return
+                }
                 when (stage) {
                     ConnectionTraceStage.AIRPLAY_CONTROL_ACCEPTED -> {
                         wiredAirPlayControlAccepted.set(true)
@@ -3071,6 +3133,7 @@ class CarPlayController(
                 else ConnectionTraceError.USB
         }
         if (!markWiredTransportFailure(attempt, category)) return false
+        wiredPathDiagnosticsForAttempt(attempt)?.record(WiredPathEvent.FAILURE)
         val ncmSummary = activeWiredNcm?.diagnosticSnapshot()?.report() ?: "not-open"
         debugLog(
             "wired transport failure attempt=$attempt category=$category message=$message " +
@@ -3111,6 +3174,10 @@ class CarPlayController(
                 wiredTeardownAttempt.get() != attempt && !wiredReconnectRequested.get()
         }
         if (!shouldTeardown) return
+        wiredPathDiagnosticsForAttempt(attempt)?.let { diagnostics ->
+            diagnostics.record(WiredPathEvent.FAILURE)
+            diagnostics.record(WiredPathEvent.HARD_TIMEOUT)
+        }
         val snapshot = wiredStartupDiagnosticSnapshot(
             attempt,
             WIRED_STARTUP_HARD_TIMEOUT_MILLIS,
@@ -3220,6 +3287,28 @@ class CarPlayController(
         } catch (error: Exception) {
             Log.w(IphoneCarPlayConfiguration.TAG, "debug log callback failed", error)
         }
+    }
+
+    private fun wiredPathDiagnosticsForAttempt(attempt: Int): WiredPathDiagnostics? =
+        currentWiredPathDiagnostics?.takeIf { it.attempt == attempt }
+
+    private fun requestWiredPathReport(attempt: Int, reason: WiredPathReportReason) {
+        if (!connectionTraceEnabled) return
+        mainHandler.post {
+            val diagnostics = wiredPathDiagnosticsForAttempt(attempt) ?: return@post
+            val snapshot = diagnostics.snapshot(reason) ?: return@post
+            debugLog(WiredPathReportFormatter.format(snapshot))
+        }
+    }
+
+    private fun finishWiredPathDiagnostics(
+        diagnostics: WiredPathDiagnostics,
+        reason: WiredPathReportReason,
+    ) {
+        val snapshot = diagnostics.seal(reason) ?: return
+        if (!connectionTraceEnabled) return
+        val report = WiredPathReportFormatter.format(snapshot)
+        mainHandler.post { debugLog(report) }
     }
 
     private fun debugLog(message: String, error: Throwable) {

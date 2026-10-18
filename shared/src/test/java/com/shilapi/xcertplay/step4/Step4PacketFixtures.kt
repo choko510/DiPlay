@@ -91,6 +91,53 @@ internal object Step4PacketFixtures {
         return packet
     }
 
+    fun vlanTagged(frame: ByteArray, tagCount: Int): ByteArray {
+        require(frame.size >= 14 && tagCount in 1..2)
+        val outerType = readU16Be(frame, 12)
+        val tagged = ByteArray(frame.size + tagCount * 4)
+        frame.copyInto(tagged, 0, 0, 12)
+        repeat(tagCount) { index ->
+            writeU16Be(tagged, 12 + index * 4, if (tagCount == 2 && index == 0) 0x88a8 else 0x8100)
+            writeU16Be(tagged, 14 + index * 4, index + 1)
+        }
+        writeU16Be(tagged, 12 + tagCount * 4, outerType)
+        frame.copyInto(tagged, 14 + tagCount * 4, 14, frame.size)
+        return tagged
+    }
+
+    fun ipv4Fragment(frame: ByteArray, fragmentField: Int = 0x2000): ByteArray =
+        frame.copyOf().also { writeU16Be(it, 14 + 6, fragmentField) }
+
+    fun ipv6DestinationOptions(frame: ByteArray, headerCount: Int = 1): ByteArray {
+        require(frame.size >= 14 + 40 && headerCount > 0)
+        val tcpOffset = 14 + 40
+        val extensionBytes = headerCount * 8
+        val extended = ByteArray(frame.size + extensionBytes)
+        frame.copyInto(extended, 0, 0, tcpOffset)
+        frame.copyInto(extended, tcpOffset + extensionBytes, tcpOffset, frame.size)
+        extended[14 + 6] = 60
+        writeU16Be(extended, 14 + 4, frame.size - tcpOffset + extensionBytes)
+        repeat(headerCount) { index ->
+            val offset = tcpOffset + index * 8
+            extended[offset] = if (index == headerCount - 1) 6 else 60
+            extended[offset + 1] = 0
+        }
+        return extended
+    }
+
+    fun ipv6Fragment(frame: ByteArray, fragmentField: Int = 1): ByteArray {
+        require(frame.size >= 14 + 40)
+        val tcpOffset = 14 + 40
+        val extended = ByteArray(frame.size + 8)
+        frame.copyInto(extended, 0, 0, tcpOffset)
+        frame.copyInto(extended, tcpOffset + 8, tcpOffset, frame.size)
+        extended[14 + 6] = 44
+        writeU16Be(extended, 14 + 4, frame.size - tcpOffset + 8)
+        extended[tcpOffset] = 6
+        writeU16Be(extended, tcpOffset + 2, fragmentField)
+        return extended
+    }
+
     private fun ethernetHeader(target: ByteArray, etherType: Int) {
         byteArrayOf(0x02, 0, 0, 0, 0, 2).copyInto(target, 0)
         byteArrayOf(0x02, 0, 0, 0, 0, 1).copyInto(target, 6)
@@ -129,4 +176,7 @@ internal object Step4PacketFixtures {
         target[offset] = (value ushr 8).toByte()
         target[offset + 1] = value.toByte()
     }
+
+    private fun readU16Be(source: ByteArray, offset: Int): Int =
+        ((source[offset].toInt() and 0xff) shl 8) or (source[offset + 1].toInt() and 0xff)
 }

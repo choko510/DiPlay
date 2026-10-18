@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.airplay
 
 import android.util.Log
+import com.shilapi.xcertplay.diagnostics.WiredPathDiagnostics
+import com.shilapi.xcertplay.diagnostics.WiredPathEvent
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
 import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
@@ -64,6 +66,7 @@ class AirPlaySession(
     private val mfi: MfiAuthenticator?,
     private val listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
+    private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
 ) : Closeable {
     internal val wirelessAudio: Boolean
         get() = config.wirelessAudio
@@ -115,18 +118,20 @@ class AirPlaySession(
     val isControllerIdentityVerified: Boolean get() = pairVerify.isVerified
     val isControllerIdentityResolved: Boolean get() = pairVerify.isIdentityVerificationResolved
     val isClosed: Boolean get() = closed.get()
+    internal fun isMainScreenStream(type: Int): Boolean = type == STREAM_TYPE_MAIN_SCREEN
     val sharedSecret: ByteArray? get() = pairVerify.shared?.copyOf()
 
     fun syncedNtp(): BigInteger = ntp.syncedNtp()
 
     internal fun logDebug(message: String) = debugLog(message)
 
-    internal fun videoFrameSubmittedToSurface() {
+    internal fun videoFrameSubmittedToSurface(type: Int) {
         if (!closed.get()) {
             if (firstVideoFrameSubmittedToSurface.compareAndSet(false, true)) {
                 runCatching { listener.onConnectionTrace(ConnectionTraceStage.FIRST_FRAME_SUBMITTED_TO_SURFACE) }
             }
             listener.onVideoFrameSubmittedToSurface(this)
+            if (isMainScreenStream(type)) wiredPathDiagnostics?.record(WiredPathEvent.MAIN_FRAME_SUBMITTED)
         }
     }
 
@@ -370,6 +375,7 @@ class AirPlaySession(
         when (request.method) {
             "SETUP" -> return handleSetup(request)
             "RECORD" -> {
+                wiredPathDiagnostics?.record(WiredPathEvent.RTSP_RECORD_ACTIVE)
                 runCatching { listener.onConnectionTrace(ConnectionTraceStage.AIRPLAY_SESSION_ACTIVE) }
                 listener.onSessionActive(this)
                 return RtspMessage.Response(status = 200)
@@ -530,6 +536,14 @@ class AirPlaySession(
                 STREAM_TYPE_MAIN_SCREEN, STREAM_TYPE_ALT_SCREEN -> {
                     val port = media.onScreen(this, type, stream)
                     debugLog("airplay screen stream type=$type dataPort=${port ?: "rejected"}")
+                    when (type) {
+                        STREAM_TYPE_MAIN_SCREEN -> wiredPathDiagnostics?.record(
+                            if (port != null) WiredPathEvent.MAIN_SETUP else WiredPathEvent.MAIN_SETUP_REJECTED,
+                        )
+                        STREAM_TYPE_ALT_SCREEN -> wiredPathDiagnostics?.record(
+                            if (port != null) WiredPathEvent.ALT_SETUP else WiredPathEvent.ALT_SETUP_REJECTED,
+                        )
+                    }
                     if (port != null) {
                         runCatching { listener.onConnectionTrace(ConnectionTraceStage.SCREEN_STREAM_OPENED) }
                         activeStreams.add(type)

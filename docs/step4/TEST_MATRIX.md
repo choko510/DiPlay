@@ -57,7 +57,7 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U49 | Old server accept cannot read new attachment | `NOT_RUN/NO_GO_PENDING_PACKET_EVIDENCE`: accept-loop behavior change needs isolated generation-race reproduction; diagnostics stay attempt-scoped |
 | U50 | `input=false` with valid port never starts recording | `PASS_LOCAL`: PR-04 pure policy and engine integration tests |
 | U51 | Siri/Phone use existing microphone path | `PARTIAL`: existing component tests; hardware gate remains PR-04 |
-| U52 | Default/compat voice-note request starts and stops if required | `PASS_LOCAL`: explicit default/compat input starts once; media-only audio remains output-only |
+| U52 | Default/compat voice-note request starts and stops if required | `PASS_LOCAL`: default with `isInput=true` and compatibility input start; media-only audio remains output-only |
 | U53 | AudioRecord exception/retry has one bounded owner | `PARTIAL`: bounded zero-read policy and start-retry tests pass; platform AudioRecord exception/release integration remains `NOT_RUN` |
 | U54 | NAV/ALERT/PHONE/ASSISTANT routing, DSP policy, RTP and clock | `PARTIAL`: current audio/DSP component tests; full regression remains PR-04 |
 | U55 | LOCAL full→55%→full keeps same session/audio | `PARTIAL`: current split state tests; zero-restart acceptance is PR-06 LOCAL |
@@ -119,7 +119,7 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-REC-07 | Late StartSession suppressed after correct-port SYN | OPEN / EX-05 |
 | R04-REC-08 | Active session survives stale retry and late USB reset | OPEN / EX-02 / EX-05 |
 | R04-A-01 | Explicit `isInput=false` with data port does not record | PASS_LOCAL: PR-04 policy and engine integration cases |
-| R04-A-02 | Voice note may record in compat mode; music alone never captures | PASS_LOCAL: default/compat explicit input and media exclusion cases |
+| R04-A-02 | Voice note may record in compat mode; music alone never captures | PASS_LOCAL: default input intent, compatibility input, and media exclusion cases |
 | R04-A-03 | Mic zero-read recovery is bounded and cancellable | PARTIAL: pure ten-zero-read policy and inactive-owner stop test pass; fake AudioRecord integration/leak check not run |
 | R04-A-04 | RTP 16/48 kHz packetization, NAV gain and AEC stay aligned | PARTIAL / PR-04 |
 | R04-A-05 | Buffer pacing, upsample and DSP clock changes do not alter pitch unintentionally | OPEN / PR-04 and DSP-05 |

@@ -177,6 +177,10 @@ Represent full and split areas on one main display, using the final scaled canva
 ## Keep PR-06 DYNAMIC out of production without a device-confirmed command
 
 No tested ViewArea event command/payload, iPhone acknowledgement, or changed frame dimensions are available. Do not add a coordinator, timeout, or guessed send; keep Dynamic OFF and retain the tested LOCAL path. Revisit only after a same-device A/B proves accepted command and rendered-size change without session restart.
+
+## Keep PR-07 video recovery changes tied to reproduced device symptoms
+
+No TS10/K706+iPhone stale-frame, decoder stall, output crop mismatch, or Surface-rebuild failure is captured. Preserve the existing generic MediaCodec and Surface lifecycle; do not add a vendor-specific latency key or last-frame hold buffer. Revisit after a same-device symptom and first-frame/format/Surface lifecycle trace.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

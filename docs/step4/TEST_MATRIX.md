@@ -68,7 +68,7 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U60 | Device silence/rejection falls back to LOCAL/LEGACY once | `NOT_RUN/NO_GO_PENDING_IPHONE_EVIDENCE`: without a supported command and device response, no timeout/fallback coordinator is added |
 | U61 | Google profiles A/B do not share cookies/login | `PARTIAL`: profile/context tests; combined Split regression remains PR-06 |
 | U62 | Surface resume/rotation/IME does not recreate session | `PARTIAL`: existing lifecycle and resize tests; device gate remains PR-06/07 |
-| U63 | Codec output format change keeps crop/decoder/touch aligned | `PARTIAL`: `AndroidMediaSinkStateTest`; full format integration is PR-07 |
+| U63 | Codec output format change keeps crop/decoder/touch aligned | `PARTIAL/NO_GO_PENDING_DEVICE_EVIDENCE`: existing decoder output-format observation only; no TS10 format/crop mismatch reproduction |
 | U64 | Missing CSD/timeout/seek has bounded decoder-only fallback | `PARTIAL`: decoder component tests; PR-07 |
 | U65 | DSP master OFF matches legacy PCM baseline | `PARTIAL`: `DspOffLegacyPcmTest`; new-node golden remains DSP |
 | U66 | Seat L/R delay, trim, polarity and click-free transition | `OPEN`: DSP-01 |
@@ -125,8 +125,8 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-A-05 | Buffer pacing, upsample and DSP clock changes do not alter pitch unintentionally | OPEN / PR-04 and DSP-05 |
 | R04-V-01 | LOCAL 55:45 geometry/touch roundtrip on resize | PASS_LOCAL / PR-06 LOCAL; hardware safe-area/touch validation remains NOT_RUN |
 | R04-V-02 | Dynamic send without acknowledgement remains unconfirmed | `NO_GO_PENDING_IPHONE_EVIDENCE`: no candidate view-area command is sent; existing event path only logs incoming type/parameter keys, and no TS10/iPhone A/B evidence is available |
-| R04-V-03 | Decoder format change keeps crop and touch synchronized | PARTIAL / PR-07 |
-| R04-V-04 | Last-frame bitmap/Surface/thread releases after frame or timeout | OPEN / PR-07 |
+| R04-V-03 | Decoder format change keeps crop and touch synchronized | PARTIAL / NO_GO_PENDING_DEVICE_EVIDENCE; no TS10 format/crop mismatch or stale frame is reproduced |
+| R04-V-04 | Last-frame bitmap/Surface/thread releases after frame or timeout | `NO_GO_PENDING_DEVICE_EVIDENCE`: no hold-last-frame path added without a reproduced need |
 | R04-V-05 | Twenty rapid Split cycles retain controller/session/stream IDs | PARTIAL / PR-06 LOCAL; 20-cycle local policy simulation passes, device ID continuity remains NOT_RUN |
 | R04-D-01 | New DSP nodes OFF match old PCM golden constraints | PARTIAL / DSP-00 |
 | R04-D-02 | Seat fractional delay and graph latency without clipping | OPEN / DSP-01 |

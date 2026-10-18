@@ -102,14 +102,16 @@ int dsp_harmonic_prepare(
     memset(harmonic, 0, sizeof(*harmonic));
     atomic_init(&harmonic->bypass_target, config->bypassed);
     dsp_harmonic_config effective_config = *config;
-    if (sample_rate < 16000) {
+    if (sample_rate < DSP_HARMONIC_MIN_SAMPLE_RATE) {
         effective_config.high_exciter_enabled = 0;
         effective_config.virtual_bass_enabled = 0;
     } else {
-        if (effective_config.high_exciter_frequency_hz >= sample_rate * 0.42) {
+        if (effective_config.high_exciter_frequency_hz >=
+            sample_rate * DSP_HARMONIC_MAX_BAND_SAMPLE_RATE_FRACTION) {
             effective_config.high_exciter_enabled = 0;
         }
-        if (effective_config.virtual_bass_fundamental_high_hz >= sample_rate * 0.42) {
+        if (effective_config.virtual_bass_fundamental_high_hz >=
+            sample_rate * DSP_HARMONIC_MAX_BAND_SAMPLE_RATE_FRACTION) {
             effective_config.virtual_bass_enabled = 0;
         }
     }

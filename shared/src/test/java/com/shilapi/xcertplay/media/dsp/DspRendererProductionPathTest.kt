@@ -636,6 +636,70 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun activeHarmonicGraphUpdatesWaitForANewTrackGeneration() {
+        val harmonicEngine = DspHarmonicEngineConfig(
+            enabled = true,
+            highExciter = DspHighExciterConfig(enabled = true, wet = 0.8),
+        )
+        val initialConfig = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            harmonicEngine = harmonicEngine,
+        )
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                val latency = if (config.harmonicEngine.enabled) {
+                    DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES
+                } else {
+                    0
+                }
+                pipeline(audioFormat, latencyFrames = latency, gain = 1.0f)
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 10)
+            val activePipeline = renderer.dspPipeline
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    gainDb = 4.0,
+                    autoHeadroomEnabled = false,
+                    harmonicEngine = harmonicEngine,
+                ),
+            )
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 20)
+
+            assertTrue(renderer.dspPipeline === activePipeline)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES, renderer.trackLatencyForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 30)
+
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertTrue(renderer.dspPipeline !== activePipeline)
+            assertEquals(
+                DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES,
+                renderer.dspPipeline?.algorithmicLatencyFrames,
+            )
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun decoderFormatChangeCancelsAnInFlightFadeAndRetiresItsOldFormatGraph() {
         val oldCandidateClosed = CountDownLatch(1)
         val prepared = LinkedBlockingQueue<Unit>()

@@ -195,4 +195,13 @@
     <string name="dsp_harmonic_ab_bypass">A/Bバイパス</string>
     <string name="dsp_harmonic_ab_bypass_note">比較用に遅延を揃えたドライ信号へ一時的にクロスフェードします。プロファイルには保存しません。</string>
     <string name="dsp_harmonic_safety_note">Exciterは帯域制限と出力制限を行います。Virtual Bassは2ch信号に倍音を加えますが、独立したサブウーファー出力は作りません。調整は停車中に行ってください。</string>
+    <string name="dsp_harmonic_quality_off">OFF</string>
+    <string name="dsp_diag_active_modules">DSPモジュールマスク: 0x%1$04X</string>
+    <string name="dsp_diag_latency">遅延: Seat %1$dフレーム、グラフ %2$dフレーム</string>
+    <string name="dsp_diag_harmonic_quality">Harmonic品質: %1$s</string>
+    <string name="dsp_diag_auto_headroom">Auto Headroom: %1$.1f dB</string>
+    <string name="dsp_diag_cabin_calibration">Cabin測定ID: %1$s</string>
+    <string name="dsp_diag_cabin_calibration_none">Cabin測定ID: なし</string>
+    <string name="dsp_diag_process_p99">DSP処理p99: %1$.0f µs</string>
+    <string name="dsp_diag_native_errors">Nativeエラー: %1$d</string>
 </resources>

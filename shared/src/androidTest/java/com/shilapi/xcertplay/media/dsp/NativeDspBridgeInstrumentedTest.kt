@@ -632,6 +632,39 @@ class NativeDspBridgeInstrumentedTest {
     }
 
     @Test
+    fun unsupportedConvolverRateBypassesOnlyConvolutionAndKeepsOtherDsp() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val impulse = DspImpulseResponse("rate_88200", 48_000, 1, floatArrayOf(1.0f))
+        val processor = NativeDspProcessor.createOrNull(
+            DspAudioFormat(88_200, 1),
+            DspRuntimeConfig(
+                enabled = true,
+                gainDb = 6.020599913279624,
+                autoHeadroomEnabled = false,
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                convolver = DspConvolverConfig(
+                    enabled = true,
+                    impulseResponseId = impulse.id,
+                    impulseResponse = impulse,
+                ),
+            ),
+        )
+        assertNotNull(processor)
+        processor ?: return
+
+        try {
+            assertEquals(0, processor.latencyFrames)
+            val input = floatBuffer(0.25f)
+            val output = ByteBuffer.allocateDirect(Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames = 1).status)
+            assertEquals(0.5f, output.getFloat(0), 1e-6f)
+            assertEquals(0L, processor.diagnostics().nativeErrorCount)
+        } finally {
+            processor.close()
+        }
+    }
+
+    @Test
     fun harmonicABBypassUsesTheNativeUpdateEntryPointAndKeepsLatency() {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val processor = NativeDspProcessor.createOrNull(
@@ -668,7 +701,85 @@ class NativeDspBridgeInstrumentedTest {
             assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames = 512).status)
             assertTrue(processor.updateHarmonicBypass(true))
             assertEquals(DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES, processor.latencyFrames)
-            assertEquals(0L, processor.diagnostics().nativeErrorCount)
+            val diagnostics = processor.diagnostics()
+            assertEquals(0L, diagnostics.nativeErrorCount)
+            assertEquals(DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES, diagnostics.algorithmicLatencyFrames)
+            assertTrue(diagnostics.activeModulesMask and DspActiveModuleMask.HIGH_EXCITER != 0)
+            assertEquals(DspHarmonicQuality.FOUR_X, diagnostics.harmonicQuality)
+        } finally {
+            processor.close()
+        }
+    }
+
+    @Test
+    fun allFourModulesAndConvolverComposeLatencyAndDiagnostics() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val impulse = DspImpulseResponse(
+            id = "all_modules_ir",
+            sampleRate = 48_000,
+            channels = 2,
+            samples = floatArrayOf(1.0f, 1.0f),
+        )
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(sampleRate = 48_000, channels = 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                seatFocus = DspSeatFocusConfig(enabled = true, leftDelayMs = 0.4),
+                advancedMs = DspAdvancedMsConfig(enabled = true, highWidth = 1.2),
+                cabinCorrection = DspCabinCorrectionConfig(
+                    enabled = true,
+                    calibrationId = "cal_front",
+                    cuts = listOf(
+                        DspCabinCut(
+                            frequencyHz = 82.0,
+                            q = 4.0,
+                            reductionDb = -3.0,
+                            enabled = true,
+                            source = DspCabinCutSource.MEASUREMENT,
+                        ),
+                    ),
+                ),
+                harmonicEngine = DspHarmonicEngineConfig(
+                    enabled = true,
+                    quality = DspHarmonicQuality.FOUR_X,
+                    highExciter = DspHighExciterConfig(enabled = true, wet = 0.8),
+                    virtualBass = DspVirtualBassConfig(enabled = true, wet = 0.8),
+                ),
+                convolver = DspConvolverConfig(
+                    enabled = true,
+                    impulseResponseId = impulse.id,
+                    impulseResponse = impulse,
+                ),
+            ),
+        )
+        assertNotNull(processor)
+        processor ?: return
+
+        try {
+            val expectedLatency = 264 + DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES + 128
+            assertEquals(expectedLatency, processor.latencyFrames)
+            val input = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            val output = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            repeat(512) { frame ->
+                val high = 0.1 * sin(2.0 * PI * 6_000.0 * frame / 48_000.0)
+                val bass = 0.1 * sin(2.0 * PI * 50.0 * frame / 48_000.0)
+                input.putFloat((high + bass).toFloat())
+                input.putFloat((high + bass).toFloat())
+            }
+            input.flip()
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames = 512).status)
+            val diagnostics = processor.diagnostics()
+            assertEquals(expectedLatency, diagnostics.algorithmicLatencyFrames)
+            assertEquals(264, diagnostics.seatLatencyFrames)
+            assertEquals(DspHarmonicQuality.FOUR_X, diagnostics.harmonicQuality)
+            assertEquals("cal_front", diagnostics.cabinCalibrationId)
+            assertTrue(diagnostics.activeModulesMask and DspActiveModuleMask.SEAT_FOCUS != 0)
+            assertTrue(diagnostics.activeModulesMask and DspActiveModuleMask.ADVANCED_MS != 0)
+            assertTrue(diagnostics.activeModulesMask and DspActiveModuleMask.CABIN_CORRECTION != 0)
+            assertTrue(diagnostics.activeModulesMask and DspActiveModuleMask.HIGH_EXCITER != 0)
+            assertTrue(diagnostics.activeModulesMask and DspActiveModuleMask.VIRTUAL_BASS != 0)
+            assertTrue(diagnostics.activeModulesMask and DspActiveModuleMask.CONVOLVER != 0)
+            assertEquals(0L, diagnostics.nativeErrorCount)
         } finally {
             processor.close()
         }

@@ -121,6 +121,14 @@ Keep the selected context stable for an AirPlaySession when identity evidence ov
 ## Use one prepared oversampling timeline for both Harmonic quality modes
 
 Use a 2×/4× polyphase Blackman-windowed sinc interpolator and the same FIR for decimation. Its two 32-frame stages yield one fixed 64-frame Harmonic latency regardless of quality; delay dry by the same amount. Keep High Exciter and Virtual Bass histories independent. A/B bypass changes an atomic target and crossfades for 20 ms without rebuilding the graph, so the stream clock and comparison level remain stable.
+
+## Defer active Harmonic graph replacement after a track starts
+
+High Exciter and Virtual Bass depend on filter, envelope, and oversampling history. When a replacement still has an active Harmonic branch, defer its graph swap until a fresh AudioTrack generation rather than crossfading a cold 64-frame pipeline. Keep transient A/B bypass on its atomic in-place path.
+
+## Disable an unsupported Convolver before native graph preparation
+
+The native Convolver supports only 44.1/48/96 kHz. Match that rule in Kotlin and mark an unsupported or rate-mismatched Convolver inactive before JNI preparation; this lets the rest of the graph remain available without relying on a native graph-create failure.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

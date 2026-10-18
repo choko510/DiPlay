@@ -89,6 +89,35 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun unsupportedConvolverRateIsDisabledWithoutRejectingTheRestOfTheGraph() {
+        val bindings = FakeNativeDspBindings()
+        val impulse = DspImpulseResponse("ir_88200", 48_000, 1, floatArrayOf(1.0f))
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(88_200, 1),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                gainDb = 6.0,
+                autoHeadroomEnabled = false,
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                convolver = DspConvolverConfig(
+                    enabled = true,
+                    impulseResponseId = impulse.id,
+                    impulseResponse = impulse,
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(6.0, bindings.createdGainDb ?: 0.0, 0.0)
+        assertEquals(0.0, bindings.createdConvolverConfig?.get(0) ?: -1.0, 0.0)
+        assertEquals(0, bindings.createdConvolverSamples?.size)
+        assertEquals(0, processor?.latencyFrames)
+        processor?.close()
+    }
+
+    @Test
     fun seatFocusConfigurationIsPreparedAndUpdatedWithoutRecreatingTheProcessor() {
         val bindings = FakeNativeDspBindings()
         val processor = NativeDspProcessor.createOrNull(
@@ -337,6 +366,12 @@ class NativeDspProcessorTest {
         assertEquals(1.0, values[2], 0.0)
         assertEquals(1.0, values[9], 0.0)
         assertEquals(1.0, values[17], 0.0)
+        val diagnostics = requireNotNull(processor).diagnostics()
+        assertTrue(diagnostics.activeModulesMask and DspActiveModuleMask.HIGH_EXCITER != 0)
+        assertTrue(diagnostics.activeModulesMask and DspActiveModuleMask.VIRTUAL_BASS != 0)
+        assertEquals(requireNotNull(processor).latencyFrames, diagnostics.algorithmicLatencyFrames)
+        assertEquals(DspHarmonicQuality.FOUR_X, diagnostics.harmonicQuality)
+        assertTrue(diagnostics.autoHeadroomDb > 1.0)
         assertTrue(requireNotNull(processor).updateHarmonicBypass(false))
         assertEquals(false, bindings.lastHarmonicBypass)
         processor.close()

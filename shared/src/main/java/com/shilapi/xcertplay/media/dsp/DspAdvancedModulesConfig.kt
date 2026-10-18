@@ -81,6 +81,7 @@ data class DspSeatFocusConfig(
         const val MAX_DELAY_MS = 5.0
         const val MIN_DISTANCE_CM = 20.0
         const val MAX_DISTANCE_CM = 300.0
+        const val LATENCY_BUDGET_MS = 5.5
         private const val MIN_TRIM_DB = -6.0
         private const val MAX_TRIM_DB = 6.0
         private const val SPEED_OF_SOUND_METERS_PER_SECOND = 343.0
@@ -286,5 +287,7 @@ data class DspHarmonicEngineConfig(
         const val NATIVE_VALUE_COUNT = 18
         const val NATIVE_FILTER_COEFFICIENT_COUNT = 20
         const val ALGORITHM_LATENCY_FRAMES = 64
+        const val MIN_SAMPLE_RATE_HZ = 16_000
+        const val MAX_BAND_SAMPLE_RATE_FRACTION = 0.42
     }
 }

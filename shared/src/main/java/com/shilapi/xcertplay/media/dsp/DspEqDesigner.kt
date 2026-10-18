@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.media.dsp
 
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.ceil
 import kotlin.math.hypot
 import kotlin.math.log10
 import kotlin.math.max
@@ -276,6 +277,11 @@ internal data class DspPreparedConfig(
     val harmonic: DoubleArray,
     val harmonicFilterCoefficients: DoubleArray,
     val headroom: DspHeadroomResult,
+    val activeModulesMask: Int,
+    val seatLatencyFrames: Int,
+    val harmonicQuality: DspHarmonicQuality?,
+    val autoHeadroomDb: Double,
+    val cabinCalibrationId: String?,
 )
 
 internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
@@ -310,7 +316,10 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         DoubleArray(0)
     }
     val impulseResponse = convolver.impulseResponse
-    val activeImpulseResponse = impulseResponse?.takeIf { convolver.enabled && convolver.wet > 0.0 }
+    val activeImpulseResponse = impulseResponse?.takeIf {
+        convolver.enabled && convolver.wet > 0.0 && it.sampleRate == format.sampleRate &&
+            DspConvolverConfig.supportsSampleRate(format.sampleRate)
+    }
     val convolverEnabled = activeImpulseResponse != null
     val convolverSamples = activeImpulseResponse?.copySamples() ?: FloatArray(0)
     if (multiband.enabled) {
@@ -329,6 +338,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         },
     )
     val dynamicEqNativeValues = rateSafeDynamicEq.toNativeValues()
+    val seatFocusNativeValues = seatFocus.toNativeValues(format.channels)
     val activeMidBands = if (advancedMsRateSupported && advancedMs.enabled) {
         advancedMs.midEqBands.filter { it.enabled && it.frequencyHz < format.sampleRate * 0.45 }
     } else {
@@ -532,8 +542,43 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     } else {
         DspHeadroomResult(filterPeakDb = 0.0, reductionDb = 0.0)
     }
+    val appliedPreampDb = (gainDb - headroom.reductionDb).coerceAtLeast(MIN_APPLIED_PREAMP_DB)
+    val seatLatencyFrames = if (seatFocusNativeValues[0] == 1.0) {
+        ceil(format.sampleRate * DspSeatFocusConfig.LATENCY_BUDGET_MS / 1000.0).toInt()
+    } else {
+        0
+    }
+    var activeModulesMask = if (enabled) DspActiveModuleMask.MASTER else 0
+    if (enabled && appliedPreampDb != 0.0) activeModulesMask = activeModulesMask or DspActiveModuleMask.PREAMP
+    if (enabled && coefficients.isNotEmpty()) activeModulesMask = activeModulesMask or DspActiveModuleMask.PARAMETRIC_EQ
+    if (enabled && bassCoefficients.isNotEmpty()) activeModulesMask = activeModulesMask or DspActiveModuleMask.BASS
+    if (enabled && compressor.enabled) activeModulesMask = activeModulesMask or DspActiveModuleMask.COMPRESSOR
+    if (enabled && multibandNativeValues[0] == 1.0) activeModulesMask = activeModulesMask or DspActiveModuleMask.MULTIBAND
+    if (enabled && rateSafeDynamicEq.enabled && rateSafeDynamicEq.bands.any(DspDynamicEqBandConfig::enabled)) {
+        activeModulesMask = activeModulesMask or DspActiveModuleMask.DYNAMIC_EQ
+    }
+    if (enabled && format.channels == 2 && stereoWidth != 1.0) {
+        activeModulesMask = activeModulesMask or DspActiveModuleMask.STEREO_WIDTH
+    }
+    if (enabled && format.channels == 2 && monoBass.enabled) {
+        activeModulesMask = activeModulesMask or DspActiveModuleMask.MONO_BASS
+    }
+    if (enabled && seatFocusNativeValues[0] == 1.0) {
+        activeModulesMask = activeModulesMask or DspActiveModuleMask.SEAT_FOCUS
+    }
+    if (enabled && advancedMsNativeValues[0] == 1.0) {
+        activeModulesMask = activeModulesMask or DspActiveModuleMask.ADVANCED_MS
+    }
+    if (enabled && cabinProcessEnabled) activeModulesMask = activeModulesMask or DspActiveModuleMask.CABIN_CORRECTION
+    if (enabled && highExciterActive) activeModulesMask = activeModulesMask or DspActiveModuleMask.HIGH_EXCITER
+    if (enabled && virtualBassActive) activeModulesMask = activeModulesMask or DspActiveModuleMask.VIRTUAL_BASS
+    if (enabled && convolverEnabled) {
+        activeModulesMask = activeModulesMask or DspActiveModuleMask.CONVOLVER
+    }
+    if (enabled && safetyLimiter.enabled) activeModulesMask = activeModulesMask or DspActiveModuleMask.SAFETY_LIMITER
+    if (enabled && autoHeadroomEnabled) activeModulesMask = activeModulesMask or DspActiveModuleMask.AUTO_HEADROOM
     return DspPreparedConfig(
-        appliedPreampDb = (gainDb - headroom.reductionDb).coerceAtLeast(MIN_APPLIED_PREAMP_DB),
+        appliedPreampDb = appliedPreampDb,
         eqCoefficients = coefficients,
         dynamics = doubleArrayOf(
             if (compressor.enabled) 1.0 else 0.0,
@@ -564,7 +609,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         convolverSamples = convolverSamples,
         multiband = multibandNativeValues,
         dynamicEq = dynamicEqNativeValues,
-        seatFocus = seatFocus.toNativeValues(format.channels),
+        seatFocus = seatFocusNativeValues,
         advancedMs = advancedMsNativeValues,
         advancedMsEqCoefficients = advancedMsCoefficients,
         cabin = doubleArrayOf(
@@ -577,6 +622,11 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         harmonic = harmonicNativeValues,
         harmonicFilterCoefficients = harmonicFilterCoefficients,
         headroom = headroom,
+        activeModulesMask = activeModulesMask,
+        seatLatencyFrames = seatLatencyFrames,
+        harmonicQuality = if (highExciterActive || virtualBassActive) harmonicEngine.quality else null,
+        autoHeadroomDb = headroom.reductionDb,
+        cabinCalibrationId = cabinCorrection.calibrationId.takeIf { cabinProcessEnabled },
     )
 }
 
@@ -588,8 +638,8 @@ private const val CABIN_DYNAMIC_THRESHOLD_DB = -24.0
 private const val CABIN_DYNAMIC_RATIO = 2.0
 private const val CABIN_DYNAMIC_ATTACK_MS = 30.0
 private const val CABIN_DYNAMIC_RELEASE_MS = 300.0
-private const val MIN_HARMONIC_SAMPLE_RATE = 16_000
-private const val HARMONIC_FILTER_NYQUIST_FRACTION = 0.42
+private const val MIN_HARMONIC_SAMPLE_RATE = DspHarmonicEngineConfig.MIN_SAMPLE_RATE_HZ
+private const val HARMONIC_FILTER_NYQUIST_FRACTION = DspHarmonicEngineConfig.MAX_BAND_SAMPLE_RATE_FRACTION
 private const val HARMONIC_HIGH_PEAK_BOUND = 1.0
 private const val HARMONIC_EVEN_PEAK_BOUND = 1.0
 private const val HARMONIC_ODD_PEAK_BOUND = 1.0

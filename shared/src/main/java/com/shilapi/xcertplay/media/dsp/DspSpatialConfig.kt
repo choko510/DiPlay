@@ -45,5 +45,8 @@ data class DspConvolverConfig(
 
     companion object {
         private val PROFILE_ID = Regex("^[A-Za-z0-9_-]{1,64}$")
+
+        internal fun supportsSampleRate(sampleRate: Int): Boolean =
+            sampleRate in DspImpulseResponse.SUPPORTED_SAMPLE_RATES
     }
 }

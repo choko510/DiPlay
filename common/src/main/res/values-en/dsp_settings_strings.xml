@@ -195,4 +195,13 @@
     <string name="dsp_harmonic_ab_bypass">A/B bypass</string>
     <string name="dsp_harmonic_ab_bypass_note">Temporarily crossfades the latency-aligned dry signal for comparison. This state is not saved to the profile.</string>
     <string name="dsp_harmonic_safety_note">Exciter input is band-limited and nonlinear output is bounded. Virtual Bass adds harmonics in the stereo signal; it does not create an independent subwoofer output. Tune while parked.</string>
+    <string name="dsp_harmonic_quality_off">off</string>
+    <string name="dsp_diag_active_modules">DSP module mask: 0x%1$04X</string>
+    <string name="dsp_diag_latency">Latency: Seat %1$d frames, graph %2$d frames</string>
+    <string name="dsp_diag_harmonic_quality">Harmonic quality: %1$s</string>
+    <string name="dsp_diag_auto_headroom">Auto Headroom: %1$.1f dB</string>
+    <string name="dsp_diag_cabin_calibration">Cabin calibration ID: %1$s</string>
+    <string name="dsp_diag_cabin_calibration_none">Cabin calibration ID: none</string>
+    <string name="dsp_diag_process_p99">Pipeline process p99: %1$.0f µs</string>
+    <string name="dsp_diag_native_errors">Native errors: %1$d</string>
 </resources>

@@ -202,6 +202,11 @@ internal class NativeDspProcessor internal constructor(
     handle: Long,
     private val bindings: NativeDspBindings,
     override val latencyFrames: Int,
+    private val activeModulesMask: Int = 0,
+    private val seatLatencyFrames: Int = 0,
+    private val harmonicQuality: DspHarmonicQuality? = null,
+    private val autoHeadroomDb: Double = 0.0,
+    private val cabinCalibrationId: String? = null,
 ) : DspProcessor {
     @Volatile private var nativeHandle = handle
     private val result = DspProcessResult()
@@ -349,7 +354,7 @@ internal class NativeDspProcessor internal constructor(
     override fun diagnostics(): DspDiagnosticsSnapshot {
         val handle = nativeHandle
         if (handle <= 0L) {
-            return DspDiagnosticsSnapshot(
+            return diagnosticsMetadata().copy(
                 nativeErrorCount = localNativeErrors,
                 nativeProcessUs = nativeProcessTiming.snapshot(),
             )
@@ -365,12 +370,12 @@ internal class NativeDspProcessor internal constructor(
         }
         if (status != NATIVE_OK) {
             localNativeErrors++
-            return DspDiagnosticsSnapshot(
+            return diagnosticsMetadata().copy(
                 nativeErrorCount = localNativeErrors,
                 nativeProcessUs = nativeProcessTiming.snapshot(),
             )
         }
-        return DspDiagnosticsSnapshot(
+        return diagnosticsMetadata().copy(
             processedFrames = counters[0],
             processedBlocks = counters[1],
             nonFiniteInputSamples = counters[2],
@@ -389,6 +394,15 @@ internal class NativeDspProcessor internal constructor(
             nativeProcessUs = nativeProcessTiming.snapshot(),
         )
     }
+
+    private fun diagnosticsMetadata(): DspDiagnosticsSnapshot = DspDiagnosticsSnapshot(
+        activeModulesMask = activeModulesMask,
+        seatLatencyFrames = seatLatencyFrames,
+        algorithmicLatencyFrames = latencyFrames,
+        harmonicQuality = harmonicQuality,
+        autoHeadroomDb = autoHeadroomDb,
+        cabinCalibrationId = cabinCalibrationId,
+    )
 
     internal fun resetTimingMetrics() {
         nativeProcessTiming.reset()
@@ -451,7 +465,17 @@ internal class NativeDspProcessor internal constructor(
                     runCatching { bindings.destroy(handle) }
                     return null
                 }
-                NativeDspProcessor(format, handle, bindings, latencyFrames)
+                NativeDspProcessor(
+                    format = format,
+                    handle = handle,
+                    bindings = bindings,
+                    latencyFrames = latencyFrames,
+                    activeModulesMask = prepared.activeModulesMask,
+                    seatLatencyFrames = prepared.seatLatencyFrames,
+                    harmonicQuality = prepared.harmonicQuality,
+                    autoHeadroomDb = prepared.autoHeadroomDb,
+                    cabinCalibrationId = prepared.cabinCalibrationId,
+                )
             } catch (_: SecurityException) {
                 if (handle > 0L) runCatching { bindings.destroy(handle) }
                 null

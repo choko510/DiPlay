@@ -39,6 +39,9 @@ import com.shilapi.xcertplay.media.dsp.DspPcmConverter
 import com.shilapi.xcertplay.media.dsp.DspPcmPipeline
 import com.shilapi.xcertplay.media.dsp.DspTpdfDither
 import com.shilapi.xcertplay.media.dsp.DspPreparedUpdate
+import com.shilapi.xcertplay.media.dsp.DspHarmonicEngineConfig
+import com.shilapi.xcertplay.media.dsp.DspHighExciterConfig
+import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
 import com.shilapi.xcertplay.media.dsp.DspPipelinePreparer
@@ -1788,7 +1791,7 @@ internal class AudioRenderer(
         val convolver = config.convolver
         val impulse = convolver.impulseResponse
         val convolverAvailable = convolver.enabled && convolver.wet > 0.0 && impulse != null &&
-            impulse.sampleRate == format.sampleRate
+            impulse.sampleRate == format.sampleRate && DspConvolverConfig.supportsSampleRate(format.sampleRate)
         return if (convolver.enabled && !convolverAvailable) {
             config.withConvolver(convolver.copy(enabled = false, impulseResponse = null))
         } else {
@@ -1803,7 +1806,19 @@ internal class AudioRenderer(
             advancedMs.enabled && format.channels == 2 &&
                 advancedMs.lowMidCrossoverHz < format.sampleRate * 0.45 &&
                 advancedMs.midHighCrossoverHz < format.sampleRate * 0.45 ||
-            cabinCorrection.enabled && cabinCorrection.cuts.any { it.enabled }
+            cabinCorrection.enabled && cabinCorrection.cuts.any { it.enabled } ||
+            harmonicEngine.enabled && format.sampleRate >= DspHarmonicEngineConfig.MIN_SAMPLE_RATE_HZ && (
+                harmonicEngine.highExciter.enabled && harmonicEngine.highExciter.wet > 0.0 &&
+                    harmonicEngine.highExciter.amount > 0.0 &&
+                    harmonicEngine.highExciter.frequencyHz < minOf(
+                        DspHighExciterConfig.MAX_FREQUENCY_HZ,
+                        format.sampleRate * DspHarmonicEngineConfig.MAX_BAND_SAMPLE_RATE_FRACTION,
+                    ) ||
+                    harmonicEngine.virtualBass.enabled && harmonicEngine.virtualBass.wet > 0.0 &&
+                        harmonicEngine.virtualBass.amount > 0.0 &&
+                        harmonicEngine.virtualBass.fundamentalHighHz <
+                        format.sampleRate * DspHarmonicEngineConfig.MAX_BAND_SAMPLE_RATE_FRACTION
+                )
         )
 
     private fun configureLiveUpdates(format: DspAudioFormat, forcePrepareCurrent: Boolean = false) {

@@ -210,6 +210,12 @@ internal class DspPcmPipeline(
             nonFiniteOutputSamples =
                 pipelineSnapshot.nonFiniteOutputSamples + processorSnapshot.nonFiniteOutputSamples,
             nativeErrorCount = processorSnapshot.nativeErrorCount,
+            activeModulesMask = processorSnapshot.activeModulesMask,
+            seatLatencyFrames = processorSnapshot.seatLatencyFrames,
+            algorithmicLatencyFrames = algorithmicLatencyFrames,
+            harmonicQuality = processorSnapshot.harmonicQuality,
+            autoHeadroomDb = processorSnapshot.autoHeadroomDb,
+            cabinCalibrationId = processorSnapshot.cabinCalibrationId,
             inputPeakL = processorSnapshot.inputPeakL,
             inputPeakR = processorSnapshot.inputPeakR,
             inputRmsL = processorSnapshot.inputRmsL,

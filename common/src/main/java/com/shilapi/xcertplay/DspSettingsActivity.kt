@@ -1273,6 +1273,34 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                 SectionCard(title = stringResource(R.string.dsp_diagnostics)) {
                     Text(stringResource(R.string.dsp_current_profile, profileLabel(context, profile)))
                     Text(stringResource(R.string.dsp_dsp_state, if (dspEnabled) "ON" else "OFF"))
+                    if (dspEnabled) {
+                        val metrics = liveAudioMetrics.value
+                        val harmonicQualityLabel = when (metrics.harmonicQuality) {
+                            DspHarmonicQuality.TWO_X -> stringResource(R.string.dsp_harmonic_quality_2x)
+                            DspHarmonicQuality.FOUR_X -> stringResource(R.string.dsp_harmonic_quality_4x)
+                            null -> stringResource(R.string.dsp_harmonic_quality_off)
+                        }
+                        val cabinCalibrationId = metrics.cabinCalibrationId
+                        Text(stringResource(R.string.dsp_diag_active_modules, metrics.activeModulesMask))
+                        Text(
+                            stringResource(
+                                R.string.dsp_diag_latency,
+                                metrics.seatLatencyFrames,
+                                metrics.algorithmicLatencyFrames,
+                            ),
+                        )
+                        Text(stringResource(R.string.dsp_diag_harmonic_quality, harmonicQualityLabel))
+                        Text(stringResource(R.string.dsp_diag_auto_headroom, metrics.autoHeadroomDb))
+                        Text(
+                            if (cabinCalibrationId == null) {
+                                stringResource(R.string.dsp_diag_cabin_calibration_none)
+                            } else {
+                                stringResource(R.string.dsp_diag_cabin_calibration, cabinCalibrationId)
+                            },
+                        )
+                        Text(stringResource(R.string.dsp_diag_process_p99, metrics.processP99Us))
+                        Text(stringResource(R.string.dsp_diag_native_errors, metrics.nativeErrorCount))
+                    }
                 }
             }
 

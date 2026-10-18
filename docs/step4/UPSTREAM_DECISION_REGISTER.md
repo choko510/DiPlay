@@ -17,7 +17,8 @@
 | UP-SPLIT-01 | BYD DiLink HUD/cluster/rhythm/OS split | `SKIP_OEM` | OEM-specific deleted dependencies must remain absent. | PR-08 |
 | UP-SPLIT-02 | GeckoView in-app Split View / Google profile isolation | `FORK_SUPERIOR` / `PRESERVE` | Fork-owned split/profile behavior is distinct from OEM multi-window support and must not be overwritten. | PR-06 |
 | UP-SPLIT-03 | CarPlay TextureView pane resize and HID coordinates | `ADAPT` | Keep the session's negotiated canvas and apply an aspect-fit local transform; inverse touch coordinates use the same fitted bounds, and letterbox touches do not start a contact. Local geometry/no-restart tests pass; device Controller/Session/stream continuity remains `NOT_RUN`. | PR-06 LOCAL |
-| UP-VIEWAREA-01 | AirPlay multi-ViewArea wire model | `ADAPT` + hardware gate | Two-area model may be represented, but send success alone is not acceptance; production dynamic mode stays OFF until iPhone response and frame-size change are observed. | PR-05 / PR-06 DYNAMIC |
+| UP-VIEWAREA-01 | AirPlay multi-ViewArea `/info` model | `ADAPT` behind opt-in | Add a validated same-display geometry model and retain legacy single-area output when no explicit area set is supplied. No physical iPhone acceptance evidence; model construction alone does not imply support. | PR-05 |
+| UP-VIEWAREA-02 | Dynamic ViewArea event command | `NO_GO_PENDING_IPHONE_EVIDENCE` | No tested command type/payload or iPhone confirmation is available. Preserve the event-channel implementation and log only incoming command type/parameter keys; send no guessed command and keep dynamic mode OFF. | PR-05 / PR-06 DYNAMIC |
 | UP-WIRELESS-01 | wireless listener / first TCP / dual-stack candidates | `NEED_EVIDENCE` | Not part of the immediate wired path; no listener/route change without a reproduced Wi-Fi Direct or hotspot issue. | PR-08 review |
 
 ## Register completeness

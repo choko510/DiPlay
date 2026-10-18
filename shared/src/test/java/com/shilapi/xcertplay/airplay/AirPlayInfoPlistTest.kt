@@ -35,6 +35,27 @@ class AirPlayInfoPlistTest {
     }
 
     @Test
+    fun optionalViewAreaDeclarationUsesOneDisplayUuidAndSelectedInitialArea() {
+        val main = AirPlayDisplayConfig(1920, 1080)
+        val areas = CarPlayViewAreaPlanner.fullAndSplit(main)?.copy(initialIndex = 1)
+        val info = AirPlayInfoPlist.build(
+            AirPlayConfig(
+                deviceName = "test",
+                deviceId = "02:00:00:00:00:02",
+                btMac = "02:00:00:00:00:02",
+                sourceVersion = "366.0",
+                main = main.copy(advertisedViewAreas = areas),
+            ),
+        )
+        val displays = info["displays"] as List<*>
+        val display = displays.single() as Map<*, *>
+
+        assertEquals(AirPlayInfoPlist.MAIN_UUID, display["uuid"])
+        assertEquals(1, display["initialViewArea"])
+        assertEquals(2, (display["viewAreas"] as List<*>).size)
+    }
+
+    @Test
     fun hevcCapabilityIsAdvertisedOnlyWhenEnabled() {
         val base = AirPlayConfig(
             deviceName = "test",

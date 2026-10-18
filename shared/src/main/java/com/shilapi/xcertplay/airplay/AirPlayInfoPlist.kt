@@ -168,8 +168,16 @@ object AirPlayInfoPlist {
             "primaryInputDevice" to display.primaryInputDevice,
         )
 
-        entry["viewAreas"] = listOf(areaDict(display))
-        entry["initialViewArea"] = 0
+        val advertisedAreas = display.advertisedViewAreas?.takeIf {
+            it.isValidFor(display.widthPixels, display.heightPixels)
+        }
+        if (advertisedAreas == null) {
+            entry["viewAreas"] = listOf(areaDict(display))
+            entry["initialViewArea"] = 0
+        } else {
+            entry["viewAreas"] = advertisedAreas.areas.map(::areaDict)
+            entry["initialViewArea"] = advertisedAreas.initialIndex
+        }
         if (display.initialUrl != null) entry["initialURL"] = display.initialUrl
         return entry
     }
@@ -197,4 +205,18 @@ object AirPlayInfoPlist {
         result["safeArea"] = safeArea
         return result
     }
+
+    private fun areaDict(area: CarPlayViewArea): Map<String, Any?> = linkedMapOf(
+        "widthPixels" to area.viewArea.widthPixels,
+        "heightPixels" to area.viewArea.heightPixels,
+        "originXPixels" to area.viewArea.originXPixels,
+        "originYPixels" to area.viewArea.originYPixels,
+        "safeArea" to linkedMapOf(
+            "widthPixels" to area.safeArea.widthPixels,
+            "heightPixels" to area.safeArea.heightPixels,
+            "originXPixels" to area.safeArea.originXPixels,
+            "originYPixels" to area.safeArea.originYPixels,
+            "drawUIOutsideSafeArea" to area.drawUiOutsideSafeArea,
+        ),
+    )
 }

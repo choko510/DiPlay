@@ -62,8 +62,8 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U54 | NAV/ALERT/PHONE/ASSISTANT routing, DSP policy, RTP and clock | `PARTIAL`: current audio/DSP component tests; full regression remains PR-04 |
 | U55 | LOCAL full→55%→full keeps same session/audio | `PARTIAL`: local resize policy retains the negotiated canvas over 20 simulated cycles; physical Controller/Session/stream ID proof remains PR-06 LOCAL |
 | U56 | Letterbox edge touch inverse matches render geometry | `PASS_LOCAL`: pure fit geometry round-trips content edges and marks letterbox coordinates outside content |
-| U57 | Default `/info` remains single-area compatible | `PARTIAL`: `AirPlayInfoPlistTest`; multi-area toggle remains PR-05 |
-| U58 | Invalid second area/safeArea safely rejected | `OPEN`: PR-05 |
+| U57 | Default `/info` remains single-area compatible | `PASS_LOCAL`: default config remains one-area; optional two-area declaration uses the main display UUID and validates index/geometry |
+| U58 | Invalid second area/safeArea safely rejected | `PASS_LOCAL`: planner rejects empty/out-of-bounds view or safe geometry; invalid optional areas fall back to one legacy area |
 | U59 | Wire send alone is not DYNAMIC acceptance | `OPEN`: PR-05 / PR-06 DYNAMIC |
 | U60 | Device silence/rejection falls back to LOCAL/LEGACY once | `OPEN`: PR-05 / PR-06 DYNAMIC |
 | U61 | Google profiles A/B do not share cookies/login | `PARTIAL`: profile/context tests; combined Split regression remains PR-06 |
@@ -124,7 +124,7 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-A-04 | RTP 16/48 kHz packetization, NAV gain and AEC stay aligned | PARTIAL / PR-04 |
 | R04-A-05 | Buffer pacing, upsample and DSP clock changes do not alter pitch unintentionally | OPEN / PR-04 and DSP-05 |
 | R04-V-01 | LOCAL 55:45 geometry/touch roundtrip on resize | PASS_LOCAL / PR-06 LOCAL; hardware safe-area/touch validation remains NOT_RUN |
-| R04-V-02 | Dynamic send without acknowledgement remains unconfirmed | OPEN / PR-05 |
+| R04-V-02 | Dynamic send without acknowledgement remains unconfirmed | `NO_GO_PENDING_IPHONE_EVIDENCE`: no candidate view-area command is sent; existing event path only logs incoming type/parameter keys, and no TS10/iPhone A/B evidence is available |
 | R04-V-03 | Decoder format change keeps crop and touch synchronized | PARTIAL / PR-07 |
 | R04-V-04 | Last-frame bitmap/Surface/thread releases after frame or timeout | OPEN / PR-07 |
 | R04-V-05 | Twenty rapid Split cycles retain controller/session/stream IDs | PARTIAL / PR-06 LOCAL; 20-cycle local policy simulation passes, device ID continuity remains NOT_RUN |

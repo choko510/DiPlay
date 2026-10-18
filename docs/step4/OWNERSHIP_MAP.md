@@ -12,7 +12,7 @@
 | TUN service | `shared/.../network/CarPlayVpnService.kt` | Owns VPN interface and packet I/O; attachment generation identifies VPN attachment, not UI restart generation |
 | Wired controller | `shared/.../orchestration/CarPlayController.kt` | Owns wired startup attempt, iAP2/NCM opening, controller recovery, AirPlay/TUN attachment, and existing 8s/15s watchdog |
 | Host UI and reconnect | `common/.../CarPlayHostActivity.kt` | Owns UI lifecycle, display/resize actions and host reconnect scheduling; background controller ownership is transferred separately |
-| AirPlay control / stream | `shared/.../airplay/AirPlaySession.kt`, `ScreenStream.kt`, `CarPlayMediaEngine.kt` | Session owns control events and media streams; MAIN/ALT stream state and first rendered frame must remain distinguishable |
+| AirPlay control / stream | `shared/.../airplay/AirPlaySession.kt`, `AirPlayInfoPlist.kt`, `ScreenStream.kt`, `CarPlayMediaEngine.kt` | Session owns control events and media streams; ViewArea serialization is session-start configuration; MAIN/ALT stream state and first rendered frame must remain distinguishable |
 | Microphone uplink | `shared/.../media/MicrophoneUplink.kt`, `OpusEncoder.kt` | AudioRecord and encoder lifecycle; explicit no-input request must prevent recording |
 | Video output | `shared/.../media/AndroidMediaSink.kt`, `VideoDecodeQueue.kt`, `VideoStats.kt` | Codec, output format, Surface and frame queue lifecycle; decoder-only recovery must not close the network session |
 | YouTube split/profile | `common/.../youtube/` and `CarPlayHostActivity.kt` | iPhone-specific Gecko context/profile, Google login, browser reuse, touch transform, IME and background session behavior; LOCAL keeps the negotiated canvas with session-scoped resize ownership |
@@ -27,4 +27,5 @@
 - USB `requestWait()` completion has one owner per connection. A second consumer for the status endpoint cannot be added without a shared dispatcher design and completion tests.
 - Split LOCAL rendering keeps the iPhone media stream and NCM/AirPlay session unchanged. Dynamic ViewArea remains separately gated by observed iPhone acceptance and frame-size change.
 - The TextureView aspect-fit bounds and inverse HID coordinate transform share one geometry; view size never replaces the session's negotiated canvas while LOCAL is active.
+- Multiple ViewAreas are advertised only from an explicit validated initial-session config; no unconfirmed event-channel ViewArea command is sent.
 - MEDIA-only DSP eligibility is determined by stream semantics. PHONE, NAV, ASSISTANT, alerts, and microphone capture retain their existing routing and clock contracts.

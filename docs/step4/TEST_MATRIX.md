@@ -53,8 +53,8 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U45 | First bulk OUT after 15s detects unreachable recovery proposal | `NOT_RUN/NO_GO_PENDING_EX01_DEVICE_EVIDENCE`: no causal TS10 trace to evaluate; do not add recovery |
 | U46 | Healthy initial SYN/accept suppresses another StartSession | `NOT_RUN/NO_GO_PENDING_EX01_DEVICE_EVIDENCE`: keep extra StartSession disabled |
 | U47 | Stale CSM/reconnect never receives an extra send | `NOT_RUN/NO_GO_PENDING_EX01_DEVICE_EVIDENCE`: no EX-05 send path added |
-| U48 | Local bind/address validation separates destination from accept | `OPEN/CONDITIONAL`: EX-07 |
-| U49 | Old server accept cannot read new attachment | `OPEN/CONDITIONAL`: EX-07 |
+| U48 | Local bind/address validation separates destination from accept | `NOT_RUN/NO_GO_PENDING_PACKET_EVIDENCE`: no device address/scope mismatch was captured; no route/bind change added |
+| U49 | Old server accept cannot read new attachment | `NOT_RUN/NO_GO_PENDING_PACKET_EVIDENCE`: accept-loop behavior change needs isolated generation-race reproduction; diagnostics stay attempt-scoped |
 | U50 | `input=false` with valid port never starts recording | `PARTIAL`: existing mic lifecycle tests; classifier case is PR-04 |
 | U51 | Siri/Phone use existing microphone path | `PARTIAL`: existing component tests; hardware gate remains PR-04 |
 | U52 | Default/compat voice-note request starts and stops if required | `OPEN`: PR-04 |
@@ -185,3 +185,7 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 ## EX-06 decision
 
 - `NO_GO_PENDING_DEVICE_AB`: retain the existing `AUTO` status polling default and debug-only `NO_STATUS_POLLING` comparator. No TS10/K706+iPhone A/B has measured status utility, read rate, GC pauses, or handshake timing. Do not add a status UsbRequest/reaper while `requestWait()` ownership is shared with NCM bulk IN.
+
+## EX-07 decision
+
+- `NO_GO_PENDING_PACKET_EVIDENCE`: no TS10/K706+iPhone trace establishes an IPv4-only SYN, wrong IPv6 destination/scope, peer-MAC drop, or stale server-generation accept as the failure cause. Keep the IPv6-only route and existing socket behavior; do not alter bind/routing or accept ownership without a focused reproduction.

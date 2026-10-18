@@ -36,6 +36,10 @@ Require correct-destination SYN, successful TUN write, kernel SYN-ACK, NCM OUT N
 
 Retain `AUTO` and the existing debug `NO_STATUS_POLLING` comparator. A separate `UsbRequest` cannot safely call `requestWait()` without shared-connection completion routing, so add no reaper until a TS10/iPhone A/B shows polling is harmful or useful and ownership/close tests are designed.
 
+## Keep EX-07 IP/routing/socket fixes tied to observed packet provenance
+
+Do not add an IPv4 route, change link-local scope/bind, or alter accept-loop ownership based only on source possibilities. Require EX-01 packet evidence or an isolated generation-race reproduction, then implement only the causal sub-fix. Preserve the current IPv6-only path while evidence is absent.
+
 ## Freeze STEP4 to verified fork main and keep USB injection test-only
 
 Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.

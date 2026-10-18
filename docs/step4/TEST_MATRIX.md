@@ -78,7 +78,7 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U70 | Native 44.1/48k, mono/stereo, variable block sizes | `PARTIAL`: current native DSP tests; full matrix and local host test runner unavailable |
 | U71 | Live update/Convolver preserves A/V clock | `PARTIAL`: existing DSP live-update tests; new latency integration remains DSP-05 |
 | U72 | Deleted BYD-only dependency does not return | `PARTIAL`: frozen main and public-tree check; PR-08 manifest audit remains |
-| U73 | Feature rollback leaves other features unchanged | `OPEN`: PR-08 |
+| U73 | Feature rollback leaves other features unchanged | `OPEN`: PR-08 rollback rehearsal not run |
 | U74 | Old profile/APK update preserves settings and ownership | `PARTIAL`: profile migration tests; release/update evidence is PR-08 |
 | U75 | TS10 first connect/reconnect/split/audio | `NOT_RUN`: hardware unavailable |
 

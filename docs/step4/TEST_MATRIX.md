@@ -64,8 +64,8 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U56 | Letterbox edge touch inverse matches render geometry | `PASS_LOCAL`: pure fit geometry round-trips content edges and marks letterbox coordinates outside content |
 | U57 | Default `/info` remains single-area compatible | `PASS_LOCAL`: default config remains one-area; optional two-area declaration uses the main display UUID and validates index/geometry |
 | U58 | Invalid second area/safeArea safely rejected | `PASS_LOCAL`: planner rejects empty/out-of-bounds view or safe geometry; invalid optional areas fall back to one legacy area |
-| U59 | Wire send alone is not DYNAMIC acceptance | `OPEN`: PR-05 / PR-06 DYNAMIC |
-| U60 | Device silence/rejection falls back to LOCAL/LEGACY once | `OPEN`: PR-05 / PR-06 DYNAMIC |
+| U59 | Wire send alone is not DYNAMIC acceptance | `NO_GO_PENDING_IPHONE_EVIDENCE`: no candidate command sent; iPhone acknowledgement and frame-size change are required |
+| U60 | Device silence/rejection falls back to LOCAL/LEGACY once | `NOT_RUN/NO_GO_PENDING_IPHONE_EVIDENCE`: without a supported command and device response, no timeout/fallback coordinator is added |
 | U61 | Google profiles A/B do not share cookies/login | `PARTIAL`: profile/context tests; combined Split regression remains PR-06 |
 | U62 | Surface resume/rotation/IME does not recreate session | `PARTIAL`: existing lifecycle and resize tests; device gate remains PR-06/07 |
 | U63 | Codec output format change keeps crop/decoder/touch aligned | `PARTIAL`: `AndroidMediaSinkStateTest`; full format integration is PR-07 |

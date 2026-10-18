@@ -15,7 +15,7 @@
 | `wiredLateOutRecovery` | Not present; EX-05 causal log gate unmet | `NO_GO_PENDING_EX01_DEVICE_EVIDENCE`; require all six packet-timing conditions and a virtual-time reachability pass | Existing watchdog and retry path |
 | `splitLocalNoRestart` | Existing GeckoView split and resize/handoff paths | Enable for an eligible owned Controller after local geometry/no-restart tests pass; retain the negotiated canvas until that Controller is cleared | If local geometry is unavailable, disable for that session and use `LEGACY_RECONNECT` |
 | `splitViewAreaDeclaration` | Optional `AirPlayDisplayConfig.advertisedViewAreas`; ordinary config omits it | OFF; only an explicit caller may predeclare two areas | Omit `advertisedViewAreas`; retain one full-area entry |
-| `splitDynamicViewArea` | Not present | OFF / experimental only after PR-05 device acceptance | LOCAL scale without wire change |
+| `splitDynamicViewArea` | Not present | `NO_GO_PENDING_IPHONE_EVIDENCE`; keep OFF until a supported command/payload is acknowledged and frame dimensions change | Fall back to PR-06 LOCAL; do not send a guessed command |
 | `videoHoldLastFrame` | Not present as an opt-in recovery feature | OFF | Existing decoder/Surface behavior |
 | `seatFocus`, `advancedMS`, `cabinCorrection`, `harmonicEngine` | No STEP4 nodes in frozen graph | OFF | Existing DSP graph and master-off path |
 

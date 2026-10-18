@@ -173,6 +173,10 @@ When the owning Host enters GeckoView Split while a Controller and background se
 ## Keep multi-ViewArea advertisement opt-in and validation-only
 
 Represent full and split areas on one main display, using the final scaled canvas coordinates and validating both the viewport and its safe area. Serialize those areas only when an explicit `AirPlayDisplayConfig` carries a valid model; a missing or invalid model retains the legacy single-area plist. Do not send a guessed ViewArea event command until a supported command/payload and iPhone acknowledgement are observed; no physical evidence is currently available.
+
+## Keep PR-06 DYNAMIC out of production without a device-confirmed command
+
+No tested ViewArea event command/payload, iPhone acknowledgement, or changed frame dimensions are available. Do not add a coordinator, timeout, or guessed send; keep Dynamic OFF and retain the tested LOCAL path. Revisit only after a same-device A/B proves accepted command and rendered-size change without session restart.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

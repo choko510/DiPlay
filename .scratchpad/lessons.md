@@ -1,5 +1,8 @@
 # Lessons
 
+- 2026-10-19: A final snapshot can race with an already-admitted milestone callback. `seal()` must wait for `inFlight` to drain before returning the immutable snapshot; a blocking callback test proves the final event is included and later events are rejected.
+- Keep unknown IPv6 Next Header values distinct from common non-TCP traffic. Treating an unrecognized protocol as `NON_TCP` would make an unknown packet look like evidence that no TCP SYN occurred.
+
 ## Make transport fakes fail unless a test scripts success
 
 A test double should return NotReady/timeout/queue failure by default and require each success outcome to be queued explicitly. This prevents a passing fake from being mistaken for evidence that USB, TUN, or device protocol behavior works.

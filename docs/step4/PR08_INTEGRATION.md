@@ -13,6 +13,7 @@
 | Debug and optimized APKs | `PASS_LOCAL` | both modules `assembleDebug` and `assembleBenchmark` |
 | R8 JNI mapping | `PASS_LOCAL` | `scripts/check_jni_mapping.py` verified mobile and automotive mappings |
 | Public source tree and whitespace | `PASS_LOCAL` | `scripts/check_public_tree.py`, `git diff --check` |
+| GitHub PR checks | `NOT_REPORTED` | At the integration assessment, PR #38 head `c91cfb61f3869e745ceddac8c7d1e8b6adfe5ecc` had no combined statuses or PR workflow runs returned by the GitHub connector |
 | Android emulator instrumentation | `PASS_EMULATOR` | API 36.1 x86_64, 16/16 existing DSP smoke/benchmark tests; this does not exercise CarPlay USB, iPhone, ViewArea, Gecko login, or Surface recovery |
 | Host-native DSP and sanitizer scripts | `NOT_RUN` | No Windows C compiler; WSL launch previously failed with `HCS_E_SERVICE_NOT_AVAILABLE` |
 

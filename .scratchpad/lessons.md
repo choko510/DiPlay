@@ -1,5 +1,9 @@
 # Lessons
 
+## Make transport fakes fail unless a test scripts success
+
+A test double should return NotReady/timeout/queue failure by default and require each success outcome to be queued explicitly. This prevents a passing fake from being mistaken for evidence that USB, TUN, or device protocol behavior works.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

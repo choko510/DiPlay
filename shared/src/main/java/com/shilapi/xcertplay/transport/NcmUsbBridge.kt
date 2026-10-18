@@ -133,6 +133,7 @@ class NcmUsbBridge internal constructor(
     private val diagnosticAttempt: Int,
     private val diagnosticsEnabled: Boolean,
     private val onDiagnosticLog: (String) -> Unit,
+    private val usbRequestFactory: () -> UsbRequest = { UsbRequest() },
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
     val hostMac: ByteArray? get() = descriptorMac?.copyOf()
@@ -548,7 +549,7 @@ class NcmUsbBridge internal constructor(
             synchronized(stateLock) {
                 checkOpenLocked()
                 val current = readLifecycle.requestOrCreate {
-                    UsbRequest().also { created ->
+                    usbRequestFactory().also { created ->
                         val initialized = try {
                             created.initialize(connection, inEndpoint)
                         } catch (error: RuntimeException) {

@@ -1,5 +1,9 @@
 # Decisions
 
+## Freeze STEP4 to verified fork main and keep USB injection test-only
+
+Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.

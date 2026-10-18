@@ -9,6 +9,8 @@ import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Matrix
+import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
@@ -71,6 +73,7 @@ import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.location.AndroidCarPlayLocationProvider
 import com.shilapi.xcertplay.media.AndroidMediaSink
+import com.shilapi.xcertplay.media.CarPlayLocalScaleGeometry
 import com.shilapi.xcertplay.media.NavigationAudioRoute
 import com.shilapi.xcertplay.media.CarPlayTouchMapper
 import com.shilapi.xcertplay.network.CarPlayVpnService
@@ -98,6 +101,7 @@ import com.shilapi.xcertplay.youtube.HostLayoutState
 import com.shilapi.xcertplay.youtube.ImeResizeResumePolicy
 import com.shilapi.xcertplay.youtube.IphoneIdentityResolver
 import com.shilapi.xcertplay.youtube.SplitLayoutConfig
+import com.shilapi.xcertplay.youtube.SplitDisplayResizePolicy
 import com.shilapi.xcertplay.youtube.SplitPerformanceCounter
 import com.shilapi.xcertplay.youtube.SplitPerformanceTracer
 import com.shilapi.xcertplay.youtube.YoutubeBrowserController
@@ -352,6 +356,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var controller: CarPlayController? = null
     private var currentSurface: Surface? = null
     private var currentSurfaceTexture: SurfaceTexture? = null
+    private var localScaleGeometry: CarPlayLocalScaleGeometry? = null
     private var activeDisplaySize: DisplaySize? = null
     private var pendingDisplaySize: DisplaySize? = null
     private val displayResizeCoordinator = DisplayResizeCoordinator()
@@ -538,10 +543,12 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             appendLog(if (existing === surface) "Texture surface reused" else "Texture surface created")
             attachSurface(surface)
+            updateVideoTransform()
             scheduleDisplaySize(width, height)
         }
 
         override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
+            updateVideoTransform()
             scheduleDisplaySize(width, height)
         }
 
@@ -929,6 +936,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val video = TextureView(this).apply {
             isOpaque = false
             surfaceTextureListener = textureListener
+            addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateVideoTransform() }
         }
         val gestureLayer = View(this).apply {
             isClickable = true
@@ -1093,6 +1101,12 @@ class CarPlayHostActivity : ComponentActivity() {
             browser.setActive(false)
         }
         hostLayoutState = hostLayoutState.enterYoutubeSplit()
+        val localScaleEnabled = controller?.let {
+            CarPlayBackgroundSession.enableLocalScaleNoRestart(this, it)
+        } == true
+        if (localScaleEnabled) {
+            appendLog("LOCAL_SCALE_NO_RESTART enabled for the current CarPlay canvas")
+        }
         SplitPerformanceTracer.increment(SplitPerformanceCounter.SPLIT_ENTRIES)
         splitTraceCookie = SplitPerformanceTracer.beginAsync("diplay.split.total")
         splitCarPlayReadyForYoutube = false
@@ -3999,7 +4013,11 @@ class CarPlayHostActivity : ComponentActivity() {
             snapshot.height,
             this,
             backgroundStopAction(),
+            localScaleNoRestart = snapshot.localScaleNoRestart,
         )
+        if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
+            CarPlayBackgroundSession.enableLocalScaleNoRestart(this, snapshot.controller)
+        }
         if (snapshot.width > 0 && snapshot.height > 0) {
             activeDisplaySize = DisplaySize(snapshot.width, snapshot.height)
             displayResizeCoordinator.observe(DisplaySize(snapshot.width, snapshot.height))
@@ -4022,6 +4040,7 @@ class CarPlayHostActivity : ComponentActivity() {
             onVideoFrameSubmittedToSurface(generation, type)
         }
         currentSurface?.let(::attachSurface)
+        updateVideoTransform()
         val serviceReused = snapshot.controller.hasActiveAirPlayAttachment()
         appendLog(
             if (serviceReused) {
@@ -4115,6 +4134,11 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         controller = next
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this, backgroundStopAction())
+        if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT &&
+            CarPlayBackgroundSession.enableLocalScaleNoRestart(this, next)
+        ) {
+            appendLog("LOCAL_SCALE_NO_RESTART enabled for the current CarPlay canvas")
+        }
         try {
             startForegroundService(Intent(this, DiPlaySessionService::class.java))
             next.start()
@@ -4171,7 +4195,9 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         if (size == pendingDisplaySize) return
         CarPlayBackgroundSession.observePendingRestartSize(this, size)
-        displayResizeCoordinator.observe(size)
+        if (!CarPlayBackgroundSession.isLocalScaleNoRestart(this, controller)) {
+            displayResizeCoordinator.observe(size)
+        }
         if (size == activeDisplaySize) {
             pendingDisplaySize = null
             mainHandler.removeCallbacks(applyDisplaySize)
@@ -4209,7 +4235,27 @@ class CarPlayHostActivity : ComponentActivity() {
             return
         }
         val previous = activeDisplaySize
+        if (SplitDisplayResizePolicy.keepsCurrentController(
+                previous = previous,
+                requested = size,
+                controllerPresent = controller != null,
+                localScaleEnabled = CarPlayBackgroundSession.isLocalScaleNoRestart(this, controller),
+            )
+        ) {
+            if (updateVideoTransform()) {
+                val retainedCanvas = previous ?: return
+                if (hostLayoutState.mode == HostLayoutMode.CARPLAY_FULL) recordDetectedMaximum(size)
+                appendLog(
+                    "LOCAL_SCALE_NO_RESTART retained canvas ${retainedCanvas.width}x${retainedCanvas.height}; " +
+                        "viewport=${size.width}x${size.height}",
+                )
+                return
+            }
+            controller?.let { CarPlayBackgroundSession.disableLocalScaleNoRestart(this, it) }
+            appendLog("Local split transform unavailable; using the display resize restart path")
+        }
         activeDisplaySize = size
+        updateVideoTransform()
         recordDetectedMaximum(size)
         updateResolutionMenu()
         if (previous == null) {
@@ -4528,6 +4574,39 @@ class CarPlayHostActivity : ComponentActivity() {
         sink?.setSurface(SCREEN_TYPE_ALT, surface)
     }
 
+    private fun updateVideoTransform(): Boolean {
+        val view = videoView ?: run {
+            localScaleGeometry = null
+            return false
+        }
+        val canvas = activeDisplaySize ?: run {
+            localScaleGeometry = null
+            return false
+        }
+        val geometry = CarPlayLocalScaleGeometry.fit(
+            sourceWidth = canvas.width,
+            sourceHeight = canvas.height,
+            viewportWidth = view.width,
+            viewportHeight = view.height,
+        ) ?: run {
+            localScaleGeometry = null
+            return false
+        }
+        val transform = Matrix()
+        if (!transform.setRectToRect(
+                RectF(0f, 0f, canvas.width.toFloat(), canvas.height.toFloat()),
+                RectF(0f, 0f, view.width.toFloat(), view.height.toFloat()),
+                Matrix.ScaleToFit.CENTER,
+            )
+        ) {
+            localScaleGeometry = null
+            return false
+        }
+        view.setTransform(transform)
+        localScaleGeometry = geometry
+        return true
+    }
+
     private fun onHostTouch(view: View, event: MotionEvent): Boolean {
         if (menuOpen) return true
 
@@ -4577,7 +4656,12 @@ class CarPlayHostActivity : ComponentActivity() {
             return true
         }
 
-        val contacts = CarPlayTouchMapper.contacts(event, view.width, view.height)
+        val contacts = CarPlayTouchMapper.contacts(
+            event = event,
+            viewWidth = view.width,
+            viewHeight = view.height,
+            geometry = localScaleGeometry,
+        )
         val queued = controller?.sendTouch(contacts) ?: false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN,
@@ -4817,6 +4901,7 @@ internal object CarPlayBackgroundSession {
     private var owner: Any? = null
     private var ownerEpochCounter = 0L
     private var restartSuppressed = false
+    private var localScaleNoRestart = false
     private val restartHandoff = CarPlayRestartHandoff()
     @Synchronized fun isOwner(candidate: Any): Boolean = owner === candidate
     @Synchronized fun hasSession(): Boolean = stopAction != null || stopping || restartHandoff.hasPending()
@@ -4854,6 +4939,7 @@ internal object CarPlayBackgroundSession {
                 active = false
                 width = 0
                 height = 0
+                localScaleNoRestart = false
             }
         }
         if (action == null) { completion(); return }
@@ -4871,6 +4957,7 @@ internal object CarPlayBackgroundSession {
         val sink: AndroidMediaSink,
         val width: Int,
         val height: Int,
+        val localScaleNoRestart: Boolean,
     )
 
     private var controller: CarPlayController? = null
@@ -4882,11 +4969,19 @@ internal object CarPlayBackgroundSession {
     fun snapshot(): Snapshot? {
         val currentController = controller ?: return null
         val currentSink = sink ?: return null
-        return Snapshot(currentController, currentSink, width, height)
+        return Snapshot(currentController, currentSink, width, height, localScaleNoRestart)
     }
 
     @Synchronized
-    fun store(controller: CarPlayController, sink: AndroidMediaSink, width: Int, height: Int, owner: Any, stop: ((() -> Unit)) -> Unit) {
+    fun store(
+        controller: CarPlayController,
+        sink: AndroidMediaSink,
+        width: Int,
+        height: Int,
+        owner: Any,
+        stop: ((() -> Unit)) -> Unit,
+        localScaleNoRestart: Boolean = this.localScaleNoRestart,
+    ) {
         restartHandoff.clear()
         restartSuppressed = false
         this.stopAction = stop
@@ -4896,7 +4991,25 @@ internal object CarPlayBackgroundSession {
         this.sink = sink
         this.width = width
         this.height = height
+        this.localScaleNoRestart = localScaleNoRestart
     }
+
+    @Synchronized
+    fun enableLocalScaleNoRestart(owner: Any, expected: CarPlayController): Boolean {
+        if (this.owner !== owner || controller !== expected || sink == null || width <= 0 || height <= 0) return false
+        localScaleNoRestart = true
+        return true
+    }
+
+    @Synchronized
+    fun disableLocalScaleNoRestart(owner: Any, expected: CarPlayController) {
+        if (this.owner === owner && controller === expected) localScaleNoRestart = false
+    }
+
+    @Synchronized
+    fun isLocalScaleNoRestart(owner: Any, expected: CarPlayController?): Boolean =
+        expected != null && this.owner === owner && controller === expected && sink != null &&
+            width > 0 && height > 0 && localScaleNoRestart
 
     @Synchronized
     fun beginRestart(expected: CarPlayController?, owner: Any, size: DisplaySize): Long? {
@@ -4947,7 +5060,10 @@ internal object CarPlayBackgroundSession {
             stopAction = null
             stopActionOwner = null
         }
-        if (this.owner === owner && controller == null) setOwner(null)
+        if (this.owner === owner && controller == null) {
+            setOwner(null)
+            if (!restartHandoff.hasPending()) localScaleNoRestart = false
+        }
     }
 
     @Synchronized
@@ -4955,6 +5071,7 @@ internal object CarPlayBackgroundSession {
         if (expected != null && controller !== expected) return
         controller = null
         sink = null
+        localScaleNoRestart = false
         if (!keepOwner) {
             restartHandoff.clear()
             restartSuppressed = false

@@ -7,7 +7,15 @@ import com.shilapi.xcertplay.airplay.AirPlayContact
 object CarPlayTouchMapper {
     private const val MAX_CONTACTS = 2
 
-    fun contacts(event: MotionEvent, viewWidth: Int, viewHeight: Int): List<AirPlayContact> {
+    fun contacts(event: MotionEvent, viewWidth: Int, viewHeight: Int): List<AirPlayContact> =
+        contacts(event, viewWidth, viewHeight, null)
+
+    fun contacts(
+        event: MotionEvent,
+        viewWidth: Int,
+        viewHeight: Int,
+        geometry: CarPlayLocalScaleGeometry?,
+    ): List<AirPlayContact> {
         val width = viewWidth.coerceAtLeast(1)
         val height = viewHeight.coerceAtLeast(1)
         val action = event.actionMasked
@@ -16,12 +24,17 @@ object CarPlayTouchMapper {
         val count = minOf(MAX_CONTACTS, event.pointerCount)
         val contacts = ArrayList<AirPlayContact>(count)
         for (index in 0 until count) {
+            val pointX = event.getX(index).toDouble()
+            val pointY = event.getY(index).toDouble()
+            val normalizedX = geometry?.normalizedX(pointX) ?: (pointX / width)
+            val normalizedY = geometry?.normalizedY(pointY) ?: (pointY / height)
+            val insideContent = geometry?.containsPoint(pointX, pointY) ?: true
             contacts.add(
                 AirPlayContact(
                     id = index,
-                    x = (event.getX(index).toDouble() / width).coerceIn(0.0, 1.0),
-                    y = (event.getY(index).toDouble() / height).coerceIn(0.0, 1.0),
-                    down = !allUp && index != liftedIndex,
+                    x = normalizedX.coerceIn(0.0, 1.0),
+                    y = normalizedY.coerceIn(0.0, 1.0),
+                    down = !allUp && index != liftedIndex && insideContent,
                 ),
             )
         }

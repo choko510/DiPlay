@@ -16,6 +16,7 @@
 | UP-AUDIO-01 | upstream software Opus/Concentus handling | `REJECT_UNSAFE` for direct transplant | Frozen fork uses Android MediaCodec Opus paths; software implementation exceptions do not transfer directly. Reassess only with source and codec evidence. | PR-04 / AUDIO-EX |
 | UP-SPLIT-01 | BYD DiLink HUD/cluster/rhythm/OS split | `SKIP_OEM` | OEM-specific deleted dependencies must remain absent. | PR-08 |
 | UP-SPLIT-02 | GeckoView in-app Split View / Google profile isolation | `FORK_SUPERIOR` / `PRESERVE` | Fork-owned split/profile behavior is distinct from OEM multi-window support and must not be overwritten. | PR-06 |
+| UP-SPLIT-03 | CarPlay TextureView pane resize and HID coordinates | `ADAPT` | Keep the session's negotiated canvas and apply an aspect-fit local transform; inverse touch coordinates use the same fitted bounds, and letterbox touches do not start a contact. Local geometry/no-restart tests pass; device Controller/Session/stream continuity remains `NOT_RUN`. | PR-06 LOCAL |
 | UP-VIEWAREA-01 | AirPlay multi-ViewArea wire model | `ADAPT` + hardware gate | Two-area model may be represented, but send success alone is not acceptance; production dynamic mode stays OFF until iPhone response and frame-size change are observed. | PR-05 / PR-06 DYNAMIC |
 | UP-WIRELESS-01 | wireless listener / first TCP / dual-stack candidates | `NEED_EVIDENCE` | Not part of the immediate wired path; no listener/route change without a reproduced Wi-Fi Direct or hotspot issue. | PR-08 review |
 

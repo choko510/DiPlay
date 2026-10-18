@@ -13,7 +13,7 @@
 | `firstOutTimeoutPolicy` | Existing `AUTO` uses 100 ms before link ready; NDP NS/NA retries are bounded and TCP is not retried | `NO_GO_PENDING_CAUSAL_LOG`; keep current profile defaults | Restore current pre-ready timeout and NDP-only retry |
 | `statusEndpointExperiment` | Existing `AUTO` and debug-only `NO_STATUS_POLLING` profile | `NO_GO_PENDING_DEVICE_AB`; keep current `AUTO` default and existing comparator | No new reaper; return to current profile behavior |
 | `wiredLateOutRecovery` | Not present; EX-05 causal log gate unmet | `NO_GO_PENDING_EX01_DEVICE_EVIDENCE`; require all six packet-timing conditions and a virtual-time reachability pass | Existing watchdog and retry path |
-| `splitLocalNoRestart` | Existing GeckoView split and resize/handoff paths; exact restart behavior is to be revalidated for PR-06 | OFF until LOCAL tests pass | `LEGACY_RECONNECT` behavior |
+| `splitLocalNoRestart` | Existing GeckoView split and resize/handoff paths | Enable for an eligible owned Controller after local geometry/no-restart tests pass; retain the negotiated canvas until that Controller is cleared | If local geometry is unavailable, disable for that session and use `LEGACY_RECONNECT` |
 | `splitDynamicViewArea` | Not present | OFF / experimental only after PR-05 device acceptance | LOCAL scale without wire change |
 | `videoHoldLastFrame` | Not present as an opt-in recovery feature | OFF | Existing decoder/Surface behavior |
 | `seatFocus`, `advancedMS`, `cabinCorrection`, `harmonicEngine` | No STEP4 nodes in frozen graph | OFF | Existing DSP graph and master-off path |

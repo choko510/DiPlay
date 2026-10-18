@@ -81,4 +81,52 @@ class DisplayResizeCoordinatorTest {
             ),
         )
     }
+
+    @Test
+    fun localSplitResizeKeepsTheNegotiatedCanvasAcrossTwentyCycles() {
+        val canvas = DisplaySize(1920, 1080)
+        val splitViewport = DisplaySize(1056, 1080)
+        val observedViewports = List(20) { listOf(splitViewport, canvas) }.flatten()
+        var retainedCanvas = canvas
+        var restartCount = 0
+
+        observedViewports.forEach { viewport ->
+            if (viewport == retainedCanvas) return@forEach
+            val keepController = SplitDisplayResizePolicy.keepsCurrentController(
+                previous = retainedCanvas,
+                requested = viewport,
+                controllerPresent = true,
+                localScaleEnabled = true,
+            )
+            if (keepController) return@forEach
+            restartCount += 1
+            retainedCanvas = viewport
+        }
+
+        assertEquals(0, restartCount)
+        assertEquals(canvas, retainedCanvas)
+    }
+
+    @Test
+    fun resizeFallsBackWhenLocalScaleIsNotEligible() {
+        val canvas = DisplaySize(1920, 1080)
+        val splitViewport = DisplaySize(1056, 1080)
+
+        assertFalse(
+            SplitDisplayResizePolicy.keepsCurrentController(
+                previous = canvas,
+                requested = splitViewport,
+                controllerPresent = true,
+                localScaleEnabled = false,
+            ),
+        )
+        assertFalse(
+            SplitDisplayResizePolicy.keepsCurrentController(
+                previous = canvas,
+                requested = splitViewport,
+                controllerPresent = false,
+                localScaleEnabled = true,
+            ),
+        )
+    }
 }

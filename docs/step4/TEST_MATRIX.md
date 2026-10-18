@@ -60,8 +60,8 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U52 | Default/compat voice-note request starts and stops if required | `PASS_LOCAL`: default with `isInput=true` and compatibility input start; media-only audio remains output-only |
 | U53 | AudioRecord exception/retry has one bounded owner | `PARTIAL`: bounded zero-read policy and start-retry tests pass; platform AudioRecord exception/release integration remains `NOT_RUN` |
 | U54 | NAV/ALERT/PHONE/ASSISTANT routing, DSP policy, RTP and clock | `PARTIAL`: current audio/DSP component tests; full regression remains PR-04 |
-| U55 | LOCAL full→55%→full keeps same session/audio | `PARTIAL`: current split state tests; zero-restart acceptance is PR-06 LOCAL |
-| U56 | Letterbox edge touch inverse matches render geometry | `OPEN`: PR-06 LOCAL |
+| U55 | LOCAL full→55%→full keeps same session/audio | `PARTIAL`: local resize policy retains the negotiated canvas over 20 simulated cycles; physical Controller/Session/stream ID proof remains PR-06 LOCAL |
+| U56 | Letterbox edge touch inverse matches render geometry | `PASS_LOCAL`: pure fit geometry round-trips content edges and marks letterbox coordinates outside content |
 | U57 | Default `/info` remains single-area compatible | `PARTIAL`: `AirPlayInfoPlistTest`; multi-area toggle remains PR-05 |
 | U58 | Invalid second area/safeArea safely rejected | `OPEN`: PR-05 |
 | U59 | Wire send alone is not DYNAMIC acceptance | `OPEN`: PR-05 / PR-06 DYNAMIC |
@@ -123,11 +123,11 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-A-03 | Mic zero-read recovery is bounded and cancellable | PARTIAL: pure ten-zero-read policy and inactive-owner stop test pass; fake AudioRecord integration/leak check not run |
 | R04-A-04 | RTP 16/48 kHz packetization, NAV gain and AEC stay aligned | PARTIAL / PR-04 |
 | R04-A-05 | Buffer pacing, upsample and DSP clock changes do not alter pitch unintentionally | OPEN / PR-04 and DSP-05 |
-| R04-V-01 | LOCAL 55:45 geometry/touch roundtrip on resize | OPEN / PR-06 LOCAL |
+| R04-V-01 | LOCAL 55:45 geometry/touch roundtrip on resize | PASS_LOCAL / PR-06 LOCAL; hardware safe-area/touch validation remains NOT_RUN |
 | R04-V-02 | Dynamic send without acknowledgement remains unconfirmed | OPEN / PR-05 |
 | R04-V-03 | Decoder format change keeps crop and touch synchronized | PARTIAL / PR-07 |
 | R04-V-04 | Last-frame bitmap/Surface/thread releases after frame or timeout | OPEN / PR-07 |
-| R04-V-05 | Twenty rapid Split cycles retain controller/session/stream IDs | OPEN / PR-06 |
+| R04-V-05 | Twenty rapid Split cycles retain controller/session/stream IDs | PARTIAL / PR-06 LOCAL; 20-cycle local policy simulation passes, device ID continuity remains NOT_RUN |
 | R04-D-01 | New DSP nodes OFF match old PCM golden constraints | PARTIAL / DSP-00 |
 | R04-D-02 | Seat fractional delay and graph latency without clipping | OPEN / DSP-01 |
 | R04-D-03 | M/S mono compatibility and no duplicate width stage | OPEN / DSP-02 |

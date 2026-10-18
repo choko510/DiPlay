@@ -40,6 +40,10 @@ Retain `AUTO` and the existing debug `NO_STATUS_POLLING` comparator. A separate 
 
 Do not add an IPv4 route, change link-local scope/bind, or alter accept-loop ownership based only on source possibilities. Require EX-01 packet evidence or an isolated generation-race reproduction, then implement only the causal sub-fix. Preserve the current IPv6-only path while evidence is absent.
 
+## Keep microphone capture gated by request intent
+
+Treat explicit `isInput=false` as a hard veto even when a data port exists. Preserve legacy telephony/speech input; allow default/compatibility capture only for a valid main-audio request and valid port, and never capture media/music alone. Keep existing MediaCodec Opus, AudioRecord owner, routing, and AEC behavior.
+
 ## Freeze STEP4 to verified fork main and keep USB injection test-only
 
 Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.

@@ -719,10 +719,10 @@ class CarPlayMediaEngine(
         stream: Map<String, Any?>,
         format: AudioFormat,
     ): MicrophoneConfig? {
-        if (!microphoneEnabled || type != STREAM_TYPE_MAIN_AUDIO) return null
-        if (format.audioType != "telephony" && format.audioType != "speechrecognition") return null
-        val port = (stream["dataPort"] as? Number)?.toInt() ?: return null
-        if (port !in 1..65535) return null
+        if (!microphoneEnabled || !MicrophoneRequestPolicy.wantsMicrophone(type, stream)) return null
+        val port = (stream["dataPort"] as? Number)?.toLong()
+            ?.takeIf { it in 1L..65_535L }
+            ?.toInt() ?: return null
         val host = session.remoteAddress ?: return null
         val key = dataStreamKey(session, stream, DATASTREAM_INPUT_KEY) ?: return null
         val formatBits = (stream["audioFormat"] as? Number)?.toLong() ?: 0L
@@ -775,7 +775,7 @@ class CarPlayMediaEngine(
         const val TAG = "xcertplay-usb"
         const val STREAM_TYPE_MAIN_SCREEN = 110
         const val STREAM_TYPE_ALT_SCREEN = 111
-        const val STREAM_TYPE_MAIN_AUDIO = 100
+        const val STREAM_TYPE_MAIN_AUDIO = MicrophoneRequestPolicy.MAIN_AUDIO_STREAM_TYPE
         const val STREAM_TYPE_DATA = 130
         const val DATASTREAM_OUTPUT_KEY = "DataStream-Output-Encryption-Key"
         const val DATASTREAM_INPUT_KEY = "DataStream-Input-Encryption-Key"

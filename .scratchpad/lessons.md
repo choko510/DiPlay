@@ -8,6 +8,8 @@
 - 2026-10-19: Keep RTSP RECORD, ALT/MAIN SETUP, MAIN first-frame submission, and the watchdog's legacy screen-open callback distinct in tests. An ALT-only setup can satisfy the existing `SCREEN_STREAM_OPENED` callback without demonstrating a MAIN frame; this is a source-level distinction, not evidence of a device failure.
 - Conditional USB recovery needs a device-present same-node reproduction before adding delayed probes or permission prompts. Emulator availability does not satisfy that gate.
 - External-device anecdotes are not substitutes for the six causal EX-05 events on the same wired attempt; keep packet retries and iAP2 StartSession retries in separate decisions.
+- 2026-10-19: Default audio type is ambiguous between output and input. Only enable default/compatibility capture when the request intent allows it, preserve telephony/speech legacy behavior, and always let explicit `isInput=false` veto capture.
+- AudioRecord `READ_BLOCKING` should not spin on consecutive zero-byte returns. Add a small backoff, a consecutive-zero limit, and an owner/running check so cancellation exits immediately and teardown stays in the existing `finally` path.
 
 ## Make transport fakes fail unless a test scripts success
 

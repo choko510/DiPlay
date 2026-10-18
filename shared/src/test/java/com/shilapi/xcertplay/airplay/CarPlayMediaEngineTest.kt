@@ -242,6 +242,59 @@ class CarPlayMediaEngineTest {
     }
 
     @Test
+    fun explicitInputFalseAndMusicNeverCaptureButDefaultInputCan() {
+        val sink = TrackingSink()
+        val engine = CarPlayMediaEngine(sink, microphoneEnabled = true)
+        val session = audioSession(engine, withRemoteAddress = true)
+        try {
+            val explicitlyDisabled = validMicrophoneAudioSetup(1L) + ("isInput" to false)
+            assertNotNull(engine.onAudio(session, 100, explicitlyDisabled))
+            audioListenerForCurrentState(engine, 100).onStarted(100)
+            assertTrue(sink.microphoneConfigurations.isEmpty())
+
+            val voiceMessage = mapOf(
+                "streamConnectionID" to 2L,
+                "audioType" to "default",
+                "audioFormat" to 0x4000L,
+                "dataPort" to 12_345,
+                "isInput" to true,
+            )
+            assertNotNull(engine.onAudio(session, 100, voiceMessage))
+            val voiceListener = audioListenerForCurrentState(engine, 100)
+            voiceListener.onStarted(200)
+            voiceListener.onStarted(210)
+            assertEquals(listOf("default"), sink.microphoneConfigurations.map { it.audioType })
+
+            val compatibilityVoiceMessage = mapOf(
+                "streamConnectionID" to 3L,
+                "audioType" to "compatibility",
+                "audioFormat" to 0x4000L,
+                "dataPort" to 12_347,
+            )
+            assertNotNull(engine.onAudio(session, 100, compatibilityVoiceMessage))
+            audioListenerForCurrentState(engine, 100).onStarted(250)
+            assertEquals(
+                listOf("default", "compatibility"),
+                sink.microphoneConfigurations.map { it.audioType },
+            )
+
+            val music = mapOf(
+                "streamConnectionID" to 4L,
+                "audioType" to "media",
+                "audioFormat" to 0x8000L,
+                "dataPort" to 12_346,
+                "isInput" to true,
+            )
+            assertNotNull(engine.onAudio(session, 100, music))
+            audioListenerForCurrentState(engine, 100).onStarted(300)
+            assertEquals(listOf("default", "compatibility"), sink.microphoneConfigurations.map { it.audioType })
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
+    @Test
     fun closedSessionCannotCommitAudioAfterPrepareFinishes() {
         val sink = TrackingSink()
         val engine = CarPlayMediaEngine(sink)
@@ -450,6 +503,7 @@ class CarPlayMediaEngineTest {
         val currentOwner = AtomicReference<AudioOwnerToken?>()
         val stopped = CopyOnWriteArrayList<AudioOwnerToken>()
         val claims = CopyOnWriteArrayList<AudioOwnerToken>()
+        val microphoneConfigurations = CopyOnWriteArrayList<MicrophoneConfig>()
 
         override fun claimAudioOwner(token: AudioOwnerToken) {
             claims.add(token)
@@ -463,6 +517,11 @@ class CarPlayMediaEngineTest {
         override fun onAudioStopped(token: AudioOwnerToken) {
             stopped.add(token)
             currentOwner.compareAndSet(token, null)
+        }
+
+        override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
+            microphoneConfigurations.add(config)
+            return true
         }
     }
 }

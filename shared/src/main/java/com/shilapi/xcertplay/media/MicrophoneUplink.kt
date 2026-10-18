@@ -16,6 +16,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.locks.LockSupport
 
 internal interface MicrophoneUplinkController : Closeable {
     val isActive: Boolean
@@ -163,6 +164,7 @@ internal class MicrophoneUplink(
         val frame = ByteArray(config.frameBytes)
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
         val counters = MicrophoneCounters()
+        val readRecovery = MicrophoneReadRecovery()
         var filled = 0
         try {
             activation.await()
@@ -173,8 +175,16 @@ internal class MicrophoneUplink(
                     return
                 }
                 if (count == 0) {
+                    val isActiveOwner = running.get() && isCurrentOwner()
+                    if (!readRecovery.shouldRetryAfterZeroRead(isActiveOwner)) {
+                        if (isActiveOwner) Log.w(TAG, "microphone read stopped after repeated zero-byte results")
+                        return
+                    }
+                    LockSupport.parkNanos(MicrophoneReadRecovery.ZERO_READ_BACKOFF_NANOS)
                     continue
                 }
+                if (!running.get() || !isCurrentOwner()) return
+                readRecovery.recordDataRead()
                 var offset = 0
                 while (offset < count && running.get()) {
                     val copied = minOf(frame.size - filled, count - offset)

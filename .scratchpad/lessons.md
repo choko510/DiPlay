@@ -5,6 +5,7 @@
 - 2026-10-19: A short packet pad can arrive in a different USB completion from its NTB, or be absent before the next NTH16. Resolve that ambiguity on the read buffer without delaying the complete NTB or consuming a following header; test one-byte completions, coalesced blocks, and zero-byte reads.
 - For corruption recovery, preserve enough tail bytes for an NTH16 split across completions, bound cumulative scan work per corrupt run, and verify both valid-after-garbage recovery and typed failure on a >1 MiB corrupt stream.
 - 2026-10-19: Use a fresh Runnable closure per reconnect ticket. A shared Runnable that reads mutable scheduled fields can accidentally act on a newer retry if an old callback remains queued. Consume tickets once and check the live Controller session as well as UI callbacks, since an `onSessionActive` event can be waiting on the main queue as the delay expires.
+- 2026-10-19: Keep RTSP RECORD, ALT/MAIN SETUP, MAIN first-frame submission, and the watchdog's legacy screen-open callback distinct in tests. An ALT-only setup can satisfy the existing `SCREEN_STREAM_OPENED` callback without demonstrating a MAIN frame; this is a source-level distinction, not evidence of a device failure.
 
 ## Make transport fakes fail unless a test scripts success
 

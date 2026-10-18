@@ -72,8 +72,11 @@ import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCut
 import com.shilapi.xcertplay.media.dsp.DspCabinCutSource
+import com.shilapi.xcertplay.media.dsp.DspHarmonicMode
+import com.shilapi.xcertplay.media.dsp.DspHarmonicQuality
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
+import com.shilapi.xcertplay.media.dsp.DspHighExciterConfig
 import com.shilapi.xcertplay.media.dsp.DspLiveUpdateReason
 import com.shilapi.xcertplay.media.dsp.DspLiveUpdateState
 import com.shilapi.xcertplay.media.dsp.DspLiveUpdateStatus
@@ -83,6 +86,7 @@ import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatFocusConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatPreset
+import com.shilapi.xcertplay.media.dsp.DspVirtualBassConfig
 import com.shilapi.xcertplay.shared.AppLanguage
 import java.util.Locale
 import java.util.UUID
@@ -257,6 +261,14 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                 runtime.applyAsync(
                     activeProfile.copy(
                         cabinCorrection = activeProfile.cabinCorrection.copy(bypassed = false),
+                    ),
+                    runtime.isDspEnabled(),
+                ) { }
+            }
+            if (activeProfile.harmonicEngine.bypassed) {
+                runtime.applyAsync(
+                    activeProfile.copy(
+                        harmonicEngine = activeProfile.harmonicEngine.copy(bypassed = false),
                     ),
                     runtime.isDspEnabled(),
                 ) { }
@@ -842,6 +854,252 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         }
                     }
                     Text(stringResource(R.string.dsp_cabin_guided_unavailable))
+                    Text(stringResource(R.string.dsp_cabin_parked_note))
+                    Text(stringResource(dspLiveUpdateStatusMessage(liveUpdateStatus.value)))
+                }
+                SectionCard(title = stringResource(R.string.dsp_harmonic_engine)) {
+                    val harmonic = profile.harmonicEngine
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_harmonic_enabled),
+                        description = stringResource(R.string.dsp_harmonic_enabled_description),
+                        checked = harmonic.enabled,
+                        onCheckedChange = {
+                            profile = profile.copy(harmonicEngine = harmonic.copy(enabled = it, bypassed = false))
+                        },
+                    )
+                    ChoiceField(
+                        title = stringResource(R.string.dsp_harmonic_quality),
+                        selected = stringResource(
+                            if (harmonic.quality == DspHarmonicQuality.TWO_X) {
+                                R.string.dsp_harmonic_quality_2x
+                            } else {
+                                R.string.dsp_harmonic_quality_4x
+                            },
+                        ),
+                        choices = listOf(
+                            stringResource(R.string.dsp_harmonic_quality_2x),
+                            stringResource(R.string.dsp_harmonic_quality_4x),
+                        ),
+                        onSelect = { selected ->
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    quality = if (selected == context.getString(R.string.dsp_harmonic_quality_4x)) {
+                                        DspHarmonicQuality.FOUR_X
+                                    } else {
+                                        DspHarmonicQuality.TWO_X
+                                    },
+                                ),
+                            )
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_harmonic_high_exciter),
+                        checked = harmonic.highExciter.enabled,
+                        onCheckedChange = {
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    highExciter = harmonic.highExciter.copy(enabled = it),
+                                ),
+                            )
+                        },
+                    )
+                    if (harmonic.highExciter.enabled) {
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_frequency),
+                            harmonic.highExciter.frequencyHz,
+                            DspHighExciterConfig.MIN_FREQUENCY_HZ..DspHighExciterConfig.MAX_FREQUENCY_HZ,
+                            "Hz",
+                            decimals = 0,
+                        ) {
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    highExciter = harmonic.highExciter.copy(frequencyHz = it),
+                                ),
+                            )
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_drive),
+                            harmonic.highExciter.drive,
+                            0.0..DspHighExciterConfig.MAX_DRIVE,
+                            "",
+                            decimals = 1,
+                        ) {
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    highExciter = harmonic.highExciter.copy(drive = it),
+                                ),
+                            )
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_amount),
+                            harmonic.highExciter.amount,
+                            0.0..1.0,
+                            "",
+                            decimals = 2,
+                        ) {
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    highExciter = harmonic.highExciter.copy(amount = it),
+                                ),
+                            )
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_wet),
+                            harmonic.highExciter.wet,
+                            0.0..1.0,
+                            "",
+                            decimals = 2,
+                        ) {
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    highExciter = harmonic.highExciter.copy(wet = it),
+                                ),
+                            )
+                        }
+                        ChoiceField(
+                            title = stringResource(R.string.dsp_harmonic_mode),
+                            selected = harmonicModeLabel(context, harmonic.highExciter.mode),
+                            choices = DspHarmonicMode.entries.map { harmonicModeLabel(context, it) },
+                            onSelect = { selected ->
+                                val mode = DspHarmonicMode.entries.first { harmonicModeLabel(context, it) == selected }
+                                profile = profile.copy(
+                                    harmonicEngine = harmonic.copy(
+                                        highExciter = harmonic.highExciter.copy(mode = mode),
+                                    ),
+                                )
+                            },
+                        )
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_compensation),
+                            harmonic.highExciter.outputCompensationDb,
+                            -12.0..6.0,
+                            "dB",
+                            decimals = 1,
+                        ) {
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    highExciter = harmonic.highExciter.copy(outputCompensationDb = it),
+                                ),
+                            )
+                        }
+                    }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_harmonic_virtual_bass),
+                        checked = harmonic.virtualBass.enabled,
+                        onCheckedChange = {
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    virtualBass = harmonic.virtualBass.copy(enabled = it),
+                                ),
+                            )
+                        },
+                    )
+                    if (harmonic.virtualBass.enabled) {
+                        val virtualBass = harmonic.virtualBass
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_bass_low),
+                            virtualBass.fundamentalLowHz,
+                            DspVirtualBassConfig.MIN_FUNDAMENTAL_HZ..
+                                (virtualBass.fundamentalHighHz - 1.0).coerceAtLeast(DspVirtualBassConfig.MIN_FUNDAMENTAL_HZ),
+                            "Hz",
+                            decimals = 0,
+                        ) { value ->
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    virtualBass = virtualBass.copy(fundamentalLowHz = value),
+                                ),
+                            )
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_bass_high),
+                            virtualBass.fundamentalHighHz,
+                            (virtualBass.fundamentalLowHz + 1.0).coerceAtMost(DspVirtualBassConfig.MAX_FUNDAMENTAL_HZ)..
+                                DspVirtualBassConfig.MAX_FUNDAMENTAL_HZ,
+                            "Hz",
+                            decimals = 0,
+                        ) { value ->
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    virtualBass = virtualBass.copy(fundamentalHighHz = value),
+                                ),
+                            )
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_drive),
+                            virtualBass.drive,
+                            0.0..DspVirtualBassConfig.MAX_DRIVE,
+                            "",
+                            decimals = 1,
+                        ) { value ->
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(virtualBass = virtualBass.copy(drive = value)),
+                            )
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_amount),
+                            virtualBass.amount,
+                            0.0..1.0,
+                            "",
+                            decimals = 2,
+                        ) { value ->
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(virtualBass = virtualBass.copy(amount = value)),
+                            )
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_second_amount),
+                            virtualBass.secondHarmonicAmount,
+                            0.0..1.0,
+                            "",
+                            decimals = 2,
+                        ) { value ->
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    virtualBass = virtualBass.copy(secondHarmonicAmount = value),
+                                ),
+                            )
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_harmonic_third_amount),
+                            virtualBass.thirdHarmonicAmount,
+                            0.0..1.0,
+                            "",
+                            decimals = 2,
+                        ) { value ->
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(
+                                    virtualBass = virtualBass.copy(thirdHarmonicAmount = value),
+                                ),
+                            )
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_wet),
+                            virtualBass.wet,
+                            0.0..1.0,
+                            "",
+                            decimals = 2,
+                        ) { value ->
+                            profile = profile.copy(
+                                harmonicEngine = harmonic.copy(virtualBass = virtualBass.copy(wet = value)),
+                            )
+                        }
+                    }
+                    if (harmonic.enabled && (harmonic.highExciter.enabled || harmonic.virtualBass.enabled)) {
+                        DspSwitchRow(
+                            title = stringResource(R.string.dsp_harmonic_ab_bypass),
+                            description = stringResource(R.string.dsp_harmonic_ab_bypass_note),
+                            checked = harmonic.bypassed,
+                            onCheckedChange = { bypassed ->
+                                val updated = profile.copy(
+                                    harmonicEngine = profile.harmonicEngine.copy(bypassed = bypassed),
+                                )
+                                profile = updated
+                                runtime.applyAsync(updated, dspEnabled) { }
+                            },
+                        )
+                    }
+                    Text(stringResource(R.string.dsp_harmonic_quality_note))
+                    Text(stringResource(R.string.dsp_harmonic_safety_note))
                     Text(stringResource(R.string.dsp_cabin_parked_note))
                     Text(stringResource(dspLiveUpdateStatusMessage(liveUpdateStatus.value)))
                 }
@@ -1498,6 +1756,14 @@ private fun advancedMsMonitorLabel(context: Context, mode: DspAdvancedMsMonitorM
         DspAdvancedMsMonitorMode.MID_ONLY -> R.string.dsp_advanced_ms_monitor_mid
         DspAdvancedMsMonitorMode.SIDE_ONLY -> R.string.dsp_advanced_ms_monitor_side
         DspAdvancedMsMonitorMode.MONO_FOLD_DOWN -> R.string.dsp_advanced_ms_monitor_mono
+    },
+)
+
+private fun harmonicModeLabel(context: Context, mode: DspHarmonicMode): String = context.getString(
+    when (mode) {
+        DspHarmonicMode.EVEN -> R.string.dsp_harmonic_mode_even
+        DspHarmonicMode.ODD -> R.string.dsp_harmonic_mode_odd
+        DspHarmonicMode.MIXED -> R.string.dsp_harmonic_mode_mixed
     },
 )
 

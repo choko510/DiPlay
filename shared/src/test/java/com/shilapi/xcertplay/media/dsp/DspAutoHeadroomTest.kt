@@ -86,6 +86,41 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun maximumHarmonicMixIsCoveredAndTransientBypassKeepsTheComparisonLevel() {
+        val harmonic = DspHarmonicEngineConfig(
+            enabled = true,
+            highExciter = DspHighExciterConfig(
+                enabled = true,
+                amount = 1.0,
+                wet = 1.0,
+                outputCompensationDb = 6.0,
+            ),
+            virtualBass = DspVirtualBassConfig(
+                enabled = true,
+                amount = 1.0,
+                secondHarmonicAmount = 1.0,
+                thirdHarmonicAmount = 1.0,
+                wet = 1.0,
+            ),
+        )
+        val active = DspRuntimeConfig(enabled = true, harmonicEngine = harmonic)
+            .prepare(DspAudioFormat(48_000, 2))
+        val bypassed = DspRuntimeConfig(
+            enabled = true,
+            harmonicEngine = harmonic.copy(bypassed = true),
+        ).prepare(DspAudioFormat(48_000, 2))
+        val disabled = DspRuntimeConfig(
+            enabled = true,
+            harmonicEngine = harmonic.copy(enabled = false),
+        ).prepare(DspAudioFormat(48_000, 2))
+
+        assertTrue(active.headroom.reductionDb in 14.0..15.5)
+        assertEquals(active.headroom.reductionDb, bypassed.headroom.reductionDb, 0.0)
+        assertEquals(-active.headroom.reductionDb, active.appliedPreampDb, 0.02)
+        assertEquals(1.0, disabled.headroom.reductionDb, 0.02)
+    }
+
+    @Test
     fun sameFrequencyFiltersCombineTheirResponsesBeforeFindingThePeak() {
         val sameFrequency = listOf(
             DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 6.0, q = 4.0),

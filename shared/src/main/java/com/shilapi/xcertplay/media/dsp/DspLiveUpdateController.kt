@@ -33,6 +33,7 @@ internal class DspLiveUpdateController(
     private val onSeatFocusUpdate: (DspConfigSnapshot) -> Boolean = { false },
     private val onAdvancedMsMonitorUpdate: (DspConfigSnapshot) -> Boolean = { false },
     private val onCabinBypassUpdate: (DspConfigSnapshot) -> Boolean = { false },
+    private val onHarmonicBypassUpdate: (DspConfigSnapshot) -> Boolean = { false },
     private val canAdoptLatencyChange: () -> Boolean = { false },
     private val pipelinePreparer: DspPipelinePreparer =
         { targetFormat, config -> createNativePipeline(role, targetFormat, config) },
@@ -64,7 +65,7 @@ internal class DspLiveUpdateController(
         }
         if (!accepted) return
         if (applySeatFocusUpdateInPlace(snapshot) || applyAdvancedMsMonitorUpdateInPlace(snapshot) ||
-            applyCabinBypassUpdateInPlace(snapshot)
+            applyCabinBypassUpdateInPlace(snapshot) || applyHarmonicBypassUpdateInPlace(snapshot)
         ) return
         ensureMaintenance()
         schedulePreparation()
@@ -129,6 +130,27 @@ internal class DspLiveUpdateController(
                 return@synchronized false
             }
             if (!runCatching { onCabinBypassUpdate(snapshot) }.getOrDefault(false)) return@synchronized false
+            desired.compareAndSet(snapshot, null)
+            lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
+            true
+        }
+    }
+
+    private fun applyHarmonicBypassUpdateInPlace(snapshot: DspConfigSnapshot): Boolean {
+        return synchronized(generationLock) {
+            if (closed.get() || desired.get()?.generation != snapshot.generation) {
+                return@synchronized false
+            }
+            val currentConfig = runCatching { activeConfig() }.getOrNull() ?: return@synchronized false
+            val targetConfig = snapshot.config
+            if (!currentConfig.enabled || !targetConfig.enabled ||
+                !currentConfig.harmonicEngine.enabled || !targetConfig.harmonicEngine.enabled ||
+                currentConfig.harmonicEngine.bypassed == targetConfig.harmonicEngine.bypassed ||
+                !currentConfig.hasSameExceptHarmonicBypassConfig(targetConfig)
+            ) {
+                return@synchronized false
+            }
+            if (!runCatching { onHarmonicBypassUpdate(snapshot) }.getOrDefault(false)) return@synchronized false
             desired.compareAndSet(snapshot, null)
             lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
             true

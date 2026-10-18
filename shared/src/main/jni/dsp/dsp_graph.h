@@ -11,6 +11,7 @@
 #include "dsp_convolver.h"
 #include "dsp_seat_focus.h"
 #include "dsp_cabin.h"
+#include "dsp_harmonic.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -25,6 +26,7 @@ typedef struct {
     dsp_spatial spatial;
     dsp_seat_focus seat_focus;
     dsp_cabin cabin;
+    dsp_harmonic harmonic;
     dsp_convolver convolver;
     dsp_meter input_meter;
     dsp_meter output_meter;
@@ -53,12 +55,16 @@ int dsp_graph_prepare(
     const dsp_cabin_config *cabin_config,
     const double *cabin_static_coefficients,
     int cabin_static_coefficient_count,
-    const dsp_dynamic_eq_config *cabin_dynamic_eq_config);
+    const dsp_dynamic_eq_config *cabin_dynamic_eq_config,
+    const dsp_harmonic_config *harmonic_config,
+    const double *harmonic_filter_coefficients,
+    size_t harmonic_filter_coefficient_count);
 void dsp_graph_reset(dsp_graph *graph);
 void dsp_graph_close(dsp_graph *graph);
 int dsp_graph_latency_frames(const dsp_graph *graph);
 int dsp_graph_update_advanced_ms_monitor_mode(dsp_graph *graph, int monitor_mode);
 int dsp_graph_update_cabin_bypass(dsp_graph *graph, int bypassed);
+int dsp_graph_update_harmonic_bypass(dsp_graph *graph, int bypassed);
 void dsp_graph_process(
     dsp_graph *graph,
     const float *input,

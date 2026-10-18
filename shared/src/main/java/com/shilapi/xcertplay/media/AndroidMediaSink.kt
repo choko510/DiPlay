@@ -1853,6 +1853,7 @@ internal class AudioRenderer(
             onSeatFocusUpdate = ::applySeatFocusLiveUpdate,
             onAdvancedMsMonitorUpdate = ::applyAdvancedMsMonitorLiveUpdate,
             onCabinBypassUpdate = ::applyCabinBypassLiveUpdate,
+            onHarmonicBypassUpdate = ::applyHarmonicBypassLiveUpdate,
             canAdoptLatencyChange = { !trackGenerationContentCommitted },
             onPrepared = { update ->
                 runCatching { beforeDspUpdatePublishForTest?.invoke() }
@@ -1944,6 +1945,25 @@ internal class AudioRenderer(
             return false
         }
         if (!pipeline.updateCabinBypass(snapshot.config.cabinCorrection.bypassed)) return false
+        activeDspConfig = snapshot.config
+        activeDspGraphConfig = effectiveDspGraphConfig(pipeline.format, snapshot.config, pipeline)
+        activeDspGeneration = snapshot.generation
+        liveUpdateLatencyFrames.set(pipeline.algorithmicLatencyFrames)
+        livePreparationPending = false
+        deferredDspGeneration = null
+        DspLiveUpdateStatusStore.update(DspLiveUpdateState.APPLIED)
+        return true
+    }
+
+    private fun applyHarmonicBypassLiveUpdate(snapshot: DspConfigSnapshot): Boolean {
+        val pipeline = dspPipeline ?: return false
+        if (rendererReleased || liveUpdateFormat != pipeline.format || pendingDspUpdate.get() != null ||
+            liveFadeInProgress || requestedDspGeneration != snapshot.generation ||
+            (trackGenerationContentCommitted && pipeline.algorithmicLatencyFrames != trackGenerationLatencyFrames)
+        ) {
+            return false
+        }
+        if (!pipeline.updateHarmonicBypass(snapshot.config.harmonicEngine.bypassed)) return false
         activeDspConfig = snapshot.config
         activeDspGraphConfig = effectiveDspGraphConfig(pipeline.format, snapshot.config, pipeline)
         activeDspGeneration = snapshot.generation

@@ -15,6 +15,7 @@ JNI_CLASSES = {
         "nativeUpdateSeatFocus",
         "nativeUpdateAdvancedMsMonitor",
         "nativeUpdateCabinBypass",
+        "nativeUpdateHarmonicBypass",
         "nativeGetLatencyFrames",
         "nativeGetDiagnostics",
         "nativeDestroy",

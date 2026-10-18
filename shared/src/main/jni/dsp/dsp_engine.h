@@ -11,6 +11,7 @@
 #include "dsp_convolver.h"
 #include "dsp_seat_focus.h"
 #include "dsp_cabin.h"
+#include "dsp_harmonic.h"
 
 typedef struct dsp_engine dsp_engine;
 
@@ -92,7 +93,10 @@ dsp_engine *dsp_engine_create_with_modules(
     const dsp_cabin_config *cabin_config,
     const double *cabin_static_coefficients,
     int cabin_static_coefficient_count,
-    const dsp_dynamic_eq_config *cabin_dynamic_eq_config);
+    const dsp_dynamic_eq_config *cabin_dynamic_eq_config,
+    const dsp_harmonic_config *harmonic_config,
+    const double *harmonic_filter_coefficients,
+    size_t harmonic_filter_coefficient_count);
 dsp_status dsp_engine_process(
     dsp_engine *engine,
     const float *input,
@@ -105,6 +109,7 @@ dsp_status dsp_engine_reset(dsp_engine *engine);
 dsp_status dsp_engine_update_seat_focus(dsp_engine *engine, const dsp_seat_focus_config *config);
 dsp_status dsp_engine_update_advanced_ms_monitor_mode(dsp_engine *engine, int monitor_mode);
 dsp_status dsp_engine_update_cabin_bypass(dsp_engine *engine, int bypassed);
+dsp_status dsp_engine_update_harmonic_bypass(dsp_engine *engine, int bypassed);
 int dsp_engine_get_latency_frames(const dsp_engine *engine);
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics);
 void dsp_engine_destroy(dsp_engine *engine);

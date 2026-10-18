@@ -312,6 +312,37 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun harmonicValuesIncludeQualityBothEffectsAndTransientBypass() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                harmonicEngine = DspHarmonicEngineConfig(
+                    enabled = true,
+                    quality = DspHarmonicQuality.FOUR_X,
+                    bypassed = true,
+                    highExciter = DspHighExciterConfig(enabled = true, amount = 1.0, wet = 1.0),
+                    virtualBass = DspVirtualBassConfig(enabled = true, amount = 1.0, wet = 1.0),
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        val values = requireNotNull(bindings.createdHarmonic)
+        assertEquals(DspHarmonicEngineConfig.NATIVE_VALUE_COUNT, values.size)
+        assertEquals(1.0, values[0], 0.0)
+        assertEquals(4.0, values[1], 0.0)
+        assertEquals(1.0, values[2], 0.0)
+        assertEquals(1.0, values[9], 0.0)
+        assertEquals(1.0, values[17], 0.0)
+        assertTrue(requireNotNull(processor).updateHarmonicBypass(false))
+        assertEquals(false, bindings.lastHarmonicBypass)
+        processor.close()
+    }
+
+    @Test
     fun nativeProcessFailureReturnsAnErrorWithoutConsumingBuffers() {
         val format = DspAudioFormat(48_000, 2)
         val bindings = FakeNativeDspBindings(processStatus = 3)
@@ -401,7 +432,10 @@ class NativeDspProcessorTest {
         var createdCabin: DoubleArray? = null
         var createdCabinStaticCoefficients: DoubleArray? = null
         var createdCabinDynamicEq: DoubleArray? = null
+        var createdHarmonic: DoubleArray? = null
+        var createdHarmonicFilterCoefficients: DoubleArray? = null
         var lastCabinBypass: Boolean? = null
+        var lastHarmonicBypass: Boolean? = null
         var seatFocusUpdateCalls = 0
         var lastSeatFocusUpdate: DoubleArray? = null
         var lastAdvancedMsMonitorMode: Int? = null
@@ -426,6 +460,8 @@ class NativeDspProcessorTest {
             cabin: DoubleArray,
             cabinStaticCoefficients: DoubleArray,
             cabinDynamicEq: DoubleArray,
+            harmonic: DoubleArray,
+            harmonicFilterCoefficients: DoubleArray,
         ): Long {
             createCalls++
             createdGainDb = gainDb
@@ -444,6 +480,8 @@ class NativeDspProcessorTest {
             createdCabin = cabin.copyOf()
             createdCabinStaticCoefficients = cabinStaticCoefficients.copyOf()
             createdCabinDynamicEq = cabinDynamicEq.copyOf()
+            createdHarmonic = harmonic.copyOf()
+            createdHarmonicFilterCoefficients = harmonicFilterCoefficients.copyOf()
             return createHandle
         }
 
@@ -481,6 +519,10 @@ class NativeDspProcessorTest {
         }
         override fun updateCabinBypass(handle: Long, bypassed: Boolean): Int {
             lastCabinBypass = bypassed
+            return 0
+        }
+        override fun updateHarmonicBypass(handle: Long, bypassed: Boolean): Int {
+            lastHarmonicBypass = bypassed
             return 0
         }
         override fun latencyFrames(handle: Long): Int = 0

@@ -66,6 +66,7 @@ data class DspAudioProfile(
         seatFocus = seatFocus,
         advancedMs = advancedMs,
         cabinCorrection = cabinCorrection,
+        harmonicEngine = harmonicEngine,
     )
 
     companion object {

@@ -117,6 +117,10 @@ For the pinned GeckoView 156 source, `onNewSession` must return a closed GeckoSe
 ## Lock a split's profile while allowing verified aliases
 
 Keep the selected context stable for an AirPlaySession when identity evidence overlaps. When Pair Verify later resolves a controller ID, bind that strong hash to the chosen fallback context for the next split, but never resolve a verified controller through weak aliases. Only hashed alias keys and profile hashes are persisted.
+
+## Use one prepared oversampling timeline for both Harmonic quality modes
+
+Use a 2×/4× polyphase Blackman-windowed sinc interpolator and the same FIR for decimation. Its two 32-frame stages yield one fixed 64-frame Harmonic latency regardless of quality; delay dry by the same amount. Keep High Exciter and Virtual Bass histories independent. A/B bypass changes an atomic target and crossfades for 20 ms without rebuilding the graph, so the stream clock and comparison level remain stable.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

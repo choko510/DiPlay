@@ -23,6 +23,8 @@ internal interface NativeDspBindings {
         cabin: DoubleArray,
         cabinStaticCoefficients: DoubleArray,
         cabinDynamicEq: DoubleArray,
+        harmonic: DoubleArray,
+        harmonicFilterCoefficients: DoubleArray,
     ): Long
     fun process(
         handle: Long,
@@ -39,6 +41,7 @@ internal interface NativeDspBindings {
     fun updateSeatFocus(handle: Long, values: DoubleArray): Int
     fun updateAdvancedMsMonitorMode(handle: Long, monitorMode: Int): Int
     fun updateCabinBypass(handle: Long, bypassed: Boolean): Int
+    fun updateHarmonicBypass(handle: Long, bypassed: Boolean): Int
     fun latencyFrames(handle: Long): Int
     fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
     fun destroy(handle: Long)
@@ -65,6 +68,8 @@ internal object NativeDspJni : NativeDspBindings {
         cabin: DoubleArray,
         cabinStaticCoefficients: DoubleArray,
         cabinDynamicEq: DoubleArray,
+        harmonic: DoubleArray,
+        harmonicFilterCoefficients: DoubleArray,
     ): Long = nativeCreate(
         sampleRate,
         channels,
@@ -85,6 +90,8 @@ internal object NativeDspJni : NativeDspBindings {
         cabin,
         cabinStaticCoefficients,
         cabinDynamicEq,
+        harmonic,
+        harmonicFilterCoefficients,
     )
 
     override fun process(
@@ -114,6 +121,8 @@ internal object NativeDspJni : NativeDspBindings {
     override fun updateAdvancedMsMonitorMode(handle: Long, monitorMode: Int): Int =
         nativeUpdateAdvancedMsMonitor(handle, monitorMode)
     override fun updateCabinBypass(handle: Long, bypassed: Boolean): Int = nativeUpdateCabinBypass(handle, bypassed)
+    override fun updateHarmonicBypass(handle: Long, bypassed: Boolean): Int =
+        nativeUpdateHarmonicBypass(handle, bypassed)
     override fun latencyFrames(handle: Long): Int = nativeGetLatencyFrames(handle)
     override fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int =
         nativeGetDiagnostics(handle, values, counters)
@@ -139,6 +148,8 @@ internal object NativeDspJni : NativeDspBindings {
         cabin: DoubleArray,
         cabinStaticCoefficients: DoubleArray,
         cabinDynamicEq: DoubleArray,
+        harmonic: DoubleArray,
+        harmonicFilterCoefficients: DoubleArray,
     ): Long
     private external fun nativeProcess(
         handle: Long,
@@ -155,6 +166,7 @@ internal object NativeDspJni : NativeDspBindings {
     private external fun nativeUpdateSeatFocus(handle: Long, values: DoubleArray): Int
     private external fun nativeUpdateAdvancedMsMonitor(handle: Long, monitorMode: Int): Int
     private external fun nativeUpdateCabinBypass(handle: Long, bypassed: Boolean): Int
+    private external fun nativeUpdateHarmonicBypass(handle: Long, bypassed: Boolean): Int
     private external fun nativeGetLatencyFrames(handle: Long): Int
     private external fun nativeGetDiagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
     private external fun nativeDestroy(handle: Long)
@@ -314,6 +326,25 @@ internal class NativeDspProcessor internal constructor(
         return true
     }
 
+    internal fun updateHarmonicBypass(bypassed: Boolean): Boolean {
+        val handle = nativeHandle
+        if (handle <= 0L || format.channels !in 1..2) return false
+        val status = try {
+            bindings.updateHarmonicBypass(handle, bypassed)
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        } catch (_: Exception) {
+            -1
+        }
+        if (status != NATIVE_OK) {
+            localNativeErrors++
+            return false
+        }
+        return true
+    }
+
     @Synchronized
     override fun diagnostics(): DspDiagnosticsSnapshot {
         val handle = nativeHandle
@@ -411,6 +442,8 @@ internal class NativeDspProcessor internal constructor(
                     cabin = prepared.cabin,
                     cabinStaticCoefficients = prepared.cabinStaticCoefficients,
                     cabinDynamicEq = prepared.cabinDynamicEq,
+                    harmonic = prepared.harmonic,
+                    harmonicFilterCoefficients = prepared.harmonicFilterCoefficients,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

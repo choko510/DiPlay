@@ -235,9 +235,9 @@ data class DspHighExciterConfig(
 
     companion object {
         const val DEFAULT_FREQUENCY_HZ = 5_000.0
-        private const val MIN_FREQUENCY_HZ = 1_000.0
-        private const val MAX_FREQUENCY_HZ = 16_000.0
-        private const val MAX_DRIVE = 8.0
+        const val MIN_FREQUENCY_HZ = 1_000.0
+        const val MAX_FREQUENCY_HZ = 16_000.0
+        const val MAX_DRIVE = 8.0
         private const val MIN_COMPENSATION_DB = -12.0
         private const val MAX_COMPENSATION_DB = 6.0
     }
@@ -265,15 +265,26 @@ data class DspVirtualBassConfig(
     }
 
     companion object {
-        private const val MIN_FUNDAMENTAL_HZ = 35.0
-        private const val MAX_FUNDAMENTAL_HZ = 80.0
-        private const val MAX_DRIVE = 8.0
+        const val MIN_FUNDAMENTAL_HZ = 35.0
+        const val MAX_FUNDAMENTAL_HZ = 80.0
+        const val MAX_DRIVE = 8.0
     }
 }
 
 data class DspHarmonicEngineConfig(
     val enabled: Boolean = false,
+    val bypassed: Boolean = false,
     val quality: DspHarmonicQuality = DspHarmonicQuality.TWO_X,
     val highExciter: DspHighExciterConfig = DspHighExciterConfig(),
     val virtualBass: DspVirtualBassConfig = DspVirtualBassConfig(),
-)
+) {
+    init {
+        require(quality == DspHarmonicQuality.TWO_X || quality == DspHarmonicQuality.FOUR_X)
+    }
+
+    companion object {
+        const val NATIVE_VALUE_COUNT = 18
+        const val NATIVE_FILTER_COEFFICIENT_COUNT = 20
+        const val ALGORITHM_LATENCY_FRAMES = 64
+    }
+}

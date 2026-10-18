@@ -19,6 +19,7 @@ class DspRuntimeConfig(
     val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
     val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
     val cabinCorrection: DspCabinCorrectionConfig = DspCabinCorrectionConfig(),
+    val harmonicEngine: DspHarmonicEngineConfig = DspHarmonicEngineConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double
@@ -41,6 +42,7 @@ class DspRuntimeConfig(
         seatFocus = seatFocus,
         advancedMs = advancedMs,
         cabinCorrection = cabinCorrection,
+        harmonicEngine = harmonicEngine,
     )
 
     fun withCabinCorrection(cabinCorrection: DspCabinCorrectionConfig): DspRuntimeConfig = DspRuntimeConfig(
@@ -60,6 +62,27 @@ class DspRuntimeConfig(
         seatFocus = seatFocus,
         advancedMs = advancedMs,
         cabinCorrection = cabinCorrection,
+        harmonicEngine = harmonicEngine,
+    )
+
+    internal fun withHarmonicEngine(harmonicEngine: DspHarmonicEngineConfig): DspRuntimeConfig = DspRuntimeConfig(
+        enabled = enabled,
+        gainDb = gainDb,
+        peqBands = peqBands,
+        autoHeadroomEnabled = autoHeadroomEnabled,
+        autoHeadroomMarginDb = autoHeadroomMarginDb,
+        bass = bass,
+        compressor = compressor,
+        safetyLimiter = safetyLimiter,
+        stereoWidth = stereoWidth,
+        monoBass = monoBass,
+        convolver = convolver,
+        multiband = multiband,
+        dynamicEq = dynamicEq,
+        seatFocus = seatFocus,
+        advancedMs = advancedMs,
+        cabinCorrection = cabinCorrection,
+        harmonicEngine = harmonicEngine,
     )
 
     internal fun hasSameNonSeatFocusConfig(other: DspRuntimeConfig): Boolean =
@@ -73,9 +96,15 @@ class DspRuntimeConfig(
 
     internal fun hasSameExceptCabinBypassConfig(other: DspRuntimeConfig): Boolean =
         hasSameBaseConfig(other) && seatFocus == other.seatFocus && advancedMs == other.advancedMs &&
+            harmonicEngine == other.harmonicEngine &&
             cabinCorrection.copy(bypassed = false) == other.cabinCorrection.copy(bypassed = false)
 
-    private fun hasSameBaseConfig(other: DspRuntimeConfig): Boolean =
+    internal fun hasSameExceptHarmonicBypassConfig(other: DspRuntimeConfig): Boolean =
+        hasSameBaseConfig(other, includeHarmonicEngine = false) && seatFocus == other.seatFocus &&
+            advancedMs == other.advancedMs && cabinCorrection == other.cabinCorrection &&
+            harmonicEngine.copy(bypassed = false) == other.harmonicEngine.copy(bypassed = false)
+
+    private fun hasSameBaseConfig(other: DspRuntimeConfig, includeHarmonicEngine: Boolean = true): Boolean =
         enabled == other.enabled &&
             gainDb == other.gainDb &&
             peqBands == other.peqBands &&
@@ -88,7 +117,8 @@ class DspRuntimeConfig(
             monoBass == other.monoBass &&
             convolver == other.convolver &&
             multiband == other.multiband &&
-            dynamicEq == other.dynamicEq
+            dynamicEq == other.dynamicEq &&
+            (!includeHarmonicEngine || harmonicEngine == other.harmonicEngine)
 
     init {
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)

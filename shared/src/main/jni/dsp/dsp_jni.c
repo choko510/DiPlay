@@ -90,6 +90,44 @@ static int dynamic_eq_config_from_values(
     return 1;
 }
 
+static int harmonic_config_from_values(
+    const double *values,
+    dsp_harmonic_config *config) {
+    if (values == NULL || config == NULL) return 0;
+    for (size_t index = 0; index < DSP_HARMONIC_NATIVE_VALUE_COUNT; index++) {
+        if (!isfinite(values[index])) return 0;
+    }
+    if ((values[0] != 0.0 && values[0] != 1.0) ||
+        (values[2] != 0.0 && values[2] != 1.0) ||
+        (values[9] != 0.0 && values[9] != 1.0) ||
+        (values[17] != 0.0 && values[17] != 1.0) ||
+        (double)(int)values[1] != values[1] ||
+        (double)(int)values[6] != values[6]) {
+        return 0;
+    }
+    *config = (dsp_harmonic_config) {
+        .enabled = (int)values[0],
+        .bypassed = (int)values[17],
+        .quality = (int)values[1],
+        .high_exciter_enabled = (int)values[2],
+        .high_exciter_frequency_hz = values[3],
+        .high_exciter_drive = values[4],
+        .high_exciter_amount = values[5],
+        .high_exciter_mode = (int)values[6],
+        .high_exciter_wet = values[7],
+        .high_exciter_compensation_db = values[8],
+        .virtual_bass_enabled = (int)values[9],
+        .virtual_bass_fundamental_low_hz = values[10],
+        .virtual_bass_fundamental_high_hz = values[11],
+        .virtual_bass_amount = values[12],
+        .virtual_bass_drive = values[13],
+        .virtual_bass_second_amount = values[14],
+        .virtual_bass_third_amount = values[15],
+        .virtual_bass_wet = values[16],
+    };
+    return dsp_harmonic_validate_config(config);
+}
+
 static uint32_t next_generation(uint32_t current) {
     return current >= DSP_MAX_HANDLE_GENERATION ? 1 : current + 1;
 }
@@ -208,7 +246,9 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jdoubleArray advanced_ms_coefficients,
     jdoubleArray cabin_values,
     jdoubleArray cabin_static_coefficients,
-    jdoubleArray cabin_dynamic_eq_values) {
+    jdoubleArray cabin_dynamic_eq_values,
+    jdoubleArray harmonic_values,
+    jdoubleArray harmonic_filter_coefficients) {
     (void)env;
     (void)receiver;
     if (peq_coefficients == NULL || dynamics_values == NULL || multiband_values == NULL ||
@@ -216,7 +256,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         mono_bass_coefficients == NULL || spatial_values == NULL || convolver_values == NULL ||
         convolver_samples == NULL || seat_focus_values == NULL || advanced_ms_values == NULL ||
         advanced_ms_coefficients == NULL || cabin_values == NULL || cabin_static_coefficients == NULL ||
-        cabin_dynamic_eq_values == NULL) {
+        cabin_dynamic_eq_values == NULL || harmonic_values == NULL || harmonic_filter_coefficients == NULL) {
         return 0;
     }
     const jsize coefficient_count = (*env)->GetArrayLength(env, peq_coefficients);
@@ -234,6 +274,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     const jsize cabin_value_count = (*env)->GetArrayLength(env, cabin_values);
     const jsize cabin_static_coefficient_count = (*env)->GetArrayLength(env, cabin_static_coefficients);
     const jsize cabin_dynamic_eq_count = (*env)->GetArrayLength(env, cabin_dynamic_eq_values);
+    const jsize harmonic_value_count = (*env)->GetArrayLength(env, harmonic_values);
+    const jsize harmonic_filter_coefficient_count = (*env)->GetArrayLength(env, harmonic_filter_coefficients);
     if (coefficient_count < 0 || coefficient_count >
             DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
         coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10 ||
@@ -248,6 +290,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         cabin_static_coefficient_count > DSP_CABIN_MAX_CUTS * DSP_BIQUAD_COEFFICIENT_COUNT ||
         cabin_static_coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 ||
         cabin_dynamic_eq_count != DSP_DYNAMIC_EQ_VALUES_COUNT ||
+        harmonic_value_count != DSP_HARMONIC_NATIVE_VALUE_COUNT ||
+        harmonic_filter_coefficient_count != DSP_HARMONIC_COEFFICIENT_COUNT ||
         convolver_sample_count < 0 ||
         convolver_sample_count > DSP_CONVOLVER_MAX_IR_FRAMES * 2) {
         return 0;
@@ -267,6 +311,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     double cabin_static_coefficients_data[
         DSP_CABIN_MAX_CUTS * DSP_BIQUAD_COEFFICIENT_COUNT];
     double cabin_dynamic_eq_values_data[DSP_DYNAMIC_EQ_VALUES_COUNT];
+    double harmonic_values_data[DSP_HARMONIC_NATIVE_VALUE_COUNT];
+    double harmonic_filter_coefficients_data[DSP_HARMONIC_COEFFICIENT_COUNT];
     if (coefficient_count > 0) {
         (*env)->GetDoubleArrayRegion(env, peq_coefficients, 0, coefficient_count, coefficients);
         if ((*env)->ExceptionCheck(env)) {
@@ -397,6 +443,20 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     if (!dynamic_eq_config_from_values(cabin_dynamic_eq_values_data, &cabin_dynamic_eq_config) ||
         (cabin_values_data[0] == 0.0 && cabin_dynamic_eq_config.enabled != 0)) {
         return 0;
+    }
+    (*env)->GetDoubleArrayRegion(env, harmonic_values, 0, harmonic_value_count, harmonic_values_data);
+    if ((*env)->ExceptionCheck(env)) return 0;
+    dsp_harmonic_config harmonic_config;
+    if (!harmonic_config_from_values(harmonic_values_data, &harmonic_config)) return 0;
+    (*env)->GetDoubleArrayRegion(
+        env,
+        harmonic_filter_coefficients,
+        0,
+        harmonic_filter_coefficient_count,
+        harmonic_filter_coefficients_data);
+    if ((*env)->ExceptionCheck(env)) return 0;
+    for (jsize index = 0; index < harmonic_filter_coefficient_count; index++) {
+        if (!isfinite(harmonic_filter_coefficients_data[index])) return 0;
     }
     (*env)->GetDoubleArrayRegion(env, convolver_values, 0, convolver_value_count, convolver_values_data);
     if ((*env)->ExceptionCheck(env) || (convolver_values_data[0] != 0.0 && convolver_values_data[0] != 1.0) ||
@@ -536,7 +596,10 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         &cabin_config,
         cabin_static_coefficient_count > 0 ? cabin_static_coefficients_data : NULL,
         cabin_static_coefficient_count,
-        &cabin_dynamic_eq_config);
+        &cabin_dynamic_eq_config,
+        &harmonic_config,
+        harmonic_filter_coefficients_data,
+        (size_t)harmonic_filter_coefficient_count);
     if (impulse_samples != NULL) {
         (*env)->ReleaseFloatArrayElements(env, convolver_samples, impulse_samples, JNI_ABORT);
     }
@@ -698,6 +761,24 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeUpdateCabinBypass(
         return DSP_STATUS_INVALID_HANDLE;
     }
     const dsp_status status = dsp_engine_update_cabin_bypass(lease.engine, (int)bypassed);
+    release_engine(&lease);
+    return (jint)status;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeUpdateHarmonicBypass(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jboolean bypassed) {
+    (void)env;
+    (void)receiver;
+    if (bypassed != JNI_TRUE && bypassed != JNI_FALSE) return DSP_STATUS_INVALID_ARGUMENT;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) {
+        return DSP_STATUS_INVALID_HANDLE;
+    }
+    const dsp_status status = dsp_engine_update_harmonic_bypass(lease.engine, (int)bypassed);
     release_engine(&lease);
     return (jint)status;
 }

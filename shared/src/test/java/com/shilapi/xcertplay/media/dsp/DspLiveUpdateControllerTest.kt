@@ -148,6 +148,49 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
+    fun temporaryHarmonicBypassAppliesWithoutPreparingAReplacementGraph() {
+        val initial = DspRuntimeConfig(
+            enabled = true,
+            harmonicEngine = DspHarmonicEngineConfig(
+                enabled = true,
+                highExciter = DspHighExciterConfig(enabled = true, wet = 0.8),
+            ),
+        )
+        val provider = MutableConfigProvider(initial)
+        val activeConfig = AtomicReference(initial)
+        val applied = LinkedBlockingQueue<DspConfigSnapshot>()
+        val preparedCalls = AtomicInteger()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES },
+            activeConfig = { activeConfig.get() },
+            onHarmonicBypassUpdate = { snapshot ->
+                applied.offer(snapshot)
+                activeConfig.set(snapshot.config)
+                true
+            },
+            onPrepared = { preparedCalls.incrementAndGet(); it.pipeline?.close() },
+            pipelinePreparer = { format, _ ->
+                preparedCalls.incrementAndGet()
+                trackingPipeline(format, DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES) { }
+            },
+        )
+
+        provider.update(
+            initial.withHarmonicEngine(initial.harmonicEngine.copy(bypassed = true)),
+        )
+
+        val update = applied.poll(5, TimeUnit.SECONDS)
+        assertNotNull(update)
+        assertTrue(update?.config?.harmonicEngine?.bypassed == true)
+        assertEquals(0, preparedCalls.get())
+        controller.close()
+    }
+
+    @Test
     fun cabinAbBypassTargetsUpdateInPlaceWithoutRebuildingTheGraph() {
         val initial = DspRuntimeConfig(
             enabled = true,

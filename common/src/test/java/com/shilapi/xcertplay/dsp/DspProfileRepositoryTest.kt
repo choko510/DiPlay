@@ -230,6 +230,28 @@ class DspProfileRepositoryTest {
     }
 
     @Test
+    fun temporaryHarmonicBypassIsNotPersistedInTheProfile() {
+        val repository = repository()
+        val profile = DspProfilePresets.customProfile("custom1").copy(
+            harmonicEngine = DspHarmonicEngineConfig(
+                enabled = true,
+                bypassed = true,
+                highExciter = DspHighExciterConfig(enabled = true, wet = 0.8),
+            ),
+        )
+
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        val json = JSONObject(profileFile.readText()).getJSONObject("harmonicEngine")
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertFalse(json.has("bypassed"))
+        assertTrue(loaded.profile.harmonicEngine.enabled)
+        assertTrue(loaded.profile.harmonicEngine.highExciter.enabled)
+        assertFalse(loaded.profile.harmonicEngine.bypassed)
+    }
+
+    @Test
     fun profileMapsToAnImmutableRuntimeSnapshotAndRespectsTheMasterSwitch() {
         val profile = DspAudioProfile(
             id = "custom2",

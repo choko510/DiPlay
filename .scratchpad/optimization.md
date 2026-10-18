@@ -61,3 +61,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 ## 2026-10-10 — Cabin correction preparation
 
 - Prepare at most five static cut biquads and a separate five-band Dynamic EQ detector from approved measurement cuts. Static/dynamic coefficients are built before processing; the Cabin node adds no fixed latency or process-time allocation. The 20 ms A/B bypass continues filter/detector state while dry is selected. Native pipeline p99 and block allocation deltas remain part of the final integration matrix.
+
+## 2026-10-19 — Harmonic Engine preparation
+
+- Implement the oversampler as polyphase FIRs rather than filtering a fully zero-stuffed stream. Coefficients and independent high/bass histories are prepared off-thread; processing performs no allocation and skips biquad work for inactive branches. 2× uses 129 taps, 4× uses 257 taps, and both reserve 64 frames. Host tests measured -129.26/-129.56 dBc for the 18 kHz alias from a 10 kHz ODD-mode input at 2×/4×. Android pipeline p99, peak memory, and allocation deltas are still pending the integration benchmark.

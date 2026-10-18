@@ -294,3 +294,9 @@ For the all-pass split, the coefficient sign determines whether low frequencies 
 ## Separate peak prominence from music spectrum
 
 Cabin candidates should come from a user-imported response curve and use a local logarithmic baseline. A one-sided baseline handles adjacent measured resonances better than averaging both peak skirts; estimate Q from local curvature so nearby peaks do not merge into an artificially broad cut. Keep confidence labelled as a prominence heuristic, not measured SNR.
+
+## Harmonic Engine
+
+- The native layout tests should use designated initializers for DSP config structs. Adding a field to a positional initializer silently moves every later value and can make a test exercise a different quality/mode than its name indicates.
+- Measure folded alias energy at the expected fold frequency and compare against the original fundamental. Separate high and bass oversampler histories; sharing them leaks one branch's spectral content into the other.
+- A continuous high-frequency harmonic naturally has a large sample-to-sample slope. Judge A/B continuity against the active residual's baseline slope, then separately assert that the final block equals the latency-aligned dry signal.

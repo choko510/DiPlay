@@ -45,6 +45,8 @@ class NativeDspBridgeInstrumentedTest {
             cabin = prepared.cabin,
             cabinStaticCoefficients = prepared.cabinStaticCoefficients,
             cabinDynamicEq = prepared.cabinDynamicEq,
+            harmonic = prepared.harmonic,
+            harmonicFilterCoefficients = prepared.harmonicFilterCoefficients,
         )
         assertTrue(handle > 0L)
         try {
@@ -624,6 +626,49 @@ class NativeDspBridgeInstrumentedTest {
             val output = ByteBuffer.allocateDirect(Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
             assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames = 1).status)
             assertEquals(0.5f, output.getFloat(0), 1e-6f)
+        } finally {
+            processor.close()
+        }
+    }
+
+    @Test
+    fun harmonicABBypassUsesTheNativeUpdateEntryPointAndKeepsLatency() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(sampleRate = 48_000, channels = 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                harmonicEngine = DspHarmonicEngineConfig(
+                    enabled = true,
+                    quality = DspHarmonicQuality.FOUR_X,
+                    highExciter = DspHighExciterConfig(
+                        enabled = true,
+                        drive = 2.0,
+                        amount = 0.8,
+                        mode = DspHarmonicMode.ODD,
+                        wet = 0.8,
+                    ),
+                ),
+            ),
+        )
+        assertNotNull(processor)
+        processor ?: return
+
+        try {
+            assertEquals(DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES, processor.latencyFrames)
+            val input = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            val output = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            repeat(512) { frame ->
+                val sample = (0.25 * sin(2.0 * PI * 6_000.0 * frame / 48_000.0)).toFloat()
+                input.putFloat(sample)
+                input.putFloat(sample)
+            }
+            input.flip()
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames = 512).status)
+            assertTrue(processor.updateHarmonicBypass(true))
+            assertEquals(DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES, processor.latencyFrames)
+            assertEquals(0L, processor.diagnostics().nativeErrorCount)
         } finally {
             processor.close()
         }

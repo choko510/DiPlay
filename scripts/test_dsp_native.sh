@@ -40,6 +40,7 @@ fi
   "$source_dir/dsp_spatial.c" \
   "$source_dir/dsp_seat_focus.c" \
   "$source_dir/dsp_cabin.c" \
+  "$source_dir/dsp_harmonic.c" \
   "$source_dir/dsp_convolver.c" \
   "$source_dir/dsp_gain.c" \
   "$source_dir/dsp_meter.c" \

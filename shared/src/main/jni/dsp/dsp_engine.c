@@ -126,6 +126,27 @@ dsp_engine *dsp_engine_create_with_seat_focus(
         disabled_cabin_dynamic_eq.bands[band].enabled = 0;
     }
     const dsp_cabin_config disabled_cabin = {0, 0, 0};
+    const dsp_harmonic_config disabled_harmonic = {
+        .enabled = 0,
+        .bypassed = 0,
+        .quality = 2,
+        .high_exciter_enabled = 0,
+        .high_exciter_frequency_hz = 5000.0,
+        .high_exciter_drive = 1.0,
+        .high_exciter_amount = 0.5,
+        .high_exciter_mode = DSP_HARMONIC_MODE_MIXED,
+        .high_exciter_wet = 0.0,
+        .high_exciter_compensation_db = 0.0,
+        .virtual_bass_enabled = 0,
+        .virtual_bass_fundamental_low_hz = 35.0,
+        .virtual_bass_fundamental_high_hz = 80.0,
+        .virtual_bass_amount = 0.5,
+        .virtual_bass_drive = 1.0,
+        .virtual_bass_second_amount = 0.5,
+        .virtual_bass_third_amount = 0.25,
+        .virtual_bass_wet = 0.0,
+    };
+    const double disabled_harmonic_coefficients[DSP_HARMONIC_COEFFICIENT_COUNT] = {0.0};
     return dsp_engine_create_with_modules(
         sample_rate,
         channels,
@@ -149,7 +170,10 @@ dsp_engine *dsp_engine_create_with_seat_focus(
         &disabled_cabin,
         NULL,
         0,
-        &disabled_cabin_dynamic_eq);
+        &disabled_cabin_dynamic_eq,
+        &disabled_harmonic,
+        disabled_harmonic_coefficients,
+        DSP_HARMONIC_COEFFICIENT_COUNT);
 }
 
 dsp_engine *dsp_engine_create_with_modules(
@@ -175,7 +199,10 @@ dsp_engine *dsp_engine_create_with_modules(
     const dsp_cabin_config *cabin_config,
     const double *cabin_static_coefficients,
     int cabin_static_coefficient_count,
-    const dsp_dynamic_eq_config *cabin_dynamic_eq_config) {
+    const dsp_dynamic_eq_config *cabin_dynamic_eq_config,
+    const dsp_harmonic_config *harmonic_config,
+    const double *harmonic_filter_coefficients,
+    size_t harmonic_filter_coefficient_count) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
         peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
@@ -191,7 +218,9 @@ dsp_engine *dsp_engine_create_with_modules(
         cabin_config == NULL || cabin_dynamic_eq_config == NULL ||
         cabin_static_coefficient_count < 0 ||
         cabin_static_coefficient_count > DSP_CABIN_MAX_CUTS * DSP_BIQUAD_COEFFICIENT_COUNT ||
-        (cabin_static_coefficient_count > 0 && cabin_static_coefficients == NULL)) {
+        (cabin_static_coefficient_count > 0 && cabin_static_coefficients == NULL) ||
+        harmonic_config == NULL || harmonic_filter_coefficients == NULL ||
+        harmonic_filter_coefficient_count != DSP_HARMONIC_COEFFICIENT_COUNT) {
         return NULL;
     }
 
@@ -234,7 +263,10 @@ dsp_engine *dsp_engine_create_with_modules(
             cabin_config,
             cabin_static_coefficients,
             cabin_static_coefficient_count,
-            cabin_dynamic_eq_config)) {
+            cabin_dynamic_eq_config,
+            harmonic_config,
+            harmonic_filter_coefficients,
+            harmonic_filter_coefficient_count)) {
         dsp_graph_close(&engine->graph);
         free(engine);
         return NULL;
@@ -363,6 +395,17 @@ dsp_status dsp_engine_update_cabin_bypass(dsp_engine *engine, int bypassed) {
         return DSP_STATUS_INVALID_HANDLE;
     }
     if (!dsp_graph_update_cabin_bypass(&engine->graph, bypassed)) {
+        saturating_add_counter(&engine->native_error_count, 1);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    return DSP_STATUS_OK;
+}
+
+dsp_status dsp_engine_update_harmonic_bypass(dsp_engine *engine, int bypassed) {
+    if (!engine_is_prepared(engine)) {
+        return DSP_STATUS_INVALID_HANDLE;
+    }
+    if (!dsp_graph_update_harmonic_bypass(&engine->graph, bypassed)) {
         saturating_add_counter(&engine->native_error_count, 1);
         return DSP_STATUS_INVALID_ARGUMENT;
     }

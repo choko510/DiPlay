@@ -96,6 +96,9 @@ internal class DspPcmPipeline(
     internal fun updateCabinBypass(bypassed: Boolean): Boolean =
         (processor as? NativeDspProcessor)?.updateCabinBypass(bypassed) == true
 
+    internal fun updateHarmonicBypass(bypassed: Boolean): Boolean =
+        (processor as? NativeDspProcessor)?.updateHarmonicBypass(bypassed) == true
+
     private fun processInternal(
         source: ByteArray,
         offset: Int,

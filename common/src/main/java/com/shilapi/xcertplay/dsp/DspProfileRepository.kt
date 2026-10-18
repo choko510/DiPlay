@@ -63,7 +63,7 @@ private val CABIN_KNOWN_FIELDS = setOf(
 private val CABIN_CUT_KNOWN_FIELDS = setOf(
     "frequencyHz", "q", "reductionDb", "enabled", "source", "prominenceDb", "confidence",
 )
-private val HARMONIC_KNOWN_FIELDS = setOf("enabled", "quality", "highExciter", "virtualBass")
+private val HARMONIC_KNOWN_FIELDS = setOf("enabled", "bypassed", "quality", "highExciter", "virtualBass")
 private val HIGH_EXCITER_KNOWN_FIELDS = setOf(
     "enabled", "frequencyHz", "drive", "amount", "mode", "wet", "outputCompensationDb",
 )

@@ -144,6 +144,27 @@ static dsp_engine *create_test_engine_with_advanced_ms(
     int mono_bass_coefficient_count) {
     const dsp_seat_focus_config disabled_seat_focus = {0};
     const dsp_cabin_config disabled_cabin = {0, 0, 0};
+    const dsp_harmonic_config disabled_harmonic = {
+        .enabled = 0,
+        .bypassed = 0,
+        .quality = 2,
+        .high_exciter_enabled = 0,
+        .high_exciter_frequency_hz = 5000.0,
+        .high_exciter_drive = 1.0,
+        .high_exciter_amount = 0.5,
+        .high_exciter_mode = DSP_HARMONIC_MODE_MIXED,
+        .high_exciter_wet = 0.0,
+        .high_exciter_compensation_db = 0.0,
+        .virtual_bass_enabled = 0,
+        .virtual_bass_fundamental_low_hz = 35.0,
+        .virtual_bass_fundamental_high_hz = 80.0,
+        .virtual_bass_amount = 0.5,
+        .virtual_bass_drive = 1.0,
+        .virtual_bass_second_amount = 0.5,
+        .virtual_bass_third_amount = 0.25,
+        .virtual_bass_wet = 0.0,
+    };
+    const double disabled_harmonic_coefficients[DSP_HARMONIC_COEFFICIENT_COUNT] = {0.0};
     return dsp_engine_create_with_modules(
         sample_rate,
         channels,
@@ -167,7 +188,10 @@ static dsp_engine *create_test_engine_with_advanced_ms(
         &disabled_cabin,
         NULL,
         0,
-        &bypass_dynamic_eq);
+        &bypass_dynamic_eq,
+        &disabled_harmonic,
+        disabled_harmonic_coefficients,
+        DSP_HARMONIC_COEFFICIENT_COUNT);
 }
 
 static dsp_engine *create_test_engine_with_cabin(
@@ -186,6 +210,27 @@ static dsp_engine *create_test_engine_with_cabin(
     const double disabled_advanced_ms_coefficients[
         DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0.0};
     const dsp_spatial_config spatial = {1.0, 0, 120};
+    const dsp_harmonic_config disabled_harmonic = {
+        .enabled = 0,
+        .bypassed = 0,
+        .quality = 2,
+        .high_exciter_enabled = 0,
+        .high_exciter_frequency_hz = 5000.0,
+        .high_exciter_drive = 1.0,
+        .high_exciter_amount = 0.5,
+        .high_exciter_mode = DSP_HARMONIC_MODE_MIXED,
+        .high_exciter_wet = 0.0,
+        .high_exciter_compensation_db = 0.0,
+        .virtual_bass_enabled = 0,
+        .virtual_bass_fundamental_low_hz = 35.0,
+        .virtual_bass_fundamental_high_hz = 80.0,
+        .virtual_bass_amount = 0.5,
+        .virtual_bass_drive = 1.0,
+        .virtual_bass_second_amount = 0.5,
+        .virtual_bass_third_amount = 0.25,
+        .virtual_bass_wet = 0.0,
+    };
+    const double disabled_harmonic_coefficients[DSP_HARMONIC_COEFFICIENT_COUNT] = {0.0};
     return dsp_engine_create_with_modules(
         sample_rate,
         channels,
@@ -209,7 +254,53 @@ static dsp_engine *create_test_engine_with_cabin(
         cabin_config,
         static_coefficients,
         static_coefficient_count,
-        cabin_dynamic_eq_config);
+        cabin_dynamic_eq_config,
+        &disabled_harmonic,
+        disabled_harmonic_coefficients,
+        DSP_HARMONIC_COEFFICIENT_COUNT);
+}
+
+static dsp_engine *create_test_engine_with_harmonic(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_harmonic_config *harmonic_config,
+    const double *filter_coefficients) {
+    const dsp_seat_focus_config disabled_seat_focus = {0};
+    const dsp_advanced_ms_config disabled_advanced_ms = {
+        0, 0.0, 0.0, 1.0, 1.0, 1.0, 150.0, 4000.0, 0.0,
+        DSP_ADVANCED_MS_MONITOR_NORMAL, 0, 0,
+    };
+    const double disabled_advanced_ms_coefficients[
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0.0};
+    const dsp_cabin_config disabled_cabin = {0, 0, 0};
+    return dsp_engine_create_with_modules(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        &bypass_convolver,
+        &disabled_seat_focus,
+        &disabled_advanced_ms,
+        disabled_advanced_ms_coefficients,
+        DSP_ADVANCED_MS_COEFFICIENT_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT,
+        &disabled_cabin,
+        NULL,
+        0,
+        &bypass_dynamic_eq,
+        harmonic_config,
+        filter_coefficients,
+        DSP_HARMONIC_COEFFICIENT_COUNT);
 }
 
 static dsp_engine *create_test_engine_with_convolver(
@@ -1056,6 +1147,80 @@ static void design_high_pass(double sample_rate, double frequency, double q, dou
     coefficients[4] = (1.0 - alpha) / a0;
 }
 
+static void design_low_pass(double sample_rate, double frequency, double q, double coefficients[5]) {
+    const double pi = 3.14159265358979323846;
+    const double omega = 2.0 * pi * frequency / sample_rate;
+    const double cosine = cos(omega);
+    const double alpha = sin(omega) / (2.0 * q);
+    const double a0 = 1.0 + alpha;
+    coefficients[0] = (1.0 - cosine) / (2.0 * a0);
+    coefficients[1] = (1.0 - cosine) / a0;
+    coefficients[2] = (1.0 - cosine) / (2.0 * a0);
+    coefficients[3] = -2.0 * cosine / a0;
+    coefficients[4] = (1.0 - alpha) / a0;
+}
+
+typedef struct {
+    double fundamental;
+    double second;
+    double third;
+} dsp_test_harmonic_spectrum;
+
+static dsp_test_harmonic_spectrum measure_harmonic_spectrum(
+    dsp_engine *engine,
+    int channels,
+    double input_frequency,
+    double amplitude) {
+    const size_t total_frames = 48000U;
+    const size_t warmup_frames = 4800U;
+    const double output_frequencies[3] = {input_frequency, input_frequency * 2.0, input_frequency * 3.0};
+    double sine_sums[3] = {0.0, 0.0, 0.0};
+    double cosine_sums[3] = {0.0, 0.0, 0.0};
+    const size_t measured_frames = total_frames - warmup_frames;
+    size_t position = 0;
+    while (position < total_frames) {
+        const size_t frames = total_frames - position < 512U ? total_frames - position : 512U;
+        float input[512];
+        float mono_output[512];
+        float stereo_input[1024];
+        float stereo_output[1024];
+        for (size_t frame = 0; frame < frames; frame++) {
+            const size_t sample_index = position + frame;
+            const float sample = (float)(amplitude * sin(2.0 * 3.14159265358979323846 * input_frequency *
+                (double)sample_index / 48000.0));
+            if (channels == 1) {
+                input[frame] = sample;
+            } else {
+                stereo_input[frame * 2U] = sample;
+                stereo_input[frame * 2U + 1U] = sample;
+            }
+        }
+        const float *input_buffer = channels == 1 ? input : stereo_input;
+        float *output_buffer = channels == 1 ? mono_output : stereo_output;
+        assert_true(dsp_engine_process(engine, input_buffer, frames * (size_t)channels,
+            output_buffer, frames * (size_t)channels, (int)frames, channels) == DSP_STATUS_OK,
+            "harmonic test tone block processes");
+        for (size_t frame = 0; frame < frames; frame++) {
+            const size_t sample_index = position + frame;
+            if (sample_index < warmup_frames) continue;
+            for (size_t bin = 0; bin < 3U; bin++) {
+                const double phase = 2.0 * 3.14159265358979323846 * output_frequencies[bin] *
+                    (double)sample_index / 48000.0;
+                const float output_sample = output_buffer[frame * (size_t)channels];
+                sine_sums[bin] += (double)output_sample * sin(phase);
+                cosine_sums[bin] += (double)output_sample * cos(phase);
+            }
+        }
+        position += frames;
+    }
+    const double scale = 2.0 / (double)measured_frames;
+    return (dsp_test_harmonic_spectrum) {
+        scale * hypot(sine_sums[0], cosine_sums[0]),
+        scale * hypot(sine_sums[1], cosine_sums[1]),
+        scale * hypot(sine_sums[2], cosine_sums[2]),
+    };
+}
+
 static double measure_sine_gain_with_amplitude(dsp_engine *engine, double frequency, int channels, double amplitude) {
     double input_square = 0.0;
     double output_square = 0.0;
@@ -1290,6 +1455,347 @@ static void test_cabin_static_and_dynamic_cuts_are_measurement_band_limited(void
     assert_true(dsp_engine_update_cabin_bypass(engine, 2) == DSP_STATUS_INVALID_ARGUMENT,
         "native Cabin A/B update rejects unknown values");
     dsp_engine_destroy(engine);
+}
+
+static void test_harmonic_exciter_virtual_bass_oversampling_and_fixed_latency(void) {
+    double high_coefficients[DSP_HARMONIC_COEFFICIENT_COUNT] = {0.0};
+    double virtual_bass_coefficients[DSP_HARMONIC_COEFFICIENT_COUNT] = {0.0};
+    design_high_pass(48000.0, 5000.0, 0.7071067811865476, high_coefficients);
+    design_low_pass(48000.0, 16000.0, 0.7071067811865476, high_coefficients + 5);
+    design_high_pass(48000.0, 35.0, 0.7071067811865476, virtual_bass_coefficients + 10);
+    design_low_pass(48000.0, 80.0, 0.7071067811865476, virtual_bass_coefficients + 15);
+
+    dsp_harmonic_config exciter = {
+        .enabled = 1,
+        .bypassed = 0,
+        .quality = 2,
+        .high_exciter_enabled = 1,
+        .high_exciter_frequency_hz = 5000.0,
+        .high_exciter_drive = 2.0,
+        .high_exciter_amount = 0.75,
+        .high_exciter_mode = DSP_HARMONIC_MODE_EVEN,
+        .high_exciter_wet = 1.0,
+        .high_exciter_compensation_db = 0.0,
+        .virtual_bass_enabled = 0,
+        .virtual_bass_fundamental_low_hz = 35.0,
+        .virtual_bass_fundamental_high_hz = 80.0,
+        .virtual_bass_amount = 0.5,
+        .virtual_bass_drive = 2.0,
+        .virtual_bass_second_amount = 1.0,
+        .virtual_bass_third_amount = 1.0,
+        .virtual_bass_wet = 0.0,
+    };
+    dsp_engine *engine = create_test_engine_with_harmonic(48000, 1, 512, &exciter, high_coefficients);
+    assert_true(engine != NULL, "2x high exciter graph creates");
+    assert_true(dsp_engine_get_latency_frames(engine) == 64, "2x high exciter reports aligned interpolation and decimation delay");
+    const dsp_test_harmonic_spectrum even_spectrum = measure_harmonic_spectrum(engine, 1, 6000.0, 0.3);
+    assert_near(even_spectrum.fundamental, 0.3, 0.01,
+        "even exciter cancels its fundamental residual");
+    assert_true(even_spectrum.second > 0.005, "even exciter creates a measurable second harmonic");
+    assert_true(even_spectrum.third < even_spectrum.second * 0.2,
+        "even exciter produces less third than second harmonic");
+    dsp_engine_destroy(engine);
+
+    exciter.high_exciter_mode = DSP_HARMONIC_MODE_ODD;
+    engine = create_test_engine_with_harmonic(48000, 1, 512, &exciter, high_coefficients);
+    assert_true(engine != NULL, "odd high exciter graph creates");
+    const dsp_test_harmonic_spectrum odd_spectrum = measure_harmonic_spectrum(engine, 1, 6000.0, 0.3);
+    assert_near(odd_spectrum.fundamental, 0.3, 0.01,
+        "odd exciter cancels its fundamental residual");
+    assert_true(odd_spectrum.third > 0.002, "odd exciter creates a measurable third harmonic");
+    assert_true(odd_spectrum.second < odd_spectrum.third * 0.2,
+        "odd exciter produces less second than third harmonic");
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_harmonic(48000, 1, 512, &exciter, high_coefficients);
+    assert_true(engine != NULL, "2x alias test graph creates");
+    const dsp_test_harmonic_spectrum odd_2x_alias = measure_harmonic_spectrum(engine, 1, 10000.0, 0.25);
+    dsp_engine_destroy(engine);
+    exciter.quality = 4;
+    engine = create_test_engine_with_harmonic(48000, 1, 512, &exciter, high_coefficients);
+    assert_true(engine != NULL, "4x high exciter graph creates");
+    const dsp_test_harmonic_spectrum odd_4x_alias = measure_harmonic_spectrum(engine, 1, 10000.0, 0.25);
+    const double alias_2x_db = 20.0 * log10(odd_2x_alias.third / odd_2x_alias.fundamental);
+    const double alias_4x_db = 20.0 * log10(odd_4x_alias.third / odd_4x_alias.fundamental);
+    printf("DSP_HARMONIC_ALIAS mode=odd inputHz=10000 quality=2x dBc=%.2f quality=4x dBc=%.2f\n",
+        alias_2x_db, alias_4x_db);
+    assert_true(alias_2x_db < -50.0 && alias_4x_db < -50.0,
+        "oversampled exciter attenuates the 30kHz product folded at 18kHz below -50dBc");
+    assert_true(dsp_engine_get_latency_frames(engine) == 64, "2x and 4x modes share a fixed graph latency");
+    dsp_engine_destroy(engine);
+
+    dsp_harmonic_config virtual_bass = {
+        .enabled = 1,
+        .bypassed = 0,
+        .quality = 4,
+        .high_exciter_enabled = 0,
+        .high_exciter_frequency_hz = 5000.0,
+        .high_exciter_drive = 1.0,
+        .high_exciter_amount = 0.5,
+        .high_exciter_mode = DSP_HARMONIC_MODE_MIXED,
+        .high_exciter_wet = 0.0,
+        .high_exciter_compensation_db = 0.0,
+        .virtual_bass_enabled = 1,
+        .virtual_bass_fundamental_low_hz = 35.0,
+        .virtual_bass_fundamental_high_hz = 80.0,
+        .virtual_bass_amount = 1.0,
+        .virtual_bass_drive = 2.0,
+        .virtual_bass_second_amount = 1.0,
+        .virtual_bass_third_amount = 1.0,
+        .virtual_bass_wet = 1.0,
+    };
+    engine = create_test_engine_with_harmonic(48000, 2, 512, &virtual_bass, virtual_bass_coefficients);
+    assert_true(engine != NULL, "4x virtual bass graph creates");
+    const dsp_test_harmonic_spectrum bass_spectrum = measure_harmonic_spectrum(engine, 2, 50.0, 0.2);
+    assert_true(dsp_engine_get_latency_frames(engine) == 64, "virtual bass uses the declared fixed latency");
+    assert_true(bass_spectrum.second > 0.004, "virtual bass creates a measured second harmonic");
+    assert_true(bass_spectrum.third > 0.001, "virtual bass creates a measured third harmonic");
+    assert_near(bass_spectrum.fundamental, 0.2, 0.01,
+        "virtual bass generation does not boost the in-band fundamental");
+    dsp_engine_destroy(engine);
+
+    exciter.high_exciter_wet = 0.0;
+    engine = create_test_engine_with_harmonic(48000, 1, 512, &exciter, high_coefficients);
+    assert_true(engine != NULL, "zero-wet exciter bypass graph creates");
+    assert_true(dsp_engine_get_latency_frames(engine) == 0, "zero-wet exciter adds no latency");
+    float input[] = {0.25f, -0.5f, 0.75f, -1.0f};
+    float output[4] = {0.0f};
+    assert_true(dsp_engine_process(engine, input, 4, output, 4, 4, 1) == DSP_STATUS_OK,
+        "zero-wet exciter bypass block processes");
+    for (size_t index = 0; index < 4U; index++) {
+        assert_near(output[index], input[index], 1e-7, "zero-wet exciter is an exact identity");
+    }
+    dsp_engine_destroy(engine);
+}
+
+static void test_harmonic_silence_impulse_channel_isolation_and_sample_rates(void) {
+    const int sample_rates[] = {44100, 48000, 96000};
+    const dsp_harmonic_config config = {
+        .enabled = 1,
+        .bypassed = 0,
+        .quality = 2,
+        .high_exciter_enabled = 1,
+        .high_exciter_frequency_hz = 5000.0,
+        .high_exciter_drive = 2.0,
+        .high_exciter_amount = 0.5,
+        .high_exciter_mode = DSP_HARMONIC_MODE_MIXED,
+        .high_exciter_wet = 0.75,
+        .high_exciter_compensation_db = 0.0,
+        .virtual_bass_enabled = 0,
+        .virtual_bass_fundamental_low_hz = 35.0,
+        .virtual_bass_fundamental_high_hz = 80.0,
+        .virtual_bass_amount = 0.5,
+        .virtual_bass_drive = 1.0,
+        .virtual_bass_second_amount = 0.5,
+        .virtual_bass_third_amount = 0.25,
+        .virtual_bass_wet = 0.0,
+    };
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        double coefficients[DSP_HARMONIC_COEFFICIENT_COUNT] = {0.0};
+        design_high_pass((double)sample_rate, 5000.0, 0.7071067811865476, coefficients);
+        design_low_pass((double)sample_rate, 0.42 * sample_rate, 0.7071067811865476,
+            coefficients + DSP_BIQUAD_COEFFICIENT_COUNT);
+        for (int channels = 1; channels <= 2; channels++) {
+            dsp_engine *engine = create_test_engine_with_harmonic(
+                sample_rate, channels, 512, &config, coefficients);
+            assert_true(engine != NULL, "harmonic graph creates for each rate and channel count");
+            assert_true(dsp_engine_get_latency_frames(engine) == DSP_HARMONIC_ALGORITHM_LATENCY_FRAMES,
+                "harmonic reports the rate-prepared FIR latency");
+            float zero_input[1024] = {0.0f};
+            float zero_output[1024] = {0.0f};
+            for (int block = 0; block < 4; block++) {
+                assert_true(dsp_engine_process(engine, zero_input, 512U * (size_t)channels,
+                    zero_output, 512U * (size_t)channels, 512, channels) == DSP_STATUS_OK,
+                    "harmonic silence block processes");
+                for (size_t sample = 0; sample < 512U * (size_t)channels; sample++) {
+                    assert_near(zero_output[sample], 0.0, 1e-8, "zero input remains digital silence");
+                }
+            }
+            dsp_engine_destroy(engine);
+        }
+    }
+
+    double coefficients[DSP_HARMONIC_COEFFICIENT_COUNT] = {0.0};
+    design_high_pass(48000.0, 5000.0, 0.7071067811865476, coefficients);
+    design_low_pass(48000.0, 16000.0, 0.7071067811865476,
+        coefficients + DSP_BIQUAD_COEFFICIENT_COUNT);
+    dsp_harmonic_config stereo_config = config;
+    dsp_engine *stereo = create_test_engine_with_harmonic(48000, 2, 512, &stereo_config, coefficients);
+    assert_true(stereo != NULL, "stereo harmonic isolation graph creates");
+    float left_only_input[1024] = {0.0f};
+    float stereo_output[1024] = {0.0f};
+    left_only_input[0] = 0.8f;
+    for (int block = 0; block < 16; block++) {
+        assert_true(dsp_engine_process(stereo, left_only_input, 1024, stereo_output, 1024, 512, 2) ==
+            DSP_STATUS_OK, "stereo harmonic impulse block processes");
+        for (size_t frame = 0; frame < 512U; frame++) {
+            assert_true(isfinite(stereo_output[frame * 2U]), "harmonic impulse output remains finite");
+            assert_near(stereo_output[frame * 2U + 1U], 0.0, 1e-8,
+                "harmonic processing never leaks left input into the right channel");
+        }
+        memset(left_only_input, 0, sizeof(left_only_input));
+    }
+    dsp_engine_destroy(stereo);
+}
+
+static void test_harmonic_ab_bypass_crossfades_at_fixed_latency(void) {
+    double coefficients[DSP_HARMONIC_COEFFICIENT_COUNT] = {0.0};
+    design_high_pass(48000.0, 5000.0, 0.7071067811865476, coefficients);
+    design_low_pass(48000.0, 16000.0, 0.7071067811865476,
+        coefficients + DSP_BIQUAD_COEFFICIENT_COUNT);
+    const dsp_harmonic_config config = {
+        .enabled = 1,
+        .bypassed = 0,
+        .quality = 2,
+        .high_exciter_enabled = 1,
+        .high_exciter_frequency_hz = 5000.0,
+        .high_exciter_drive = 2.0,
+        .high_exciter_amount = 0.75,
+        .high_exciter_mode = DSP_HARMONIC_MODE_MIXED,
+        .high_exciter_wet = 0.8,
+        .high_exciter_compensation_db = 0.0,
+        .virtual_bass_enabled = 0,
+        .virtual_bass_fundamental_low_hz = 35.0,
+        .virtual_bass_fundamental_high_hz = 80.0,
+        .virtual_bass_amount = 0.5,
+        .virtual_bass_drive = 1.0,
+        .virtual_bass_second_amount = 0.5,
+        .virtual_bass_third_amount = 0.25,
+        .virtual_bass_wet = 0.0,
+    };
+    dsp_engine *engine = create_test_engine_with_harmonic(48000, 1, 512, &config, coefficients);
+    assert_true(engine != NULL, "harmonic A/B bypass graph creates");
+    assert_true(dsp_engine_get_latency_frames(engine) == DSP_HARMONIC_ALGORITHM_LATENCY_FRAMES,
+        "harmonic A/B bypass graph reserves fixed latency");
+
+    const double phase_step = 2.0 * 3.14159265358979323846 * 6000.0 / 48000.0;
+    double phase = 0.0;
+    size_t absolute_frame = 0;
+    float input[512];
+    float output[512];
+    for (int block = 0; block < 3; block++) {
+        for (size_t frame = 0; frame < 512U; frame++) {
+            input[frame] = 0.3f * (float)sin(phase);
+            phase += phase_step;
+        }
+        assert_true(dsp_engine_process(engine, input, 512, output, 512, 512, 1) == DSP_STATUS_OK,
+            "harmonic active block before bypass processes");
+        absolute_frame += 512U;
+    }
+
+    const size_t active_block_start = absolute_frame - 512U;
+    double previous_error = (double)output[0] -
+        0.3 * sin(phase_step * (double)(active_block_start - 64U));
+    double maximum_active_error_step = 0.0;
+    for (size_t frame = 1; frame < 512U; frame++) {
+        const double error = (double)output[frame] -
+            0.3 * sin(phase_step * (double)(active_block_start + frame - 64U));
+        maximum_active_error_step = fmax(maximum_active_error_step, fabs(error - previous_error));
+        previous_error = error;
+    }
+    assert_true(dsp_engine_update_harmonic_bypass(engine, 1) == DSP_STATUS_OK,
+        "harmonic A/B bypass accepts valid target");
+    double maximum_error_step = 0.0;
+    for (int block = 0; block < 3; block++) {
+        for (size_t frame = 0; frame < 512U; frame++) {
+            input[frame] = 0.3f * (float)sin(phase);
+            phase += phase_step;
+        }
+        assert_true(dsp_engine_process(engine, input, 512, output, 512, 512, 1) == DSP_STATUS_OK,
+            "harmonic bypass transition block processes");
+        for (size_t frame = 0; frame < 512U; frame++) {
+            const size_t stream_frame = absolute_frame + frame;
+            const float aligned_dry = 0.3f * (float)sin(phase_step * (double)(stream_frame - 64U));
+            const double error = (double)output[frame] - aligned_dry;
+            maximum_error_step = fmax(maximum_error_step, fabs(error - previous_error));
+            previous_error = error;
+        }
+        absolute_frame += 512U;
+    }
+    printf("DSP_HARMONIC_BYPASS residualStepActive=%.6f residualStepCrossfade=%.6f\n",
+        maximum_active_error_step, maximum_error_step);
+    assert_true(maximum_error_step <= maximum_active_error_step + 0.01,
+        "harmonic A/B crossfade has no abrupt residual step");
+    const size_t final_block_start = absolute_frame - 512U;
+    for (size_t frame = 0; frame < 512U; frame++) {
+        const size_t stream_frame = final_block_start + frame;
+        const float aligned_dry = 0.3f * (float)sin(phase_step * (double)(stream_frame - 64U));
+        assert_near(output[frame], aligned_dry, 1e-6,
+            "harmonic A/B bypass settles to delayed dry without changing latency");
+    }
+    assert_true(dsp_engine_update_harmonic_bypass(engine, 2) == DSP_STATUS_INVALID_ARGUMENT,
+        "native Harmonic A/B update rejects unknown values");
+    dsp_engine_destroy(engine);
+}
+
+static void test_harmonic_extreme_drive_is_finite_and_chunk_invariant(void) {
+    double coefficients[DSP_HARMONIC_COEFFICIENT_COUNT] = {0.0};
+    design_high_pass(48000.0, 5000.0, 0.7071067811865476, coefficients);
+    design_low_pass(48000.0, 16000.0, 0.7071067811865476,
+        coefficients + DSP_BIQUAD_COEFFICIENT_COUNT);
+    design_high_pass(48000.0, 35.0, 0.7071067811865476,
+        coefficients + 2U * DSP_BIQUAD_COEFFICIENT_COUNT);
+    design_low_pass(48000.0, 80.0, 0.7071067811865476,
+        coefficients + 3U * DSP_BIQUAD_COEFFICIENT_COUNT);
+    const dsp_harmonic_config config = {
+        .enabled = 1,
+        .bypassed = 0,
+        .quality = 4,
+        .high_exciter_enabled = 1,
+        .high_exciter_frequency_hz = 5000.0,
+        .high_exciter_drive = 8.0,
+        .high_exciter_amount = 1.0,
+        .high_exciter_mode = DSP_HARMONIC_MODE_MIXED,
+        .high_exciter_wet = 1.0,
+        .high_exciter_compensation_db = 6.0,
+        .virtual_bass_enabled = 1,
+        .virtual_bass_fundamental_low_hz = 35.0,
+        .virtual_bass_fundamental_high_hz = 80.0,
+        .virtual_bass_amount = 1.0,
+        .virtual_bass_drive = 8.0,
+        .virtual_bass_second_amount = 1.0,
+        .virtual_bass_third_amount = 1.0,
+        .virtual_bass_wet = 1.0,
+    };
+    const size_t total_frames = 2048U;
+    const int block_sizes[] = {1, 128, 512, 1537};
+    float input[total_frames * 2U];
+    float reference[total_frames * 2U];
+    float output[total_frames * 2U];
+    for (size_t frame = 0; frame < total_frames; frame++) {
+        const double time = (double)frame / 48000.0;
+        const float sample = (float)(0.25 * sin(2.0 * 3.14159265358979323846 * 6000.0 * time) +
+            0.35 * sin(2.0 * 3.14159265358979323846 * 50.0 * time));
+        input[frame * 2U] = sample;
+        input[frame * 2U + 1U] = sample;
+    }
+    for (size_t block_index = 0; block_index < sizeof(block_sizes) / sizeof(block_sizes[0]); block_index++) {
+        dsp_engine *engine = create_test_engine_with_harmonic(48000, 2, 2048, &config, coefficients);
+        assert_true(engine != NULL, "maximum-drive Harmonic graph creates");
+        size_t position = 0;
+        while (position < total_frames) {
+            const size_t frames = total_frames - position < (size_t)block_sizes[block_index]
+                ? total_frames - position
+                : (size_t)block_sizes[block_index];
+            assert_true(dsp_engine_process(engine, input + position * 2U, frames * 2U,
+                output + position * 2U, frames * 2U, (int)frames, 2) == DSP_STATUS_OK,
+                "maximum-drive Harmonic chunk processes");
+            position += frames;
+        }
+        for (size_t sample = 0; sample < total_frames * 2U; sample++) {
+            assert_true(isfinite(output[sample]), "maximum-drive Harmonic output remains finite");
+        }
+        if (block_index == 0U) {
+            memcpy(reference, output, sizeof(reference));
+        } else {
+            for (size_t sample = 0; sample < total_frames * 2U; sample++) {
+                assert_near(output[sample], reference[sample], 1e-7,
+                    "Harmonic output is invariant to process chunk size");
+            }
+        }
+        dsp_engine_destroy(engine);
+    }
 }
 
 static double measure_side_sine_gain(dsp_engine *engine, double frequency_hz) {
@@ -2175,6 +2681,10 @@ int main(void) {
     test_spatial_width_and_mono_input_behavior();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
     test_cabin_static_and_dynamic_cuts_are_measurement_band_limited();
+    test_harmonic_exciter_virtual_bass_oversampling_and_fixed_latency();
+    test_harmonic_silence_impulse_channel_isolation_and_sample_rates();
+    test_harmonic_extreme_drive_is_finite_and_chunk_invariant();
+    test_harmonic_ab_bypass_crossfades_at_fixed_latency();
     test_advanced_ms_neutral_reconstruction_legacy_parity_and_monitor_modes();
     test_seat_focus_fixed_latency_mono_bypass_and_isolation();
     test_seat_focus_fractional_delay_accuracy_and_chunk_invariance();

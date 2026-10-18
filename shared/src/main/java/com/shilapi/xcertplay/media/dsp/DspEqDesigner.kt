@@ -169,6 +169,7 @@ internal object DspAutoHeadroom {
         marginDb: Double = 1.0,
         staticBassBands: List<DspEqBand> = emptyList(),
         advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
+        harmonicBoostDb: Double = 0.0,
     ): DspHeadroomResult {
         require(sampleRate in 8_000..192_000)
         require(preampDb.isFinite())
@@ -176,6 +177,7 @@ internal object DspAutoHeadroom {
         require(compressorMakeupDb.isFinite())
         require(maxBandMakeupDb.isFinite())
         require(dynamicBoostDb.isFinite())
+        require(harmonicBoostDb.isFinite() && harmonicBoostDb in 0.0..24.0)
         require(stereoWidth.isFinite() && stereoWidth in 0.0..2.0)
         require(marginDb.isFinite() && marginDb >= 0.0)
         require(peqBands.size <= DspEqDesigner.MAX_BANDS)
@@ -222,7 +224,8 @@ internal object DspAutoHeadroom {
             0.0
         }
         val staticWorstCaseDb = preampDb + peakDb + maxSeatTrimDb + max(0.0, compressorMakeupDb) +
-            max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) + widthWorstCaseDb + advancedMsBoostDb
+            max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) + widthWorstCaseDb + advancedMsBoostDb +
+            harmonicBoostDb
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
@@ -270,6 +273,8 @@ internal data class DspPreparedConfig(
     val cabin: DoubleArray,
     val cabinStaticCoefficients: DoubleArray,
     val cabinDynamicEq: DoubleArray,
+    val harmonic: DoubleArray,
+    val harmonicFilterCoefficients: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -420,6 +425,68 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     )
     val cabinProcessEnabled = cabinCorrection.enabled &&
         (activeCabinCuts.isNotEmpty() || cabinDynamicConfig.enabled)
+    val highExciterUpperFrequencyHz = minOf(16_000.0, format.sampleRate * HARMONIC_FILTER_NYQUIST_FRACTION)
+    val highExciterActive = harmonicEngine.enabled && format.sampleRate >= MIN_HARMONIC_SAMPLE_RATE &&
+        format.channels in 1..2 && harmonicEngine.highExciter.enabled && harmonicEngine.highExciter.wet > 0.0 &&
+        harmonicEngine.highExciter.amount > 0.0 && harmonicEngine.highExciter.frequencyHz < highExciterUpperFrequencyHz
+    val virtualBassActive = harmonicEngine.enabled && format.sampleRate >= MIN_HARMONIC_SAMPLE_RATE &&
+        format.channels in 1..2 && harmonicEngine.virtualBass.enabled && harmonicEngine.virtualBass.wet > 0.0 &&
+        harmonicEngine.virtualBass.amount > 0.0 &&
+        harmonicEngine.virtualBass.fundamentalHighHz < format.sampleRate * HARMONIC_FILTER_NYQUIST_FRACTION
+    val harmonicFilterCoefficients = DoubleArray(DspHarmonicEngineConfig.NATIVE_FILTER_COEFFICIENT_COUNT)
+    if (highExciterActive) {
+        DspEqDesigner.design(
+            format.sampleRate,
+            DspEqBand(DspEqType.HIGH_PASS, harmonicEngine.highExciter.frequencyHz, q = BUTTERWORTH_Q),
+        ).writeTo(harmonicFilterCoefficients, 0)
+        DspEqDesigner.design(
+            format.sampleRate,
+            DspEqBand(DspEqType.LOW_PASS, highExciterUpperFrequencyHz, q = BUTTERWORTH_Q),
+        ).writeTo(harmonicFilterCoefficients, DspEqDesigner.COEFFICIENTS_PER_BAND)
+    }
+    if (virtualBassActive) {
+        DspEqDesigner.design(
+            format.sampleRate,
+            DspEqBand(DspEqType.HIGH_PASS, harmonicEngine.virtualBass.fundamentalLowHz, q = BUTTERWORTH_Q),
+        ).writeTo(harmonicFilterCoefficients, 2 * DspEqDesigner.COEFFICIENTS_PER_BAND)
+        DspEqDesigner.design(
+            format.sampleRate,
+            DspEqBand(DspEqType.LOW_PASS, harmonicEngine.virtualBass.fundamentalHighHz, q = BUTTERWORTH_Q),
+        ).writeTo(harmonicFilterCoefficients, 3 * DspEqDesigner.COEFFICIENTS_PER_BAND)
+    }
+    val harmonicNativeValues = doubleArrayOf(
+        if (highExciterActive || virtualBassActive) 1.0 else 0.0,
+        if (harmonicEngine.quality == DspHarmonicQuality.TWO_X) 2.0 else 4.0,
+        if (highExciterActive) 1.0 else 0.0,
+        harmonicEngine.highExciter.frequencyHz,
+        harmonicEngine.highExciter.drive,
+        harmonicEngine.highExciter.amount,
+        harmonicEngine.highExciter.mode.ordinal.toDouble(),
+        harmonicEngine.highExciter.wet,
+        harmonicEngine.highExciter.outputCompensationDb,
+        if (virtualBassActive) 1.0 else 0.0,
+        harmonicEngine.virtualBass.fundamentalLowHz,
+        harmonicEngine.virtualBass.fundamentalHighHz,
+        harmonicEngine.virtualBass.amount,
+        harmonicEngine.virtualBass.drive,
+        harmonicEngine.virtualBass.secondHarmonicAmount,
+        harmonicEngine.virtualBass.thirdHarmonicAmount,
+        harmonicEngine.virtualBass.wet,
+        if (harmonicEngine.bypassed) 1.0 else 0.0,
+    )
+    val harmonicResidualPeak = (if (highExciterActive) {
+        HARMONIC_HIGH_PEAK_BOUND * harmonicEngine.highExciter.amount * harmonicEngine.highExciter.wet *
+            10.0.pow(max(0.0, harmonicEngine.highExciter.outputCompensationDb) / 20.0)
+    } else {
+        0.0
+    }) + (if (virtualBassActive) {
+        (HARMONIC_EVEN_PEAK_BOUND * harmonicEngine.virtualBass.secondHarmonicAmount +
+            HARMONIC_ODD_PEAK_BOUND * harmonicEngine.virtualBass.thirdHarmonicAmount) *
+            harmonicEngine.virtualBass.amount * harmonicEngine.virtualBass.wet
+    } else {
+        0.0
+    })
+    val harmonicBoostDb = if (harmonicResidualPeak > 0.0) 20.0 * log10(1.0 + harmonicResidualPeak) else 0.0
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
@@ -447,6 +514,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
                 0.0
             },
             advancedMs = if (advancedMsRateSupported) advancedMs else advancedMs.copy(enabled = false),
+            harmonicBoostDb = harmonicBoostDb,
             stereoWidth = stereoWidth,
             marginDb = autoHeadroomMarginDb,
             staticBassBands = if (bass.enabled) {
@@ -506,6 +574,8 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         ),
         cabinStaticCoefficients = cabinStaticCoefficients,
         cabinDynamicEq = cabinDynamicConfig.toNativeValues(),
+        harmonic = harmonicNativeValues,
+        harmonicFilterCoefficients = harmonicFilterCoefficients,
         headroom = headroom,
     )
 }
@@ -518,3 +588,8 @@ private const val CABIN_DYNAMIC_THRESHOLD_DB = -24.0
 private const val CABIN_DYNAMIC_RATIO = 2.0
 private const val CABIN_DYNAMIC_ATTACK_MS = 30.0
 private const val CABIN_DYNAMIC_RELEASE_MS = 300.0
+private const val MIN_HARMONIC_SAMPLE_RATE = 16_000
+private const val HARMONIC_FILTER_NYQUIST_FRACTION = 0.42
+private const val HARMONIC_HIGH_PEAK_BOUND = 1.0
+private const val HARMONIC_EVEN_PEAK_BOUND = 1.0
+private const val HARMONIC_ODD_PEAK_BOUND = 1.0

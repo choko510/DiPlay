@@ -10,10 +10,13 @@ class DspHarmonicConfigTest {
         val config = DspHarmonicEngineConfig()
 
         assertFalse(config.enabled)
+        assertFalse(config.bypassed)
         assertEquals(DspHarmonicQuality.TWO_X, config.quality)
         assertFalse(config.highExciter.enabled)
         assertFalse(config.virtualBass.enabled)
         assertEquals(DspHarmonicMode.MIXED, config.highExciter.mode)
+        assertEquals(18, DspHarmonicEngineConfig.NATIVE_VALUE_COUNT)
+        assertEquals(64, DspHarmonicEngineConfig.ALGORITHM_LATENCY_FRAMES)
     }
 
     @Test

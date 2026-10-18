@@ -89,6 +89,7 @@ import com.shilapi.xcertplay.transport.Iap2LocationProvider
 import com.shilapi.xcertplay.transport.NcmDiagnosticProfile
 import com.shilapi.xcertplay.transport.NcmDiagnosticProfileStore
 import com.shilapi.xcertplay.transport.UsbDeviceId
+import com.shilapi.xcertplay.youtube.CarPlayReconnectRetryState
 import com.shilapi.xcertplay.youtube.CarPlayRestartHandoff
 import com.shilapi.xcertplay.youtube.DisplayResizeCoordinator
 import com.shilapi.xcertplay.youtube.DisplaySize
@@ -407,9 +408,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private var handshakeResetInProgress = false
     private var startAfterHandshakeReset = false
     private var restartGeneration = 0
-    private var reconnectScheduled = false
-    private var scheduledReconnectReason: String? = null
-    private var scheduledReconnectGeneration = 0
+    private val reconnectRetryState = CarPlayReconnectRetryState()
+    private var scheduledReconnectTicket: CarPlayReconnectRetryState.Ticket? = null
+    private var scheduledReconnectRunnable: Runnable? = null
     private var sessionLog: SessionLogFile? = null
     private var gestureSequenceActive = false
     private var gestureTracking = false
@@ -428,19 +429,6 @@ class CarPlayHostActivity : ComponentActivity() {
     private val retryRestartHandoff = Runnable {
         restartHandoffRetryScheduled = false
         maybeStartCarPlay()
-    }
-    private val restartAfterReconnectDelay = Runnable {
-        val reason = scheduledReconnectReason ?: return@Runnable
-        val generation = scheduledReconnectGeneration
-        scheduledReconnectReason = null
-        reconnectScheduled = false
-        if (
-            shuttingDown.get() || isFinishing || isDestroyed || menuOpen ||
-            handshakeResetInProgress || generation != restartGeneration
-        ) {
-            return@Runnable
-        }
-        restartCarPlay("Reconnecting after $reason")
     }
     private val finishSplitYoutubeStartup = Runnable {
         if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT ||
@@ -906,13 +894,11 @@ class CarPlayHostActivity : ComponentActivity() {
         mainHandler.removeCallbacks(finishRestartAfterResize)
         mainHandler.removeCallbacks(finishSplitYoutubeStartup)
         mainHandler.removeCallbacks(retryRestartHandoff)
-        mainHandler.removeCallbacks(restartAfterReconnectDelay)
+        cancelScheduledReconnect()
         window.decorView.removeCallbacks(waitForImeResizeToSettle)
         videoView?.removeCallbacks(deferYoutubePreparationOneFrame)
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
         restartHandoffRetryScheduled = false
-        reconnectScheduled = false
-        scheduledReconnectReason = null
         mainHandler.removeCallbacks(retryYoutubeProfileResolution)
         mainHandler.removeCallbacks(expireOldLogLines)
         if (restartHandoffToken != null || CarPlayBackgroundSession.isClaimedRestartOwner(this)) {
@@ -3853,6 +3839,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     ) {
                         return@runOnUiThread
                     }
+                    reconnectRetryState.sessionActive(session)
+                    cancelScheduledReconnect()
                     val previousSession = activeAirPlaySession
                     val sessionChanged = previousSession !== session
                     activeAirPlaySession = session
@@ -3882,6 +3870,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     ) {
                         return@runOnUiThread
                     }
+                    if (!reconnectRetryState.sessionEnded(session)) return@runOnUiThread
                     finishCarPlayRestartTrace()
                     activeAirPlaySession = null
                     if (deviceInfoSession === session) {
@@ -4056,6 +4045,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || isFinishing || isDestroyed || menuOpen || handshakeResetInProgress || controller != null) return
+        cancelScheduledReconnect()
         val controllerGeneration = restartGeneration
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)
@@ -4297,9 +4287,16 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun reconnectAfterLoss(reason: String) {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
-        if (reconnectScheduled) return
-        reconnectScheduled = true
-        val generation = restartGeneration
+        if (scheduledReconnectTicket != null) return
+        val currentController = controller
+        if (hasLiveAirPlaySession(currentController) || CarPlayBackgroundSession.active) return
+        val ticket = reconnectRetryState.schedule(
+            owner = this,
+            controller = currentController,
+            restartGeneration = restartGeneration,
+            ownerGeneration = CarPlayBackgroundSession.ownershipGeneration(),
+            controllerManagedRecovery = currentController?.isWiredRecoveryManagedByController() == true,
+        ) ?: return
         val delayMillis = if (reason.contains("AirPlay iAP tunnel", ignoreCase = true)) {
             IAP_TUNNEL_RECONNECT_DELAY_MILLIS
         } else {
@@ -4307,9 +4304,48 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         reconnectAttempts += 1
         appendLog("$reason; retrying in ${delayMillis}ms")
-        scheduledReconnectReason = reason
-        scheduledReconnectGeneration = generation
-        mainHandler.postDelayed(restartAfterReconnectDelay, delayMillis)
+        scheduledReconnectTicket = ticket
+        val callback = Runnable { runScheduledReconnect(ticket, reason) }
+        scheduledReconnectRunnable = callback
+        mainHandler.postDelayed(callback, delayMillis)
+    }
+
+    private fun runScheduledReconnect(
+        ticket: CarPlayReconnectRetryState.Ticket,
+        reason: String,
+    ) {
+        if (scheduledReconnectTicket?.id != ticket.id) return
+        val currentController = controller
+        val shouldRestart = reconnectRetryState.consumeIfCurrent(
+            ticket = ticket,
+            owner = this,
+            controller = currentController,
+            restartGeneration = restartGeneration,
+            ownerGeneration = CarPlayBackgroundSession.ownershipGeneration(),
+            ownsBackgroundSession = CarPlayBackgroundSession.isOwner(this),
+            hostAvailable = !shuttingDown.get() && !isFinishing && !isDestroyed &&
+                !menuOpen && !handshakeResetInProgress,
+            controllerManagedRecovery = currentController?.isWiredRecoveryManagedByController() == true,
+            connectionActive = hasLiveAirPlaySession(currentController) || CarPlayBackgroundSession.active,
+        )
+        scheduledReconnectTicket = null
+        scheduledReconnectRunnable = null
+        if (!shouldRestart) return
+        restartCarPlay("Reconnecting after $reason")
+    }
+
+    private fun hasLiveAirPlaySession(currentController: CarPlayController?): Boolean {
+        if (activeAirPlaySession?.isClosed == false) return true
+        return currentController?.currentAirPlaySession()?.isClosed == false
+    }
+
+    private fun cancelScheduledReconnect(expected: CarPlayReconnectRetryState.Ticket? = null) {
+        val current = scheduledReconnectTicket ?: return
+        if (expected != null && current.id != expected.id) return
+        scheduledReconnectRunnable?.let(mainHandler::removeCallbacks)
+        scheduledReconnectTicket = null
+        scheduledReconnectRunnable = null
+        reconnectRetryState.cancelPending()
     }
 
     /** Full-stack fallback when an AirPlay-only reconnect is unavailable. */
@@ -4318,6 +4354,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (shuttingDown.get() || isFinishing || isDestroyed || menuOpen || handshakeResetInProgress) return
         val size = activeDisplaySize ?: return
         if (!displayResizeCoordinator.beginRestart()) return
+        cancelScheduledReconnect()
         val oldController = controller
         val restartToken = CarPlayBackgroundSession.beginRestart(oldController, this, size)
         if (restartToken == null) {
@@ -4451,17 +4488,15 @@ class CarPlayHostActivity : ComponentActivity() {
         YoutubeDeviceProfileManager.clearSplitSelection()
         YoutubeDeviceProfileManager.clearSessionCache()
         restartGeneration += 1
+        cancelScheduledReconnect()
         mainHandler.removeCallbacks(applyDisplaySize)
         mainHandler.removeCallbacks(finishRestartAfterResize)
         mainHandler.removeCallbacks(finishSplitYoutubeStartup)
         mainHandler.removeCallbacks(retryRestartHandoff)
-        mainHandler.removeCallbacks(restartAfterReconnectDelay)
         window.decorView.removeCallbacks(waitForImeResizeToSettle)
         videoView?.removeCallbacks(deferYoutubePreparationOneFrame)
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
         restartHandoffRetryScheduled = false
-        reconnectScheduled = false
-        scheduledReconnectReason = null
         val oldController = controller
         val oldSink = sink
         oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
@@ -4780,6 +4815,7 @@ internal object CarPlayBackgroundSession {
     private var stopActionOwner: Any? = null
     private var stopping = false
     private var owner: Any? = null
+    private var ownerEpochCounter = 0L
     private var restartSuppressed = false
     private val restartHandoff = CarPlayRestartHandoff()
     @Synchronized fun isOwner(candidate: Any): Boolean = owner === candidate
@@ -4792,6 +4828,16 @@ internal object CarPlayBackgroundSession {
     }
     private val stopWaiters = mutableListOf<() -> Unit>()
 
+    private fun setOwner(next: Any?) {
+        if (owner !== next) {
+            owner = next
+            ownerEpochCounter++
+        }
+    }
+
+    @Synchronized
+    fun ownershipGeneration(): Long = ownerEpochCounter
+
     fun stop(completion: () -> Unit = {}) {
         val action: (((() -> Unit)) -> Unit)?
         synchronized(this) {
@@ -4803,7 +4849,7 @@ internal object CarPlayBackgroundSession {
             } else if (restartHandoff.hasPending()) {
                 restartHandoff.clear()
                 restartSuppressed = true
-                owner = null
+                setOwner(null)
                 stopActionOwner = null
                 active = false
                 width = 0
@@ -4845,7 +4891,7 @@ internal object CarPlayBackgroundSession {
         restartSuppressed = false
         this.stopAction = stop
         this.stopActionOwner = owner
-        this.owner = owner
+        setOwner(owner)
         this.controller = controller
         this.sink = sink
         this.width = width
@@ -4888,7 +4934,7 @@ internal object CarPlayBackgroundSession {
     @Synchronized
     fun claimPendingRestart(owner: Any, stop: ((() -> Unit)) -> Unit): DisplaySize? {
         val size = restartHandoff.claim(owner) ?: return null
-        this.owner = owner
+        setOwner(owner)
         this.stopAction = stop
         this.stopActionOwner = owner
         return size
@@ -4901,7 +4947,7 @@ internal object CarPlayBackgroundSession {
             stopAction = null
             stopActionOwner = null
         }
-        if (this.owner === owner && controller == null) this.owner = null
+        if (this.owner === owner && controller == null) setOwner(null)
     }
 
     @Synchronized
@@ -4914,7 +4960,7 @@ internal object CarPlayBackgroundSession {
             restartSuppressed = false
             stopAction = null
             stopActionOwner = null
-            owner = null
+            setOwner(null)
         }
         active = false
         width = 0

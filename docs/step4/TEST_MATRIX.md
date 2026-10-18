@@ -44,10 +44,10 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U36 | ALT-only setup remains distinct from MAIN | `OPEN`: EX-03 |
 | U37 | Active at 10s / no MAIN by 15s has distinct stages | `OPEN`: EX-03 |
 | U38 | Old watchdog token cannot affect current attempt | `PARTIAL`: existing watchdog token tests; controller integration open |
-| U39 | Recovered session skips old pending retry | `PARTIAL`: host handoff tests; exact loss-epoch case is EX-02 |
-| U40 | Recovery followed by a second loss permits one retry | `OPEN`: EX-02 |
-| U41 | Controller-owned failure does not trigger Host duplicate retry | `PARTIAL`: current recovery ownership tests; exact timeout case is EX-02 |
-| U42 | Owner transfer/Activity recreation rejects old callback | `PARTIAL`: `CarPlayRestartHandoffTest`; reconnect race integration open |
+| U39 | Recovered session skips old pending retry | `PASS_LOCAL`: `CarPlayReconnectRetryStateTest.recoveryBeforeTimeoutInvalidatesThePendingRetry` |
+| U40 | Recovery followed by a second loss permits one retry | `PASS_LOCAL`: `CarPlayReconnectRetryStateTest.recoveryThenSecondLossCreatesExactlyOneNewRetry` |
+| U41 | Controller-owned failure does not trigger Host duplicate retry | `PASS_LOCAL`: managed recovery returns no Host retry ticket |
+| U42 | Owner transfer/Activity recreation rejects old callback | `PARTIAL`: retry owner/generation gate is covered; full Activity handoff integration remains `NOT_RUN` |
 | U43 | Same generation at 10s schedules one re-enumeration probe | `OPEN/CONDITIONAL`: EX-04 |
 | U44 | Detach or USB generation change makes probe a no-op | `OPEN/CONDITIONAL`: EX-04 |
 | U45 | First bulk OUT after 15s detects unreachable recovery proposal | `OPEN/CONDITIONAL`: EX-05 virtual-time gate |
@@ -110,9 +110,9 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-IP-08 | SYN-ACK sent without ACK/accept is not called socket success | PASS_LOCAL: SYN-ACK observation is separate from listener-accept event |
 | R04-IP-09 | Old VPN accept loop cannot increment new generation | PARTIAL: recorder isolation covered; service accept-loop integration NOT_RUN |
 | R04-IP-10 | Detach during read/write/status close does not deadlock | OPEN |
-| R04-REC-01 | Host retry skips after current session recovers | PARTIAL / EX-02 |
-| R04-REC-02 | Recovery then second loss creates the legitimate retry | OPEN / EX-02 |
-| R04-REC-03 | Controller-owned recovery produces zero Host duplicate retry | PARTIAL / EX-02 |
+| R04-REC-01 | Host retry skips after current session recovers | PASS_LOCAL: EX-02 retry-state test |
+| R04-REC-02 | Recovery then second loss creates the legitimate retry | PASS_LOCAL: EX-02 second-loss test |
+| R04-REC-03 | Controller-owned recovery produces zero Host duplicate retry | PASS_LOCAL: EX-02 managed-owner test |
 | R04-REC-04 | Menu/Split owner change preserves background controller | PARTIAL: handoff tests; combined case open |
 | R04-REC-05 | AirPlay Active and delayed MAIN setup have separate timings | OPEN / EX-03 |
 | R04-REC-06 | ALT-only setup is not reported as MAIN first frame | OPEN / EX-03 |
@@ -152,3 +152,9 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 - Fake USB coverage exercises sync and async RX, exact-boundary blocks with and without a pad, packet-size variation, one-byte fragmentation, zero-length reads, coalesced blocks, malformed NTH/NDP recovery, 1 MiB corrupt-input bounds, the existing 32 KiB request, and the frame-queue limit.
 - Android instrumentation passes 16/16 on the API 36.1 x86_64 emulator; those existing DSP tests do not exercise NCM USB RX.
 - TS10/K706+iPhone NCM runs, receive-rate/CPU measurement, and paired RX success rates remain `NOT_RUN` / `UNKNOWN`. Emulator instrumentation is not USB-device evidence.
+
+## EX-02 verification note
+
+- `CarPlayReconnectRetryStateTest` covers recovery-before-timeout, recovery then second loss, single-consume behavior, duplicate failure throttling, controller-managed recovery, explicit cancel/manual disconnect, stale session-end, owner/owner-generation transfer, controller replacement, Host generation change, and menu/connection-active suppression.
+- Latest local suite: shared 491 + common 142 tests, zero failures/errors/skips. Mobile/automotive lint, debug/benchmark builds, JNI mapping, public-tree, and whitespace checks pass.
+- The state transitions are unit-tested independently from the Android Activity. Owner handoff stress and long-running reconnect behavior are not hardware/Activity stress evidence; no second reviewer was available.

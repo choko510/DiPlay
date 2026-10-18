@@ -141,6 +141,10 @@ Open the new PR only after implementation, phase commits, local regression suite
 ## Trigger Android checks for codex implementation branches
 
 Run the same Android checks workflow on `codex/**` pushes as on pull requests. This gives the implementation branch a hosted result even if an app-created PR event did not create an initial workflow run.
+
+## Report GitHub-controlled Actions disablement without changing repo permissions
+
+If a workflow dispatch returns `Actions has been disabled for this repository` while the repository permissions endpoint already reports `enabled: true`, do not widen or rewrite the Actions allowlist. GitHub documents a separate platform-controlled disabled state that requires Support review; report hosted CI as blocked and keep the PR unmerged until a workflow run exists.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

@@ -17,7 +17,7 @@ At 48 kHz Stereo, an instrumented graph with Seat Focus, Advanced M/S, Cabin, Ha
 - Host native C DSP suite passed with the repository's C11 warning-as-error flags. Synthetic 10 kHz ODD-mode folded 18 kHz energy measured −129.26 dBc at 2× and −129.56 dBc at 4×.
 - The native C suite was cross-compiled with NDK 27 Clang ASan/UBSan and passed on the API 36 x86_64 emulator. `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`; `UBSAN_OPTIONS=halt_on_error=1`. LeakSanitizer was disabled for this emulator path.
 - Android native libraries built for arm64-v8a, armeabi-v7a, and x86_64. Mobile/automotive Debug and Benchmark builds, both app lint tasks, R8 JNI mapping checks, and the public-tree credential scan passed locally.
-- GitHub Actions had not created a hosted PR workflow run or check status for the final head at inspection time. The hosted CI link is the PR checks page; local sanitizer/Gradle runs are separate from hosted CI.
+- GitHub Actions did not create a hosted run or check for the PR head. A workflow dispatch on the final branch returned HTTP 422, `Actions has been disabled for this repository`, although the Actions permissions endpoint reports `enabled: true`. GitHub documents this as a possible GitHub-controlled disabled state that cannot be restored through the repository setting; [GitHub Support review](https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/enabling-features-for-your-repository/managing-github-actions-settings-for-a-repository) is required. The [PR checks page](https://github.com/choko510/DiPlay/pull/22/checks) currently has no CI result; local sanitizer/Gradle runs are separate from hosted CI.
 
 ## Emulator performance matrix
 

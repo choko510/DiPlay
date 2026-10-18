@@ -133,6 +133,10 @@ The native Convolver supports only 44.1/48/96 kHz. Match that rule in Kotlin and
 ## Capture benchmark output before emulator teardown
 
 Run the complete timing matrix inside Android instrumentation and clear/capture its logcat in the same checked-in script. Parse the exact expected case/rate/channel/run set and fail artifact generation on missing records or nonzero steady-state allocation counts. Publish raw CSV/JSON plus an aggregate Markdown table as the workflow artifact.
+
+## Finish local validation and report unavailable hosted CI explicitly
+
+Open the new PR only after implementation, phase commits, local regression suites, app builds, and benchmark artifacts are reviewable. If GitHub has not created a workflow run or check status for the PR head, report it as pending/unavailable rather than calling CI green or merging.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

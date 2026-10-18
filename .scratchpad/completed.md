@@ -61,3 +61,6 @@
 - 2026-10-05: Configured mobile debug signing for v1/v2 and rebuilt the credentialed arm64 APK after INSTALL_PARSE_FAILED_NO_CERTIFICATES. `apksigner` verifies both schemes with min SDK 23; the device retry remains pending.
 - 2026-10-07: Split wired diagnostic outcomes into NCM RX/TX proof, AirPlay control milestones, screen opening, and overall startup result; added proof-classification regression coverage. All shared tests and the mobile debug build pass; installation awaits an ADB-visible device.
 - 2026-10-09: Made production `AUTO` poll an available CDC status endpoint, added debug `NO_STATUS_POLLING` for comparison, and kept OUT timeout at 100 ms. Focused NCM tests and all common tests pass; the full shared suite has one IPv6-loopback permission failure. Rebuilt and signature-verified the credentialed mobile arm64 APK; left it uninstalled as requested.
+# Four DSP modules in PR #22
+
+Implemented Phases 0–8 locally on `codex/diplay-4dsp` and opened/attached new PR #22 against `main`; PR remains unmerged. Local unit, native, instrumentation, lint/build, ABI, JNI, and emulator benchmark checks passed; GitHub reported no hosted workflow run/status for the PR head at final inspection. TS10/CarPlay hardware validation remains unperformed.

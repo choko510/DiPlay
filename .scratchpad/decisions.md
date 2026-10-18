@@ -137,6 +137,10 @@ Run the complete timing matrix inside Android instrumentation and clear/capture 
 ## Finish local validation and report unavailable hosted CI explicitly
 
 Open the new PR only after implementation, phase commits, local regression suites, app builds, and benchmark artifacts are reviewable. If GitHub has not created a workflow run or check status for the PR head, report it as pending/unavailable rather than calling CI green or merging.
+
+## Trigger Android checks for codex implementation branches
+
+Run the same Android checks workflow on `codex/**` pushes as on pull requests. This gives the implementation branch a hosted result even if an app-created PR event did not create an initial workflow run.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

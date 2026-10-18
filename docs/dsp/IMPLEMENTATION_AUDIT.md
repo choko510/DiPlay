@@ -15,8 +15,9 @@ At 48 kHz Stereo, an instrumented graph with Seat Focus, Advanced M/S, Cabin, Ha
 - Shared and common full unit suites: 641 tests, 0 failures.
 - Android instrumentation: 23 tests passed on `Medium_Phone_API_36.1` (API 36, x86_64), including the full-module JNI graph and summed latency.
 - Host native C DSP suite passed with the repository's C11 warning-as-error flags. Synthetic 10 kHz ODD-mode folded 18 kHz energy measured −129.26 dBc at 2× and −129.56 dBc at 4×.
+- The native C suite was cross-compiled with NDK 27 Clang ASan/UBSan and passed on the API 36 x86_64 emulator. `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1`; `UBSAN_OPTIONS=halt_on_error=1`. LeakSanitizer was disabled for this emulator path.
 - Android native libraries built for arm64-v8a, armeabi-v7a, and x86_64. Mobile/automotive Debug and Benchmark builds, both app lint tasks, R8 JNI mapping checks, and the public-tree credential scan passed locally.
-- Hosted ASan/UBSan and CI results are recorded in the new PR's check summary; this local emulator run does not substitute for those hosted gates.
+- GitHub Actions had not created a hosted PR workflow run or check status for the final head at inspection time. The hosted CI link is the PR checks page; local sanitizer/Gradle runs are separate from hosted CI.
 
 ## Emulator performance matrix
 

@@ -66,7 +66,7 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U58 | Invalid second area/safeArea safely rejected | `PASS_LOCAL`: planner rejects empty/out-of-bounds view or safe geometry; invalid optional areas fall back to one legacy area |
 | U59 | Wire send alone is not DYNAMIC acceptance | `NO_GO_PENDING_IPHONE_EVIDENCE`: no candidate command sent; iPhone acknowledgement and frame-size change are required |
 | U60 | Device silence/rejection falls back to LOCAL/LEGACY once | `NOT_RUN/NO_GO_PENDING_IPHONE_EVIDENCE`: without a supported command and device response, no timeout/fallback coordinator is added |
-| U61 | Google profiles A/B do not share cookies/login | `PARTIAL`: profile/context tests; combined Split regression remains PR-06 |
+| U61 | Google profiles A/B do not share cookies/login | `PARTIAL/PRESERVE`: profile/context/cache tests pass; TS10/K706+iPhone A/B login, split/revisit and background-owner regression remain `NOT_RUN` |
 | U62 | Surface resume/rotation/IME does not recreate session | `PARTIAL`: existing lifecycle and resize tests; device gate remains PR-06/07 |
 | U63 | Codec output format change keeps crop/decoder/touch aligned | `PARTIAL/NO_GO_PENDING_DEVICE_EVIDENCE`: existing decoder output-format observation only; no TS10 format/crop mismatch reproduction |
 | U64 | Missing CSD/timeout/seek has bounded decoder-only fallback | `PARTIAL`: decoder component tests; PR-07 |

@@ -181,6 +181,10 @@ No tested ViewArea event command/payload, iPhone acknowledgement, or changed fra
 ## Keep PR-07 video recovery changes tied to reproduced device symptoms
 
 No TS10/K706+iPhone stale-frame, decoder stall, output crop mismatch, or Surface-rebuild failure is captured. Preserve the existing generic MediaCodec and Surface lifecycle; do not add a vendor-specific latency key or last-frame hold buffer. Revisit after a same-device symptom and first-frame/format/Surface lifecycle trace.
+
+## Preserve the fork-owned Gecko identity and warm-session path
+
+Do not transplant upstream Gecko or account behavior over the fork's iPhone-hashed context IDs, alias resolution, process-scoped runtime, popup policy, warm-session reuse, and background session owner. Existing deterministic identity/context tests are the local gate; target-device A/B login and Activity/owner-transfer checks remain pending.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

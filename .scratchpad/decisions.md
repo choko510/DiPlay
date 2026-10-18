@@ -169,6 +169,10 @@ Keep the selected context stable for an AirPlaySession when identity evidence ov
 ## Keep PR-06 LOCAL inside the session's negotiated canvas
 
 When the owning Host enters GeckoView Split while a Controller and background session are stored, retain the stored display size as the AirPlay canvas. Apply an aspect-fit TextureView matrix to the current viewport and use the identical fitted rectangle for inverse HID mapping; letterbox coordinates cannot start a contact. Store this local-resize mode with the background session so Activity recreation and owner handoff retain it, clear it with the session, and disable it if geometry cannot be applied so the existing full restart path remains available. Keep DYNAMIC ViewArea separate and OFF.
+
+## Keep multi-ViewArea advertisement opt-in and validation-only
+
+Represent full and split areas on one main display, using the final scaled canvas coordinates and validating both the viewport and its safe area. Serialize those areas only when an explicit `AirPlayDisplayConfig` carries a valid model; a missing or invalid model retains the legacy single-area plist. Do not send a guessed ViewArea event command until a supported command/payload and iPhone acknowledgement are observed; no physical evidence is currently available.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

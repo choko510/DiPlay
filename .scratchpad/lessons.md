@@ -297,3 +297,7 @@ When Gecko reports paint-status reset during `setActive(false)`, retain it throu
 ## Share one aspect-fit geometry between TextureView and HID
 
 For local Canvas scaling, compute centered content bounds once from the negotiated canvas and current viewport. The render matrix maps canvas bounds into those viewport bounds; touch input subtracts the same letterbox offsets and divides by the same content extent. Keep viewport observations out of restart-size coordination while the live session owns LOCAL scaling, or a later restart can accidentally negotiate the pane width as a new Canvas.
+
+## Validate ViewArea geometry in one pixel coordinate space
+
+Build ViewArea and safe-area rectangles against the final AirPlay canvas after display/UI scaling. Use overflow-safe bounds, require each safe rectangle to fit inside its view rectangle, intersect the split safe area with the split viewport, and fall back to the old one-area plist whenever an explicit model is invalid.

@@ -8,7 +8,7 @@
 | `wiredPathDiagnosticsV1` | Not present in frozen main; EX-01 uses existing `connectionTraceEnabled` | Off unless debug connection tracing is enabled; no new preference or schema | Disable recorder; USB/TUN/AirPlay path remains unchanged |
 | `ncmRxFiniteResync` | Not present; current parser requires a short pad at exact 512-byte boundary | Enable only after PR-01 CI and hardware gate | Revert receiver framing routine |
 | `hostRetryEpochGuard` | Not present as a loss-epoch guard | Enable after EX-02 tests | Revert Host retry policy only |
-| `reenumerationProbe` | Not present as the guarded 10-second probe | OFF | Keep existing USB-mode wait |
+| `reenumerationProbe` | Not present; EX-04 conditional not reproduced on TS10/K706+iPhone | NO-GO for this iteration; keep OFF | Keep existing USB-mode wait; reconsider only with same-node evidence |
 | `usbQueueFallback` | Current request uses the existing 32 KiB buffer and persistent-request state | OFF; consider only after an API28+ queue-false reproduction | Restore 32 KiB request path |
 | `statusEndpointExperiment` | Existing `AUTO` and debug-only `NO_STATUS_POLLING` profile | Keep A/B in debug; no new reaper in PR-00 | Return to current profile behavior |
 | `wiredLateOutRecovery` | Not present | OFF; EX-05 requires all six packet-timing evidence conditions | Existing watchdog and retry path |

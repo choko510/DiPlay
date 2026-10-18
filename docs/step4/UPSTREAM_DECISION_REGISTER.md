@@ -6,6 +6,7 @@
 |---|---|---|---|---|
 | UP-NTB-01 | upstream NCM framing; fork `NcmUsbBridge.kt`, `Ntb16Codec.kt` | `ADAPT` | Optional short pad and bounded resync address a source-confirmed receive wait; preserve fork request queue, typed errors and TX format. Not yet hardware-proven. | PR-01 |
 | UP-HOST-01 | upstream reconnect behavior; fork `CarPlayHostActivity.kt`, `CarPlayController.kt` | `ADAPT` | A pending Host retry can race recovery in the frozen code; require loss/owner epoch test and second-loss behavior. | EX-02 |
+| UP-REENUM-01 | upstream same-node 10s USB re-enumeration probe (`ab324016`); fork `CarPlayController.beginReenumeration()` | `NO_GO_PENDING_EVIDENCE` | No TS10/K706+iPhone same-node mode-transition stall was reproduced. Keep the existing event-driven wait; do not add a timer or permission/mode request. Revisit only with same-node, generation, and permission evidence. | EX-04 |
 | UP-USB-01 | Android 8 USB queue size | `NOT_APPLICABLE` | Current `minSdk=28`; do not lower SDK or add an unreachable API26/27 branch. API28+ queue-false fallback remains conditional. | PR-02 |
 | UP-USB-02 | API28+ `UsbRequest.queue()` fallback | `NEED_EVIDENCE` | No device-present queue-false reproduction in baseline. Preserve the current persistent request and 32 KiB buffer absent evidence. | PR-02 |
 | UP-STATUS-01 | CDC status endpoint / `requestWait()` | `NEED_EVIDENCE` | Completion is shared across endpoints on one connection; a separate requestWait thread would violate single ownership. Use AUTO/NO_STATUS A/B first. | EX-06 |

@@ -16,6 +16,10 @@ Represent a scheduled Host retry with a one-shot ticket containing owner identit
 
 Record RTSP RECORD, ALT setup, MAIN setup, MAIN first-frame submission, soft 8s, and hard 15s as distinct attempt events. Retain the existing StartSession start point, 8s/15s constants, and `SCREEN_STREAM_OPENED` completion callback. Do not treat ALT setup or MAIN setup as proof that a MAIN frame reached the surface, and do not change this success rule until physical evidence justifies a separate policy.
 
+## Keep EX-04 as a no-go until same-node USB evidence exists
+
+The 10s same-node re-enumeration probe requires a TS10/K706+iPhone mode-transition stall with device/USB-generation/permission state evidence. No such reproduction is available, so retain the event-driven attach path and add no timer or permission/mode request. The API 36 emulator is not evidence for physical USB re-enumeration.
+
 ## Freeze STEP4 to verified fork main and keep USB injection test-only
 
 Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.

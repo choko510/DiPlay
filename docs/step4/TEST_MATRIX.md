@@ -48,8 +48,8 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U40 | Recovery followed by a second loss permits one retry | `PASS_LOCAL`: `CarPlayReconnectRetryStateTest.recoveryThenSecondLossCreatesExactlyOneNewRetry` |
 | U41 | Controller-owned failure does not trigger Host duplicate retry | `PASS_LOCAL`: managed recovery returns no Host retry ticket |
 | U42 | Owner transfer/Activity recreation rejects old callback | `PARTIAL`: retry owner/generation gate is covered; full Activity handoff integration remains `NOT_RUN` |
-| U43 | Same generation at 10s schedules one re-enumeration probe | `OPEN/CONDITIONAL`: EX-04 |
-| U44 | Detach or USB generation change makes probe a no-op | `OPEN/CONDITIONAL`: EX-04 |
+| U43 | Same generation at 10s schedules one re-enumeration probe | `NOT_RUN/NO_GO_PENDING_EVIDENCE`: no TS10/K706+iPhone same-node mode stall was reproduced; no production probe added |
+| U44 | Detach or USB generation change makes probe a no-op | `NOT_RUN/NO_GO_PENDING_EVIDENCE`: no probe was added without same-node evidence |
 | U45 | First bulk OUT after 15s detects unreachable recovery proposal | `OPEN/CONDITIONAL`: EX-05 virtual-time gate |
 | U46 | Healthy initial SYN/accept suppresses another StartSession | `OPEN/CONDITIONAL`: EX-05 |
 | U47 | Stale CSM/reconnect never receives an extra send | `OPEN/CONDITIONAL`: EX-05 |
@@ -164,3 +164,8 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 - EX-01 already adds per-attempt events for RECORD active, MAIN/ALT SETUP, MAIN first frame, and the existing soft/hard timeout moments. EX-03 adds deterministic timeline coverage and leaves the existing 8s soft / 15s hard timing and `SCREEN_STREAM_OPENED` completion rule unchanged.
 - Tests demonstrate that RECORD at 10s does not cancel the 15s deadline, while ALT-only SETUP is logged separately from MAIN/frame evidence even though the legacy screen-open callback can cancel the watchdog. MAIN SETUP and MAIN frame submission remain separate events.
 - Tests validate the state model, not physical iPhone presentation behavior; ALT-only, delayed MAIN, and first-frame latency measurements on TS10 remain `NOT_RUN`.
+
+## EX-04 decision
+
+- `NO_GO_PENDING_EVIDENCE`: no TS10/K706+iPhone same-node mode-transition stall has been reproduced. Keep the existing event-driven USB wait; no 10s probe, extra permission request, or additional mode request is added.
+- The API 36 emulator test environment has no iPhone USB mode transition, so it is not evidence for this condition. Reconsider only after a same-node, USB-generation, permission-state trace is captured.

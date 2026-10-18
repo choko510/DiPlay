@@ -1,5 +1,8 @@
 package com.shilapi.xcertplay.orchestration
 
+import com.shilapi.xcertplay.diagnostics.WiredPathDiagnostics
+import com.shilapi.xcertplay.diagnostics.WiredPathEvent
+import com.shilapi.xcertplay.diagnostics.WiredPathReportReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -9,6 +12,71 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WiredStartupWatchdogTest {
+    @Test
+    fun recordWithoutMainStillReachesTheUnchangedFifteenSecondHardDeadline() {
+        val watchdog = WiredStartupWatchdog()
+        val diagnostics = diagnostics(attempt = 44, startedAtNanos = 1_000_000_000L)
+        val token = watchdog.arm(attempt = 44)!!
+        diagnostics.recordAt(WiredPathEvent.START_SESSION_SENT, 1_000_000_000L)
+
+        val softAt = 1_000_000_000L + WiredStartupWatchdog.SOFT_TIMEOUT_MILLIS * NANOS_PER_MILLISECOND
+        assertTrue(watchdog.markSlow(token))
+        diagnostics.recordAt(WiredPathEvent.SOFT_TIMEOUT, softAt)
+        diagnostics.recordAt(WiredPathEvent.RTSP_RECORD_ACTIVE, softAt + 2_000L * NANOS_PER_MILLISECOND)
+        assertFalse(watchdog.hasExpired(44))
+
+        val hardAt = 1_000_000_000L + WiredStartupWatchdog.HARD_TIMEOUT_MILLIS * NANOS_PER_MILLISECOND
+        diagnostics.recordAt(WiredPathEvent.HARD_TIMEOUT, hardAt)
+        assertEquals(44, watchdog.expire(token))
+        val snapshot = diagnostics.snapshot(WiredPathReportReason.HARD_15S, hardAt)!!
+
+        assertEquals(1L, snapshot.count(WiredPathEvent.SOFT_TIMEOUT))
+        assertEquals(1L, snapshot.count(WiredPathEvent.RTSP_RECORD_ACTIVE))
+        assertEquals(1L, snapshot.count(WiredPathEvent.HARD_TIMEOUT))
+        assertEquals(15_000L, snapshot.elapsedMillis())
+        assertEquals(44, snapshot.attempt)
+        assertEquals(0L, snapshot.count(WiredPathEvent.MAIN_SETUP))
+        assertEquals(0L, snapshot.count(WiredPathEvent.MAIN_FRAME_SUBMITTED))
+    }
+
+    @Test
+    fun altSetupCanKeepTheLegacyScreenOpenCompletionWithoutBecomingMainEvidence() {
+        val watchdog = WiredStartupWatchdog()
+        val diagnostics = diagnostics(attempt = 45, startedAtNanos = 5_000_000L)
+        val token = watchdog.arm(attempt = 45)!!
+        diagnostics.recordAt(WiredPathEvent.START_SESSION_SENT, 5_000_000L)
+        diagnostics.recordAt(WiredPathEvent.ALT_SETUP, 10_005_000_000L)
+
+        watchdog.cancel(attempt = 45)
+
+        assertNull(watchdog.expire(token))
+        val altOnly = diagnostics.snapshot(WiredPathReportReason.ALT_SETUP, 10_005_000_000L)!!
+        assertEquals(1L, altOnly.count(WiredPathEvent.ALT_SETUP))
+        assertEquals(0L, altOnly.count(WiredPathEvent.MAIN_SETUP))
+        assertEquals(0L, altOnly.count(WiredPathEvent.MAIN_FRAME_SUBMITTED))
+    }
+
+    @Test
+    fun mainSetupDoesNotBecomeEvidenceThatTheFirstFrameWasSubmitted() {
+        val watchdog = WiredStartupWatchdog()
+        val diagnostics = diagnostics(attempt = 46, startedAtNanos = 2_000_000L)
+        val token = watchdog.arm(attempt = 46)!!
+        diagnostics.recordAt(WiredPathEvent.START_SESSION_SENT, 2_000_000L)
+        diagnostics.recordAt(WiredPathEvent.MAIN_SETUP, 12_002_000_000L)
+
+        watchdog.cancel(attempt = 46)
+        val setup = diagnostics.snapshot(WiredPathReportReason.MAIN_SETUP, 12_002_000_000L)!!
+
+        assertNull(watchdog.expire(token))
+        assertEquals(1L, setup.count(WiredPathEvent.MAIN_SETUP))
+        assertEquals(0L, setup.count(WiredPathEvent.MAIN_FRAME_SUBMITTED))
+
+        diagnostics.recordAt(WiredPathEvent.MAIN_FRAME_SUBMITTED, 14_002_000_000L)
+        val frame = diagnostics.snapshot(WiredPathReportReason.MAIN_FRAME, 14_002_000_000L)!!
+        assertEquals(1L, frame.count(WiredPathEvent.MAIN_SETUP))
+        assertEquals(1L, frame.count(WiredPathEvent.MAIN_FRAME_SUBMITTED))
+    }
+
     @Test
     fun startSessionArmsOnceAndExpiresOnce() {
         val watchdog = WiredStartupWatchdog()
@@ -138,5 +206,17 @@ class WiredStartupWatchdogTest {
         assertTrue(generation.isCurrent(newAttempt))
         generation.invalidate()
         assertFalse(generation.isCurrent(newAttempt))
+    }
+
+    private fun diagnostics(attempt: Int, startedAtNanos: Long) = WiredPathDiagnostics(
+        enabled = true,
+        controllerRunId = "watchdog-test",
+        attempt = attempt,
+        listenerPort = 7_000,
+        startedAtNanos = startedAtNanos,
+    )
+
+    private companion object {
+        const val NANOS_PER_MILLISECOND = 1_000_000L
     }
 }

@@ -39,11 +39,11 @@ Source IDs: plan Part II §8.3 (`U01`–`U75`) and Part III §R-04. The matrix p
 | U31 | Diagnostic ON/OFF has identical USB/TUN behavior | `PASS_LOCAL`: scripted USB bytes/results and fake TUN packet bytes match |
 | U32 | Exported diagnostics contain no PII or payload | `PASS_LOCAL`: report fixture excludes IPv6, MAC, source port, and payload |
 | U33 | No watchdog before StartSession send | `PARTIAL`: `WiredStartupWatchdogTest`; controller integration evidence open |
-| U34 | 8-second soft event does not tear down | `PARTIAL`: `WiredStartupWatchdogTest`; controller integration evidence open |
+| U34 | 8-second soft event does not tear down | `PASS_LOCAL`: EX-03 deterministic soft/record/hard stage test; Controller integration remains uninstrumented on a device |
 | U35 | 15-second hard deadline tears down once | `PARTIAL`: watchdog state tests; controller teardown integration open |
-| U36 | ALT-only setup remains distinct from MAIN | `OPEN`: EX-03 |
-| U37 | Active at 10s / no MAIN by 15s has distinct stages | `OPEN`: EX-03 |
-| U38 | Old watchdog token cannot affect current attempt | `PARTIAL`: existing watchdog token tests; controller integration open |
+| U36 | ALT-only setup remains distinct from MAIN | `PASS_LOCAL`: EX-03 diagnostics and watchdog test assert ALT without MAIN/frame evidence |
+| U37 | Active at 10s / no MAIN by 15s has distinct stages | `PASS_LOCAL`: EX-03 test records RECORD separately and reaches the existing 15s hard deadline with MAIN absent |
+| U38 | Old watchdog token cannot affect current attempt | `PARTIAL`: watchdog token unit case passes; physical/controller teardown race remains untested |
 | U39 | Recovered session skips old pending retry | `PASS_LOCAL`: `CarPlayReconnectRetryStateTest.recoveryBeforeTimeoutInvalidatesThePendingRetry` |
 | U40 | Recovery followed by a second loss permits one retry | `PASS_LOCAL`: `CarPlayReconnectRetryStateTest.recoveryThenSecondLossCreatesExactlyOneNewRetry` |
 | U41 | Controller-owned failure does not trigger Host duplicate retry | `PASS_LOCAL`: managed recovery returns no Host retry ticket |
@@ -114,8 +114,8 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 | R04-REC-02 | Recovery then second loss creates the legitimate retry | PASS_LOCAL: EX-02 second-loss test |
 | R04-REC-03 | Controller-owned recovery produces zero Host duplicate retry | PASS_LOCAL: EX-02 managed-owner test |
 | R04-REC-04 | Menu/Split owner change preserves background controller | PARTIAL: handoff tests; combined case open |
-| R04-REC-05 | AirPlay Active and delayed MAIN setup have separate timings | OPEN / EX-03 |
-| R04-REC-06 | ALT-only setup is not reported as MAIN first frame | OPEN / EX-03 |
+| R04-REC-05 | AirPlay Active and delayed MAIN setup have separate timings | PASS_LOCAL: EX-03 stage recorder test |
+| R04-REC-06 | ALT-only setup is not reported as MAIN first frame | PASS_LOCAL: EX-03 ALT-only stage test |
 | R04-REC-07 | Late StartSession suppressed after correct-port SYN | OPEN / EX-05 |
 | R04-REC-08 | Active session survives stale retry and late USB reset | OPEN / EX-02 / EX-05 |
 | R04-A-01 | Explicit `isInput=false` with data port does not record | PARTIAL / PR-04 |
@@ -158,3 +158,9 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 - `CarPlayReconnectRetryStateTest` covers recovery-before-timeout, recovery then second loss, single-consume behavior, duplicate failure throttling, controller-managed recovery, explicit cancel/manual disconnect, stale session-end, owner/owner-generation transfer, controller replacement, Host generation change, and menu/connection-active suppression.
 - Latest local suite: shared 491 + common 142 tests, zero failures/errors/skips. Mobile/automotive lint, debug/benchmark builds, JNI mapping, public-tree, and whitespace checks pass.
 - The state transitions are unit-tested independently from the Android Activity. Owner handoff stress and long-running reconnect behavior are not hardware/Activity stress evidence; no second reviewer was available.
+
+## EX-03 verification note
+
+- EX-01 already adds per-attempt events for RECORD active, MAIN/ALT SETUP, MAIN first frame, and the existing soft/hard timeout moments. EX-03 adds deterministic timeline coverage and leaves the existing 8s soft / 15s hard timing and `SCREEN_STREAM_OPENED` completion rule unchanged.
+- Tests demonstrate that RECORD at 10s does not cancel the 15s deadline, while ALT-only SETUP is logged separately from MAIN/frame evidence even though the legacy screen-open callback can cancel the watchdog. MAIN SETUP and MAIN frame submission remain separate events.
+- Tests validate the state model, not physical iPhone presentation behavior; ALT-only, delayed MAIN, and first-frame latency measurements on TS10 remain `NOT_RUN`.

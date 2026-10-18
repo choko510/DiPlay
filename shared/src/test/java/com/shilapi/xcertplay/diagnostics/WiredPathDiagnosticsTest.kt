@@ -22,6 +22,47 @@ import org.junit.Test
 
 class WiredPathDiagnosticsTest {
     @Test
+    fun reportsRecordAltMainAndMainFrameAsSeparateMilestones() {
+        val reports = mutableListOf<WiredPathReportReason>()
+        val diagnostics = WiredPathDiagnostics(
+            enabled = true,
+            controllerRunId = "stage-run",
+            attempt = 9,
+            listenerPort = 7_000,
+            startedAtNanos = 1_000_000_000L,
+            onReportRequested = reports::add,
+        )
+        diagnostics.recordAt(WiredPathEvent.ATTEMPT_STARTED, 1_000_000_000L)
+        diagnostics.recordAt(WiredPathEvent.START_SESSION_SENT, 1_000_000_000L)
+        diagnostics.recordAt(WiredPathEvent.RTSP_RECORD_ACTIVE, 10_000_000_000L)
+        diagnostics.recordAt(WiredPathEvent.ALT_SETUP, 11_000_000_000L)
+        diagnostics.recordAt(WiredPathEvent.MAIN_SETUP, 12_000_000_000L)
+        diagnostics.recordAt(WiredPathEvent.MAIN_FRAME_SUBMITTED, 14_000_000_000L)
+
+        val snapshot = diagnostics.snapshot(WiredPathReportReason.MAIN_FRAME, 15_000_000_000L)!!
+
+        assertEquals(1L, snapshot.count(WiredPathEvent.RTSP_RECORD_ACTIVE))
+        assertEquals(1L, snapshot.count(WiredPathEvent.ALT_SETUP))
+        assertEquals(1L, snapshot.count(WiredPathEvent.MAIN_SETUP))
+        assertEquals(1L, snapshot.count(WiredPathEvent.MAIN_FRAME_SUBMITTED))
+        assertEquals(9_000L, snapshot.firstElapsedSinceStartSessionMillis(WiredPathEvent.RTSP_RECORD_ACTIVE))
+        assertEquals(10_000L, snapshot.firstElapsedSinceStartSessionMillis(WiredPathEvent.ALT_SETUP))
+        assertEquals(11_000L, snapshot.firstElapsedSinceStartSessionMillis(WiredPathEvent.MAIN_SETUP))
+        assertEquals(13_000L, snapshot.firstElapsedSinceStartSessionMillis(WiredPathEvent.MAIN_FRAME_SUBMITTED))
+        assertEquals(
+            listOf(
+                WiredPathReportReason.START,
+                WiredPathReportReason.START_SESSION,
+                WiredPathReportReason.RECORD,
+                WiredPathReportReason.ALT_SETUP,
+                WiredPathReportReason.MAIN_SETUP,
+                WiredPathReportReason.MAIN_FRAME,
+            ),
+            reports,
+        )
+    }
+
+    @Test
     fun recordsIpv4SynByFamilyOnce() {
         val diagnostics = diagnostics()
         val frame = Step4PacketFixtures.ethernetIpv4Tcp()

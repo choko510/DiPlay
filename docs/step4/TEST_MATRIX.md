@@ -181,3 +181,7 @@ The plan labels these as 50 additional cases and supplies 50 named IDs. All IDs 
 ## EX-05 decision
 
 - `NO_GO_PENDING_EX01_DEVICE_EVIDENCE`: none of the six required EX-01 packet-timing conditions has been captured on TS10/K706+iPhone. Do not add a second StartSession or guessed EndSession. The 15s watchdog also makes any OUT recovery after 15s unreachable without a separate virtual-time design; no such policy is introduced.
+
+## EX-06 decision
+
+- `NO_GO_PENDING_DEVICE_AB`: retain the existing `AUTO` status polling default and debug-only `NO_STATUS_POLLING` comparator. No TS10/K706+iPhone A/B has measured status utility, read rate, GC pauses, or handshake timing. Do not add a status UsbRequest/reaper while `requestWait()` ownership is shared with NCM bulk IN.

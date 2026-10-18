@@ -11,7 +11,7 @@
 | `reenumerationProbe` | Not present; EX-04 conditional not reproduced on TS10/K706+iPhone | NO-GO for this iteration; keep OFF | Keep existing USB-mode wait; reconsider only with same-node evidence |
 | `usbQueueFallback` | Current request uses the existing 32 KiB buffer and persistent-request state | `NO_GO_PENDING_DEVICE_REPRO`; keep OFF until API28+ device-present `queue()==false` is observed | Restore 32 KiB request path |
 | `firstOutTimeoutPolicy` | Existing `AUTO` uses 100 ms before link ready; NDP NS/NA retries are bounded and TCP is not retried | `NO_GO_PENDING_CAUSAL_LOG`; keep current profile defaults | Restore current pre-ready timeout and NDP-only retry |
-| `statusEndpointExperiment` | Existing `AUTO` and debug-only `NO_STATUS_POLLING` profile | Keep A/B in debug; no new reaper in PR-00 | Return to current profile behavior |
+| `statusEndpointExperiment` | Existing `AUTO` and debug-only `NO_STATUS_POLLING` profile | `NO_GO_PENDING_DEVICE_AB`; keep current `AUTO` default and existing comparator | No new reaper; return to current profile behavior |
 | `wiredLateOutRecovery` | Not present; EX-05 causal log gate unmet | `NO_GO_PENDING_EX01_DEVICE_EVIDENCE`; require all six packet-timing conditions and a virtual-time reachability pass | Existing watchdog and retry path |
 | `splitLocalNoRestart` | Existing GeckoView split and resize/handoff paths; exact restart behavior is to be revalidated for PR-06 | OFF until LOCAL tests pass | `LEGACY_RECONNECT` behavior |
 | `splitDynamicViewArea` | Not present | OFF / experimental only after PR-05 device acceptance | LOCAL scale without wire change |

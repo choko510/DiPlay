@@ -32,6 +32,10 @@ Preserve AUTO's 100 ms pre-ready timeout and the existing bounded retry only for
 
 Require correct-destination SYN, successful TUN write, kernel SYN-ACK, NCM OUT NotReady, first full OUT after the phone's SYN retry window, and no accept/active on the same TS10 attempt. Until then, add no extra StartSession/EndSession command. Any possible post-15s recovery also needs a separate virtual-time reachability policy before implementation.
 
+## Keep EX-06 status polling behind the existing A/B until device evidence
+
+Retain `AUTO` and the existing debug `NO_STATUS_POLLING` comparator. A separate `UsbRequest` cannot safely call `requestWait()` without shared-connection completion routing, so add no reaper until a TS10/iPhone A/B shows polling is harmful or useful and ownership/close tests are designed.
+
 ## Freeze STEP4 to verified fork main and keep USB injection test-only
 
 Use the fetched fork `main` SHA `95ba398f95ee104527812cd2b095977d71c51f98` as the implementation base and keep all work on a dedicated branch. The NCM request factory is internal and defaults to `UsbRequest()`; tests may inject a scripted request without changing request ownership or retry behavior.

@@ -17,7 +17,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 
 - Kept public-tree and EX-08 checks on every PR, while classifying paths changed since the latest successful full check. Documentation-only diffs skip Android SDK setup, native tests, Gradle, and emulator jobs; unknown paths, code/workflow changes, missing baselines, API errors, pushes, and manual runs stay full.
 - Enabled Gradle task output caching for same-repository PRs only, scoped to each PR merge ref; fork PRs remain read-only. Passed `--build-cache` to both check and instrumentation Gradle invocations.
-- GitHub Actions run #144 passed both full jobs. The check job reported 41 tasks `FROM-CACHE`, and both jobs saved Gradle cache entries for later commits. This first cache-enabled run is a warmup, not an elapsed-time comparison; the documentation-only fast path awaits run #145.
+- GitHub Actions run #144 passed both full jobs in 10m46s. The check job reported 41 tasks `FROM-CACHE`, and both jobs saved Gradle cache entries for later commits. Documentation-only run #145 then passed in 15s: public-tree and EX-08 checks ran while setup-java/Android/Gradle/native/instrumentation were skipped. Later code changes remain on the full test path; compare their elapsed time against #144 to quantify the cache benefit.
 
 ## 2026-10-02 — PR #14 CI wall time
 

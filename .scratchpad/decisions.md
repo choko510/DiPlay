@@ -383,3 +383,5 @@ Share one 2× oversampled waveshaper across the Exciter and Virtual Bass branche
 ## Batch remaining STEP4 work in the existing PR
 
 Keep all remaining STEP4 stages in PR #45 and update related EX-08 decisions, generated inventory counts, and documentation in one batch. When an upstream commit mixes features with independent gates, reject that aggregate as supplied while leaving its narrow constituent candidates pending until their own evidence is available. Use the draft quick lane for iterative code feedback and reserve the full host/emulator lane for `ready_for_review`; missing hardware/protocol evidence remains `NOT_RUN` or `NEED_EVIDENCE`. The second independent review stays `NOT_RUN` per the user's direction.
+
+Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/bus/usb` node paths are outside the aggregate `WIRED_PATH_V1` schema and are not changed by the source diagnostic redactor.

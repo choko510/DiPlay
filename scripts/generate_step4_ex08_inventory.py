@@ -306,6 +306,14 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No merge imported; keep fixed-main code and evaluate only independently supported constituent commits in revertible PR-45 changes.",
         "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
     },
+    "7dabe889ed0d093af28f8d7fb9c9d187f3ecc576": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This connection-triage merge combines NCM pad/resync changes, an older-iOS iAP2 message retry, raw USB mode/configuration diagnostics, and AccessibilityService USB auto-confirm. PR-01 already adapts the bounded NCM behavior; importing the aggregate would alter consent and diagnostic/protocol behavior outside that validated change, with no supported-device evidence.",
+        "test": "PASS_PR45: NcmUsbBridgeFixtureTest covers bounded pad/resync behavior; PASS_STATIC: origin/main uses UsbManager.requestPermission and has no UsbAutoConfirmService; NOT_RUN_TARGET: older-iOS identification, USB mode rejection, and wireless/device cases",
+        "related": "Reject aggregate; PR-01 NCM adaptation, USB permission consent, EX-01 diagnostic privacy, and older-iOS iAP2 behavior require separate decisions",
+        "rollback": "No aggregate imported; keep the tested PR-01 framing change and fixed-main permission flow. Any other component must be independently supported and revertible.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
     "946487526d677e04b8b97d630e03154e1ac0453a": {
         "disposition": "REJECT_UNSAFE",
         "reason": "This 47-path upstream-main sync into a repair branch spans BYD HUD, API 25 USB completion reaping, NCM, Wi-Fi P2P, audio-focus/microphone, and UI/settings code. Importing the merge would bypass v3 per-feature gates and could restore BYD/OEM behavior removed from fixed main.",

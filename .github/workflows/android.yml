@@ -3,7 +3,11 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
+concurrency:
+  group: android-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
   checks: read
@@ -12,7 +16,8 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      runtime: ${{ steps.classify.outputs.runtime }}
+      host: ${{ steps.classify.outputs.host }}
+      instrumentation: ${{ steps.classify.outputs.instrumentation }}
     steps:
       - name: Classify changed files
         id: classify
@@ -22,53 +27,82 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
-            echo "runtime=true" >> "$GITHUB_OUTPUT"
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          previous_host_sha=""
           previous_full_sha=""
           candidate_sha="$PR_HEAD_SHA"
           searched=0
           while [[ -n "$candidate_sha" && "$searched" -lt 100 ]]; do
             if ! checks="$(gh api --method GET --paginate "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}/check-runs" -f per_page=100 --jq '.check_runs[] | select(.conclusion == "success") | .name')"; then
-              echo "runtime=true" >> "$GITHUB_OUTPUT"
+              echo "host=true" >> "$GITHUB_OUTPUT"
+              echo "instrumentation=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            if grep -Fxq "check" <<< "$checks" && grep -Fxq "android-instrumentation" <<< "$checks"; then
+            if [[ -z "$previous_host_sha" ]] && grep -Fxq "host-baseline" <<< "$checks"; then
+              previous_host_sha="$candidate_sha"
+            fi
+            if [[ -z "$previous_full_sha" ]] && grep -Fxq "check" <<< "$checks" && grep -Fxq "android-instrumentation" <<< "$checks"; then
               previous_full_sha="$candidate_sha"
+              if [[ -z "$previous_host_sha" ]]; then
+                previous_host_sha="$candidate_sha"
+              fi
+            fi
+            if [[ -n "$previous_host_sha" && -n "$previous_full_sha" ]]; then
               break
             fi
             if ! candidate_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}" --jq '.parents[0].sha // empty')"; then
-              echo "runtime=true" >> "$GITHUB_OUTPUT"
+              echo "host=true" >> "$GITHUB_OUTPUT"
+              echo "instrumentation=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             searched=$((searched + 1))
           done
 
-          if [[ -z "$previous_full_sha" ]]; then
-            echo "runtime=true" >> "$GITHUB_OUTPUT"
+          classify_since() {
+            local baseline_sha="$1"
+            local comparison
+            if [[ -z "$baseline_sha" ]]; then
+              echo true
+              return 0
+            fi
+            if ! comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${baseline_sha}...${PR_HEAD_SHA}")"; then
+              return 1
+            fi
+
+            local file_count
+            file_count="$(jq '(.files // []) | length' <<< "$comparison")"
+            if (( file_count >= 300 )); then
+              echo true
+              return 0
+            fi
+
+            local runtime=false
+            while IFS= read -r path; do
+              case "$path" in
+                docs/*|.scratchpad/*|scripts/generate_step4_ex08_inventory.py|*.md) ;;
+                *) runtime=true; break ;;
+              esac
+            done < <(jq -r '.files[]?.filename' <<< "$comparison")
+            echo "$runtime"
+          }
+
+          if ! host="$(classify_since "$previous_host_sha")"; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! instrumentation="$(classify_since "$previous_full_sha")"; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          if ! comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${previous_full_sha}...${PR_HEAD_SHA}")"; then
-            echo "runtime=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          file_count="$(jq '(.files // []) | length' <<< "$comparison")"
-          if (( file_count >= 300 )); then
-            echo "runtime=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          runtime=false
-          while IFS= read -r path; do
-            case "$path" in
-              docs/*|.scratchpad/*|scripts/generate_step4_ex08_inventory.py|*.md) ;;
-              *) runtime=true; break ;;
-            esac
-          done < <(jq -r '.files[]?.filename' <<< "$comparison")
-          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          echo "host=$host" >> "$GITHUB_OUTPUT"
+          echo "instrumentation=$instrumentation" >> "$GITHUB_OUTPUT"
 
   check:
     needs: changes
@@ -81,33 +115,33 @@ jobs:
       - name: Verify EX-08 commit inventory
         run: python3 scripts/generate_step4_ex08_inventory.py --check
       - uses: actions/setup-java@v4
-        if: needs.changes.outputs.runtime == 'true'
+        if: needs.changes.outputs.host == 'true'
         with:
           distribution: temurin
           java-version: '25'
       - uses: android-actions/setup-android@v3
-        if: needs.changes.outputs.runtime == 'true'
+        if: needs.changes.outputs.host == 'true'
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973
       - uses: gradle/actions/setup-gradle@v4
-        if: needs.changes.outputs.runtime == 'true'
+        if: needs.changes.outputs.host == 'true'
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Host native DSP tests
-        if: needs.changes.outputs.runtime == 'true'
+        if: needs.changes.outputs.host == 'true'
         run: bash scripts/test_dsp_native.sh
       - name: Host native DSP tests with ASan and UBSan
-        if: needs.changes.outputs.runtime == 'true'
+        if: needs.changes.outputs.host == 'true'
         run: bash scripts/test_dsp_native.sh --sanitize
       - name: Unit tests, lint, debug and optimized builds
-        if: needs.changes.outputs.runtime == 'true'
+        if: needs.changes.outputs.host == 'true'
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --parallel --stacktrace
       - name: Verify JNI names survive R8
-        if: needs.changes.outputs.runtime == 'true'
+        if: needs.changes.outputs.host == 'true'
         run: python3 scripts/check_jni_mapping.py
 
       - name: Test reports
-        if: always() && needs.changes.outputs.runtime == 'true'
+        if: always() && needs.changes.outputs.host == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-${{ github.job }}
@@ -117,9 +151,22 @@ jobs:
             mobile/build/reports/lint-results-debug.html
             automotive/build/reports/lint-results-debug.html
 
+  host-baseline:
+    needs: [changes, check]
+    if: >-
+      always() &&
+      needs.changes.outputs.host == 'true' &&
+      needs.check.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record successful host verification
+        run: echo "Host checks passed for $GITHUB_SHA"
+
   android-instrumentation:
     needs: changes
-    if: needs.changes.outputs.runtime == 'true'
+    if: >-
+      needs.changes.outputs.instrumentation == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

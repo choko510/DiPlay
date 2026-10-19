@@ -13,6 +13,12 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-20 — Shorten draft PR feedback
+
+- Run #151 logs showed the host check job taking 2m45s (Gradle command 1m04s) and the instrumentation job taking 5m12s. The instrumentation job spent about 1m22s installing Android SDK packages, roughly 52s reaching emulator boot, and about 1m52s running its 19 tests.
+- Keep public-tree/EX-08 checks and the full host/native/JVM/lint/build/JNI check on code-changing draft updates, but defer the connected emulator matrix until the PR is marked ready for review. A successful host-only marker separates that baseline from the last full instrumentation run, so later docs-only commits do not rerun host checks or mistake a skipped emulator job for a full pass. Seed a new host marker from the previous successful full run to avoid walking the entire commit history during migration. `ready_for_review`, push, and manual events still run the full workflow. Cancel superseded PR runs so stale revisions do not add to the feedback queue.
+- The draft path avoids the observed five-minute instrumentation job on each implementation push; the full emulator gate remains for the latest ready-for-review revision. Measure the next full run separately from any Gradle-cache change.
+
 ## 2026-10-19 — PR #45 Android CI feedback and Gradle cache
 
 - Kept public-tree and EX-08 checks on every PR, while classifying paths changed since the latest successful full check. Documentation-only diffs skip Android SDK setup, native tests, Gradle, and emulator jobs; unknown paths, code/workflow changes, missing baselines, API errors, pushes, and manual runs stay full.

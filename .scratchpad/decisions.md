@@ -2,7 +2,7 @@
 
 ## Keep documentation-only PR checks lightweight
 
-For pull requests, always run public-tree and EX-08 inventory checks, but skip Android SDK setup, native tests, Gradle builds, and emulator instrumentation only when every path changed since the last successful full run is under `docs/`, `.scratchpad/`, is a Markdown file, or is the exact audit-only `scripts/generate_step4_ex08_inventory.py`. Its `--check` still runs on every PR. Treat other scripts, unknown paths, pushes, manual runs, missing/failed baselines, large diffs, and API errors as requiring the full verification suite.
+For pull requests, always run public-tree and EX-08 inventory checks. Compare host verification against the latest successful `host-baseline` marker and emulator instrumentation against the latest successful full `check` plus `android-instrumentation` run. Only paths under `docs/`, `.scratchpad/`, Markdown files, and the exact audit-only `scripts/generate_step4_ex08_inventory.py` may skip host work; its `--check` still runs on every PR. Unknown paths, missing/failed baselines, large diffs, and API errors require the relevant verification path. Pushes and manual runs use the full suite.
 
 ## Cache Gradle task outputs only within the same pull request
 
@@ -11,6 +11,10 @@ Allow Gradle's local build cache to be written for same-repository pull requests
 ## Enable Gradle parallel execution in full CI checks
 
 Pass `--parallel` only to the full CI Gradle task set. The previous no-flag full multi-project run spent 8m58s in Gradle; keep the option out of global developer settings, and separate its benefit from warmed task-cache hits when comparing runs.
+
+## Defer emulator instrumentation while a PR is draft
+
+Keep public-tree and EX-08 checks on every PR update, and keep native, JVM, lint, build, and JNI verification on each code-changing update. Skip only connected Android instrumentation while a PR is draft; include `ready_for_review` so the latest commit receives the full emulator gate before review. Pushes and manual runs remain full, and a newer PR update cancels superseded work.
 
 ## Run emulator instrumentation beside host verification
 

@@ -1,6 +1,8 @@
 # Lessons
 
-For faster pull request feedback, keep inexpensive repository checks in an always-running job and gate costly builds/emulators with a conservative changed-file classifier. Compare against the last successful full run so documentation commits in a long-lived code PR can skip expensive jobs without hiding unverified code changes. Default unknown paths, missing baselines, and non-PR events to the full suite.
+For faster pull request feedback, keep inexpensive repository checks on every update and classify host and emulator work against separate successful baselines. A host-only baseline lets a documentation commit after a draft code update skip repeated builds without treating the skipped emulator job as fully validated. Default unknown paths, missing baselines, and non-PR events to the full suite; defer the emulator matrix only while the PR remains draft.
+
+For long-lived draft PRs, retain host/JVM/build checks on each code update and defer only the slow emulator matrix until `ready_for_review`. Explicitly include that pull-request activity type when restricting event types, and cancel superseded runs so stale commits do not hold the latest feedback behind them.
 
 When a repository tool only updates a reviewed inventory and its dedicated validator runs on every PR, an exact path allowlist can keep those review iterations off the Android build path. Do not generalize that exemption to other `scripts/` changes.
 

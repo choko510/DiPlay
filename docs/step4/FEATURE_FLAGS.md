@@ -1,0 +1,21 @@
+# STEP4 Feature and Rollback Flags
+
+PR-00 records existing controls and planned defaults. It does not add a production feature flag.
+
+| Area | Current main behavior | STEP4 default / gate |
+|---|---|---|
+| Connection trace | `debug_logs_enabled` persists through `AirPlayPersistence`, default false; the host passes it to `CarPlayController` | EX-01 remains opt-in and observational; it cannot change transport retries or deadlines |
+| NCM diagnostic profile | `AUTO` is the default for missing/invalid preferences and all non-debuggable builds. Debug builds can save `NO_STATUS_POLLING`, timeout comparators, synchronous IN, or a forced function pair | Keep `AUTO`; forced pairs and sync IN are debug-only comparators, not release fallbacks |
+| DSP master | `DspProfileRuntime` reads `dsp_enabled` with default false | Keep master disabled until the user enables it; each new node defaults off |
+| Local Split | User selects `HostLayoutMode`; default is full CarPlay and the local CarPlay fraction is 55%, clamped to 50–60% | PR-06 LOCAL must remain local and must not depend on a remote ViewArea command |
+| Existing `/info` displays | `AirPlayConfig.cluster` is optional; each configured display has one view area | Do not treat optional type-111 cluster as dynamic MAIN type-110 ViewArea support |
+| PR-02 queue fallback | No production size fallback exists in main | Absent/off until a device-present API28+ `queue()==false` reproduction |
+| PR-03 first-OUT changes | Existing NDP-only retry and debug timeout profiles | No retry/timeout default change without EX-01 evidence |
+| EX-04 delayed re-enumeration | No 10 s same-node probe in main | Off until a same-node stall is reproduced |
+| EX-05 second StartSession | No additional StartSession retry in main | Off until the exact TS10 packet chronology is observed |
+| EX-07 IPv4 routing | NCM/TUN route is IPv6 | Keep IPv6-only unless a valid IPv4 path is observed and tested |
+| PR-05 dynamic ViewArea | No dynamic ViewArea switch feature exists in main | Off/experimental until phone acknowledgement and actual same-session frame-size change |
+| PR-07 codec tuning | No per-device low-latency codec flag added by PR-00 | Off unless capability and device testing support it |
+| PR-08 release | Main has Debug/Benchmark build variants, not STEP4 rollout flags | Release/experimental flags and rollback test are PR-08 work |
+
+Every behavior-changing flag must identify its owner, safe default, activation evidence, persistence scope, fallback, and rollback test before it can be enabled.

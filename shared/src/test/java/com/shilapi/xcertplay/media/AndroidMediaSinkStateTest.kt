@@ -177,6 +177,39 @@ class AndroidMediaSinkStateTest {
         }
     }
 
+    @Test fun sameTokenActiveMicrophoneUplinkIsNotStartedTwice() {
+        val sink = AndroidMediaSink()
+        val token = AudioOwnerToken(100, 1)
+        val active = FakeMicrophoneUplink().apply { activate() }
+        val creations = AtomicInteger()
+        sink.microphoneUplinkFactoryForTest = { _, _ ->
+            creations.incrementAndGet()
+            FakeMicrophoneUplink()
+        }
+        val entryType = AndroidMediaSink::class.java.declaredClasses.single {
+            it.simpleName == "MicrophoneEntry"
+        }
+        val entry = entryType.declaredConstructors.single().apply { isAccessible = true }
+            .newInstance(token, active)
+        val uplinksField = AndroidMediaSink::class.java.getDeclaredField("microphoneUplinks").apply {
+            isAccessible = true
+        }
+        @Suppress("UNCHECKED_CAST")
+        val uplinks = uplinksField.get(sink) as MutableMap<Int, Any>
+        sink.claimAudioOwner(token)
+        uplinks[100] = entry
+
+        try {
+            assertTrue(sink.onMicrophoneStarted(token, microphoneConfig()))
+
+            assertEquals(0, creations.get())
+            assertSame(active, microphoneUplink(sink, 100))
+            assertFalse(active.closed)
+        } finally {
+            sink.close()
+        }
+    }
+
     private fun microphoneConfig() = MicrophoneConfig(
         audioType = "telephony",
         sampleRate = 16_000,

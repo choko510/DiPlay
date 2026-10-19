@@ -242,6 +242,101 @@ class CarPlayMediaEngineTest {
     }
 
     @Test
+    fun explicitInputFalseKeepsAudioOutputButDoesNotStartMicrophone() {
+        val audioStarts = AtomicInteger()
+        val microphoneStarts = AtomicInteger()
+        val sink = object : MediaSink {
+            override fun onAudioStarted(token: AudioOwnerToken, format: AudioFormat, firstSample: Int) {
+                audioStarts.incrementAndGet()
+            }
+
+            override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
+                microphoneStarts.incrementAndGet()
+                return true
+            }
+        }
+        val engine = CarPlayMediaEngine(sink, microphoneEnabled = true)
+        val session = audioSession(engine, withRemoteAddress = true)
+
+        try {
+            val setup = validMicrophoneAudioSetup(1L) + ("input" to false)
+            assertNotNull(engine.onAudio(session, 100, setup))
+            audioListenerForCurrentState(engine, 100).onStarted(1_234)
+
+            assertEquals(1, audioStarts.get())
+            assertEquals(0, microphoneStarts.get())
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
+    @Test
+    fun defaultAndCompatibilityVoiceInputsReachTheExistingUplink() {
+        val microphoneTypes = CopyOnWriteArrayList<String>()
+        val sink = object : MediaSink {
+            override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
+                microphoneTypes += config.audioType
+                return true
+            }
+        }
+        val engine = CarPlayMediaEngine(sink, microphoneEnabled = true)
+        val session = audioSession(engine, withRemoteAddress = true)
+
+        try {
+            listOf("default", "compatibility").forEachIndexed { index, audioType ->
+                val setup = validMicrophoneAudioSetup(index.toLong() + 1L) + ("audioType" to audioType)
+                assertNotNull(engine.onAudio(session, 100, setup))
+                audioListenerForCurrentState(engine, 100).onStarted(1_234)
+            }
+
+            assertEquals(listOf("default", "compatibility"), microphoneTypes.toList())
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
+    @Test
+    fun microphoneInputRespectsPermissionAndAdvertisedMonoFormat() {
+        val microphoneStarts = AtomicInteger()
+        val sink = object : MediaSink {
+            override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
+                microphoneStarts.incrementAndGet()
+                return true
+            }
+        }
+        val engine = CarPlayMediaEngine(sink, microphoneEnabled = true)
+        val session = audioSession(engine, withRemoteAddress = true)
+
+        try {
+            assertNotNull(
+                engine.onAudio(
+                    session,
+                    100,
+                    validMicrophoneAudioSetup(1L) + mapOf("audioType" to "default", "audioFormat" to 0x8000L),
+                ),
+            )
+            audioListenerForCurrentState(engine, 100).onStarted(1_234)
+            assertEquals(0, microphoneStarts.get())
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+
+        val disabledEngine = CarPlayMediaEngine(sink, microphoneEnabled = false)
+        val disabledSession = audioSession(disabledEngine, withRemoteAddress = true)
+        try {
+            assertNotNull(disabledEngine.onAudio(disabledSession, 100, validMicrophoneAudioSetup(2L)))
+            audioListenerForCurrentState(disabledEngine, 100).onStarted(1_234)
+            assertEquals(0, microphoneStarts.get())
+        } finally {
+            disabledEngine.onSessionClosed(disabledSession)
+            disabledSession.close()
+        }
+    }
+
+    @Test
     fun closedSessionCannotCommitAudioAfterPrepareFinishes() {
         val sink = TrackingSink()
         val engine = CarPlayMediaEngine(sink)

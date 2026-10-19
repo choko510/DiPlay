@@ -60,6 +60,15 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | EX06-01 | Compare `AUTO` and `NO_STATUS_POLLING` for status usefulness, GC, packet loss, and RTSP timing | Physical device A/B | `NOT_RUN`; retain current polling behavior |
 | EX07-01 | Reproduce IPv4-only traffic, IPv6 link-local scope failure, or stale accept generation before changing bridge/listener behavior | Physical interface evidence and targeted stress test | `NO_GO_THIS_RUN`; no trigger condition is evidenced |
 
+## PR-04 microphone request classification and routing
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| PR04-01 | Explicit `input=false`; MainAudio-only voice types; default/compatibility/telephony/speechRecognition; integer destination port bounds | `MicrophoneRequestPolicyTest` | `PASS_LOCAL` |
+| PR04-02 | Denied input leaves downlink audio active; permitted default/compatibility requests reach the uplink; permission-disabled and non-mono input do not start capture | `CarPlayMediaEngineTest` | `PASS_ROBOLECTRIC` |
+| PR04-03 | Repeated request for the same active audio owner does not replace/start another microphone uplink; inactive same-token uplink remains recoverable | `AndroidMediaSinkStateTest` | `PASS_ROBOLECTRIC` |
+| PR04-04 | Siri, telephone call, voice message, permission-denied, and real AudioRecord/uplink behavior on TS10/K706/iPhone | Physical device run | `NOT_RUN`; no target hardware is connected |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |
@@ -71,6 +80,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | App lint/build | Both app Debug/Benchmark builds and lints passed | No release signing/update exercise |
 | EX-01 branch verification | 483 shared + 137 common unit tests; both app lints and Debug/Benchmark assemblies passed | Full target-path and performance A/B remain `NOT_RUN` |
 | PR-01 + EX-02 working-tree verification | 495 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Device path and independent second review remain `NOT_RUN` |
+| PR-04 working-tree verification | 502 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Physical microphone/Siri/call/voice-message checks remain `NOT_RUN` |
 | Hardware | No TS10/K706/iPhone was attached | `NOT_RUN`; not a pass |
 
 The remaining acceptance IDs in specification sections 8.3 and R-04 stay open for their dependent PR/EX stages. EX-01 has a source-level implementation and fixture coverage; it is not device-validated or release-ready.

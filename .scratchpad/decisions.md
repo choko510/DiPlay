@@ -36,6 +36,10 @@ Per the user's latest instruction, fold every remaining STEP4 stage into the exi
 
 Do not alter watchdog deadlines/completion, USB queue fallback, initial NCM OUT timing, StartSession retry, status polling, or IPv4/scope/listener behavior without the corresponding device evidence in the v3 plan. EX-01 already records the needed per-stage wired milestones; this run has no TS10/iPhone trigger trace, so record the conditional branches as `NO_GO_THIS_RUN` or `NOT_RUN` and preserve existing behavior.
 
+## Gate microphone capture on an explicit request policy
+
+Keep `input=false` as a hard microphone veto while allowing the audio downlink to continue. Accept capture only on MainAudio with an advertised voice input type, valid peer port, enabled microphone permission, and mono negotiated format; reuse the existing owner-scoped uplink so an active recorder is not started twice.
+
 ## Keep one USBMUX IN request and use bounded recovery
 
 USBMUX now reuses one 32 KiB direct-buffer request across wait timeouts; framing rebuilds up to 64 KiB messages above the USB read layer. On failure, close the wired CSM, USBMUX/session, and VPN/NCM together, then allow three bounded clean retries at 400, 800, and 1,200 ms before surfacing a deep-recovery candidate. USBMUX and NCM remain on separate `UsbDeviceConnection`s because the current interface layout provides no evidence that combining them improves reliability.

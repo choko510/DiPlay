@@ -2,7 +2,7 @@
 
 ## Keep documentation-only PR checks lightweight
 
-For pull requests, always run public-tree and EX-08 inventory checks, but skip Android SDK setup, native tests, Gradle builds, and emulator instrumentation when every changed path is under `docs/`, `.scratchpad/`, or is a Markdown file. Treat all other paths, pushes, and manual runs as requiring the full verification suite.
+For pull requests, always run public-tree and EX-08 inventory checks, but skip Android SDK setup, native tests, Gradle builds, and emulator instrumentation only when every path changed since the last successful full run is under `docs/`, `.scratchpad/`, or is a Markdown file. Treat unknown paths, pushes, manual runs, missing/failed baselines, large diffs, and API errors as requiring the full verification suite.
 
 ## Run emulator instrumentation beside host verification
 

@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
   pull-requests: read
 jobs:
   changes:
@@ -18,6 +19,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
@@ -25,14 +28,47 @@ jobs:
             exit 0
           fi
 
-          files="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" --jq '.[].filename')"
+          if ! runs="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/android.yml/runs" -f event=pull_request -f "branch=${PR_BRANCH}" -f per_page=100 --jq ".workflow_runs[] | select(any(.pull_requests[]?; .number == ${PR_NUMBER})) | [.id, .head_sha, (.conclusion // \"\")] | @tsv")"; then
+            echo "runtime=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          previous_full_sha=""
+          while IFS=$'\t' read -r run_id head_sha conclusion; do
+            [[ "$conclusion" == "success" ]] || continue
+            if ! jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" --jq '[.jobs[] | select((.name == "check" or .name == "android-instrumentation") and .conclusion == "success") | .name] | unique | sort | join(",")')"; then
+              echo "runtime=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [[ "$jobs" == "android-instrumentation,check" ]]; then
+              previous_full_sha="$head_sha"
+              break
+            fi
+          done <<< "$runs"
+
+          if [[ -z "$previous_full_sha" ]]; then
+            echo "runtime=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${previous_full_sha}...${PR_HEAD_SHA}")"; then
+            echo "runtime=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          file_count="$(jq '(.files // []) | length' <<< "$comparison")"
+          if (( file_count >= 300 )); then
+            echo "runtime=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           runtime=false
           while IFS= read -r path; do
             case "$path" in
               docs/*|.scratchpad/*|*.md) ;;
               *) runtime=true; break ;;
             esac
-          done <<< "$files"
+          done < <(jq -r '.files[]?.filename' <<< "$comparison")
           echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
 
   check:

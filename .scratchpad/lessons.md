@@ -1,6 +1,6 @@
 # Lessons
 
-For faster pull request feedback, keep inexpensive repository checks in an always-running job and gate costly builds/emulators with a conservative changed-file classifier. Default unknown paths and non-PR events to the full suite; skip only explicitly documentation-only paths.
+For faster pull request feedback, keep inexpensive repository checks in an always-running job and gate costly builds/emulators with a conservative changed-file classifier. Compare against the last successful full run so documentation commits in a long-lived code PR can skip expensive jobs without hiding unverified code changes. Default unknown paths, missing baselines, and non-PR events to the full suite.
 
 ## Parallelize slow emulator checks in CI
 

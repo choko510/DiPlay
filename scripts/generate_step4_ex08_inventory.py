@@ -308,7 +308,7 @@ BASE_REVIEW_OVERRIDES = {
     },
     "946487526d677e04b8b97d630e03154e1ac0453a": {
         "disposition": "REJECT_UNSAFE",
-        "reason": "This merge syncs a wide upstream-main snapshot into a repair branch, spanning BYD HUD, API 25 USB completion reaping, NCM, Wi-Fi P2P, audio-focus/microphone, and UI/settings code. Importing the merge would bypass the v3 per-feature gates and could restore BYD/OEM behavior removed from fixed main.",
+        "reason": "This 47-path upstream-main sync into a repair branch spans BYD HUD, API 25 USB completion reaping, NCM, Wi-Fi P2P, audio-focus/microphone, and UI/settings code. Importing the merge would bypass v3 per-feature gates and could restore BYD/OEM behavior removed from fixed main.",
         "test": "PASS_STATIC: source diff spans USB/NCM, Android 7 reaper, BYD, Wi-Fi, audio, and settings; fixed main minSdk is 28 and quarantines BYD; NOT_RUN_PER_COMMIT: constituent changes require separate tests/evidence",
         "related": "Reject aggregate sync merge; review underlying commits separately under PR-01/02, PR-04, EX-06/07, PR-05/06, and BYD/OEM quarantine",
         "rollback": "No merge imported; preserve fixed-main minSdk and feature set. Only split, evidence-backed changes may enter PR-45 with individual rollback.",
@@ -316,7 +316,7 @@ BASE_REVIEW_OVERRIDES = {
     },
     "e96bc43aac174dde5f9c81c86296f52967d308ed": {
         "disposition": "REJECT_UNSAFE",
-        "reason": "This merge syncs a wide upstream-main snapshot into a separate boot-repair branch, with the same broad BYD HUD, API 25 USB read, NCM, Wi-Fi P2P, audio, and UI/settings scope. The aggregate is not a discrete STEP4 change and conflicts with the fixed-main minSdk/BYD boundaries.",
+        "reason": "This 47-path upstream-main sync into a boot-repair branch spans BYD HUD, API 25 USB completion reaping, NCM, Wi-Fi P2P, audio, and UI/settings code. The aggregate is not a discrete STEP4 change and conflicts with fixed-main minSdk/BYD boundaries.",
         "test": "PASS_STATIC: source diff spans USB/NCM, Android 7 reaper, BYD, Wi-Fi, audio, and settings; fixed main minSdk is 28 and quarantines BYD; NOT_RUN_PER_COMMIT: constituent changes require separate tests/evidence",
         "related": "Reject aggregate sync merge; review underlying commits separately under PR-01/02, PR-04, EX-06/07, PR-05/06, and BYD/OEM quarantine",
         "rollback": "No merge imported; preserve fixed-main minSdk and feature set. Only split, evidence-backed changes may enter PR-45 with individual rollback.",
@@ -324,10 +324,26 @@ BASE_REVIEW_OVERRIDES = {
     },
     "7df2dfa274669376174ebb1e83e5a0af44a22d46": {
         "disposition": "REJECT_UNSAFE",
-        "reason": "This merge syncs upstream main into a small-window repair branch but still carries a broad set of BYD HUD, API 25 USB read, NCM, Wi-Fi, audio, and UI/settings changes, with additional branch-resolution differences. The merge is not safe to import as one unit under v3's no-bulk-merge and BYD quarantine rules.",
+        "reason": "This 47-path upstream-main sync into a small-window repair branch carries BYD HUD, API 25 USB reads, NCM, Wi-Fi, audio, and settings changes plus branch-specific conflict resolution. It cannot be imported as one unit under v3's no-bulk-merge and BYD quarantine rules.",
         "test": "PASS_STATIC: source diff spans USB/NCM, Android 7 reaper, BYD, Wi-Fi, audio, and settings; fixed main minSdk is 28 and quarantines BYD; NOT_RUN_PER_COMMIT: constituent changes require separate tests/evidence",
         "related": "Reject aggregate sync merge; review underlying commits separately under PR-01/02, PR-04, EX-06/07, PR-05/06, and BYD/OEM quarantine",
         "rollback": "No merge imported; preserve fixed-main minSdk and feature set. Only split, evidence-backed changes may enter PR-45 with individual rollback.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
+    "a53c6c09861e95d909a76af8be9d2d75a205643a": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 88-path review-batch merge has 248 diff hunks across BYD, USB/NCM, API 25 reads, Wi-Fi, microphone/audio, and application UI, and records a conflict in DiPlayActivity. The combined branch snapshot is not one supported STEP4 change.",
+        "test": "PASS_STATIC: source diff confirms multiple transport/media/OEM/UI families and a conflict-resolved activity; NOT_RUN_PER_COMMIT: each component's fork/device regression evidence",
+        "related": "Reject aggregate integration merge; review constituent behavior under PR-01/02, PR-04, EX-06/07, PR-05/06, and BYD/OEM quarantine",
+        "rollback": "No aggregate merge imported; retain fixed-main sources and accept only isolated evidence-backed commits with independent rollback.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
+    "47c0d1889b12a689003a6e53f8f191fbcdbe3cb3": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 114-path integration merge contains 328 diff hunks and five conflict resolutions across the prior repair, BYD, USB/NCM, API 25 reads, Wi-Fi, audio, settings, and UI. It is a cumulative branch integration, not an atomic candidate for fixed main.",
+        "test": "PASS_STATIC: source diff confirms multiple transport/media/OEM/UI families and five merge conflicts; NOT_RUN_PER_COMMIT: each component's fork/device regression evidence",
+        "related": "Reject aggregate integration merge; review constituent behavior under PR-01/02, PR-04, EX-06/07, PR-05/06, and BYD/OEM quarantine",
+        "rollback": "No aggregate merge imported; retain fixed-main sources and accept only isolated evidence-backed commits with independent rollback.",
         "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
     },
     "2ed938e67a5f245a36a665733bb69d8807091587": {

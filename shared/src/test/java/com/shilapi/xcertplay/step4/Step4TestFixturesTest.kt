@@ -55,12 +55,29 @@ class Step4TestFixturesTest {
         assertEquals(0x02, syn[67].toInt() and 0xff)
         assertEquals(0x12, synAck[67].toInt() and 0xff)
         assertNull(EthernetIpv6Codec.parseIpv6View(Step4TestFixtures.ipv4TcpSyn()))
-        assertEquals("NO_SYN", Step4TestFixtures.noSynStartup.last())
-        assertEquals("NO_IPV6_SYN", Step4TestFixtures.ipv4OnlyStartup.last())
-        assertEquals("NO_KERNEL_SYN_ACK", Step4TestFixtures.tunnelReplyMissingStartup.last())
-        assertEquals("NCM_OUT_NOT_READY", Step4TestFixtures.synAckNotReadyStartup.last())
-        assertEquals("TCP_ACCEPTED", Step4TestFixtures.tcpAcceptOnlyStartup.last())
-        assertEquals("RTSP_ACTIVE", Step4TestFixtures.rtspActiveOnlyStartup.last())
+        val startupFixtures = listOf(
+            Step4TestFixtures.mainOnlyStartup,
+            Step4TestFixtures.alternateOnlyStartup,
+            Step4TestFixtures.noSynStartup,
+            Step4TestFixtures.ipv4OnlyStartup,
+            Step4TestFixtures.tunnelReplyMissingStartup,
+            Step4TestFixtures.synAckNotReadyStartup,
+            Step4TestFixtures.tcpAcceptOnlyStartup,
+            Step4TestFixtures.rtspActiveOnlyStartup,
+        )
+        startupFixtures.forEach { fixture ->
+            val elapsed = fixture.events.map { it.elapsedMillis }
+            assertEquals(fixture.name, elapsed.sorted(), elapsed)
+        }
+        assertEquals("NO_SYN", Step4TestFixtures.noSynStartup.events.last().stage)
+        assertEquals("NO_IPV6_SYN", Step4TestFixtures.ipv4OnlyStartup.events.last().stage)
+        assertEquals("NO_KERNEL_SYN_ACK", Step4TestFixtures.tunnelReplyMissingStartup.events.last().stage)
+        assertEquals("NCM_OUT_NOT_READY", Step4TestFixtures.synAckNotReadyStartup.events.last().stage)
+        assertEquals("TCP_ACCEPTED", Step4TestFixtures.tcpAcceptOnlyStartup.events.last().stage)
+        assertEquals("RTSP_ACTIVE", Step4TestFixtures.rtspActiveOnlyStartup.events.last().stage)
+        assertEquals("MAIN_FIRST_FRAME", Step4TestFixtures.mainOnlyStartup.events.last().stage)
+        assertEquals("ALT_SETUP", Step4TestFixtures.alternateOnlyStartup.events[1].stage)
+        assertTrue(Step4TestFixtures.synAckNotReadyStartup.events.any { it.ethernetPacket?.contentEquals(synAck) == true })
     }
 
     @Test
@@ -109,6 +126,9 @@ class Step4TestFixturesTest {
         assertEquals(33_333L, mainVideo.presentationTimeMicros)
         assertTrue(mainVideo.payload.isNotEmpty())
         assertEquals(0.55f, Step4TestFixtures.localSplitView.carPlayFraction, 0.0f)
-        assertEquals(listOf("START_SENT", "ALT_SETUP", "RTSP_ACTIVE"), Step4TestFixtures.alternateOnlyStartup)
+        assertEquals(
+            listOf("START_SENT", "ALT_SETUP", "RTSP_ACTIVE"),
+            Step4TestFixtures.alternateOnlyStartup.events.map { it.stage },
+        )
     }
 }

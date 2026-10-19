@@ -25,6 +25,17 @@ internal data class MicrophoneRequestFixture(
     val dataPort: Int?,
 )
 
+internal data class WiredStartupEventFixture(
+    val elapsedMillis: Long,
+    val stage: String,
+    val ethernetPacket: ByteArray? = null,
+)
+
+internal data class WiredStartupFixture(
+    val name: String,
+    val events: List<WiredStartupEventFixture>,
+)
+
 internal data class ViewAreaFixture(
     val displayWidth: Int,
     val displayHeight: Int,
@@ -127,6 +138,8 @@ internal class Step4VirtualScheduler {
 
 internal object Step4TestFixtures {
     const val USB_PACKET_SIZE = 512
+    private val HOST_MAC = byteArrayOf(0x02, 0, 0, 0, 0, 1)
+    private val PEER_MAC = byteArrayOf(0x02, 0, 0, 0, 0, 2)
 
     val readWaitOutcomes = listOf(
         UsbRequestWaitFixture.Completed(byteArrayOf(0x01, 0x02)),
@@ -151,20 +164,64 @@ internal object Step4TestFixtures {
 
     val localSplitView = ViewAreaFixture(1920, 1080, 0.55f)
 
-    val mainOnlyStartup = listOf("START_SENT", "MAIN_SETUP", "MAIN_FIRST_FRAME")
-    val alternateOnlyStartup = listOf("START_SENT", "ALT_SETUP", "RTSP_ACTIVE")
-    val noSynStartup = listOf("START_SENT", "FIRST_BULK_OUT_SENT", "NO_SYN")
-    val ipv4OnlyStartup = listOf("START_SENT", "IPV4_SYN", "NO_IPV6_SYN")
-    val tunnelReplyMissingStartup = listOf("IPV6_SYN", "TUN_WRITE_SUCCESS", "NO_KERNEL_SYN_ACK")
-    val synAckNotReadyStartup = listOf(
-        "START_SENT",
-        "IPV6_SYN",
-        "TUN_WRITE_SUCCESS",
-        "SYN_ACK_OBSERVED",
-        "NCM_OUT_NOT_READY",
+    val mainOnlyStartup = WiredStartupFixture(
+        name = "main-frame",
+        events = listOf(
+            WiredStartupEventFixture(0, "START_SENT"),
+            WiredStartupEventFixture(1_100, "MAIN_SETUP"),
+            WiredStartupEventFixture(1_240, "MAIN_FIRST_FRAME"),
+        ),
     )
-    val tcpAcceptOnlyStartup = listOf("SYN_ACK_SENT", "TCP_ACCEPTED")
-    val rtspActiveOnlyStartup = listOf("TCP_ACCEPTED", "RTSP_ACTIVE")
+    val alternateOnlyStartup = WiredStartupFixture(
+        name = "alternate-only",
+        events = listOf(
+            WiredStartupEventFixture(0, "START_SENT"),
+            WiredStartupEventFixture(800, "ALT_SETUP"),
+            WiredStartupEventFixture(900, "RTSP_ACTIVE"),
+        ),
+    )
+    val noSynStartup = WiredStartupFixture(
+        name = "start-no-syn",
+        events = listOf(
+            WiredStartupEventFixture(0, "START_SENT"),
+            WiredStartupEventFixture(180, "FIRST_BULK_OUT_SENT"),
+            WiredStartupEventFixture(15_000, "NO_SYN"),
+        ),
+    )
+    val ipv4OnlyStartup = WiredStartupFixture(
+        name = "ipv4-syn-only",
+        events = listOf(
+            WiredStartupEventFixture(0, "START_SENT"),
+            WiredStartupEventFixture(140, "IPV4_SYN", ipv4TcpSyn()),
+            WiredStartupEventFixture(15_000, "NO_IPV6_SYN"),
+        ),
+    )
+    val tunnelReplyMissingStartup = WiredStartupFixture(
+        name = "tun-no-reply",
+        events = listOf(
+            WiredStartupEventFixture(0, "IPV6_SYN", ipv6TcpSyn()),
+            WiredStartupEventFixture(8, "TUN_WRITE_SUCCESS"),
+            WiredStartupEventFixture(15_000, "NO_KERNEL_SYN_ACK"),
+        ),
+    )
+    val synAckNotReadyStartup = WiredStartupFixture(
+        name = "syn-ack-not-ready",
+        events = listOf(
+            WiredStartupEventFixture(0, "START_SENT"),
+            WiredStartupEventFixture(110, "IPV6_SYN", ipv6TcpSyn()),
+            WiredStartupEventFixture(112, "TUN_WRITE_SUCCESS"),
+            WiredStartupEventFixture(118, "SYN_ACK_OBSERVED", ipv6TcpSynAck()),
+            WiredStartupEventFixture(121, "NCM_OUT_NOT_READY"),
+        ),
+    )
+    val tcpAcceptOnlyStartup = WiredStartupFixture(
+        name = "tcp-accept-only",
+        events = listOf(WiredStartupEventFixture(0, "SYN_ACK_SENT"), WiredStartupEventFixture(35, "TCP_ACCEPTED")),
+    )
+    val rtspActiveOnlyStartup = WiredStartupFixture(
+        name = "rtsp-active-only",
+        events = listOf(WiredStartupEventFixture(0, "TCP_ACCEPTED"), WiredStartupEventFixture(50, "RTSP_ACTIVE")),
+    )
 
     fun ethernetFrame(length: Int = 60, seed: Int = 0x20): ByteArray {
         require(length >= 14)
@@ -306,6 +363,4 @@ internal object Step4TestFixtures {
         this[offset + 1] = value.toByte()
     }
 
-    private val HOST_MAC = byteArrayOf(0x02, 0, 0, 0, 0, 1)
-    private val PEER_MAC = byteArrayOf(0x02, 0, 0, 0, 0, 2)
 }

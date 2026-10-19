@@ -130,6 +130,14 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "Do not import the combined queue/logging behavior. Keep PR-01 framing isolated; future queue or diagnostic changes require separate evidence-backed PR-45 commits and independent rollback.",
         "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_SPLIT_REVIEW",
     },
+    "885dffb499d549fee5d0e848fc1314cad78c3efa": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This commit mixes two wireless behavior changes (derive the requested P2P name from the supplied credential and preserve a video-rendered session when the optional iAP2 tunnel is absent) with USBMUX endpoint/failure diagnostics. The source report is device-specific, no fork tests accompany the commit, and the diagnostic fields need a separate privacy review.",
+        "test": "NOT_RUN_FORK: API 29+ vendor WifiP2pConfig behavior, rendered-frame-before-tunnel handoff, and USBMUX endpoint diagnostic privacy",
+        "related": "WIRELESS-EX Wi-Fi Direct and wireless handoff; EX-01 USB diagnostic privacy; separate from wired PR-01/EX-05 behavior",
+        "rollback": "No aggregate change imported; keep existing wireless/USB behavior. Any reproduced issue must be split into one wireless fix or one redacted diagnostic change with an independent rollback.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_SPLIT_REVIEW",
+    },
     "f7af3286ea28b73e7219e50f9aa4fa3128de9eec": {
         "disposition": "NEED_EVIDENCE",
         "reason": "The bounded trailer rule applies to USBMUX TCP replies, not CDC-NCM NTB padding. The fork uses a separate USBMUX parser and has no captured payload-bearing trailer showing this condition.",

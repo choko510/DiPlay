@@ -4,6 +4,10 @@
 
 For pull requests, always run public-tree and EX-08 inventory checks, but skip Android SDK setup, native tests, Gradle builds, and emulator instrumentation only when every path changed since the last successful full run is under `docs/`, `.scratchpad/`, or is a Markdown file. Treat unknown paths, pushes, manual runs, missing/failed baselines, large diffs, and API errors as requiring the full verification suite.
 
+## Cache Gradle task outputs only within the same pull request
+
+Allow Gradle's local build cache to be written for same-repository pull requests, where GitHub scopes those cache entries to the PR merge ref. Keep cache writes disabled for fork pull requests, and enable `--build-cache` in both Android Gradle invocations so unchanged task outputs can be reused on later commits.
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.

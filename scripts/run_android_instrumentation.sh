@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 set +e
-./gradlew :shared:connectedDebugAndroidTest --stacktrace
+./gradlew :shared:connectedDebugAndroidTest --build-cache --stacktrace
 test_result=$?
 
 mkdir -p shared/build/outputs/dsp-benchmark

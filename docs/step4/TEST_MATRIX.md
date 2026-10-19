@@ -9,7 +9,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | U-01 | NTB16 single datagram, sequence, alignment, maximum size | `Ntb16CodecTest` | `PASS_LOCAL` |
 | U-02 | Split NTB reads and two coalesced NTBs through `NcmUsbBridge.recv()` | `NcmUsbBridgeFixtureTest.scriptedUsbRequestReadsSplitAndCoalescedNtb16Blocks` | `PASS_ROBOLECTRIC` |
 | U-03 | Exact 512-byte block with optional zero pad | `NcmUsbBridgeFixtureTest.paddedExactPacketBoundaryBlockIsDelivered` | `PASS_ROBOLECTRIC` |
-| U-04 | Exact 512-byte block without pad | `NcmUsbBridgeFixtureTest.missingExactPacketBoundaryPadIsCharacterizedForPr01` | `KNOWN_DEFECT_REPRODUCED`: the current bridge waits for a byte that was not sent; PR-01 must change the assertion to frame delivery |
+| U-04 | Exact 512-byte block without pad | PR-00 head's `NcmUsbBridgeFixtureTest.missingExactPacketBoundaryPadIsCharacterizedForPr01` | `KNOWN_DEFECT_REPRODUCED` at PR-00; PR-01 flips the characterization to delivery |
 | U-05 | Persistent request queue true/false, timeout, null and unexpected completion | `PersistentUsbReadRequestStateTest`, `NcmUsbBridgeFixtureTest` | `PASS_PURE_JVM` / `PASS_ROBOLECTRIC` |
 | U-06 | Existing 32 KiB buffer on queue failure | `NcmUsbBridgeFixtureTest.fakeCapturesTheExistingThirtyTwoKiBReadQueueContract` | `PASS_ROBOLECTRIC`; no fallback policy is adopted here |
 | U-07 | NCM send `NotReady`, full `Sent`, and partial failure remain distinct | `NcmUsbBridgeFixtureTest.fakeBulkOutDistinguishesNotReadySentAndPartialFailure` | `PASS_ROBOLECTRIC` |
@@ -32,6 +32,22 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | EX01-06 | Same-attempt USB IN → Ethernet → IPv6 SYN → TUN → SYN-ACK → bulk OUT → listener accept → RECORD → MAIN on TS10/K706/iPhone | Physical device run | `NOT_RUN`; no target hardware is connected |
 | EX01-07 | Diagnostics OFF/ON CPU delta `<1%` and added memory `≤64 KiB` on target hardware | Physical performance A/B | `NOT_RUN`; emulator/host tests do not establish target cost |
 
+## PR-01 NCM boundary and damaged-block recovery
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| PR01-01 | Exact endpoint-packet boundary with optional pad present/absent, next NTH16 preserved, lengths ±1/±2, one-byte completions, and a 64-byte endpoint | `NcmUsbBridgeFixtureTest` | `PASS_ROBOLECTRIC`; corrected the PR-00 characterized no-pad stall |
+| PR01-02 | Corrupt NDP offset/signature, false NTH16, unknown NTH32 signature, invalid header length, multiple datagrams, and resync to the next valid NTB | `NcmUsbBridgeFixtureTest` | `PASS_ROBOLECTRIC` |
+| PR01-03 | More than 1 MiB of garbage, existing frame-queue limit, close racing a queued read, and async/sync Bulk IN | `NcmUsbBridgeFixtureTest` | `PASS_ROBOLECTRIC`; resync stops at its 1 MiB cap |
+| PR01-04 | Target-endpoint packet boundary behavior on TS10/K706/iPhone | Physical USB run | `NOT_RUN`; no target hardware is connected |
+
+## EX-02 host retry fencing
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| EX02-01 | Failed → pending → recovered session cancels the old ticket; a later second loss gets a fresh ticket | `ReconnectAfterLossGateTest` | `PASS_LOCAL` policy test |
+| EX02-02 | Stale restart/connection/owner epochs, live session, shutdown, menu plus pending resize, handshake reset, and controller-owned wired recovery cannot trigger the delayed host retry | `ReconnectAfterLossGateTest`, `CarPlayHostActivity` gate wiring | `PASS_LOCAL` policy test; full Activity/owner-handoff simulation `NOT_RUN` |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |
@@ -42,6 +58,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | Native C | Host unsanitized suite passed | Host ASan/UBSan linking unavailable in MSYS2 |
 | App lint/build | Both app Debug/Benchmark builds and lints passed | No release signing/update exercise |
 | EX-01 branch verification | 483 shared + 137 common unit tests; both app lints and Debug/Benchmark assemblies passed | Full target-path and performance A/B remain `NOT_RUN` |
+| PR-01 + EX-02 working-tree verification | 495 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Device path and independent second review remain `NOT_RUN` |
 | Hardware | No TS10/K706/iPhone was attached | `NOT_RUN`; not a pass |
 
 The remaining acceptance IDs in specification sections 8.3 and R-04 stay open for their dependent PR/EX stages. EX-01 has a source-level implementation and fixture coverage; it is not device-validated or release-ready.

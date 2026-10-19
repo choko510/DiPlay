@@ -282,3 +282,7 @@ When Gecko reports paint-status reset during `setActive(false)`, retain it throu
 For NCM integration tests, pure `Ntb16Codec` tests do not exercise `NcmUsbBridge.recv()` buffering or `requestWait` ownership. Use test-only Robolectric shadows for the real connection/endpoint/request boundary and a scripted completion dispatcher; label known-defect characterization so its green result is not mistaken for functional acceptance.
 
 For packet diagnostics, have a pure parser return a packed classification value and keep address/port validation states distinct from “not checked.” Exercise raw-IP and Ethernet entry points with boundary cases plus a fixed-seed arbitrary-buffer loop; use a recorder test for concurrent increments, generation fencing, saturation and sealing. Keep TUN I/O outcome tests on the real bridge with injected streams so Robolectric socket descriptors do not determine the test result.
+
+For NCM receive framing, resolve optional short-pad length from the actual Bulk IN endpoint packet size, deliver a complete block without waiting for a pad byte, and preserve the next NTH16 signature. Validate candidate NTH/NDP structures before resync and cap discarded garbage so corrupt input cannot trigger an unbounded scan.
+
+For delayed Host recovery, track restart, connection, background-owner, and loss epochs separately. A recovered session consumes only its matching pending ticket; a later loss gets a new ticket, while ownership transfer, active sessions, resize/menu, shutdown, and controller-managed recovery fence old work.

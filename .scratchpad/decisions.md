@@ -28,9 +28,9 @@ The debug setting applies from the next connection attempt and writes structured
 
 Use the existing debug-log opt-in for one wired-attempt recorder. Store only fixed atomic counters and first monotonic timestamps; keep `wiredStartupAttempt`, random controller run ID, and VPN `attachGeneration` distinct. Append the fixed `WIRED_PATH_V1` line through the bounded trace writer without adding stages/details to the existing trace-event schema. Sealing drops late events; a generation mismatch increments only `stale_callback`.
 
-## Consolidate STEP4 changes into fewer dependency-based PRs
+## Keep all remaining STEP4 stages in PR #45
 
-Fold EX-01 into the existing PR-00 draft rather than opening a standalone PR. Keep required implementation order in commits and validation records, and group later work at cohesive dependency boundaries instead of opening one PR for every named plan item.
+Per the user's latest instruction, fold every remaining STEP4 stage into the existing PR #45. Preserve the specification's dependency order through sequential commits and validation records; do not open additional STEP4 PRs. The second independent review remains `NOT_RUN` by user direction.
 
 ## Keep one USBMUX IN request and use bounded recovery
 

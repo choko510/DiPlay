@@ -1,6 +1,6 @@
 # Completed
 
-- 2026-10-20: Added a draft quick CI lane with native/sanitizer and shared/common unit tests while deferring lint, app builds, JNI and emulator checks to `ready_for_review`. Run #169 passed in 2m13 versus #168's 9m39 full draft host run; follow-up docs/audit-only runs #170/#171 passed in 33s/41s.
+- 2026-10-20: Added a draft quick CI lane with native/sanitizer and shared/common unit tests while deferring lint, app builds, JNI and emulator checks to `ready_for_review`. Run #169 passed in 2m13 versus #168's 9m39 full draft host run; docs/audit-only runs #170–172 passed in 33s/41s/41s.
 - 2026-10-20: Recorded the identical manual-hotspot patch under both upstream source SHAs while keeping one wired-config adaptation in the fork; regenerated the 1,289-row EX-08 ledger and documented the new counts.
 - 2026-10-20: Kept full host/native/JVM/lint/build/JNI checks on draft code updates, deferred the 19-test API 35 emulator job until `ready_for_review`, and cancelled superseded PR runs. Run #151 logs show the emulator job took 5m12s; the final full gate remains enabled.
 - 2026-10-20: Adapted the manual-hotspot config check to the active transport: wired configs ignore unused hotspot credentials while wireless configs still require an SSID. Both focused tests pass locally and in PR #45 run #168.

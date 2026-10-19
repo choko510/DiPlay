@@ -41,6 +41,136 @@ BASE_DECISION_OVERRIDES = {
     "700fde7ebf99015914097ebfe1f1f3dde9f3dde3": "SKIP_OEM",
     "71391aeb74a1f6e64aa3e4bd8cf4c5bc046d60ae": "REJECT_UNSAFE",
 }
+BASE_REVIEW_OVERRIDES = {
+    "bcc5013aeb9331ddf8dc639146369c72f9f3686d": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The candidate combines USB configuration switching with authentication and hotspot behavior. Its USB mode/re-enumeration portion is conditional; do not port the multi-purpose upstream commit without the same-node trace and a split review.",
+        "test": "NOT_RUN_TARGET: same-device USB mode transition, permission loop, and authentication/hotspot regression",
+        "related": "EX-04 same-node USB re-enumeration; WIRELESS-EX authentication/hotspot behavior",
+        "rollback": "No patch imported; any mode-recheck work must be isolated from authentication and hotspot code and reverted independently.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_DEVICE_TRACE",
+    },
+    "5e8a6f9a14f771db23cafd2f9de8f34eaeb515d7": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The patch requests CarPlay mode again when the same USB node appears to retain a DiPlay-started session. EX-04 remains conditional, and the report explicitly says in-car acceptance is pending; the fork has no same-node delayed-probe evidence.",
+        "test": "PASS_STATIC: current main reuses the compatible USB configuration; NOT_RUN_TARGET: same-node mode request, attach, and permission fencing",
+        "related": "EX-04 re-enumeration; PR-03/EX-05 wired-start causal trace",
+        "rollback": "No patch imported; keep current USB selection until same-node traces justify a generation-fenced, single-attempt recheck.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_DEVICE_TRACE",
+    },
+    "f53661384e532db194887f19f2381d68d31ea2cf": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The upstream fallback requests H.264 when no hardware HEVC decoder is found. This is a codec-selection and quality/performance tradeoff; no TS10/K706 report shows the fork selecting a software HEVC decoder or underrunning music.",
+        "test": "NOT_RUN_TARGET: codec capability, negotiated format, first frame, decode load, and A/V sync",
+        "related": "PR-07 codec/decoder evidence gate",
+        "rollback": "No patch imported; retain the existing codec negotiation until a target-specific decoder failure is reproduced.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_CODEC_EVIDENCE",
+    },
+    "dfd7c3d6d3e251e2fa0ee54c584af31f8ec9077b": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "MediaClockTrim changes AudioTrack playback rate, which can shift pitch and interact with DSP/A-V timing. The v3 plan explicitly keeps music clock correction OFF until target drift is measured.",
+        "test": "NOT_RUN_BY_DESIGN: no target clock-drift trace, pitch/THD measurement, or A/V synchronization result",
+        "related": "AUDIO-EX clock drift (OFF); DSP-05 A/V synchronization gate",
+        "rollback": "No patch imported; preserve the current media clock and DSP latency baseline.",
+        "review_state": "PRIMARY_AGENT_PLAN_GATE_VERIFIED",
+    },
+    "7d991396161416c71bfaa7b83379efeb12c90ab1": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The change adds a separate persisted wired music-buffer preference and migrates the old shared value. It may change latency and user settings; no fork-specific buffer/A-V evidence supports this migration.",
+        "test": "NOT_RUN_FORK: legacy preference migration, wired/wireless selection, interruptions, and audio latency",
+        "related": "PR-04 audio regression; AUDIO-EX buffer policy; DSP-05 A/V sync",
+        "rollback": "No patch imported; preserve the existing preference key until migration and playback behavior can be reverted without losing saved values.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_AUDIO_TESTS",
+    },
+    "764e0ba1b05064d4e9a75f93fb585c4afcffbb39": {
+        "disposition": "FORK_SUPERIOR",
+        "reason": "This change caps USB reads only on Android versions below 9. Fixed main has minSdk 28, so the API 26/27 branch is unreachable; v3 marks this Android 8-only cap not applicable.",
+        "test": "PASS_STATIC: all fixed-main application modules use minSdk 28; API 26/27 is not an eligible test target",
+        "related": "PR-02 Android 8 queue-cap candidate: NOT_APPLICABLE; API 28+ queue-false fallback remains conditional",
+        "rollback": "No change needed; keep the minSdk 28 policy and do not add an unreachable legacy cap.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_AND_PLAN_COMPARISON",
+    },
+    "f7af3286ea28b73e7219e50f9aa4fa3128de9eec": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The bounded trailer rule applies to USBMUX TCP replies, not CDC-NCM NTB padding. The fork uses a separate USBMUX parser and has no captured payload-bearing trailer showing this condition.",
+        "test": "NOT_RUN_FORK_USBMUX: payload trailer, split completion, following-frame preservation, and malformed-length corpus",
+        "related": "USBMUX-EX parser candidate; PR-01 changes CDC-NCM only",
+        "rollback": "No patch imported; keep the current USBMUX framing until a bounded acceptance rule is backed by captures and parser tests.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_PROTOCOL_EVIDENCE",
+    },
+    "5fc7a7af55674960f9e7219595027e0b6a3abbf8": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This commit bundles USBMUX trailer parsing, a software-decoder SurfaceView fallback, and RFCOMM handling. The changes span separate transport, PR-07 video, and wireless paths and cannot be taken as one unit.",
+        "test": "NOT_RUN_FORK: USBMUX boundary corpus, codec/Surface device matrix, and RFCOMM reconnect cases",
+        "related": "USBMUX-EX; PR-07 codec/Surface; WIRELESS-EX RFCOMM",
+        "rollback": "No patch imported; split any future evidence-backed change by subsystem and retain an independent rollback for each.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_SPLIT_REVIEW",
+    },
+    "9647d6896424e4b05cf4fe4ea5399806ed73b58f": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The patch starts microphone capture before downlink audio and retries empty reads. It was reported on a different Android 7.1 head unit; the fork's MediaCodec route needs voice-message, Siri, call, and teardown evidence before behavior changes.",
+        "test": "NOT_RUN_TARGET: voice message without downlink, empty AudioRecord recovery, permission denial, and call/Siri echo",
+        "related": "PR-04 microphone routing; AUDIO-EX mic no-read recovery",
+        "rollback": "No patch imported; preserve current capture ownership until an isolated MediaEngine change passes the voice-route matrix.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_AUDIO_DEVICE_TESTS",
+    },
+    "817ff3fa2023234f6e26f7568dc00641e7eb1c0c": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The commit is multi-purpose and includes call RTP clock/timing changes alongside USB accessibility and wired-start updates. The fork's 16/24 kHz timestamp math and the separate wired causal gate have not been measured.",
+        "test": "NOT_RUN_FORK: 16/24 kHz call RTP timestamps, USB prompt filtering, and same-attempt wired-start trace",
+        "related": "PR-04 audio regression; AUDIO-EX RTP clock; PR-03/EX-05 wired-start gate",
+        "rollback": "No patch imported; split any future audio and wired fixes into independent commits with separate rollback.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_SPLIT_REVIEW",
+    },
+    "e3b6c58c86595df8b9c4d0e7275eb7d87e2d7c26": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The patch adds queue recovery and pause/recovery reports to the upstream AudioRenderer. The fork's renderer ownership and report lifecycle differ; confirm whether its current diagnostics miss these states before importing the queue reset or extra events.",
+        "test": "NOT_RUN_FORK: queue-empty recovery, rebuffer pause/recovery ownership, report bounds, and audio-thread overhead",
+        "related": "PR-04 audio regression; AUDIO-EX rebuffer diagnostics",
+        "rollback": "No patch imported; keep the current audio queue and diagnostics until a focused reproduction supports each isolated change.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_AUDIO_TESTS",
+    },
+    "0abc07128b8cb784f0576c759d019c0167857bb6": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This change caps queue-full and rebuffer reports at five per renderer. It reduces event volume but also discards later reports; confirm the fork's event ownership and useful failure window before changing its report policy.",
+        "test": "NOT_RUN_FORK: report cap, repeated rebuffer cycles, and audio-thread logging overhead",
+        "related": "AUDIO-EX rebuffer diagnostics; PR-04 audio regression",
+        "rollback": "No patch imported; retain the current report policy until a focused event-volume test supports a reversible cap.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_AUDIO_TESTS",
+    },
+    "2c808c078ba9dec55ea238254939dd0677c7ecf9": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The change adds Android's attached USB-device inventory to wired diagnostics. The exact descriptor fields need privacy review and the behavior is untested on the fork; no device identifiers should be logged by assumption.",
+        "test": "NOT_RUN_FORK: absent iPhone, unrelated USB device, descriptor redaction, and log-once bounds",
+        "related": "EX-01 USB-enumeration diagnostics; privacy review",
+        "rollback": "No patch imported; do not log device inventory until allowed fields are explicitly redacted and tested.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_PRIVACY_REVIEW",
+    },
+    "d0556a2f6699c9c8061bf13d35fa231f8feb9516": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The SurfaceView fallback targets a reported FFmpeg Codec2 decoder on an Android 17 Raspberry Pi build. It changes window/Surface ownership and can interfere with the fork's local Split UI; no target decoder failure is evidenced.",
+        "test": "NOT_RUN_TARGET: codec identity, Surface handoff, local split/rotation, and first-frame recovery",
+        "related": "PR-07 codec/Surface gate; PR-06 LOCAL split interaction",
+        "rollback": "No patch imported; retain the current TextureView/Surface ownership until a target decoder reproduces the rendering failure.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_CODEC_EVIDENCE",
+    },
+    "7d974f42f7b6c13b1f91a3a74e76831f2d247ec1": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The 100 ms cap is for audio decoder input acquisition after one drain/retry. The upstream report is a DiLink background-screen underrun; shortening the wait can drop audio on this fork and needs route-specific evidence.",
+        "test": "NOT_RUN_FORK: decoder backpressure, background playback, packet loss, and underrun comparison",
+        "related": "PR-04 audio regression; AUDIO-EX decoder backpressure",
+        "rollback": "No patch imported; preserve current decoder wait until a bounded fork test demonstrates the 500 ms path causes loss.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_AUDIO_TESTS",
+    },
+    "31b8dfcd9b11496b02b868b898deb37d0f04c0b0": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "Existing Wi-Fi/Same-LAN is a new wireless connection mode requiring external-router credentials and alternate network ownership. It is outside the wired STEP4 path and the audit labels device validation pending.",
+        "test": "NOT_RUN_TARGET: external-router pairing, route ownership, reconnect, and authentication",
+        "related": "WIRELESS-EX Existing Wi-Fi/Same LAN; no wired PR mapping",
+        "rollback": "No patch imported; preserve the current Bluetooth/Direct setup until wireless-mode behavior is separately approved and testable.",
+        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_WIRELESS_TESTS",
+    },
+}
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {
         "disposition": "NEED_EVIDENCE",
@@ -413,6 +543,13 @@ def read_base_rows(candidates: dict[str, list[dict[str, str]]]) -> list[dict[str
                 "final mapping pending semantic review"
             )
             rollback = "No upstream patch imported; a future ADAPT/TAKE must be isolated in a revertible PR-45 commit."
+        review_override = BASE_REVIEW_OVERRIDES.get(sha)
+        if review_override:
+            disposition = review_override["disposition"]
+            reason = review_override["reason"]
+            test = review_override["test"]
+            related = review_override["related"]
+            rollback = review_override["rollback"]
         rows.append(
             {
                 "inventory_group": "upstream-base-1232",
@@ -435,7 +572,9 @@ def read_base_rows(candidates: dict[str, list[dict[str, str]]]) -> list[dict[str
                     record.get("semantic_review_status", "UNKNOWN"),
                 ),
                 "current_review_state": (
-                    "PRIMARY_AGENT_TARGETED_SOURCE_REVIEW"
+                    review_override["review_state"]
+                    if review_override
+                    else "PRIMARY_AGENT_TARGETED_SOURCE_REVIEW"
                     if sha in {
                         "515bc9ece28ecb913cfaa0891f4a1f85917ce392",
                         "700fde7ebf99015914097ebfe1f1f3dde9f3dde3",

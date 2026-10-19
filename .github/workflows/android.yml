@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  actions: read
+  checks: read
   pull-requests: read
 jobs:
   changes:
@@ -18,8 +18,6 @@ jobs:
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
@@ -28,23 +26,24 @@ jobs:
             exit 0
           fi
 
-          if ! runs="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/workflows/android.yml/runs" -f event=pull_request -f "branch=${PR_BRANCH}" -f per_page=100 --jq ".workflow_runs[] | select(any(.pull_requests[]?; .number == ${PR_NUMBER})) | [.id, .head_sha, (.conclusion // \"\")] | @tsv")"; then
-            echo "runtime=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
           previous_full_sha=""
-          while IFS=$'\t' read -r run_id head_sha conclusion; do
-            [[ "$conclusion" == "success" ]] || continue
-            if ! jobs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/jobs?per_page=100" --jq '[.jobs[] | select((.name == "check" or .name == "android-instrumentation") and .conclusion == "success") | .name] | unique | sort | join(",")')"; then
+          candidate_sha="$PR_HEAD_SHA"
+          searched=0
+          while [[ -n "$candidate_sha" && "$searched" -lt 100 ]]; do
+            if ! checks="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}/check-runs" -f per_page=100 --jq '.check_runs[] | select(.conclusion == "success") | .name')"; then
               echo "runtime=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            if [[ "$jobs" == "android-instrumentation,check" ]]; then
-              previous_full_sha="$head_sha"
+            if grep -Fxq "check" <<< "$checks" && grep -Fxq "android-instrumentation" <<< "$checks"; then
+              previous_full_sha="$candidate_sha"
               break
             fi
-          done <<< "$runs"
+            if ! candidate_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}" --jq '.parents[0].sha // empty')"; then
+              echo "runtime=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            searched=$((searched + 1))
+          done
 
           if [[ -z "$previous_full_sha" ]]; then
             echo "runtime=true" >> "$GITHUB_OUTPUT"

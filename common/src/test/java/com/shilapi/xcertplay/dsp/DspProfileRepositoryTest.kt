@@ -11,6 +11,9 @@ import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatNearSpeaker
+import com.shilapi.xcertplay.media.dsp.DspSeatPreset
 import java.io.File
 import java.io.IOException
 import org.junit.Assert.assertEquals
@@ -42,6 +45,15 @@ class DspProfileRepositoryTest {
             eqBands = listOf(DspEqBand(DspEqType.HIGH_SHELF, 6_000.0, gainDb = 2.0, q = 1.2)),
             bass = DspBassConfig(enabled = true, gainDb = 3.0, frequencyHz = 90.0),
             compressor = DspCompressorConfig(enabled = true, thresholdDb = -25.0, ratio = 3.0, makeupDb = 2.0),
+            seatAlignment = DspSeatAlignmentConfig(
+                enabled = true,
+                preset = DspSeatPreset.PASSENGER,
+                nearSpeaker = DspSeatNearSpeaker.LEFT,
+                distanceDifferenceCm = 90.0,
+                leftTrimDb = 2.0,
+                rightTrimDb = -3.0,
+                invertRight = true,
+            ),
             stereoWidth = 1.4,
             monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 100),
             convolver = DspConvolverConfig(enabled = true, impulseResponseId = "ir_a", wet = 0.75),
@@ -106,6 +118,7 @@ class DspProfileRepositoryTest {
         assertEquals(profile.preampDb, enabled.preampDb, 0.0)
         assertEquals(profile.eqBands, enabled.peqBands)
         assertEquals(profile.bass, enabled.bass)
+        assertEquals(profile.seatAlignment, enabled.seatAlignment)
         assertEquals(profile.stereoWidth, enabled.stereoWidth, 0.0)
         assertEquals(profile.monoBass, enabled.monoBass)
         assertEquals(profile.convolver, enabled.convolver)
@@ -134,6 +147,14 @@ class DspProfileRepositoryTest {
         assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
         profileFile.writeText(
             """{"schemaVersion":3,"id":"custom1","dynamicEq":{"bands":[{"mode":"NOT_A_MODE"}]}}""",
+        )
+        assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
+        profileFile.writeText(
+            """{"schemaVersion":4,"id":"custom1","seatAlignment":{"nearSpeaker":"UP"}}""",
+        )
+        assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
+        profileFile.writeText(
+            """{"schemaVersion":4,"id":"custom1","seatAlignment":{"distanceDifferenceCm":172}}""",
         )
         assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
     }
@@ -171,7 +192,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspMultibandConfig.DEFAULT_LOW_MID_CROSSOVER_HZ, loaded.profile.multiband.lowMidCrossoverHz, 0.0)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":3"))
+        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":4"))
     }
 
     @Test
@@ -190,7 +211,25 @@ class DspProfileRepositoryTest {
         assertEquals(DspDynamicEqConfig.MAX_BANDS, loaded.profile.dynamicEq.bands.size)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":3"))
+        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":4"))
+    }
+
+    @Test
+    fun versionThreeProfileMigratesWithSeatAlignmentDisabledByDefault() {
+        val repository = repositoryWithDirectWriterForMigrationTests()
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        assertTrue(profileFile.parentFile!!.mkdirs())
+        profileFile.writeText(
+            """{"schemaVersion":3,"id":"custom1","name":"Existing","enabled":true,"stereo":{"width":1.25}}""",
+        )
+
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertEquals(3, loaded.migratedFromVersion)
+        assertFalse(loaded.profile.seatAlignment.enabled)
+        assertEquals(DspSeatAlignmentConfig(), loaded.profile.seatAlignment)
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":4"))
     }
 
     @Test

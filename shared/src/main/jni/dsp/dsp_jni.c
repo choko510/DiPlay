@@ -163,7 +163,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         dynamic_eq_count != DSP_DYNAMIC_EQ_VALUES_COUNT ||
         (bass_coefficient_count != 0 && bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         (mono_bass_coefficient_count != 0 && mono_bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
-        spatial_count != 3 || convolver_value_count != 5 || convolver_sample_count < 0 ||
+        spatial_count != DSP_SPATIAL_VALUES_COUNT || convolver_value_count != 5 || convolver_sample_count < 0 ||
         convolver_sample_count > DSP_CONVOLVER_MAX_IR_FRAMES * 2) {
         return 0;
     }
@@ -173,7 +173,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     double bass_coefficients_values[DSP_BIQUAD_COEFFICIENT_COUNT];
     double mono_bass_coefficients_values[DSP_BIQUAD_COEFFICIENT_COUNT];
     double dynamic_values[10];
-    double spatial_values_data[3];
+    double spatial_values_data[DSP_SPATIAL_VALUES_COUNT];
     double convolver_values_data[5];
     if (coefficient_count > 0) {
         (*env)->GetDoubleArrayRegion(env, peq_coefficients, 0, coefficient_count, coefficients);
@@ -230,7 +230,16 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     (*env)->GetDoubleArrayRegion(env, spatial_values, 0, spatial_count, spatial_values_data);
     if ((*env)->ExceptionCheck(env) || (spatial_values_data[1] != 0.0 && spatial_values_data[1] != 1.0) ||
         !isfinite(spatial_values_data[2]) || spatial_values_data[2] < 1.0 || spatial_values_data[2] > 1000.0 ||
-        (double)(int)spatial_values_data[2] != spatial_values_data[2]) {
+        (double)(int)spatial_values_data[2] != spatial_values_data[2] ||
+        (spatial_values_data[3] != 0.0 && spatial_values_data[3] != 1.0) ||
+        !isfinite(spatial_values_data[4]) || spatial_values_data[4] < DSP_SPATIAL_NEAR_CENTER ||
+        spatial_values_data[4] > DSP_SPATIAL_NEAR_RIGHT ||
+        (double)(int)spatial_values_data[4] != spatial_values_data[4] ||
+        !isfinite(spatial_values_data[5]) || spatial_values_data[5] < 0.0 || spatial_values_data[5] > 171.5 ||
+        !isfinite(spatial_values_data[6]) || spatial_values_data[6] < -6.0 || spatial_values_data[6] > 6.0 ||
+        !isfinite(spatial_values_data[7]) || spatial_values_data[7] < -6.0 || spatial_values_data[7] > 6.0 ||
+        (spatial_values_data[8] != 0.0 && spatial_values_data[8] != 1.0) ||
+        (spatial_values_data[9] != 0.0 && spatial_values_data[9] != 1.0)) {
         return 0;
     }
     (*env)->GetDoubleArrayRegion(env, convolver_values, 0, convolver_value_count, convolver_values_data);
@@ -272,6 +281,13 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         .width = spatial_values_data[0],
         .mono_bass_enabled = (int)spatial_values_data[1],
         .mono_bass_cutoff_hz = (int)spatial_values_data[2],
+        .seat_enabled = (int)spatial_values_data[3],
+        .seat_near_speaker = (int)spatial_values_data[4],
+        .seat_distance_difference_cm = spatial_values_data[5],
+        .seat_left_trim_db = spatial_values_data[6],
+        .seat_right_trim_db = spatial_values_data[7],
+        .seat_invert_left = (int)spatial_values_data[8],
+        .seat_invert_right = (int)spatial_values_data[9],
     };
     dsp_multiband_config multiband_config = {
         .enabled = (int)multiband_values_data[0],

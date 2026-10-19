@@ -56,6 +56,10 @@ PR-06 DYNAMIC requires a phone-accepted command/acknowledgement and same-session
 
 Keep `DspProfileRepository` schema v3 and its migration/future-schema behavior, the single global DSP master as the runtime enable source, MEDIA-only full processing, and the byte-for-byte PCM16 OFF path with zero track latency. New nodes must remain disabled by default and prepare all buffers/coefficients outside the audio thread.
 
+## Align seat timing by explicit near speaker and preserve graph history
+
+Convert the measured distance difference (cm) to at most 5 ms of delay on the user-selected near channel; never infer left/right from RHD. Keep independent L/R trim and polarity in the same preallocated native stage. Include the maximum seat delay in reported graph latency, Auto Headroom for positive trim, and defer changes to active stateful delay graphs until a new track generation.
+
 ## Keep one USBMUX IN request and use bounded recovery
 
 USBMUX now reuses one 32 KiB direct-buffer request across wait timeouts; framing rebuilds up to 64 KiB messages above the USB read layer. On failure, close the wired CSM, USBMUX/session, and VPN/NCM together, then allow three bounded clean retries at 400, 800, and 1,200 ms before surfacing a deep-recovery candidate. USBMUX and NCM remain on separate `UsbDeviceConnection`s because the current interface layout provides no evidence that combining them improves reliability.

@@ -28,6 +28,11 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - Crossfade live graph output in Float32 and quantize/dither the mixed result once. Keep the performance decision tied to the complete PCM→Float→JNI/native→PCM16 pipeline histogram.
 - Gate the median pipeline p99 over three 256-block runs at 200% of a 512-frame block. Hosted-emulator medians reached 16.32 ms under runner contention while the local repeated run stayed below 3.3 ms; this accommodates that variance but still fails sustained p99 above two block durations. In the final 40-case local matrix, worst median-run light pipeline p99 was 1.10 ms; worst heavy p99 was 3.26 ms (Convolver64k, 44.1 kHz stereo). No loop fusion, FFT, compiler, or SIMD change was justified.
 
+## 2026-10-19 — DSP-01 Seat Alignment real-time cost
+
+- Extended the API 36.1 x86_64 matrix from 40 to 44 configurations with SeatAlignment and FullHeavyChain-with-seat at 44.1/48 kHz mono/stereo. Each configuration used three measured 256-block rounds and the existing production-path latency bypass. SeatAlignment stereo production p99 max was 1.50 ms; FullHeavyChain-with-seat stereo production p99 max was 2.76 ms. All instrumented tests passed 16/16, and the steady-state Kotlin allocation assertion stayed at zero.
+- The native graph embeds two 962-float delay rings (7,696 bytes total) per processor and prepares their delay taps/gains before audio processing. No runtime allocation, configuration/FFT work, or global locking was added to the render loop. Target-head-unit CPU/memory, acoustic alignment, and A/V sync remain unmeasured.
+
 ## 2026-10-01 — CarPlay + YouTube split
 
 - Reuse the Activity-scoped primary GeckoSession across split exits for the same resolved profile; suspend it with `setActive(false)`, close popups before suspending, and avoid new `open()`/`loadUri()` calls on a healthy warm reopen. Keep the old view hidden until the active iPhone identity resolves.

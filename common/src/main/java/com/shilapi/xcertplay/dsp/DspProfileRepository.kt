@@ -12,6 +12,9 @@ import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatNearSpeaker
+import com.shilapi.xcertplay.media.dsp.DspSeatPreset
 import java.io.File
 import java.nio.charset.StandardCharsets
 import org.json.JSONArray
@@ -127,6 +130,7 @@ internal class DspProfileRepository(
         val stereoJson = json.optJSONObject("stereo") ?: JSONObject()
         val convolverJson = json.optJSONObject("convolver") ?: JSONObject()
         val limiterJson = json.optJSONObject("limiter") ?: JSONObject()
+        val seatJson = json.optJSONObject("seatAlignment") ?: JSONObject()
         val multibandJson = json.optJSONObject("multiband") ?: JSONObject()
         val dynamicEqJson = json.optJSONObject("dynamicEq") ?: JSONObject()
         val monoBassJson = stereoJson.optJSONObject("monoBass") ?: JSONObject()
@@ -153,6 +157,18 @@ internal class DspProfileRepository(
                 frequencyHz = bassJson.readFiniteDouble("frequencyHz", 80.0),
             ),
             compressor = readCompressor(compressorJson),
+            seatAlignment = DspSeatAlignmentConfig(
+                enabled = seatJson.optBoolean("enabled", false),
+                preset = DspSeatPreset.valueOf(seatJson.optString("preset", DspSeatPreset.CENTER.name)),
+                nearSpeaker = DspSeatNearSpeaker.valueOf(
+                    seatJson.optString("nearSpeaker", DspSeatNearSpeaker.CENTER.name),
+                ),
+                distanceDifferenceCm = seatJson.readFiniteDouble("distanceDifferenceCm", 0.0),
+                leftTrimDb = seatJson.readFiniteDouble("leftTrimDb", 0.0),
+                rightTrimDb = seatJson.readFiniteDouble("rightTrimDb", 0.0),
+                invertLeft = seatJson.optBoolean("invertLeft", false),
+                invertRight = seatJson.optBoolean("invertRight", false),
+            ),
             stereoWidth = stereoJson.readFiniteDouble("width", 1.0),
             monoBass = DspMonoBassConfig(
                 enabled = monoBassJson.optBoolean("enabled", false),
@@ -264,6 +280,18 @@ internal class DspProfileRepository(
                     .put("makeupDb", profile.compressor.makeupDb),
             )
             .put(
+                "seatAlignment",
+                JSONObject()
+                    .put("enabled", profile.seatAlignment.enabled)
+                    .put("preset", profile.seatAlignment.preset.name)
+                    .put("nearSpeaker", profile.seatAlignment.nearSpeaker.name)
+                    .put("distanceDifferenceCm", profile.seatAlignment.distanceDifferenceCm)
+                    .put("leftTrimDb", profile.seatAlignment.leftTrimDb)
+                    .put("rightTrimDb", profile.seatAlignment.rightTrimDb)
+                    .put("invertLeft", profile.seatAlignment.invertLeft)
+                    .put("invertRight", profile.seatAlignment.invertRight),
+            )
+            .put(
                 "stereo",
                 JSONObject()
                     .put("width", profile.stereoWidth)
@@ -318,7 +346,7 @@ internal class DspProfileRepository(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 3
+        const val CURRENT_SCHEMA_VERSION = 4
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"

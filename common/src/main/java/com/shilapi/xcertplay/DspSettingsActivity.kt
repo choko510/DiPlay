@@ -58,6 +58,9 @@ import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatNearSpeaker
+import com.shilapi.xcertplay.media.dsp.DspSeatPreset
 import com.shilapi.xcertplay.shared.AppLanguage
 import java.util.Locale
 import java.util.UUID
@@ -241,6 +244,68 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         0.0..12.0,
                         "dB",
                     ) { profile = profile.copy(autoHeadroomMarginDb = it) }
+                }
+                SectionCard(title = stringResource(R.string.dsp_seat_alignment)) {
+                    val seat = profile.seatAlignment
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_alignment),
+                        checked = seat.enabled,
+                        onCheckedChange = { profile = profile.copy(seatAlignment = seat.copy(enabled = it)) },
+                        description = stringResource(R.string.dsp_seat_near_speaker_hint),
+                    )
+                    val presetOptions = listOf(
+                        DspSeatPreset.DRIVER to stringResource(R.string.dsp_seat_driver),
+                        DspSeatPreset.PASSENGER to stringResource(R.string.dsp_seat_passenger),
+                        DspSeatPreset.CENTER to stringResource(R.string.dsp_seat_center),
+                        DspSeatPreset.CUSTOM to stringResource(R.string.dsp_seat_custom),
+                    )
+                    ChoiceField(
+                        title = stringResource(R.string.dsp_seat_preset),
+                        selected = presetOptions.first { it.first == seat.preset }.second,
+                        choices = presetOptions.map { it.second },
+                        onSelect = { selected ->
+                            val preset = presetOptions.first { it.second == selected }.first
+                            profile = profile.copy(seatAlignment = seat.withPreset(preset))
+                        },
+                    )
+                    val speakerOptions = listOf(
+                        DspSeatNearSpeaker.CENTER to stringResource(R.string.dsp_seat_near_center),
+                        DspSeatNearSpeaker.LEFT to stringResource(R.string.dsp_seat_left),
+                        DspSeatNearSpeaker.RIGHT to stringResource(R.string.dsp_seat_right),
+                    )
+                    ChoiceField(
+                        title = stringResource(R.string.dsp_seat_near_speaker),
+                        selected = speakerOptions.first { it.first == seat.nearSpeaker }.second,
+                        choices = speakerOptions.map { it.second },
+                        onSelect = { selected ->
+                            val nearSpeaker = speakerOptions.first { it.second == selected }.first
+                            profile = profile.copy(seatAlignment = seat.withNearSpeaker(nearSpeaker))
+                        },
+                    )
+                    if (seat.nearSpeaker != DspSeatNearSpeaker.CENTER) {
+                        DspValueSlider(
+                            stringResource(R.string.dsp_seat_distance_difference),
+                            seat.distanceDifferenceCm,
+                            0.0..DspSeatAlignmentConfig.MAX_DISTANCE_DIFFERENCE_CM,
+                            "cm",
+                        ) { profile = profile.copy(seatAlignment = seat.copy(distanceDifferenceCm = it)) }
+                    }
+                    DspValueSlider(stringResource(R.string.dsp_seat_left_trim), seat.leftTrimDb, -6.0..6.0, "dB") {
+                        profile = profile.copy(seatAlignment = seat.copy(leftTrimDb = it))
+                    }
+                    DspValueSlider(stringResource(R.string.dsp_seat_right_trim), seat.rightTrimDb, -6.0..6.0, "dB") {
+                        profile = profile.copy(seatAlignment = seat.copy(rightTrimDb = it))
+                    }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_invert_left),
+                        checked = seat.invertLeft,
+                        onCheckedChange = { profile = profile.copy(seatAlignment = seat.copy(invertLeft = it)) },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_invert_right),
+                        checked = seat.invertRight,
+                        onCheckedChange = { profile = profile.copy(seatAlignment = seat.copy(invertRight = it)) },
+                    )
                 }
                 SectionCard(title = stringResource(R.string.dsp_parametric_eq)) {
                     profile.eqBands.forEachIndexed { index, band ->

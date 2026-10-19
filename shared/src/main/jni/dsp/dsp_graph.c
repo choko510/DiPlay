@@ -42,6 +42,8 @@ int dsp_graph_prepare(
     if (!dsp_spatial_prepare(
             &graph->spatial,
             spatial_config,
+            sample_rate,
+            channels,
             bass_coefficients,
             bass_coefficient_count,
             mono_bass_coefficients,
@@ -111,6 +113,7 @@ void dsp_graph_process(
 
         float output_left = dsp_gain_apply(&graph->gain, input_left);
         float output_right = channels == 2 ? dsp_gain_apply(&graph->gain, input_right) : 0.0f;
+        dsp_spatial_process_seat(&graph->spatial, &output_left, &output_right, (int)channels);
         for (size_t index = 0; index < graph->peq_count; index++) {
             output_left = dsp_biquad_process_sample(&graph->peq[index], output_left, 0);
             if (channels == 2) {

@@ -184,6 +184,14 @@ class DspPipelineBenchmarkInstrumentedTest {
                 )
             },
         )
+        val seatAlignment = DspSeatAlignmentConfig(
+            enabled = true,
+            preset = DspSeatPreset.DRIVER,
+            nearSpeaker = DspSeatNearSpeaker.LEFT,
+            distanceDifferenceCm = DspSeatAlignmentConfig.MAX_DISTANCE_DIFFERENCE_CM,
+            leftTrimDb = 3.0,
+            rightTrimDb = -2.0,
+        )
         val base = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
         val peq = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, peqBands = peq15)
 
@@ -229,6 +237,15 @@ class DspPipelineBenchmarkInstrumentedTest {
                     safetyLimiter = DspSafetyLimiterConfig(enabled = false),
                 ),
             ),
+            BenchmarkCase(
+                "SeatAlignment",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    seatAlignment = seatAlignment,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
             BenchmarkCase("Convolver4k", convolverConfig(sampleRate, channels, 4_096)),
             BenchmarkCase("Convolver16k", convolverConfig(sampleRate, channels, 16_384)),
             BenchmarkCase("Convolver64k", convolverConfig(sampleRate, channels, 65_536)),
@@ -244,6 +261,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                     safetyLimiter = limiter,
                     stereoWidth = 1.25,
                     monoBass = monoBass,
+                    seatAlignment = seatAlignment.copy(nearSpeaker = DspSeatNearSpeaker.RIGHT),
                     convolver = convolverConfig(sampleRate, channels, 16_384).convolver,
                     multiband = multiband,
                     dynamicEq = dynamicEq,

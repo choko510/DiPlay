@@ -76,10 +76,11 @@ class NativeDspProcessorTest {
         assertEquals(1.0, bindings.createdDynamics?.get(7) ?: -1.0, 0.0)
         assertEquals(0, bindings.createdBassCoefficients?.size)
         assertEquals(0, bindings.createdMonoBassCoefficients?.size)
-        assertEquals(3, bindings.createdSpatial?.size)
+        assertEquals(DSP_SPATIAL_NATIVE_VALUE_COUNT, bindings.createdSpatial?.size)
         assertEquals(1.0, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
         assertEquals(0.0, bindings.createdSpatial?.get(1) ?: -1.0, 0.0)
         assertEquals(120.0, bindings.createdSpatial?.get(2) ?: 0.0, 0.0)
+        assertEquals(0.0, bindings.createdSpatial?.get(3) ?: -1.0, 0.0)
         assertEquals(5, bindings.createdConvolverConfig?.size)
         assertEquals(0.0, bindings.createdConvolverConfig?.get(0) ?: -1.0, 0.0)
         assertEquals(0, bindings.createdConvolverSamples?.size)
@@ -108,6 +109,37 @@ class NativeDspProcessorTest {
         assertEquals(1.5, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
         assertEquals(1.0, bindings.createdSpatial?.get(1) ?: 0.0, 0.0)
         assertEquals(100.0, bindings.createdSpatial?.get(2) ?: 0.0, 0.0)
+        processor?.close()
+    }
+
+    @Test
+    fun seatAlignmentSettingsArePassedToNativeWithoutInferringASide() {
+        val bindings = FakeNativeDspBindings()
+        val seat = DspSeatAlignmentConfig(
+            enabled = true,
+            preset = DspSeatPreset.DRIVER,
+            nearSpeaker = DspSeatNearSpeaker.RIGHT,
+            distanceDifferenceCm = 80.0,
+            leftTrimDb = 2.0,
+            rightTrimDb = -4.0,
+            invertLeft = true,
+        )
+
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(enabled = true, seatAlignment = seat),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(1.0, bindings.createdSpatial?.get(3) ?: 0.0, 0.0)
+        assertEquals(DspSeatNearSpeaker.RIGHT.nativeValue.toDouble(), bindings.createdSpatial?.get(4) ?: 0.0, 0.0)
+        assertEquals(80.0, bindings.createdSpatial?.get(5) ?: 0.0, 0.0)
+        assertEquals(2.0, bindings.createdSpatial?.get(6) ?: 0.0, 0.0)
+        assertEquals(-4.0, bindings.createdSpatial?.get(7) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdSpatial?.get(8) ?: 0.0, 0.0)
+        assertEquals(0.0, bindings.createdSpatial?.get(9) ?: 0.0, 0.0)
         processor?.close()
     }
 

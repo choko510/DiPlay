@@ -106,6 +106,16 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | DSP00-04 | Existing native graph C regression | `scripts/test_dsp_native.sh` with MSYS2 UCRT GCC | `PASS_LOCAL` unsanitized; `--sanitize` is blocked because this host lacks `libasan`/`libubsan` |
 | DSP00-05 | Existing 40-case API 36.1 emulator performance baseline from the optimization ledger | `.scratchpad/optimization.md` | Prior baseline: worst light p99 1.10 ms, heavy p99 2.92 ms, zero steady-state Kotlin allocations; not rerun on a target head unit |
 
+## DSP-01 Seat Focus and L/R time alignment
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| DSP01-01 | Explicit left/right near-speaker choice, Driver/Passenger/Center/Custom presets, distance conversion capped at 5 ms, independent ±6 dB trim, polarity, and v3→v4 profile migration | `DspSeatAlignmentConfigTest`, `DspProfileRepositoryTest` | `PASS_LOCAL` |
+| DSP01-02 | Native integer/fractional delay, reset, trim/polarity, mono bypass, and latency sum with Convolver; audio-thread update defers until a new track generation | `test_dsp_engine.c`, `DspRendererProductionPathTest`, `NativeDspProcessorTest` | `PASS_LOCAL` unsanitized C / `PASS_ROBOLECTRIC` |
+| DSP01-03 | SeatAlignment and FullHeavyChain-with-seat p99 plus steady-state allocation gate | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (44 configurations, 3×256-block rounds) | `PASS_EMULATOR` 16/16; seat stereo production p99 max 1.50 ms, FullHeavyChain-with-seat max 2.76 ms, zero steady-state Kotlin allocations |
+| DSP01-04 | TS10/K706 listening, measured speaker distances, A/V sync, and head-unit memory/CPU impact | Physical device run | `NOT_RUN`; no target head unit or listening path is connected |
+| DSP01-05 | Native ASan/UBSan on this Windows host | `scripts/test_dsp_native.sh --sanitize` | `BLOCKED_ENV`; MSYS2 GCC lacks `libasan`/`libubsan`; unsanitized C suite passes |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |
@@ -120,6 +130,8 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR-04 working-tree verification | 502 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Physical microphone/Siri/call/voice-message checks remain `NOT_RUN` |
 | PR-06 LOCAL working-tree verification | 502 shared + 147 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Physical 20-cycle same-session validation remains `NOT_RUN` |
 | PR-05 working-tree verification | 507 shared + 147 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Multi-area `/info` acceptance and dynamic wire behavior remain `NOT_RUN` |
+| DSP-00 baseline | 507 shared + 148 common tests; profile schema/default-OFF, MEDIA-only, PCM16 bypass/latency, and native C baseline passed | Host ASan/UBSan blocked by missing MSYS2 runtimes |
+| DSP-01 working-tree verification | 514 shared + 149 common tests; both app lints and Debug/Benchmark assemblies passed; API 36.1 instrumented 16/16 | SeatAlignment emulator p99/zero-allocation evidence passed; physical acoustic/A/V validation remains `NOT_RUN` |
 | Hardware | No TS10/K706/iPhone was attached | `NOT_RUN`; not a pass |
 
 The remaining acceptance IDs in specification sections 8.3 and R-04 stay open for their dependent PR/EX stages. EX-01 has a source-level implementation and fixture coverage; it is not device-validated or release-ready.

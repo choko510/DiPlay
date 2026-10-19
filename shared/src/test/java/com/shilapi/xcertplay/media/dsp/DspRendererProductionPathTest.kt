@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.pow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -630,6 +631,76 @@ class DspRendererProductionPathTest {
             assertEquals(1L, renderer.dspGenerationForTesting)
             assertTrue(renderer.dspPipeline !== activePipeline)
             assertEquals(128, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun activeSeatDelayGraphUpdatesWaitUntilANewTrackGeneration() {
+        val seat = DspSeatAlignmentConfig(
+            enabled = true,
+            preset = DspSeatPreset.DRIVER,
+            nearSpeaker = DspSeatNearSpeaker.LEFT,
+            distanceDifferenceCm = 50.0,
+        )
+        val initialConfig = DspRuntimeConfig(enabled = true, seatAlignment = seat)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                val latencyFrames = ceil(
+                    config.seatAlignment.relativeDelayFrames(audioFormat.sampleRate),
+                ).toInt()
+                pipeline(audioFormat, latencyFrames = latencyFrames, gain = 1.0f)
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            val activePipeline = renderer.dspPipeline
+            val expectedLatency = ceil(seat.relativeDelayFrames(48_000)).toInt()
+            assertEquals(expectedLatency, renderer.trackLatencyForTesting)
+
+            provider.update(DspRuntimeConfig(enabled = true, seatAlignment = seat.copy(leftTrimDb = 1.0)))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+
+            assertTrue(renderer.dspPipeline === activePipeline)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 30L,
+            )
+
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertTrue(renderer.dspPipeline !== activePipeline)
+            assertEquals(expectedLatency, renderer.dspPipeline?.algorithmicLatencyFrames)
             assertNull(renderer.deferredDspGenerationForTesting)
         } finally {
             renderer.releaseForTesting()

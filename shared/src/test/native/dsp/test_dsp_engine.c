@@ -27,7 +27,11 @@ static const dsp_dynamic_eq_config bypass_dynamic_eq = {
         {0, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -24.0, 2.0, 10.0, 100.0, 6.0, 6.0},
     },
 };
-static const dsp_spatial_config bypass_spatial = {1.0, 0, 120};
+static const dsp_spatial_config bypass_spatial = {
+    .width = 1.0,
+    .mono_bass_enabled = 0,
+    .mono_bass_cutoff_hz = 120,
+};
 static const dsp_convolver_config bypass_convolver = {0, 0, 0, 0, 0, 0.0f, NULL};
 
 static void fail(const char *message) {
@@ -740,7 +744,11 @@ static double measure_sine_gain(dsp_engine *engine, double frequency, int channe
 }
 
 static void test_spatial_width_and_mono_input_behavior(void) {
-    const dsp_spatial_config mono_width = {0.0, 0, 120};
+    const dsp_spatial_config mono_width = {
+        .width = 0.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *mono_engine = create_test_engine_with_spatial(48000, 2, 2, &mono_width, NULL, 0, NULL, 0);
     assert_true(mono_engine != NULL, "width zero graph creates");
     const float stereo[] = {1.0f, -1.0f, 0.5f, 0.5f};
@@ -754,7 +762,11 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     assert_near(output[3], 0.5, 0.0, "width zero keeps mono input right");
     dsp_engine_destroy(mono_engine);
 
-    const dsp_spatial_config default_width = {1.0, 0, 120};
+    const dsp_spatial_config default_width = {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *identity_engine = create_test_engine_with_spatial(
         48000, 2, 1, &default_width, NULL, 0, NULL, 0);
     assert_true(identity_engine != NULL, "width one graph creates");
@@ -767,7 +779,11 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     assert_near(identity_output[1], identity_input[1], 0.0, "width one is identity right");
     dsp_engine_destroy(identity_engine);
 
-    const dsp_spatial_config double_width = {2.0, 0, 120};
+    const dsp_spatial_config double_width = {
+        .width = 2.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *wide_engine = create_test_engine_with_spatial(48000, 2, 1, &double_width, NULL, 0, NULL, 0);
     assert_true(wide_engine != NULL, "width two graph creates");
     const float anti_phase[] = {0.5f, -0.5f};
@@ -782,7 +798,11 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     const double high_pass[DSP_BIQUAD_COEFFICIENT_COUNT] = {
         1.0, 0.0, 0.0, 0.0, 0.0,
     };
-    const dsp_spatial_config wide_mono = {2.0, 1, 120};
+    const dsp_spatial_config wide_mono = {
+        .width = 2.0,
+        .mono_bass_enabled = 1,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *mono_input_engine = create_test_engine_with_spatial(
         48000,
         1,
@@ -825,10 +845,112 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     dsp_engine_destroy(non_finite_engine);
 }
 
+static void test_spatial_seat_alignment_and_latency(void) {
+    const dsp_spatial_config near_left = {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+        .seat_enabled = 1,
+        .seat_near_speaker = DSP_SPATIAL_NEAR_LEFT,
+        .seat_distance_difference_cm = 34300.0 * 2.0 / 48000.0,
+    };
+    dsp_engine *integer_delay = create_test_engine_with_spatial(
+        48000, 2, 4, &near_left, NULL, 0, NULL, 0);
+    assert_true(integer_delay != NULL, "left-speaker seat delay graph creates");
+    assert_true(dsp_engine_get_latency_frames(integer_delay) == 2, "seat delay reports aligned frame latency");
+    const float impulse[] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    float output[8] = {0};
+    assert_true(
+        dsp_engine_process(integer_delay, impulse, 8, output, 8, 4, 2) == DSP_STATUS_OK,
+        "integer seat delay processes stereo frames");
+    assert_near(output[0], 0.0, 0.0, "near left is delayed at frame zero");
+    assert_near(output[2], 0.0, 0.0, "near left is delayed at frame one");
+    assert_near(output[4], 1.0, 1e-6, "near left arrives at the aligned frame");
+    assert_true(dsp_engine_reset(integer_delay) == DSP_STATUS_OK, "seat delay ring resets");
+    for (size_t index = 0; index < 8; index++) output[index] = 0.0f;
+    assert_true(
+        dsp_engine_process(integer_delay, impulse, 8, output, 8, 4, 2) == DSP_STATUS_OK,
+        "reset seat delay processes a fresh block");
+    assert_near(output[4], 1.0, 1e-6, "reset seat delay restarts from a clean ring");
+    dsp_engine_destroy(integer_delay);
+
+    dsp_spatial_config fractional = near_left;
+    fractional.seat_distance_difference_cm = 34300.0 * 1.5 / 48000.0;
+    dsp_engine *fractional_delay = create_test_engine_with_spatial(
+        48000, 2, 3, &fractional, NULL, 0, NULL, 0);
+    assert_true(fractional_delay != NULL, "fractional seat delay graph creates");
+    assert_true(dsp_engine_get_latency_frames(fractional_delay) == 2,
+        "fractional seat delay rounds latency upward for clock safety");
+    const float stereo_impulse[] = {1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    float fractional_output[6] = {0};
+    assert_true(
+        dsp_engine_process(fractional_delay, stereo_impulse, 6, fractional_output, 6, 3, 2) == DSP_STATUS_OK,
+        "fractional seat delay processes stereo frames");
+    assert_near(fractional_output[0], 0.0, 0.0, "fractional near channel starts with silence");
+    assert_near(fractional_output[2], 0.5, 1e-6, "fractional delay interpolates first adjacent frame");
+    assert_near(fractional_output[4], 0.5, 1e-6, "fractional delay interpolates second adjacent frame");
+    assert_near(fractional_output[1], 1.0, 0.0, "far channel remains undelayed");
+    dsp_engine_destroy(fractional_delay);
+
+    const dsp_spatial_config trims = {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+        .seat_enabled = 1,
+        .seat_near_speaker = DSP_SPATIAL_NEAR_CENTER,
+        .seat_left_trim_db = 6.0,
+        .seat_right_trim_db = -6.0,
+        .seat_invert_left = 1,
+    };
+    dsp_engine *trim_engine = create_test_engine_with_spatial(48000, 2, 1, &trims, NULL, 0, NULL, 0);
+    assert_true(trim_engine != NULL, "seat trims and polarity graph creates");
+    const float trim_input[] = {0.1f, 0.1f};
+    float trim_output[2] = {0};
+    assert_true(
+        dsp_engine_process(trim_engine, trim_input, 2, trim_output, 2, 1, 2) == DSP_STATUS_OK,
+        "seat trims and polarity process stereo frames");
+    assert_near(trim_output[0], -0.1 * pow(10.0, 6.0 / 20.0), 1e-6,
+        "left trim applies independent gain and polarity");
+    assert_near(trim_output[1], 0.1 * pow(10.0, -6.0 / 20.0), 1e-6,
+        "right trim applies independent gain");
+    dsp_engine_destroy(trim_engine);
+
+    dsp_engine *mono = create_test_engine_with_spatial(48000, 1, 1, &near_left, NULL, 0, NULL, 0);
+    assert_true(mono != NULL, "mono stream safely ignores stereo seat alignment");
+    assert_true(dsp_engine_get_latency_frames(mono) == 0, "mono seat alignment adds no latency");
+    const float mono_sample[] = {0.25f};
+    float mono_output[1] = {0};
+    assert_true(
+        dsp_engine_process(mono, mono_sample, 1, mono_output, 1, 1, 1) == DSP_STATUS_OK,
+        "mono seat alignment bypass processes");
+    assert_near(mono_output[0], mono_sample[0], 0.0, "mono seat alignment preserves the sample");
+    dsp_engine_destroy(mono);
+
+    const float unit_ir[] = {1.0f};
+    const dsp_convolver_config unit_config = {1, 48000, 1, 1, 1, 1.0f, unit_ir};
+    dsp_engine *combined = dsp_engine_create(
+        48000, 2, 4, 0.0, NULL, 0, &bypass_dynamics, &bypass_multiband, &bypass_dynamic_eq,
+        NULL, 0, NULL, 0, &near_left, &unit_config);
+    assert_true(combined != NULL, "seat delay and convolver graph creates");
+    assert_true(dsp_engine_get_latency_frames(combined) == DSP_CONVOLVER_PARTITION_FRAMES + 2,
+        "seat alignment latency sums with convolver latency");
+    dsp_engine_destroy(combined);
+
+    dsp_spatial_config invalid = near_left;
+    invalid.seat_distance_difference_cm = 171.51;
+    dsp_engine *invalid_engine = create_test_engine_with_spatial(
+        48000, 2, 4, &invalid, NULL, 0, NULL, 0);
+    assert_true(invalid_engine == NULL, "seat delay beyond the five-millisecond cap is rejected");
+}
+
 static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
     double bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
     design_low_shelf(48000.0, 80.0, 6.0, bass_coefficients);
-    const dsp_spatial_config width_one = {1.0, 0, 120};
+    const dsp_spatial_config width_one = {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *low_bass = create_test_engine_with_spatial(
         48000, 1, 512, &width_one, bass_coefficients, 1, NULL, 0);
     assert_true(low_bass != NULL, "low shelf graph creates");
@@ -844,7 +966,11 @@ static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
 
     double high_pass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
     design_high_pass(48000.0, 120.0, 0.7071067811865476, high_pass_coefficients);
-    const dsp_spatial_config mono_bass = {1.0, 1, 120};
+    const dsp_spatial_config mono_bass = {
+        .width = 1.0,
+        .mono_bass_enabled = 1,
+        .mono_bass_cutoff_hz = 120,
+    };
     const double frequencies[] = {30.0, 60.0, 120.0, 1000.0};
     for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
         dsp_engine *engine = create_test_engine_with_spatial(
@@ -1594,6 +1720,7 @@ int main(void) {
     test_compressor_attack_and_release_steps();
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
+    test_spatial_seat_alignment_and_latency();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
     test_multiband_unity_reconstruction_and_phase();
     test_multiband_compression_is_band_selective();

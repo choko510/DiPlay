@@ -167,12 +167,14 @@ internal object DspAutoHeadroom {
         stereoWidth: Double = 1.0,
         marginDb: Double = 1.0,
         staticBassBands: List<DspEqBand> = emptyList(),
+        seatTrimDb: Double = 0.0,
     ): DspHeadroomResult {
         require(sampleRate in 8_000..192_000)
         require(preampDb.isFinite())
         require(compressorMakeupDb.isFinite())
         require(maxBandMakeupDb.isFinite())
         require(dynamicBoostDb.isFinite())
+        require(seatTrimDb.isFinite())
         require(stereoWidth.isFinite() && stereoWidth in 0.0..2.0)
         require(marginDb.isFinite() && marginDb >= 0.0)
         require(peqBands.size <= DspEqDesigner.MAX_BANDS)
@@ -195,7 +197,8 @@ internal object DspAutoHeadroom {
         if (filters.isEmpty()) peakDb = 0.0
         val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth))
         val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
-            max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) + widthWorstCaseDb
+            max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) +
+            max(0.0, seatTrimDb) + widthWorstCaseDb
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
@@ -285,6 +288,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             } else {
                 0.0
             },
+            seatTrimDb = if (format.channels == 2) seatAlignment.positiveTrimForHeadroomDb else 0.0,
             stereoWidth = stereoWidth,
             marginDb = autoHeadroomMarginDb,
             staticBassBands = if (bass.enabled) {
@@ -323,6 +327,13 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             stereoWidth,
             if (monoBass.enabled) 1.0 else 0.0,
             monoBass.cutoffHz.toDouble(),
+            if (seatAlignment.enabled && format.channels == 2) 1.0 else 0.0,
+            seatAlignment.nearSpeaker.nativeValue.toDouble(),
+            seatAlignment.distanceDifferenceCm,
+            seatAlignment.leftTrimDb,
+            seatAlignment.rightTrimDb,
+            if (seatAlignment.invertLeft) 1.0 else 0.0,
+            if (seatAlignment.invertRight) 1.0 else 0.0,
         ),
         convolverConfig = doubleArrayOf(
             if (convolverEnabled) 1.0 else 0.0,

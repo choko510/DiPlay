@@ -294,3 +294,5 @@ For local CarPlay pane resizing, resize the view that owns the SurfaceTexture an
 For multi-area `/info` changes, keep the legacy single-area serializer as the default and model each area's view/safe geometry against the full display coordinate space. Scale every area's insets with the display canvas, preserve display UUID/physical dimensions, and keep dynamic switch commands separate from declaration support.
 
 For DSP graph extensions, keep the disabled MEDIA path as a byte-for-byte PCM16 bypass with zero added latency. Prepare scratch buffers, delay lines, filters and interpolation tables before audio processing; the render thread should only operate on preallocated state.
+
+For a stereo seat-alignment delay, the selected near channel receives the distance-derived delay while the far channel remains at zero; report the maximum relative delay for the playback clock and sum it with downstream graph latency. Defer replacing an active delay ring until a track-generation boundary so the new buffer does not start without history.

@@ -1,6 +1,6 @@
 # Completed
 
-- 2026-10-20: Added a draft quick CI lane with native/sanitizer and shared/common unit tests while deferring lint, app builds, JNI and emulator checks to `ready_for_review`. Run #169 passed in 2m13 versus #168's 9m39 full draft host run; docs/audit-only runs #170–172 passed in 33s/41s/41s.
+- 2026-10-20: Added a draft quick CI lane with native/sanitizer and shared/common unit tests while deferring lint, app builds, JNI and emulator checks to `ready_for_review`. Run #169 passed in 2m13 versus #168's 9m39 full draft host run; docs/audit-only runs #170–176 passed in 33s/41s/41s/44s/48s/43s/39s.
 - 2026-10-20: Recorded the identical manual-hotspot patch under both upstream source SHAs while keeping one wired-config adaptation in the fork; regenerated the 1,289-row EX-08 ledger and documented the new counts.
 - 2026-10-20: Rejected the upstream AccessibilityService USB auto-confirm commit: it clicks the persistent allow option and broadens the USB filter; fixed main keeps explicit per-device consent.
 - 2026-10-20: Rejected a mixed overlay/keyframe patch that also adds AccessibilityService USB auto-confirm; kept explicit USB consent and fixed-main overlay ownership.

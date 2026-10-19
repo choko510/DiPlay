@@ -1,6 +1,6 @@
 # Upstream Decision Register — Seeded from STEP4 v3
 
-This is the seed register required by PR-00. Its rulings use the attached v3 plan and current fork `main`; it is not a complete per-commit review of all 1,289 upstream-only commits. The full patch/commit mapping, test, rollback, and adoption labels remain an EX-08 deliverable.
+This register uses the attached v3 plan and fixed fork `main`. A row-level inventory for all 1,289 upstream-only commits is in [`EX08_COMMIT_LEDGER.csv`](EX08_COMMIT_LEDGER.csv). The inventory is not a complete per-commit semantic review; it distinguishes heuristic records and pending evidence from the small subset with an explicit current decision.
 
 | ID / area | Main evidence | Current decision | Reason / gate |
 |---|---|---|---|
@@ -22,4 +22,8 @@ This is the seed register required by PR-00. Its rulings use the attached v3 pla
 
 ## EX-08 completion status
 
-`PENDING`: reconcile every in-scope upstream commit/file/patch with `TAKE_DIRECT`, `ADAPT`, `FORK_SUPERIOR`, `SKIP_OEM`, `REJECT_UNSAFE`, or `NEED_EVIDENCE`, and record source anchor, test, related PR and rollback. The supplied audit summaries are supporting evidence only; they are not the complete commit ledger.
+**Inventory coverage:** 1,289 unique rows: the 1,232-commit base catalog and 57-commit Pass15 delta. The source audit snapshot is `a69a4acb6d50116f4855bebbb94b16047c36c466`; every row retains its source SHA/URL, patch SHA, affected paths, source-review status, current disposition, reason, test evidence, related STEP4 mapping, and rollback status.
+
+**Current dispositions:** 3 `ADAPT` rows (the PR-01 NCM framing adaptation and paired EX-02 retry behavior), 3 `FORK_SUPERIOR` rows (fixed-main repository, encoder, and BYD-manifest comparisons), 8 `SKIP_OEM` rows, 24 `REJECT_UNSAFE` rows (22 empty-remerge aggregate merges and two unsupported minSdk/release changes), and 1,251 `NEED_EVIDENCE` rows.
+
+**Not complete:** all 1,232 base-catalog entries are marked `CODE_DIFF_HEURISTIC_ONLY` / `NOT_FULLY_REVIEWED` in the source catalog; three high-signal base entries received targeted source review. Selected delta patches now have explicit fork-baseline, BYD-exclusion, or pending-evidence decisions, but the Pass15 source matrix still labels broader content review as pending. The 1,251 `NEED_EVIDENCE` rows still require commit-specific semantic review/test or a supported no-go, precise related-PR mapping, and rollback evidence. Do not treat inventory coverage or `NEED_EVIDENCE` labels as EX-08 acceptance or functional equivalence. Continue semantic review by priority/family and update each row only when its evidence exists.

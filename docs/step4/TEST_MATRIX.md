@@ -60,6 +60,13 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | EX06-01 | Compare `AUTO` and `NO_STATUS_POLLING` for status usefulness, GC, packet loss, and RTSP timing | Physical device A/B | `NOT_RUN`; retain current polling behavior |
 | EX07-01 | Reproduce IPv4-only traffic, IPv6 link-local scope failure, or stale accept generation before changing bridge/listener behavior | Physical interface evidence and targeted stress test | `NO_GO_THIS_RUN`; no trigger condition is evidenced |
 
+## EX-08 upstream commit decision ledger
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| EX08-01 | Enumerate all upstream-only commit SHAs from the frozen base plus 57-commit delta, with source URLs, patch digests, changed paths, disposition, test, STEP4 mapping, and rollback field | `scripts/generate_step4_ex08_inventory.py --check`, `docs/step4/EX08_COMMIT_LEDGER.csv` | `PASS_LOCAL` inventory: 1,289 unique SHAs (1,232 + 57); 3 `ADAPT`, 3 `FORK_SUPERIOR`, 8 `SKIP_OEM`, 24 `REJECT_UNSAFE`, 1,251 `NEED_EVIDENCE` |
+| EX08-02 | Complete semantic review and final per-commit decision for each row | Pinned audit catalog, patch archives, fork source, commit-specific regression tests | `INCOMPLETE`: all 1,232 base rows have heuristic-only source status; three have targeted review; selected delta rows have commit-specific review; 1,251 rows remain `NEED_EVIDENCE` |
+
 ## PR-04 microphone request classification and routing
 
 | Evidence ID | Scenario | Main test/evidence | Status |

@@ -13,6 +13,12 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-19 — PR #45 Android CI feedback and Gradle cache
+
+- Kept public-tree and EX-08 checks on every PR, while classifying paths changed since the latest successful full check. Documentation-only diffs skip Android SDK setup, native tests, Gradle, and emulator jobs; unknown paths, code/workflow changes, missing baselines, API errors, pushes, and manual runs stay full.
+- Enabled Gradle task output caching for same-repository PRs only, scoped to each PR merge ref; fork PRs remain read-only. Passed `--build-cache` to both check and instrumentation Gradle invocations.
+- GitHub Actions run #144 passed both full jobs. The check job reported 41 tasks `FROM-CACHE`, and both jobs saved Gradle cache entries for later commits. This first cache-enabled run is a warmup, not an elapsed-time comparison; the documentation-only fast path awaits run #145.
+
 ## 2026-10-02 — PR #14 CI wall time
 
 - Moved API 35 emulator boot and `:shared:connectedDebugAndroidTest` into a parallel `android-instrumentation` job, and stopped installing the emulator system image in the host verification job. Kept all 40 DSP cases, three 256-block measurement rounds, and the p99 gate unchanged.

@@ -134,17 +134,17 @@ The native Convolver supports only 44.1/48/96 kHz. Match that rule in Kotlin and
 
 Run the complete timing matrix inside Android instrumentation and clear/capture its logcat in the same checked-in script. Parse the exact expected case/rate/channel/run set and fail artifact generation on missing records or nonzero steady-state allocation counts. Publish raw CSV/JSON plus an aggregate Markdown table as the workflow artifact.
 
-## Finish local validation and report unavailable hosted CI explicitly
+## Run hosted checks after a PR is ready
 
-Open the new PR only after implementation, phase commits, local regression suites, app builds, and benchmark artifacts are reviewable. If GitHub has not created a workflow run or check status for the PR head, report it as pending/unavailable rather than calling CI green or merging.
+Open the new PR only after implementation, phase commits, local regression suites, app builds, and benchmark artifacts are reviewable. Verify the final head's workflow run and check results; do not merge as part of implementation.
 
 ## Trigger Android checks for codex implementation branches
 
 Run the same Android checks workflow on `codex/**` pushes as on pull requests. This gives the implementation branch a hosted result even if an app-created PR event did not create an initial workflow run.
 
-## Report GitHub-controlled Actions disablement without changing repo permissions
+## Recover workflow dispatch without widening Actions permissions
 
-If a workflow dispatch returns `Actions has been disabled for this repository` while the repository permissions endpoint already reports `enabled: true`, do not widen or rewrite the Actions allowlist. GitHub documents a separate platform-controlled disabled state that requires Support review; report hosted CI as blocked and keep the PR unmerged until a workflow run exists.
+If a workflow dispatch reports Actions disabled while the repository already has `enabled=true` and `allowed_actions=all`, reapply those same settings once and retry dispatch. Do not widen the allowlist; if it still returns disabled, report the hosted CI blocker and keep the PR unmerged until GitHub restores it.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

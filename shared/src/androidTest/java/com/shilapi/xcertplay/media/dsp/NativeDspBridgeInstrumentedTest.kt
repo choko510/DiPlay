@@ -38,6 +38,7 @@ class NativeDspBridgeInstrumentedTest {
             spatial = prepared.spatial,
             convolverConfig = prepared.convolverConfig,
             convolverSamples = prepared.convolverSamples,
+            harmonicValues = prepared.harmonic,
         )
         assertTrue(handle > 0L)
         try {
@@ -60,6 +61,33 @@ class NativeDspBridgeInstrumentedTest {
         } finally {
             NativeDspJni.destroy(handle)
         }
+    }
+
+    @Test
+    fun nativeCreateRejectsMalformedHarmonicArguments() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val format = DspAudioFormat(sampleRate = 48_000, channels = 2)
+        val prepared = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false).prepare(format)
+        val malformedHarmonic = prepared.harmonic.copyOf().apply { this[4] = Double.NaN }
+
+        val handle = NativeDspJni.create(
+            sampleRate = format.sampleRate,
+            channels = format.channels,
+            maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
+            gainDb = prepared.appliedPreampDb,
+            eqCoefficients = prepared.eqCoefficients,
+            dynamics = prepared.dynamics,
+            multiband = prepared.multiband,
+            dynamicEq = prepared.dynamicEq,
+            bassCoefficients = prepared.bassCoefficients,
+            monoBassCoefficients = prepared.monoBassCoefficients,
+            spatial = prepared.spatial,
+            convolverConfig = prepared.convolverConfig,
+            convolverSamples = prepared.convolverSamples,
+            harmonicValues = malformedHarmonic,
+        )
+
+        assertEquals(0L, handle)
     }
 
     @Test

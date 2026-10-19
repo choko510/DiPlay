@@ -5,8 +5,10 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.PI
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -443,6 +445,53 @@ class NativeDspBridgeInstrumentedTest {
     }
 
     @Test
+    fun nativeCreateRejectsMalformedHarmonicArguments() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val format = DspAudioFormat(48_000, 2)
+        val prepared = DspRuntimeConfig(enabled = true).prepare(format)
+        val valid = prepared.harmonicValues
+        val malformed = listOf(
+            valid.copyOf(valid.size - 1),
+            valid.copyOf().apply { this[0] = 2.0 },
+            valid.copyOf().apply { this[0] = 1.0; this[1] = Double.NaN },
+            valid.copyOf().apply { this[0] = 1.0; this[1] = 0.31 },
+            valid.copyOf().apply { this[0] = 1.0; this[2] = 22_000.0 },
+            valid.copyOf().apply { this[3] = 1.0; this[5] = 161.0 },
+            valid.copyOf().apply { this[6] = 1.5 },
+            valid.copyOf().apply { this[7] = 3.0 },
+            valid.copyOf().apply { this[8] = 2.0 },
+        )
+
+        malformed.forEachIndexed { index, values ->
+            assertEquals("malformed harmonic argument case $index", 0L, createNativeHandle(format, prepared, values))
+        }
+    }
+
+    @Test
+    fun fourStep4FeaturesComposeAcrossRatesChannelsAndBlockBoundaries() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val wholeCall = intArrayOf(1_024)
+        val splitCalls = intArrayOf(1, 127, 256, 512, 128)
+
+        for (sampleRate in intArrayOf(44_100, 48_000)) {
+            for (channels in 1..2) {
+                val format = DspAudioFormat(sampleRate, channels)
+                val input = integrationPcm16(format, frames = wholeCall.sum())
+                for (featureMask in 0 until 16) {
+                    val config = integrationConfig(featureMask)
+                    val expected = processIntegrationPcm16(format, config, input, wholeCall)
+                    val actual = processIntegrationPcm16(format, config, input, splitCalls)
+                    assertArrayEquals(
+                        "44.1/48 kHz, channels=$channels, featureMask=$featureMask",
+                        expected,
+                        actual,
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
     fun nativeBassShelfAndMonoBassFrequencyResponsesReachTheJniEngine() {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val bassConfig = DspRuntimeConfig(
@@ -585,8 +634,162 @@ class NativeDspBridgeInstrumentedTest {
         }
     }
 
+    private fun createNativeHandle(
+        format: DspAudioFormat,
+        prepared: DspPreparedConfig,
+        harmonicValues: DoubleArray,
+    ): Long = NativeDspJni.create(
+        sampleRate = format.sampleRate,
+        channels = format.channels,
+        maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
+        gainDb = prepared.appliedPreampDb,
+        eqCoefficients = prepared.eqCoefficients,
+        dynamics = prepared.dynamics,
+        multiband = prepared.multiband,
+        dynamicEq = prepared.dynamicEq,
+        bassCoefficients = prepared.bassCoefficients,
+        monoBassCoefficients = prepared.monoBassCoefficients,
+        spatial = prepared.spatial,
+        harmonic = harmonicValues,
+        convolverConfig = prepared.convolverConfig,
+        convolverSamples = prepared.convolverSamples,
+    )
+
+    private fun integrationConfig(featureMask: Int): DspRuntimeConfig = DspRuntimeConfig(
+        enabled = true,
+        autoHeadroomEnabled = true,
+        seatFocus = if (featureMask and SEAT_FOCUS_MASK != 0) {
+            DspSeatFocusConfig(
+                enabled = true,
+                preset = DspSeatFocusPreset.DRIVER,
+                leftDistanceCm = 150.0,
+                rightDistanceCm = 100.0,
+                leftTrimDb = 1.0,
+                rightTrimDb = -1.0,
+            )
+        } else {
+            DspSeatFocusConfig()
+        },
+        advancedMs = if (featureMask and ADVANCED_MS_MASK != 0) {
+            DspAdvancedMsConfig(
+                enabled = true,
+                crossoverHz = 120.0,
+                low = DspAdvancedMsBandConfig(midGainDb = 1.0, sideGainDb = -1.0, width = 0.8),
+                high = DspAdvancedMsBandConfig(midGainDb = -1.0, sideGainDb = 1.5, width = 1.4),
+                centerFocusDb = 0.5,
+                sideCompressor = DspCompressorConfig(enabled = true, thresholdDb = -24.0, ratio = 2.0),
+            )
+        } else {
+            DspAdvancedMsConfig()
+        },
+        cabinCorrection = if (featureMask and CABIN_MASK != 0) {
+            DspCabinCorrectionConfig(
+                enabled = true,
+                measurement = DspCabinMeasurementSummary(
+                    noiseFloorDb = -60.0,
+                    pointCount = 120,
+                    minimumFrequencyHz = 20.0,
+                    maximumFrequencyHz = 300.0,
+                    clippedSamples = 0,
+                ),
+                notches = listOf(
+                    DspCabinNotchConfig(frequencyHz = 43.0, gainDb = -6.0, q = 2.5),
+                    DspCabinNotchConfig(frequencyHz = 83.0, gainDb = -8.0, q = 4.0),
+                    DspCabinNotchConfig(frequencyHz = 160.0, gainDb = -4.0, q = 3.0),
+                ),
+            )
+        } else {
+            DspCabinCorrectionConfig()
+        },
+        harmonic = if (featureMask and HARMONIC_MASK != 0) {
+            DspHarmonicConfig(
+                highExciter = DspHighExciterConfig(enabled = true, amount = 0.15, crossoverHz = 6_000.0),
+                virtualBass = DspVirtualBassConfig(enabled = true, amount = 0.15, crossoverHz = 80.0),
+                mode = DspHarmonicMode.MIXED,
+                quality = DspHarmonicQuality.BALANCED,
+            )
+        } else {
+            DspHarmonicConfig()
+        },
+    )
+
+    private fun integrationPcm16(format: DspAudioFormat, frames: Int): ByteArray {
+        val output = ByteArray(frames * format.channels * Short.SIZE_BYTES)
+        var offset = 0
+        repeat(frames) { frame ->
+            val time = frame.toDouble() / format.sampleRate
+            val left = (
+                0.52 * sin(2.0 * PI * 43.0 * time) +
+                    0.2 * sin(2.0 * PI * 440.0 * time) +
+                    0.1 * sin(2.0 * PI * 6_000.0 * time)
+                ).coerceIn(-0.9, 0.9)
+            val right = (
+                0.48 * sin(2.0 * PI * 83.0 * time) -
+                    0.18 * sin(2.0 * PI * 700.0 * time) +
+                    0.08 * sin(2.0 * PI * 7_000.0 * time)
+                ).coerceIn(-0.9, 0.9)
+            repeat(format.channels) { channel ->
+                val value = ((if (channel == 0) left else right) * Short.MAX_VALUE).roundToInt()
+                output[offset++] = value.toByte()
+                output[offset++] = (value shr 8).toByte()
+            }
+        }
+        return output
+    }
+
+    private fun processIntegrationPcm16(
+        format: DspAudioFormat,
+        config: DspRuntimeConfig,
+        input: ByteArray,
+        callBlockFrames: IntArray,
+    ): ByteArray {
+        val processor = NativeDspProcessor.createOrNull(format, config)
+        assertNotNull("native interaction graph $format", processor)
+        processor ?: return ByteArray(0)
+        val pipeline = DspPcmPipeline(format, processor, seed = INTEGRATION_DITHER_SEED)
+        val expectedLatency = config.seatFocus.prepare(format).maximumLatencyFrames +
+            config.harmonic.effectiveFor(format).algorithmicLatencyFrames
+        try {
+            assertEquals(expectedLatency, pipeline.algorithmicLatencyFrames)
+            val output = ByteArray(input.size)
+            val frameBytes = format.channels * Short.SIZE_BYTES
+            val frameCount = input.size / frameBytes
+            var sourceOffset = 0
+            var outputOffset = 0
+            var callIndex = 0
+            while (sourceOffset < input.size) {
+                val requestedFrames = callBlockFrames[callIndex % callBlockFrames.size]
+                val frames = minOf(requestedFrames, (input.size - sourceOffset) / frameBytes)
+                val byteCount = frames * frameBytes
+                val outputLength = pipeline.process(input, sourceOffset, byteCount, DspPcmEncoding.PCM16)
+                assertEquals("PCM16 block frames=$frames", byteCount, outputLength)
+                pipeline.output.copyInto(output, outputOffset, 0, outputLength)
+                sourceOffset += byteCount
+                outputOffset += outputLength
+                callIndex++
+            }
+            assertEquals(frameCount * frameBytes, outputOffset)
+            val diagnostics = pipeline.diagnostics()
+            assertEquals(0L, diagnostics.nonFiniteInputSamples)
+            assertEquals(0L, diagnostics.nonFiniteOutputSamples)
+            assertTrue(diagnostics.outputPeakL <= 1.0)
+            if (format.channels == 2) assertTrue(diagnostics.outputPeakR <= 1.0)
+            return output
+        } finally {
+            pipeline.close()
+        }
+    }
+
     private fun floatBuffer(vararg samples: Float): ByteBuffer =
         ByteBuffer.allocateDirect(samples.size * Float.SIZE_BYTES)
             .order(ByteOrder.nativeOrder())
             .apply { samples.forEach(::putFloat); flip() }
+
+    private companion object {
+        const val SEAT_FOCUS_MASK = 1
+        const val ADVANCED_MS_MASK = 2
+        const val CABIN_MASK = 4
+        const val HARMONIC_MASK = 8
+        const val INTEGRATION_DITHER_SEED = 0x5d15L
+    }
 }

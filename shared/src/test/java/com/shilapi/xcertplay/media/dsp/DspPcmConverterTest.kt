@@ -131,6 +131,25 @@ class DspPcmConverterTest {
     }
 
     @Test
+    fun pcm16HalfLsbTiesRoundTowardPositiveInfinity() {
+        val values = floatBuffer(-0.5f / 32768f, 0.5f / 32768f)
+        val output = ByteArray(4)
+
+        assertTrue(
+            DspPcmConverter.floatToPcm16(
+                source = values,
+                frames = 2,
+                format = DspAudioFormat(48_000, 1),
+                destination = output,
+                offset = 0,
+                dither = null,
+            ),
+        )
+
+        assertArrayEquals(byteArrayOf(0, 0, 1, 0), output)
+    }
+
+    @Test
     fun pcm16OutputSanitizesNonFiniteProcessorSamples() {
         val diagnostics = DspDiagnostics()
         val output = ByteArray(4)

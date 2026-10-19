@@ -246,6 +246,38 @@ class DspPipelineBenchmarkInstrumentedTest {
                 ),
             ),
         )
+        val fullStep4Integration = DspRuntimeConfig(
+            enabled = true,
+            gainDb = 1.0,
+            autoHeadroomEnabled = true,
+            peqBands = peq15.take(12),
+            bass = bass,
+            compressor = compressor,
+            safetyLimiter = limiter,
+            convolver = convolverConfig(sampleRate, channels, 4_096).convolver,
+            multiband = multiband,
+            dynamicEq = dynamicEq,
+            seatFocus = DspSeatFocusConfig(
+                enabled = true,
+                preset = DspSeatFocusPreset.DRIVER,
+                leftDistanceCm = 150.0,
+                rightDistanceCm = 100.0,
+            ),
+            advancedMs = DspAdvancedMsConfig(
+                enabled = true,
+                low = DspAdvancedMsBandConfig(midGainDb = 1.0, sideGainDb = -1.0, width = 0.8),
+                high = DspAdvancedMsBandConfig(midGainDb = -1.0, sideGainDb = 1.5, width = 1.4),
+                sideCompressor = DspCompressorConfig(
+                    enabled = true,
+                    thresholdDb = -24.0,
+                    ratio = 3.0,
+                    attackMs = 5.0,
+                    releaseMs = 100.0,
+                ),
+            ),
+            cabinCorrection = cabinCorrection.cabinCorrection,
+            harmonic = harmonicEngine.harmonic,
+        )
 
         val cases = listOf(
             BenchmarkCase("Gain", base.copyConfig(gainDb = 3.0)),
@@ -311,6 +343,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                     dynamicEq = dynamicEq,
                 ),
             ),
+            BenchmarkCase("FullStep4Integration", fullStep4Integration),
         )
         return if (channels == 2) {
             cases + listOf(BenchmarkCase("SeatFocus", seatFocus), BenchmarkCase("AdvancedMS", advancedMs))

@@ -327,3 +327,7 @@ Use one fixed-memory 2× oversampled harmonic core for High Exciter and Virtual 
 ## Reprepare deferred latency-changing graphs at a new track generation
 
 When a live DSP candidate changes algorithmic latency, keep the current track's latency fixed and record the generation as deferred. If the controller had to discard that candidate because the latency could not be adopted yet, force preparation from the latest config after the next AudioTrack generation begins; same-latency stateful candidates remain pending and are adopted directly.
+
+## Keep the final DSP graph order and one PCM16 boundary
+
+Retain the established Float32 order: gain, Seat Focus, static PEQ (including approved Cabin Correction filters), Bass, compressor, multiband, Dynamic EQ, Advanced M/S, Harmonic Engine, Convolver, limiter, then one PCM16 conversion. Cabin Correction remains PEQ data, and mono preparation disables Seat Focus and Advanced M/S; the interaction matrix validates every on/off combination without adding duplicate stages.

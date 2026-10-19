@@ -214,6 +214,48 @@ static double measure_harmonic_tone_component(
         (double)measured_samples;
 }
 
+static double measure_harmonic_alias_component(
+    dsp_engine *engine,
+    int sample_rate,
+    int channels,
+    double input_frequency_hz,
+    double alias_frequency_hz,
+    double amplitude) {
+    double sine_projection = 0.0;
+    double cosine_projection = 0.0;
+    size_t measured_samples = 0;
+    size_t frame = 0;
+    const size_t total_frames = (size_t)sample_rate;
+    while (frame < total_frames) {
+        const size_t frames = total_frames - frame < 512 ? total_frames - frame : 512;
+        float input[1024];
+        float output[1024];
+        for (size_t index = 0; index < frames; index++) {
+            const float sample = (float)(amplitude * sin(2.0 * 3.14159265358979323846 * input_frequency_hz *
+                (double)(frame + index) / (double)sample_rate));
+            input[index * (size_t)channels] = sample;
+            if (channels == 2) input[index * 2 + 1] = -sample;
+        }
+        const size_t sample_count = frames * (size_t)channels;
+        assert_true(
+            dsp_engine_process(engine, input, sample_count, output, sample_count, (int)frames, channels) ==
+                DSP_STATUS_OK,
+            "harmonic alias-analysis block processes");
+        for (size_t index = 0; index < frames; index++) {
+            if (frame + index < (size_t)sample_rate / 10) continue;
+            const double phase = 2.0 * 3.14159265358979323846 * alias_frequency_hz *
+                (double)(frame + index) / (double)sample_rate;
+            const double sample = output[index * (size_t)channels];
+            sine_projection += sample * sin(phase);
+            cosine_projection += sample * cos(phase);
+            measured_samples++;
+        }
+        frame += frames;
+    }
+    return 2.0 * sqrt(sine_projection * sine_projection + cosine_projection * cosine_projection) /
+        (double)measured_samples;
+}
+
 static dsp_engine *create_test_engine_with_convolver(
     int sample_rate,
     int channels,
@@ -2040,11 +2082,25 @@ static void test_harmonic_quality_latency_aligns_dry_and_anti_aliases(void) {
         .quality = DSP_HARMONIC_QUALITY_HIGH,
         .level_match_enabled = 0,
     };
-    dsp_engine *engine = create_test_engine_with_harmonic(48000, 1, 512, &high_exciter);
-    assert_true(engine != NULL, "high-exciter alias test graph creates");
-    const double aliased_partial = measure_harmonic_tone_component(engine, 18000.0, 12000.0, 0.7);
-    dsp_engine_destroy(engine);
-    assert_true(aliased_partial < 0.02, "high-quality oversampling suppresses a Nyquist-folded even partial");
+    const int alias_rates[] = {44100, 48000};
+    for (size_t rate_index = 0; rate_index < sizeof(alias_rates) / sizeof(alias_rates[0]); rate_index++) {
+        const int sample_rate = alias_rates[rate_index];
+        for (int channels = 1; channels <= 2; channels++) {
+            dsp_engine *engine = create_test_engine_with_harmonic(sample_rate, channels, 512, &high_exciter);
+            assert_true(engine != NULL, "high-exciter alias test graph creates");
+            const double aliased_partial = measure_harmonic_alias_component(
+                engine,
+                sample_rate,
+                channels,
+                (double)sample_rate * 0.4,
+                (double)sample_rate * 0.2,
+                0.7);
+            dsp_engine_destroy(engine);
+            assert_true(
+                aliased_partial < 0.02,
+                "high-quality oversampling suppresses a Nyquist-folded even partial at each format");
+        }
+    }
 
     const float impulse[] = {1.0f};
     const dsp_convolver_config convolver = {
@@ -2056,7 +2112,7 @@ static void test_harmonic_quality_latency_aligns_dry_and_anti_aliases(void) {
         .wet = 1.0f,
         .samples = impulse,
     };
-    engine = dsp_engine_create(
+    dsp_engine *engine = dsp_engine_create(
         48000,
         1,
         512,

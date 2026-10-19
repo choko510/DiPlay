@@ -290,3 +290,5 @@ For M/S band processing, test dual-mono and anti-phase inputs separately across 
 For measured Cabin correction, keep the CSV parser pure and bounded, keep file I/O on the profile executor, and return an explicit unavailable reason when metadata/SNR/span/resolution fail. Persist only the validated summary and user-approved filters, not the source file path or raw capture.
 
 For a live DSP update that changes reported latency, a deferred generation marker alone is insufficient if the prepared pipeline was discarded. On a fresh AudioTrack generation, reprepare that current provider snapshot before accepting PCM; test both same-latency stateful candidates (retained) and latency-changing candidates (reprepared).
+
+In native stereo C tests, `dsp_engine_process` buffer capacities are interleaved sample counts (`frames * channels`), not frame counts. Keep this explicit in any new stereo spectral/alias fixture; mono tests can otherwise hide the mismatch.

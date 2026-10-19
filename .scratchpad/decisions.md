@@ -307,3 +307,7 @@ Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Al
 ## Include both APK signing schemes for mobile debug distribution
 
 Explicitly configure the mobile debug signing config for v1 and v2 so OEM installers that depend on JAR signatures can parse the APK. Verify the resulting artifact with `apksigner`; the manifest minSdk can affect which scheme is reported as applicable.
+
+## Keep Seat Focus tied to measured physical channels
+
+Driver/Passenger/Center/Custom identify the target seat; only explicit physical left/right distances determine delay. Keep a fixed 5 ms stereo graph budget for every enabled distance configuration, allocate delay rings during graph preparation, and add Seat Focus latency to Convolver latency. This keeps distance edits eligible for the existing live crossfade without a playback-clock shift.

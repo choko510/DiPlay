@@ -11,6 +11,8 @@ import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatFocusConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatFocusPreset
 import java.io.File
 import java.io.IOException
 import org.junit.Assert.assertEquals
@@ -71,6 +73,15 @@ class DspProfileRepositoryTest {
                 ),
             ),
             limiter = DspSafetyLimiterConfig(enabled = true, thresholdDb = -2.0, releaseMs = 80.0),
+            seatFocus = DspSeatFocusConfig(
+                enabled = true,
+                preset = DspSeatFocusPreset.PASSENGER,
+                leftDistanceCm = 125.0,
+                rightDistanceCm = 165.0,
+                leftTrimDb = -2.5,
+                rightTrimDb = 1.5,
+                leftPolarityInverted = true,
+            ),
         )
 
         assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
@@ -136,6 +147,10 @@ class DspProfileRepositoryTest {
             """{"schemaVersion":3,"id":"custom1","dynamicEq":{"bands":[{"mode":"NOT_A_MODE"}]}}""",
         )
         assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
+        profileFile.writeText(
+            """{"schemaVersion":4,"id":"custom1","seatFocus":{"preset":"NOT_A_PRESET"}}""",
+        )
+        assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
     }
 
     @Test
@@ -174,7 +189,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspMultibandConfig.DEFAULT_LOW_MID_CROSSOVER_HZ, loaded.profile.multiband.lowMidCrossoverHz, 0.0)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":3"))
+        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":4"))
     }
 
     @Test
@@ -193,7 +208,26 @@ class DspProfileRepositoryTest {
         assertEquals(DspDynamicEqConfig.MAX_BANDS, loaded.profile.dynamicEq.bands.size)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":3"))
+        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":4"))
+    }
+
+    @Test
+    fun versionThreeProfileMigratesWithSeatFocusDisabledByDefault() {
+        val repository = repositoryWithDirectWriterForMigrationTests()
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        assertTrue(profileFile.parentFile!!.mkdirs())
+        profileFile.writeText(
+            """{"schemaVersion":3,"id":"custom1","name":"Existing","enabled":true,"preampDb":-2.0}""",
+        )
+
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertEquals(3, loaded.migratedFromVersion)
+        assertFalse(loaded.profile.seatFocus.enabled)
+        assertEquals(DspSeatFocusPreset.CENTER, loaded.profile.seatFocus.preset)
+        assertEquals(0.0, loaded.profile.seatFocus.leftDistanceCm, 0.0)
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":4"))
     }
 
     @Test

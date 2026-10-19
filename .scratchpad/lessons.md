@@ -282,3 +282,5 @@ When Gecko reports paint-status reset during `setActive(false)`, retain it throu
 ## Prove DSP-OFF at the renderer boundary
 
 A config-level `enabled=false` assertion is not enough for the legacy audio contract. Exercise LPCM through `AudioRenderer`, use a preparer that fails if called, compare interleaved PCM16 samples at the write adapter, and assert zero track-generation DSP latency for mono/stereo across rates and block sizes. Keep emulator/native results distinct from host C and physical listening evidence.
+
+For live spatial tuning, keep graph latency invariant while channel delays change, then test adoption through `AudioRenderer` and preserve the playback-clock anchor. Validate fractional delay with an impulse and phase measurements at more than one frequency; a sample-aligned expected output alone does not measure interpolation error.

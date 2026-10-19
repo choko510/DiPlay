@@ -16,6 +16,7 @@ class DspRuntimeConfig(
     val convolver: DspConvolverConfig = DspConvolverConfig(),
     val multiband: DspMultibandConfig = DspMultibandConfig(),
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
+    val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double
@@ -35,6 +36,7 @@ class DspRuntimeConfig(
         convolver = convolver,
         multiband = multiband,
         dynamicEq = dynamicEq,
+        seatFocus = seatFocus,
     )
 
     init {

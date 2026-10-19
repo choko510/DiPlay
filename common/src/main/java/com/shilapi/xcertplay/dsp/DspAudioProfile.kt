@@ -11,6 +11,7 @@ import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatFocusConfig
 
 data class DspAudioProfile(
     val id: String,
@@ -28,6 +29,7 @@ data class DspAudioProfile(
     val multiband: DspMultibandConfig = DspMultibandConfig(),
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
     val limiter: DspSafetyLimiterConfig = DspSafetyLimiterConfig(),
+    val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
 ) {
     init {
         require(ID_PATTERN.matches(id))
@@ -55,6 +57,7 @@ data class DspAudioProfile(
         convolver = convolver.copy(impulseResponse = impulseResponse),
         multiband = multiband,
         dynamicEq = dynamicEq,
+        seatFocus = seatFocus,
     )
 
     companion object {

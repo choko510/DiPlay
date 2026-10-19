@@ -240,6 +240,76 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun liveSeatFocusDistanceUpdateKeepsFixedLatencyAndUsesCrossfadePath() {
+        val configA = DspRuntimeConfig(
+            enabled = true,
+            seatFocus = DspSeatFocusConfig(
+                enabled = true,
+                preset = DspSeatFocusPreset.DRIVER,
+                leftDistanceCm = 200.0,
+                rightDistanceCm = 150.0,
+            ),
+        )
+        val configB = DspRuntimeConfig(
+            enabled = true,
+            seatFocus = DspSeatFocusConfig(
+                enabled = true,
+                preset = DspSeatFocusPreset.DRIVER,
+                leftDistanceCm = 150.0,
+                rightDistanceCm = 250.0,
+            ),
+        )
+        val provider = MutableConfigProvider(configA)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val seatLatencyFrames = CopyOnWriteArrayList<Int>()
+        val processors = CopyOnWriteArrayList<StateProcessor>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = configA,
+            provider = provider,
+            writeAdapter = { _, _, length, _ -> length },
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                val latencyFrames = config.seatFocus.prepare(
+                    DspAudioFormat(audioFormat.sampleRate, audioFormat.channels),
+                ).maximumLatencyFrames
+                seatLatencyFrames += latencyFrames
+                StateProcessor(audioFormat, latencyFrames, 1.0f).also(processors::add)
+                    .let { DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false) }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2) { 300 }), sample = 300)
+            val activeBeforeUpdate = renderer.dspPipeline
+            val clockBeforeUpdate = renderer.playbackClockForTesting()?.baseRtpSample
+            assertEquals(240, activeBeforeUpdate?.algorithmicLatencyFrames)
+
+            provider.update(configB)
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            assertEquals(listOf(240, 240), seatLatencyFrames.toList())
+
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(128) { 300 }), sample = 400)
+
+            assertTrue(renderer.liveFadeInProgressForTesting)
+            assertFalse(renderer.hasPreparedDspUpdateForTesting)
+            assertEquals(64, processors.last().processedFrames)
+            assertEquals(240, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertEquals(clockBeforeUpdate, renderer.playbackClockForTesting()?.baseRtpSample)
+
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(4_800) { 300 }), sample = 500)
+
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertTrue(renderer.dspPipeline !== activeBeforeUpdate)
+            assertEquals(240, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertEquals(clockBeforeUpdate, renderer.playbackClockForTesting()?.baseRtpSample)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun rendererStartAndRtpSubmitReturnWhileWorkerPipelinePreparationIsBlocked() {
         val preparationEntered = CountDownLatch(1)
         val releasePreparation = CountDownLatch(1)

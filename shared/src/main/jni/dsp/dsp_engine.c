@@ -3,6 +3,7 @@
 #include "dsp_graph.h"
 
 #include <math.h>
+#include <limits.h>
 #include <stdatomic.h>
 #include <string.h>
 #include <stdlib.h>
@@ -219,7 +220,11 @@ dsp_status dsp_engine_reset(dsp_engine *engine) {
 }
 
 int dsp_engine_get_latency_frames(const dsp_engine *engine) {
-    return engine_is_prepared(engine) ? dsp_convolver_latency_frames(&engine->graph.convolver) : -1;
+    if (!engine_is_prepared(engine)) return -1;
+    const int seat_latency = dsp_spatial_latency_frames(&engine->graph.spatial);
+    const int convolver_latency = dsp_convolver_latency_frames(&engine->graph.convolver);
+    if (seat_latency < 0 || convolver_latency < 0 || convolver_latency > INT_MAX - seat_latency) return -1;
+    return seat_latency + convolver_latency;
 }
 
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics) {

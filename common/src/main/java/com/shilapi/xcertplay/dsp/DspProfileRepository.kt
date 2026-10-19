@@ -12,6 +12,8 @@ import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatFocusConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatFocusPreset
 import java.io.File
 import java.nio.charset.StandardCharsets
 import org.json.JSONArray
@@ -129,6 +131,7 @@ internal class DspProfileRepository(
         val limiterJson = json.optJSONObject("limiter") ?: JSONObject()
         val multibandJson = json.optJSONObject("multiband") ?: JSONObject()
         val dynamicEqJson = json.optJSONObject("dynamicEq") ?: JSONObject()
+        val seatFocusJson = json.optJSONObject("seatFocus") ?: JSONObject()
         val monoBassJson = stereoJson.optJSONObject("monoBass") ?: JSONObject()
         fun readCompressor(values: JSONObject) = DspCompressorConfig(
             enabled = values.optBoolean("enabled", false),
@@ -181,6 +184,16 @@ internal class DspProfileRepository(
                 enabled = dynamicEqJson.optBoolean("enabled", false),
                 bands = dynamicEqJson.optJSONArray("bands")?.let(::readDynamicEqBands)
                     ?: DspDynamicEqConfig.defaultBands(),
+            ),
+            seatFocus = DspSeatFocusConfig(
+                enabled = seatFocusJson.optBoolean("enabled", false),
+                preset = DspSeatFocusPreset.valueOf(seatFocusJson.optString("preset", DspSeatFocusPreset.CENTER.name)),
+                leftDistanceCm = seatFocusJson.readFiniteDouble("leftDistanceCm", 0.0),
+                rightDistanceCm = seatFocusJson.readFiniteDouble("rightDistanceCm", 0.0),
+                leftTrimDb = seatFocusJson.readFiniteDouble("leftTrimDb", 0.0),
+                rightTrimDb = seatFocusJson.readFiniteDouble("rightTrimDb", 0.0),
+                leftPolarityInverted = seatFocusJson.optBoolean("leftPolarityInverted", false),
+                rightPolarityInverted = seatFocusJson.optBoolean("rightPolarityInverted", false),
             ),
             limiter = DspSafetyLimiterConfig(
                 enabled = limiterJson.optBoolean("enabled", true),
@@ -300,6 +313,18 @@ internal class DspProfileRepository(
                     }),
             )
             .put(
+                "seatFocus",
+                JSONObject()
+                    .put("enabled", profile.seatFocus.enabled)
+                    .put("preset", profile.seatFocus.preset.name)
+                    .put("leftDistanceCm", profile.seatFocus.leftDistanceCm)
+                    .put("rightDistanceCm", profile.seatFocus.rightDistanceCm)
+                    .put("leftTrimDb", profile.seatFocus.leftTrimDb)
+                    .put("rightTrimDb", profile.seatFocus.rightTrimDb)
+                    .put("leftPolarityInverted", profile.seatFocus.leftPolarityInverted)
+                    .put("rightPolarityInverted", profile.seatFocus.rightPolarityInverted),
+            )
+            .put(
                 "limiter",
                 JSONObject()
                     .put("enabled", profile.limiter.enabled)
@@ -318,7 +343,7 @@ internal class DspProfileRepository(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 3
+        const val CURRENT_SCHEMA_VERSION = 4
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"

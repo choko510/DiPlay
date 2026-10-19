@@ -58,9 +58,12 @@ import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatFocusLimits
+import com.shilapi.xcertplay.media.dsp.DspSeatFocusPreset
 import com.shilapi.xcertplay.shared.AppLanguage
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.roundToInt
 
 internal enum class EqBandEditorControl {
     FREQUENCY,
@@ -241,6 +244,96 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         0.0..12.0,
                         "dB",
                     ) { profile = profile.copy(autoHeadroomMarginDb = it) }
+                }
+                val seatFocusPresets = listOf(
+                    stringResource(R.string.dsp_seat_preset_driver) to DspSeatFocusPreset.DRIVER,
+                    stringResource(R.string.dsp_seat_preset_passenger) to DspSeatFocusPreset.PASSENGER,
+                    stringResource(R.string.dsp_seat_preset_center) to DspSeatFocusPreset.CENTER,
+                    stringResource(R.string.dsp_seat_preset_custom) to DspSeatFocusPreset.CUSTOM,
+                )
+                val seatFocus = profile.seatFocus
+                val hasSeatMeasurements = seatFocus.leftDistanceCm > 0.0 && seatFocus.rightDistanceCm > 0.0
+                SectionCard(title = stringResource(R.string.dsp_seat_focus)) {
+                    Text(stringResource(R.string.dsp_seat_focus_measurement_note), style = MaterialTheme.typography.bodySmall)
+                    ChoiceField(
+                        title = stringResource(R.string.dsp_seat_focus_preset),
+                        selected = seatFocusPresets.first { it.second == seatFocus.preset }.first,
+                        choices = seatFocusPresets.map { it.first },
+                        onSelect = { selected ->
+                            profile = profile.copy(
+                                seatFocus = seatFocus.copy(
+                                    preset = seatFocusPresets.first { it.first == selected }.second,
+                                ),
+                            )
+                        },
+                    )
+                    DspValueSlider(
+                        stringResource(R.string.dsp_seat_left_distance),
+                        seatFocus.leftDistanceCm,
+                        0.0..DspSeatFocusLimits.MAX_DISTANCE_CM,
+                        "cm",
+                    ) {
+                        val distanceCm = it.roundToInt().toDouble()
+                        profile = profile.copy(
+                            seatFocus = seatFocus.copy(
+                                leftDistanceCm = distanceCm,
+                                enabled = seatFocus.enabled && distanceCm > 0.0 && seatFocus.rightDistanceCm > 0.0,
+                            ),
+                        )
+                    }
+                    DspValueSlider(
+                        stringResource(R.string.dsp_seat_right_distance),
+                        seatFocus.rightDistanceCm,
+                        0.0..DspSeatFocusLimits.MAX_DISTANCE_CM,
+                        "cm",
+                    ) {
+                        val distanceCm = it.roundToInt().toDouble()
+                        profile = profile.copy(
+                            seatFocus = seatFocus.copy(
+                                rightDistanceCm = distanceCm,
+                                enabled = seatFocus.enabled && seatFocus.leftDistanceCm > 0.0 && distanceCm > 0.0,
+                            ),
+                        )
+                    }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_focus_enabled),
+                        description = stringResource(R.string.dsp_seat_focus_enable_description),
+                        checked = seatFocus.enabled,
+                        enabled = hasSeatMeasurements || seatFocus.enabled,
+                        onCheckedChange = { enabled ->
+                            profile = profile.copy(seatFocus = seatFocus.copy(enabled = enabled))
+                        },
+                    )
+                    DspValueSlider(
+                        stringResource(R.string.dsp_seat_left_trim),
+                        seatFocus.leftTrimDb,
+                        DspSeatFocusLimits.MIN_TRIM_DB..DspSeatFocusLimits.MAX_TRIM_DB,
+                        "dB",
+                    ) {
+                        profile = profile.copy(seatFocus = seatFocus.copy(leftTrimDb = it))
+                    }
+                    DspValueSlider(
+                        stringResource(R.string.dsp_seat_right_trim),
+                        seatFocus.rightTrimDb,
+                        DspSeatFocusLimits.MIN_TRIM_DB..DspSeatFocusLimits.MAX_TRIM_DB,
+                        "dB",
+                    ) {
+                        profile = profile.copy(seatFocus = seatFocus.copy(rightTrimDb = it))
+                    }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_left_polarity),
+                        checked = seatFocus.leftPolarityInverted,
+                        onCheckedChange = { inverted ->
+                            profile = profile.copy(seatFocus = seatFocus.copy(leftPolarityInverted = inverted))
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_seat_right_polarity),
+                        checked = seatFocus.rightPolarityInverted,
+                        onCheckedChange = { inverted ->
+                            profile = profile.copy(seatFocus = seatFocus.copy(rightPolarityInverted = inverted))
+                        },
+                    )
                 }
                 SectionCard(title = stringResource(R.string.dsp_parametric_eq)) {
                     profile.eqBands.forEachIndexed { index, band ->
@@ -614,13 +707,14 @@ private fun DspSwitchRow(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     description: String? = null,
+    enabled: Boolean = true,
 ) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 

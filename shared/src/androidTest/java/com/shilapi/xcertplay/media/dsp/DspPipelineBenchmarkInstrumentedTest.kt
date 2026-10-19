@@ -186,8 +186,19 @@ class DspPipelineBenchmarkInstrumentedTest {
         )
         val base = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
         val peq = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, peqBands = peq15)
+        val seatFocus = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            seatFocus = DspSeatFocusConfig(
+                enabled = true,
+                preset = DspSeatFocusPreset.DRIVER,
+                leftDistanceCm = 150.0,
+                rightDistanceCm = 100.0,
+            ),
+        )
 
-        return listOf(
+        val cases = listOf(
             BenchmarkCase("Gain", base.copyConfig(gainDb = 3.0)),
             BenchmarkCase("PEQ15", peq),
             BenchmarkCase(
@@ -250,6 +261,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                 ),
             ),
         )
+        return if (channels == 2) cases + BenchmarkCase("SeatFocus", seatFocus) else cases
     }
 
     private fun DspRuntimeConfig.copyConfig(gainDb: Double): DspRuntimeConfig = DspRuntimeConfig(

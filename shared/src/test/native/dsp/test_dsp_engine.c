@@ -27,7 +27,13 @@ static const dsp_dynamic_eq_config bypass_dynamic_eq = {
         {0, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -24.0, 2.0, 10.0, 100.0, 6.0, 6.0},
     },
 };
-static const dsp_spatial_config bypass_spatial = {1.0, 0, 120};
+static const dsp_spatial_config bypass_spatial = {
+    .width = 1.0,
+    .mono_bass_enabled = 0,
+    .mono_bass_cutoff_hz = 120,
+    .seat_left_trim_linear = 1.0,
+    .seat_right_trim_linear = 1.0,
+};
 static const dsp_convolver_config bypass_convolver = {0, 0, 0, 0, 0, 0.0f, NULL};
 
 static void fail(const char *message) {
@@ -740,7 +746,8 @@ static double measure_sine_gain(dsp_engine *engine, double frequency, int channe
 }
 
 static void test_spatial_width_and_mono_input_behavior(void) {
-    const dsp_spatial_config mono_width = {0.0, 0, 120};
+    const dsp_spatial_config mono_width = {.width = 0.0, .mono_bass_enabled = 0, .mono_bass_cutoff_hz = 120,
+        .seat_left_trim_linear = 1.0, .seat_right_trim_linear = 1.0};
     dsp_engine *mono_engine = create_test_engine_with_spatial(48000, 2, 2, &mono_width, NULL, 0, NULL, 0);
     assert_true(mono_engine != NULL, "width zero graph creates");
     const float stereo[] = {1.0f, -1.0f, 0.5f, 0.5f};
@@ -754,7 +761,8 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     assert_near(output[3], 0.5, 0.0, "width zero keeps mono input right");
     dsp_engine_destroy(mono_engine);
 
-    const dsp_spatial_config default_width = {1.0, 0, 120};
+    const dsp_spatial_config default_width = {.width = 1.0, .mono_bass_enabled = 0, .mono_bass_cutoff_hz = 120,
+        .seat_left_trim_linear = 1.0, .seat_right_trim_linear = 1.0};
     dsp_engine *identity_engine = create_test_engine_with_spatial(
         48000, 2, 1, &default_width, NULL, 0, NULL, 0);
     assert_true(identity_engine != NULL, "width one graph creates");
@@ -767,7 +775,8 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     assert_near(identity_output[1], identity_input[1], 0.0, "width one is identity right");
     dsp_engine_destroy(identity_engine);
 
-    const dsp_spatial_config double_width = {2.0, 0, 120};
+    const dsp_spatial_config double_width = {.width = 2.0, .mono_bass_enabled = 0, .mono_bass_cutoff_hz = 120,
+        .seat_left_trim_linear = 1.0, .seat_right_trim_linear = 1.0};
     dsp_engine *wide_engine = create_test_engine_with_spatial(48000, 2, 1, &double_width, NULL, 0, NULL, 0);
     assert_true(wide_engine != NULL, "width two graph creates");
     const float anti_phase[] = {0.5f, -0.5f};
@@ -782,7 +791,8 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     const double high_pass[DSP_BIQUAD_COEFFICIENT_COUNT] = {
         1.0, 0.0, 0.0, 0.0, 0.0,
     };
-    const dsp_spatial_config wide_mono = {2.0, 1, 120};
+    const dsp_spatial_config wide_mono = {.width = 2.0, .mono_bass_enabled = 1, .mono_bass_cutoff_hz = 120,
+        .seat_left_trim_linear = 1.0, .seat_right_trim_linear = 1.0};
     dsp_engine *mono_input_engine = create_test_engine_with_spatial(
         48000,
         1,
@@ -825,10 +835,137 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     dsp_engine_destroy(non_finite_engine);
 }
 
+static void test_seat_focus_fractional_delay_fixed_latency_and_mono_bypass(void) {
+    dsp_spatial_config seat_focus = {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+        .seat_focus_enabled = 1,
+        .seat_left_delay_frames = 238.5,
+        .seat_right_delay_frames = 240.0,
+        .seat_left_trim_linear = 0.5011872336272722,
+        .seat_right_trim_linear = 1.0,
+        .seat_left_polarity_inverted = 1,
+        .seat_right_polarity_inverted = 0,
+    };
+    dsp_engine *engine = create_test_engine_with_spatial(
+        48000, 2, 512, &seat_focus, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "seat focus graph creates");
+    assert_true(dsp_engine_get_latency_frames(engine) == 240, "seat focus reports fixed five millisecond latency");
+
+    float input[1024] = {0.0f};
+    float output[1024] = {0.0f};
+    input[0] = 1.0f;
+    input[1] = 1.0f;
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "seat focus impulse block processes");
+    assert_near(output[238 * 2], -0.2505936168, 1e-6, "fractional left delay starts its half-sample interpolation");
+    assert_near(output[239 * 2], -0.2505936168, 1e-6, "fractional left delay completes its half-sample interpolation");
+    assert_near(output[240 * 2 + 1], 1.0, 1e-6, "right channel keeps the common maximum delay");
+
+    assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "seat focus reset is requested");
+    for (size_t index = 0; index < 1024; index++) output[index] = 0.0f;
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "seat focus processes after reset");
+    assert_near(output[238 * 2], -0.2505936168, 1e-6, "reset does not leak the previous delay ring contents");
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_spatial(48000, 1, 2, &seat_focus, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "mono seat focus graph safely creates");
+    assert_true(dsp_engine_get_latency_frames(engine) == 0, "mono input does not acquire seat focus latency");
+    const float mono_input[] = {0.25f, -0.5f};
+    float mono_output[] = {0.0f, 0.0f};
+    assert_true(dsp_engine_process(engine, mono_input, 2, mono_output, 2, 2, 1) == DSP_STATUS_OK,
+        "mono seat focus block processes");
+    assert_near(mono_output[0], mono_input[0], 0.0, "mono seat focus bypass preserves first sample");
+    assert_near(mono_output[1], mono_input[1], 0.0, "mono seat focus bypass preserves second sample");
+    dsp_engine_destroy(engine);
+
+    const float impulse[] = {1.0f, 0.0f};
+    const dsp_convolver_config convolver = {1, 48000, 2, 1, 2, 1.0f, impulse};
+    engine = dsp_engine_create(
+        48000,
+        2,
+        512,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &seat_focus,
+        &convolver);
+    assert_true(engine != NULL, "combined seat focus and convolver graph creates");
+    assert_true(
+        dsp_engine_get_latency_frames(engine) == 240 + DSP_CONVOLVER_PARTITION_FRAMES,
+        "seat focus and convolver latencies add to the playback clock budget");
+    dsp_engine_destroy(engine);
+}
+
+static void test_seat_focus_fractional_delay_phase_error(void) {
+    const double frequencies[] = {1000.0, 4000.0};
+    for (size_t frequency_index = 0; frequency_index < sizeof(frequencies) / sizeof(frequencies[0]);
+         frequency_index++) {
+        dsp_spatial_config seat_focus = {
+            .width = 1.0,
+            .mono_bass_enabled = 0,
+            .mono_bass_cutoff_hz = 120,
+            .seat_focus_enabled = 1,
+            .seat_left_delay_frames = 238.5,
+            .seat_right_delay_frames = 240.0,
+            .seat_left_trim_linear = 1.0,
+            .seat_right_trim_linear = 1.0,
+        };
+        dsp_engine *engine = create_test_engine_with_spatial(
+            48000, 2, 512, &seat_focus, NULL, 0, NULL, 0);
+        assert_true(engine != NULL, "fractional phase graph creates");
+        const double omega = 2.0 * 3.14159265358979323846 * frequencies[frequency_index] / 48000.0;
+        double left_sine = 0.0;
+        double left_cosine = 0.0;
+        double right_sine = 0.0;
+        double right_cosine = 0.0;
+        for (size_t block_start = 0; block_start < 48000; block_start += 512) {
+            float input[1024];
+            float output[1024];
+            for (size_t frame = 0; frame < 512; frame++) {
+                const float sample = (float)(0.1 * sin(omega * (double)(block_start + frame)));
+                input[frame * 2] = sample;
+                input[frame * 2 + 1] = sample;
+            }
+            assert_true(
+                dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+                "fractional phase block processes");
+            for (size_t frame = 4096 > block_start ? 4096 - block_start : 0; frame < 512; frame++) {
+                const double phase = omega * (double)(block_start + frame);
+                left_sine += (double)output[frame * 2] * sin(phase);
+                left_cosine += (double)output[frame * 2] * cos(phase);
+                right_sine += (double)output[frame * 2 + 1] * sin(phase);
+                right_cosine += (double)output[frame * 2 + 1] * cos(phase);
+            }
+        }
+        const double left_phase = atan2(-left_cosine, left_sine);
+        const double right_phase = atan2(-right_cosine, right_sine);
+        const double phase_difference = atan2(
+            sin(right_phase - left_phase),
+            cos(right_phase - left_phase));
+        assert_near(
+            phase_difference,
+            omega * 1.5,
+            0.005,
+            "fractional sample alignment stays within measured phase error");
+        dsp_engine_destroy(engine);
+    }
+}
+
 static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
     double bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
     design_low_shelf(48000.0, 80.0, 6.0, bass_coefficients);
-    const dsp_spatial_config width_one = {1.0, 0, 120};
+    const dsp_spatial_config width_one = {.width = 1.0, .mono_bass_enabled = 0, .mono_bass_cutoff_hz = 120,
+        .seat_left_trim_linear = 1.0, .seat_right_trim_linear = 1.0};
     dsp_engine *low_bass = create_test_engine_with_spatial(
         48000, 1, 512, &width_one, bass_coefficients, 1, NULL, 0);
     assert_true(low_bass != NULL, "low shelf graph creates");
@@ -844,7 +981,8 @@ static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
 
     double high_pass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
     design_high_pass(48000.0, 120.0, 0.7071067811865476, high_pass_coefficients);
-    const dsp_spatial_config mono_bass = {1.0, 1, 120};
+    const dsp_spatial_config mono_bass = {.width = 1.0, .mono_bass_enabled = 1, .mono_bass_cutoff_hz = 120,
+        .seat_left_trim_linear = 1.0, .seat_right_trim_linear = 1.0};
     const double frequencies[] = {30.0, 60.0, 120.0, 1000.0};
     for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
         dsp_engine *engine = create_test_engine_with_spatial(
@@ -1594,6 +1732,8 @@ int main(void) {
     test_compressor_attack_and_release_steps();
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
+    test_seat_focus_fractional_delay_fixed_latency_and_mono_bypass();
+    test_seat_focus_fractional_delay_phase_error();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
     test_multiband_unity_reconstruction_and_phase();
     test_multiband_compression_is_band_selective();

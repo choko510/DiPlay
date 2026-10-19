@@ -120,6 +120,24 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun enabledSeatFocusTrimIsIncludedInAutoHeadroom() {
+        val prepared = DspRuntimeConfig(
+            enabled = true,
+            seatFocus = DspSeatFocusConfig(
+                enabled = true,
+                leftDistanceCm = 120.0,
+                rightDistanceCm = 100.0,
+                leftTrimDb = 6.0,
+                rightTrimDb = 2.0,
+            ),
+        ).prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals(7.0, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-7.0, prepared.appliedPreampDb, 0.02)
+        assertEquals(240, prepared.seatFocus.maximumLatencyFrames)
+    }
+
+    @Test
     fun frequencyScanAcceptsAnExactNotchZeroAtItsUpperEndpoint() {
         val result = DspAutoHeadroom.calculate(
             sampleRate = 48_000,

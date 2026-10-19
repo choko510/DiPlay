@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.media.dsp
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlin.math.pow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -76,10 +77,13 @@ class NativeDspProcessorTest {
         assertEquals(1.0, bindings.createdDynamics?.get(7) ?: -1.0, 0.0)
         assertEquals(0, bindings.createdBassCoefficients?.size)
         assertEquals(0, bindings.createdMonoBassCoefficients?.size)
-        assertEquals(3, bindings.createdSpatial?.size)
+        assertEquals(10, bindings.createdSpatial?.size)
         assertEquals(1.0, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
         assertEquals(0.0, bindings.createdSpatial?.get(1) ?: -1.0, 0.0)
         assertEquals(120.0, bindings.createdSpatial?.get(2) ?: 0.0, 0.0)
+        assertEquals(0.0, bindings.createdSpatial?.get(3) ?: -1.0, 0.0)
+        assertEquals(1.0, bindings.createdSpatial?.get(6) ?: 0.0, 0.0)
+        assertEquals(1.0, bindings.createdSpatial?.get(7) ?: 0.0, 0.0)
         assertEquals(5, bindings.createdConvolverConfig?.size)
         assertEquals(0.0, bindings.createdConvolverConfig?.get(0) ?: -1.0, 0.0)
         assertEquals(0, bindings.createdConvolverSamples?.size)
@@ -108,6 +112,39 @@ class NativeDspProcessorTest {
         assertEquals(1.5, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
         assertEquals(1.0, bindings.createdSpatial?.get(1) ?: 0.0, 0.0)
         assertEquals(100.0, bindings.createdSpatial?.get(2) ?: 0.0, 0.0)
+        processor?.close()
+    }
+
+    @Test
+    fun seatFocusMeasurementsAndChannelControlsArePreparedForNativeCreation() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                seatFocus = DspSeatFocusConfig(
+                    enabled = true,
+                    preset = DspSeatFocusPreset.DRIVER,
+                    leftDistanceCm = 150.0,
+                    rightDistanceCm = 50.0,
+                    leftTrimDb = 6.0,
+                    rightTrimDb = -6.0,
+                    leftPolarityInverted = true,
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+        val spatial = requireNotNull(bindings.createdSpatial)
+
+        assertEquals(1.0, spatial[3], 0.0)
+        assertEquals(100.0583090379, spatial[4], 0.0001)
+        assertEquals(240.0, spatial[5], 0.0)
+        assertEquals(10.0.pow(6.0 / 20.0), spatial[6], 1e-12)
+        assertEquals(10.0.pow(-6.0 / 20.0), spatial[7], 1e-12)
+        assertEquals(1.0, spatial[8], 0.0)
+        assertEquals(0.0, spatial[9], 0.0)
+        assertEquals(-7.0, bindings.createdGainDb ?: 0.0, 0.02)
         processor?.close()
     }
 

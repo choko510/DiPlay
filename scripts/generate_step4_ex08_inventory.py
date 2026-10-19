@@ -226,6 +226,22 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "Do not restore BYD cluster/navigation code; preserve the fixed-main removal and review any non-OEM constituent separately.",
         "review_state": "PRIMARY_AGENT_PLAN_EXCLUSION_VERIFIED",
     },
+    "2385c08f15cf05822e01cefbb79050d0389b5c48": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 72-path upstream-main sync into experimental call-control work has 130 diff hunks spanning BYD, USB AccessibilityService auto-confirm, LocalAdb, USB permission setup, and CarPlay controller/audio behavior. The aggregate would change consent and phone/audio behavior outside the ordered STEP4 gates.",
+        "test": "PASS_STATIC: patch contains UsbAutoConfirmService, LocalAdb, BYD, and call/controller files; fixed main preserves UsbManager consent and BYD quarantine; NOT_RUN_PER_COMMIT: call/permission/accessibility device matrix",
+        "related": "Reject aggregate sync; PR-00 USB consent, PR-04 call/microphone routes, and BYD/OEM quarantine are separate gates",
+        "rollback": "No merge imported; preserve fixed-main permission and call/audio paths. Any accepted constituent must be isolated and independently reversible.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
+    "0e236008816f70856b833a9c9a5e134a9046ae4d": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 72-path upstream-main sync into modular-settings extraction has 130 diff hunks across BYD, USB AccessibilityService auto-confirm, LocalAdb, permission setup, settings, and controller behavior. It is a broad integration rather than a single STEP4 change and conflicts with fixed-main consent/OEM boundaries.",
+        "test": "PASS_STATIC: patch contains UsbAutoConfirmService, LocalAdb, BYD, and settings/controller files; fixed main preserves UsbManager consent and BYD quarantine; NOT_RUN_PER_COMMIT: permission, accessibility, and settings lifecycle cases",
+        "related": "Reject aggregate sync; PR-00 permission flow, settings lifecycle, and BYD/OEM quarantine must be evaluated separately",
+        "rollback": "No merge imported; keep fixed-main settings and permission behavior. Any future accepted component must be isolated and independently reversible.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
     "d0556a2f6699c9c8061bf13d35fa231f8feb9516": {
         "disposition": "NEED_EVIDENCE",
         "reason": "The SurfaceView fallback targets a reported FFmpeg Codec2 decoder on an Android 17 Raspberry Pi build. It changes window/Surface ownership and can interfere with the fork's local Split UI; no target decoder failure is evidenced.",

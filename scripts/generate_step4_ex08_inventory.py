@@ -363,12 +363,12 @@ BASE_REVIEW_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_FIXED_MAIN_TIMEOUT_OWNER_COMPARISON",
     },
     "59c2652592ce92d2fb22e4554858deb0bbaa4656": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The patch uses an existing local ADB trust to grant USB permission through a shell app_process when Android 7.1–9 has no permission activity. API 28 is within fixed main's minSdk, but no TS10 permission-UI failure is evidenced and the shell grant needs explicit security/lifecycle review.",
-        "test": "NOT_RUN_TARGET: Android 9 missing permission UI, ADB trust and revocation, grant fencing, and USB detach lifecycle",
-        "related": "PR-00 USB permission fixtures; EX-01/04 permission and re-enumeration lifecycle; security review",
-        "rollback": "No grant fallback imported; retain the standard permission request until a supported device reproduces the missing-UI case and the ADB path is reviewed.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_PERMISSION_SECURITY",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The helper invokes IUsbManager.grantDevicePermission through an existing local-ADB shell trust when the USB permission activity is unavailable. Only API 28 overlaps fixed main's minSdk, and v3's USB_PERMISSION_UI_MISSING candidate allows bounded re-request/de-duplication, not an ADB grant that bypasses per-device system consent.",
+        "test": "PASS_STATIC: IphoneUsbAdbGrant uses app_process to call grantDevicePermission after ADB pairing; fixed main uses UsbManager.requestPermission; SOURCE_TESTS: upstream helper/parser tests do not validate user consent; NOT_RUN_TARGET: API 28 missing permission-UI reproducer",
+        "related": "Reject permission bypass; PR-00 retains per-device consent; USB_PERMISSION_UI_MISSING is limited to bounded re-request/de-duplication; API 25-27 is NOT_APPLICABLE at minSdk 28",
+        "rollback": "No ADB grant helper imported; keep the explicit UsbManager request and do not add a fallback until the plan's consent boundary and a supported-device failure path justify one.",
+        "review_state": "PRIMARY_AGENT_REJECTED_PERMISSION_BYPASS",
     },
     "19649861dab5d65727f195f2d6b7762a0d141005": {
         "disposition": "NEED_EVIDENCE",

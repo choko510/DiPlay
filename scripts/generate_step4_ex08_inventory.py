@@ -122,6 +122,14 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "Revert the transport-qualified constructor check and its two tests together; no hotspot manager, route, or retry behavior is changed.",
         "review_state": "PRIMARY_AGENT_ADAPTED_WIRED_CONFIG_BOUNDARY",
     },
+    "732b1016d5f835f1f4ff5e145e96d355336f9785": {
+        "disposition": "ADAPT",
+        "reason": "The patch SHA is identical to merge c4db31a6c454d9963cf0de9a4a0b6a6d521eac6a. The fixed-main transport-specific constructor adaptation covers this source occurrence too; represent the duplicate source row without adding a second code change.",
+        "test": "PASS_LOCAL: ManualHotspotConfigTest confirms WIRED accepts a blank hotspot SSID and WIRELESS still rejects it; PASS_GITHUB: run #168 host unit-test suite",
+        "related": "Duplicate patch row for c4db31a6c454d9963cf0de9a4a0b6a6d521eac6a; one PR-08 wired-config adaptation; no separate WIRELESS-EX route change",
+        "rollback": "No duplicate implementation imported. Revert the single transport-qualified constructor check and its tests from commit 5840d72 if they regress.",
+        "review_state": "PRIMARY_AGENT_ADAPTED_DUPLICATE_PATCH_ONCE",
+    },
     "5e8a6f9a14f771db23cafd2f9de8f34eaeb515d7": {
         "disposition": "NEED_EVIDENCE",
         "reason": "The patch requests CarPlay mode again when the same USB node appears to retain a DiPlay-started session. EX-04 remains conditional, and the report explicitly says in-car acceptance is pending; the fork has no same-node delayed-probe evidence.",

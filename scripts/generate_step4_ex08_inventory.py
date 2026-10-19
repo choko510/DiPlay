@@ -739,12 +739,12 @@ BASE_REVIEW_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
     },
     "adad43e69124d471a1770a4cf0bd54b57e53e8c8": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "This commit combines the USB permission auto-click service with HomeScreenMonitor/overlay auto-hide behavior. The system permission action and floating-map lifecycle require separate consent, permission, and Surface/owner tests; the aggregate feature is not an EX-04 retry fix.",
-        "test": "NOT_RUN_FORK: permission-dialog opt-in/misfire cases plus home/foreground transition and map-surface lifecycle",
-        "related": "PR-00/EX-04 USB permission lifecycle; PR-06 LOCAL/overlay lifecycle candidate",
-        "rollback": "No combined commit imported; any future permission and overlay changes must be split and independently revertible.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_SPLIT_SECURITY_TESTS",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The accessibility service reads system window content, matches generic DiPlay/CarPlay plus USB/iPhone text, checks the persistent Always allow control, and clicks the USB confirmation. It also broadens the device filter to the Apple VID and couples auto-hide state to the permission service. Fixed main and v3 retain explicit per-device UsbManager consent; this is not an EX-04 retry fix.",
+        "test": "PASS_STATIC: patch defines an exported BIND_ACCESSIBILITY_SERVICE with window-content access and auto-clicks Always allow; origin/main uses UsbManager.requestPermission and has no UsbAutoConfirmService; NOT_RUN_BY_DESIGN: no automatic consent behavior is tested or enabled",
+        "related": "Reject accessibility-based USB auto-grant; preserve PR-00 per-device consent. HomeScreenMonitor/overlay auto-hide is a separate PR-06 scope and is not imported.",
+        "rollback": "No service, settings, or Apple VID-only filter imported; keep UsbManager.requestPermission and the fixed-main device identity checks.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_UNSAFE_PERMISSION_AUTOMATION",
     },
     "dd05f5a9b43a6807ff78013203db140402a57c6f": {
         "disposition": "NEED_EVIDENCE",

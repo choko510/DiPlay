@@ -1,8 +1,8 @@
 # Lessons
 
-For faster pull request feedback, keep inexpensive repository checks on every update and classify host and emulator work against separate successful baselines. A host-only baseline lets a documentation commit after a draft code update skip repeated builds without treating the skipped emulator job as fully validated. Default unknown paths, missing baselines, and non-PR events to the full suite; defer the emulator matrix only while the PR remains draft.
+For faster pull request feedback, keep public-tree and generated-ledger checks on every update, run a small native/unit-test lane on draft code, and compare it against a dedicated quick baseline. Keep lint, package builds, JNI verification, and emulator instrumentation in the full review-ready lane. Separate quick, host, and instrumentation baselines so skipped work never counts as a full pass; default unknown paths, missing baselines, and non-PR events to full verification.
 
-For long-lived draft PRs, retain host/JVM/build checks on each code update and defer only the slow emulator matrix until `ready_for_review`. Explicitly include that pull-request activity type when restricting event types, and cancel superseded runs so stale commits do not hold the latest feedback behind them.
+For long-lived draft PRs, run unit tests and host native checks on each code update, then defer the expensive lint/build/JNI/emulator matrix until `ready_for_review`. Explicitly include that pull-request activity type when restricting event types, and cancel superseded runs so stale commits do not hold the latest feedback behind them.
 
 Validate transport-specific settings only for the active transport. A wired runtime can carry saved wireless preferences, but must not require unused hotspot credentials; retain the wireless validation and test both configurations.
 

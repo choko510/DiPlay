@@ -117,7 +117,7 @@ BASE_REVIEW_OVERRIDES = {
     "c4db31a6c454d9963cf0de9a4a0b6a6d521eac6a": {
         "disposition": "ADAPT",
         "reason": "The narrow constructor change gates MANUAL hotspot validation on WIRELESS transport. Fixed main supplies persisted hotspot settings to CarPlayRuntimeConfig for both transports, but a wired session does not start the hotspot and should not depend on its credentials. No wireless route or hotspot behavior is changed.",
-        "test": "PASS_LOCAL: ManualHotspotConfigTest confirms WIRED accepts a blank hotspot SSID and WIRELESS still rejects it; full PR-45 CI pending",
+        "test": "PASS_LOCAL: ManualHotspotConfigTest confirms WIRED accepts a blank hotspot SSID and WIRELESS still rejects it; PASS_GITHUB: run #168 host unit-test suite",
         "related": "PR-08 integrated wired-config regression; WIRELESS-EX route and hotspot behavior remains separate",
         "rollback": "Revert the transport-qualified constructor check and its two tests together; no hotspot manager, route, or retry behavior is changed.",
         "review_state": "PRIMARY_AGENT_ADAPTED_WIRED_CONFIG_BOUNDARY",

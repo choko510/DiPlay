@@ -14,7 +14,7 @@ Pass `--parallel` only to the full CI Gradle task set. The previous no-flag full
 
 ## Defer emulator instrumentation while a PR is draft
 
-Keep public-tree and EX-08 checks on every PR update, and keep native, JVM, lint, build, and JNI verification on each code-changing update. Skip only connected Android instrumentation while a PR is draft; include `ready_for_review` so the latest commit receives the full emulator gate before review. Pushes and manual runs remain full, and a newer PR update cancels superseded work.
+Keep public-tree and EX-08 checks on every PR update. For code-changing draft updates, run host native tests and shared/common unit tests; defer lint, app builds, JNI, and connected instrumentation until `ready_for_review`. A successful draft quick-check marker is separate from the full host baseline, so documentation-only follow-ups can skip it without satisfying the full-review gate. Pushes, manual runs, and review-ready source updates run the full suite; unknown paths and API errors also fall back to full host verification.
 
 ## Validate manual-hotspot settings only for wireless transport
 

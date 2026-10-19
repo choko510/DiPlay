@@ -17,46 +17,71 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       host: ${{ steps.classify.outputs.host }}
+      full_host: ${{ steps.classify.outputs.full_host }}
+      quick: ${{ steps.classify.outputs.quick }}
       instrumentation: ${{ steps.classify.outputs.instrumentation }}
+      safe: ${{ steps.classify.outputs.safe }}
     steps:
       - name: Classify changed files
         id: classify
         env:
           GH_TOKEN: ${{ github.token }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
             echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "safe=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           previous_host_sha=""
+          previous_quick_sha=""
           previous_full_sha=""
           candidate_sha="$PR_HEAD_SHA"
           searched=0
           while [[ -n "$candidate_sha" && "$searched" -lt 100 ]]; do
             if ! checks="$(gh api --method GET --paginate "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}/check-runs" -f per_page=100 --jq '.check_runs[] | select(.conclusion == "success") | .name')"; then
               echo "host=true" >> "$GITHUB_OUTPUT"
+              echo "full_host=true" >> "$GITHUB_OUTPUT"
+              echo "quick=true" >> "$GITHUB_OUTPUT"
               echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+              echo "safe=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             if [[ -z "$previous_host_sha" ]] && grep -Fxq "host-baseline" <<< "$checks"; then
               previous_host_sha="$candidate_sha"
+            fi
+            if [[ -z "$previous_quick_sha" ]] && grep -Fxq "quick-baseline" <<< "$checks"; then
+              previous_quick_sha="$candidate_sha"
+            fi
+            if grep -Fxq "host-baseline" <<< "$checks"; then
+              if [[ -z "$previous_quick_sha" ]]; then
+                previous_quick_sha="$candidate_sha"
+              fi
             fi
             if [[ -z "$previous_full_sha" ]] && grep -Fxq "check" <<< "$checks" && grep -Fxq "android-instrumentation" <<< "$checks"; then
               previous_full_sha="$candidate_sha"
               if [[ -z "$previous_host_sha" ]]; then
                 previous_host_sha="$candidate_sha"
               fi
+              if [[ -z "$previous_quick_sha" ]]; then
+                previous_quick_sha="$candidate_sha"
+              fi
             fi
-            if [[ -n "$previous_host_sha" && -n "$previous_full_sha" ]]; then
+            if [[ -n "$previous_host_sha" && -n "$previous_quick_sha" && -n "$previous_full_sha" ]]; then
               break
             fi
             if ! candidate_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}" --jq '.parents[0].sha // empty')"; then
               echo "host=true" >> "$GITHUB_OUTPUT"
+              echo "full_host=true" >> "$GITHUB_OUTPUT"
+              echo "quick=true" >> "$GITHUB_OUTPUT"
               echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+              echo "safe=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             searched=$((searched + 1))
@@ -92,17 +117,39 @@ jobs:
 
           if ! host="$(classify_since "$previous_host_sha")"; then
             echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! quick="$(classify_since "$previous_quick_sha")"; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if ! instrumentation="$(classify_since "$previous_full_sha")"; then
             echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
+          full_host="$host"
+          if [[ "$PR_DRAFT" == "true" ]]; then
+            full_host=false
+          fi
+
           echo "host=$host" >> "$GITHUB_OUTPUT"
+          echo "full_host=$full_host" >> "$GITHUB_OUTPUT"
+          echo "quick=$quick" >> "$GITHUB_OUTPUT"
           echo "instrumentation=$instrumentation" >> "$GITHUB_OUTPUT"
+          echo "safe=true" >> "$GITHUB_OUTPUT"
 
   check:
     needs: changes
@@ -115,33 +162,36 @@ jobs:
       - name: Verify EX-08 commit inventory
         run: python3 scripts/generate_step4_ex08_inventory.py --check
       - uses: actions/setup-java@v4
-        if: needs.changes.outputs.host == 'true'
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
         with:
           distribution: temurin
           java-version: '25'
       - uses: android-actions/setup-android@v3
-        if: needs.changes.outputs.host == 'true'
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973
       - uses: gradle/actions/setup-gradle@v4
-        if: needs.changes.outputs.host == 'true'
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Host native DSP tests
-        if: needs.changes.outputs.host == 'true'
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
         run: bash scripts/test_dsp_native.sh
       - name: Host native DSP tests with ASan and UBSan
-        if: needs.changes.outputs.host == 'true'
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
         run: bash scripts/test_dsp_native.sh --sanitize
+      - name: Draft unit tests
+        if: needs.changes.outputs.quick == 'true' && needs.changes.outputs.full_host != 'true'
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest --build-cache --parallel --stacktrace
       - name: Unit tests, lint, debug and optimized builds
-        if: needs.changes.outputs.host == 'true'
+        if: needs.changes.outputs.full_host == 'true'
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --parallel --stacktrace
       - name: Verify JNI names survive R8
-        if: needs.changes.outputs.host == 'true'
+        if: needs.changes.outputs.full_host == 'true'
         run: python3 scripts/check_jni_mapping.py
 
       - name: Test reports
-        if: always() && needs.changes.outputs.host == 'true'
+        if: always() && (needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-${{ github.job }}
@@ -155,12 +205,26 @@ jobs:
     needs: [changes, check]
     if: >-
       always() &&
-      needs.changes.outputs.host == 'true' &&
+      needs.changes.outputs.full_host == 'true' &&
       needs.check.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Record successful host verification
         run: echo "Host checks passed for $GITHUB_SHA"
+
+  quick-baseline:
+    needs: [changes, check]
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == true &&
+      needs.changes.outputs.quick == 'true' &&
+      needs.changes.outputs.full_host != 'true' &&
+      needs.check.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record successful draft verification
+        run: echo "Draft unit and native checks passed for $GITHUB_SHA"
 
   android-instrumentation:
     needs: changes

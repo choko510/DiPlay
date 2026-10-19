@@ -1,7 +1,7 @@
 # Completed
 
 - 2026-10-20: Kept full host/native/JVM/lint/build/JNI checks on draft code updates, deferred the 19-test API 35 emulator job until `ready_for_review`, and cancelled superseded PR runs. Run #151 logs show the emulator job took 5m12s; the final full gate remains enabled.
-- 2026-10-20: Adapted the manual-hotspot config check to the active transport: wired configs ignore unused hotspot credentials while wireless configs still require an SSID. Added two focused tests; `ManualHotspotConfigTest` passes locally, with PR #45 host CI pending.
+- 2026-10-20: Adapted the manual-hotspot config check to the active transport: wired configs ignore unused hotspot credentials while wireless configs still require an SSID. Both focused tests pass locally and in PR #45 run #168.
 - 2026-10-20: Added generated-ledger parity checking and a narrow EX-08 inventory fast path that still runs public-tree and ledger checks; full run #151 passed after an emulator-only retry, and audit run #152 passed in 21s.
 - 2026-10-20: Enabled Gradle `--parallel` for PR #45's full CI check. Run #149 passed in 3m55s with a warmed cache; isolate the flag's effect on a later code-changing run.
 - 2026-10-19: Added changed-path CI gating for documentation-only PR updates without dropping public-tree/EX-08 checks, and enabled same-PR Gradle task-output caching while keeping fork PRs read-only. GitHub Actions run #144 passed the full suite in 10m46s, with 41 Gradle tasks from cache and cache saves from both jobs. Documentation-only run #145 passed in 15s while skipping Android SDK, native, Gradle, and emulator work.

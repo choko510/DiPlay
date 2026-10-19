@@ -15,9 +15,9 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 
 ## 2026-10-20 — Shorten draft PR feedback
 
-- Run #151 logs showed the host check job taking 2m45s (Gradle command 1m04s) and the instrumentation job taking 5m12s. The instrumentation job spent about 1m22s installing Android SDK packages, roughly 52s reaching emulator boot, and about 1m52s running its 19 tests.
-- Keep public-tree/EX-08 checks and the full host/native/JVM/lint/build/JNI check on code-changing draft updates, but defer the connected emulator matrix until the PR is marked ready for review. A successful host-only marker separates that baseline from the last full instrumentation run, so later docs-only commits do not rerun host checks or mistake a skipped emulator job for a full pass. Seed a new host marker from the previous successful full run to avoid walking the entire commit history during migration. `ready_for_review`, push, and manual events still run the full workflow. Cancel superseded PR runs so stale revisions do not add to the feedback queue.
-- The draft path avoids the observed five-minute instrumentation job on each implementation push; the full emulator gate remains for the latest ready-for-review revision. Measure the next full run separately from any Gradle-cache change.
+- Run #151 logs showed the host check job taking 2m45s (Gradle command 1m04s) and the instrumentation job taking 5m12s. Run #168 then took 9m39s overall, with the Gradle unit/lint/build/JNI command alone at 7m33s, despite the emulator job being skipped.
+- Keep public-tree/EX-08 checks on every PR update. Draft code updates now use native/sanitizer plus shared/common unit tests; defer app lint/build/JNI and emulator instrumentation until `ready_for_review`. Quick, full-host, and full-instrumentation markers are separate so later docs-only changes do not rerun draft tests or treat skipped checks as a full pass. Seed missing markers from the previous successful full run to avoid walking the entire history. Pushes and manual runs still run the full suite; cancel superseded PR runs.
+- The draft path should avoid the seven-minute Gradle package/lint matrix during implementation while preserving native/unit feedback; confirm the improvement and failure behavior in the next Actions run before changing the estimate.
 
 ## 2026-10-19 — PR #45 Android CI feedback and Gradle cache
 

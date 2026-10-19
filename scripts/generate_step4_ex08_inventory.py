@@ -354,6 +354,22 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No aggregate merge imported; retain fixed-main sources and accept only isolated evidence-backed commits with independent rollback.",
         "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
     },
+    "292b2dd7d05166e714eddc2fc245fe1d5cbf48b5": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 173-path connection-integration merge combines NCM framing, USB host, buffered audio, microphone/Opus, audio focus, and CarPlay orchestration changes. Its 141-hunk snapshot is not one STEP4 unit, and v3 requires these transport/audio gates to remain separate; PR-01 already adapted the isolated NCM boundary behavior.",
+        "test": "PASS_STATIC: source diff spans transport, NCM, microphone, audio focus, and session ownership; NOT_RUN_PER_COMMIT: isolated USB/audio/phone-route regressions for each constituent change",
+        "related": "Reject aggregate merge; review NCM under PR-01, queue behavior under PR-02, audio/microphone under PR-04/AUDIO-EX, and session changes under their individual gates",
+        "rollback": "No merge imported; preserve the fixed-main transport and media paths. Any accepted constituent must be a separately tested and reversible PR-45 change.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
+    "6aced77d0be6c081d26fd158ecb607d162d37e09": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 32-path merge combines two-second wired-start steps, USB AccessibilityService auto-confirm, NCM diagnostics, call/microphone audio, and BYD route behavior. The shorter watchdog conflicts with v3's 8/15-second preserve gate, auto-confirm changes permission semantics, and the remaining features require separate evidence.",
+        "test": "PASS_STATIC: fixed main preserves 8/15-second watchdogs and UsbManager.requestPermission; source diff includes the two-second steps and UsbAutoConfirmService; NOT_RUN_PER_COMMIT: target audio/USB/controller regression matrix",
+        "related": "Reject aggregate merge; EX-03/PR-03 watchdog preserve, PR-00 permission consent, PR-01 NCM, PR-04 audio, and BYD quarantine are separate decisions",
+        "rollback": "No merge imported; keep fixed-main watchdog, permission, transport, and BYD behavior. Any future isolated change needs its own evidence and one-commit rollback.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
     "2ed938e67a5f245a36a665733bb69d8807091587": {
         "disposition": "NEED_EVIDENCE",
         "reason": "This merge combines a nested four-byte USBMUX trailer exception before an exact VERSION reply with a wired home-card title/Wi-Fi-hint change and translations. The parser tests use synthetic input, while the home-card helper does not exercise fixed-main session and saved-transport lifecycle; the mixed change has no complete STEP4 mapping.",

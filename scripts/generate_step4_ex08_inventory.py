@@ -202,6 +202,30 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No patch imported; split parser and UI changes, then add capture-driven tests before adopting either behavior.",
         "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_SPLIT_REVIEW",
     },
+    "9f9bc1b36e227650754f095c783a1040fd19be3e": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The early USBMUX workaround clears the entire receive buffer after a VERSION reply without validating the remainder as a bounded trailer. That can discard a following valid frame; later upstream work replaces it with a framed parser, and fixed main has a strict incremental decoder.",
+        "test": "PASS_STATIC: fixed-main UsbMuxFrameDecoder rejects malformed framing; no unvalidated remainder-discard path is imported",
+        "related": "USBMUX-EX VERSION handshake framing; PR-01 CDC-NCM padding is separate",
+        "rollback": "No patch imported; retain the fixed-main decoder and do not restore unconditional handshake-buffer clearing.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_UNSAFE_REMAINDER_DISCARD",
+    },
+    "3d0411d5f2a2b08ed27942ce7103676d5b3e532d": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The upstream decoder permits specific bounded USBMUX control-reply trailers and adds split-transfer tests, but fixed main has a different strict parser and no captured iOS 27 trailer fixture. Directly replacing its parser would change malformed-stream behavior.",
+        "test": "NOT_RUN_FORK: exact VERSION/SYN-ACK trailer capture, every transfer split, frame ordering, and malformed-length rejection",
+        "related": "USBMUX-EX control-reply framing; separate from PR-01 NCM NTB recovery",
+        "rollback": "No parser replacement imported; if reproduced, adapt only the validated bounded trailer cases behind a focused UsbMuxFrameDecoder test.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_PROTOCOL_CAPTURE",
+    },
+    "4e97b53423764fdc8d8632e66178f63bdef2cbbe": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The patch digest is identical to commit 3d0411d5, so this row carries no distinct code change. Its shared USBMUX trailer behavior remains unverified against fixed main and the iOS 27 capture.",
+        "test": "NOT_RUN_FORK: duplicate patch of 3d0411d; same capture-driven protocol tests are required once",
+        "related": "USBMUX-EX duplicate source occurrence of 3d0411d5f2a2b08ed27942ce7103676d5b3e532d",
+        "rollback": "No patch imported; track the shared behavior once and keep both upstream commits out of the fork history.",
+        "review_state": "PRIMARY_AGENT_DUPLICATE_PATCH_REVIEW_PENDING_PROTOCOL_CAPTURE",
+    },
 }
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {

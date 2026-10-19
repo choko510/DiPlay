@@ -1,5 +1,7 @@
 # Lessons
 
+For faster pull request feedback, keep inexpensive repository checks in an always-running job and gate costly builds/emulators with a conservative changed-file classifier. Default unknown paths and non-PR events to the full suite; skip only explicitly documentation-only paths.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

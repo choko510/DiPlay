@@ -1,5 +1,9 @@
 # Decisions
 
+## Keep documentation-only PR checks lightweight
+
+For pull requests, always run public-tree and EX-08 inventory checks, but skip Android SDK setup, native tests, Gradle builds, and emulator instrumentation when every changed path is under `docs/`, `.scratchpad/`, or is a Markdown file. Treat all other paths, pushes, and manual runs as requiring the full verification suite.
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.

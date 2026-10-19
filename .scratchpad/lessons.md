@@ -1,5 +1,7 @@
 # Lessons
 
+`Ntb16Codec.build()` returns a one-byte USB short-packet pad when the declared NTB length lands exactly on 512 bytes. A no-pad receive fixture must slice to the NTH16-declared block length; otherwise tests silently compare two padded cases.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

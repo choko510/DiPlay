@@ -1,5 +1,9 @@
 # Decisions
 
+## Keep PR-00 fixtures out of production code
+
+Implement the STEP4 fake USB/TUN/clock/PCM/video inputs under test sources only. The baseline stage must freeze current-main behavior before NCM, Host, audio, or UI production paths are changed; later stages can reuse the deterministic fixtures without adding test hooks to runtime APIs.
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.

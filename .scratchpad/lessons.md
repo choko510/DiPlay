@@ -278,3 +278,7 @@ The NCM readiness phase can be advanced by an AirPlay control milestone, so `NCM
 The 2026-10-09 trace recorded both `NETWORK_CONNECTION` connected and disconnected values while successful screen startup also occurred during intervals with no new status packet. Poll/drain the endpoint when present, but do not wait for a connected notification before NCM or AirPlay startup. In the same report, request queue/wait errors coincided with physical USB disconnects; only add request-level recovery if the error reproduces while the device remains present.
 
 When Gecko reports paint-status reset during `setActive(false)`, retain it through profile-resolution timeout and warm reopen. Associate it with a suspension generation instead of clearing a boolean on measurement end; a later suspension must observe its own reset before primary paint is accepted.
+
+## Prove DSP-OFF at the renderer boundary
+
+A config-level `enabled=false` assertion is not enough for the legacy audio contract. Exercise LPCM through `AudioRenderer`, use a preparer that fails if called, compare interleaved PCM16 samples at the write adapter, and assert zero track-generation DSP latency for mono/stereo across rates and block sizes. Keep emulator/native results distinct from host C and physical listening evidence.

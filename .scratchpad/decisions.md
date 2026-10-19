@@ -149,6 +149,10 @@ Cache raw AUs with their source sample and presentation time until the decoder p
 
 The repository's NTP clock maps local monotonic time to the phone's synchronized timing domain, but it does not establish whether CarPlay expects feedback's NTP timestamp to anchor the reported sampleTime. Keep the current NTP generation and call out hardware/protocol validation rather than inventing a monotonic-to-NTP correlation.
 
+## Freeze DSP-00 around the pinned main graph
+
+Treat schema v3, the separate master-OFF preference, MEDIA-only full-DSP eligibility, and the existing two-channel graph as the baseline. A migrated profile must still map through the global master setting, and disabled PCM16 output/latency must remain exact even when the saved profile has non-neutral values. DSP-00 adds verification only; DSP-01..05 introduce behavior in their own stages.
+
 ## Release decoder candidates before AAC fallback
 
 Keep a newly created MediaCodec local until both configure and start succeed. On either failure, best-effort stop and release that candidate before publishing diagnostics or constructing the raw-AAC ADTS fallback; use the same lifecycle for Opus.

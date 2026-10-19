@@ -13,11 +13,16 @@ import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
+import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
+import com.shilapi.xcertplay.media.dsp.DspHarmonicMode
+import com.shilapi.xcertplay.media.dsp.DspHarmonicQuality
+import com.shilapi.xcertplay.media.dsp.DspHighExciterConfig
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatFocusConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatFocusPreset
+import com.shilapi.xcertplay.media.dsp.DspVirtualBassConfig
 import java.io.File
 import java.io.IOException
 import org.junit.Assert.assertEquals
@@ -115,6 +120,13 @@ class DspProfileRepositoryTest {
                     DspCabinNotchConfig(frequencyHz = 180.0, gainDb = -4.0, q = 2.0),
                 ),
             ),
+            harmonic = DspHarmonicConfig(
+                highExciter = DspHighExciterConfig(enabled = true, amount = 0.2, crossoverHz = 7_000.0),
+                virtualBass = DspVirtualBassConfig(enabled = true, amount = 0.15, crossoverHz = 75.0),
+                mode = DspHarmonicMode.ODD,
+                quality = DspHarmonicQuality.HIGH,
+                levelMatchEnabled = false,
+            ),
         )
 
         assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
@@ -157,6 +169,7 @@ class DspProfileRepositoryTest {
         assertEquals(profile.dynamicEq, enabled.dynamicEq)
         assertEquals(profile.advancedMs, enabled.advancedMs)
         assertEquals(profile.cabinCorrection, enabled.cabinCorrection)
+        assertEquals(profile.harmonic, enabled.harmonic)
         assertTrue(runCatching { (enabled.peqBands as MutableList).clear() }.isFailure)
     }
 
@@ -224,7 +237,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspMultibandConfig.DEFAULT_LOW_MID_CROSSOVER_HZ, loaded.profile.multiband.lowMidCrossoverHz, 0.0)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":6"))
+        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":7"))
     }
 
     @Test
@@ -243,7 +256,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspDynamicEqConfig.MAX_BANDS, loaded.profile.dynamicEq.bands.size)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":6"))
+        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":7"))
     }
 
     @Test
@@ -262,7 +275,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspSeatFocusPreset.CENTER, loaded.profile.seatFocus.preset)
         assertEquals(0.0, loaded.profile.seatFocus.leftDistanceCm, 0.0)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
-        assertTrue(profileFile.readText().contains("\"schemaVersion\":6"))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":7"))
     }
 
     @Test
@@ -281,7 +294,7 @@ class DspProfileRepositoryTest {
         assertEquals(120.0, loaded.profile.seatFocus.leftDistanceCm, 0.0)
         assertFalse(loaded.profile.advancedMs.enabled)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
-        assertTrue(profileFile.readText().contains("\"schemaVersion\":6"))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":7"))
     }
 
     @Test
@@ -300,7 +313,26 @@ class DspProfileRepositoryTest {
         assertFalse(loaded.profile.cabinCorrection.enabled)
         assertTrue(loaded.profile.cabinCorrection.notches.isEmpty())
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
-        assertTrue(profileFile.readText().contains("\"schemaVersion\":6"))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":7"))
+    }
+
+    @Test
+    fun versionSixProfileMigratesWithHarmonicEngineDisabledByDefault() {
+        val repository = repositoryWithDirectWriterForMigrationTests()
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        assertTrue(profileFile.parentFile!!.mkdirs())
+        profileFile.writeText(
+            """{"schemaVersion":6,"id":"custom1","name":"Existing","cabinCorrection":{"enabled":false,"notches":[]}}""",
+        )
+
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertEquals(6, loaded.migratedFromVersion)
+        assertFalse(loaded.profile.harmonic.highExciter.enabled)
+        assertFalse(loaded.profile.harmonic.virtualBass.enabled)
+        assertFalse(loaded.profile.cabinCorrection.enabled)
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":7"))
     }
 
     @Test

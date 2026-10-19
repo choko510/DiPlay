@@ -61,11 +61,16 @@ import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
+import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
+import com.shilapi.xcertplay.media.dsp.DspHarmonicMode
+import com.shilapi.xcertplay.media.dsp.DspHarmonicQuality
+import com.shilapi.xcertplay.media.dsp.DspHighExciterConfig
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatFocusLimits
 import com.shilapi.xcertplay.media.dsp.DspSeatFocusPreset
+import com.shilapi.xcertplay.media.dsp.DspVirtualBassConfig
 import com.shilapi.xcertplay.shared.AppLanguage
 import java.util.Locale
 import java.util.UUID
@@ -270,6 +275,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                     onChange = { profile = it },
                     onImportResultChange = { cabinMeasurementResult = it },
                 )
+                HarmonicSection(profile = profile) { profile = it }
                 val seatFocusPresets = listOf(
                     stringResource(R.string.dsp_seat_preset_driver) to DspSeatFocusPreset.DRIVER,
                     stringResource(R.string.dsp_seat_preset_passenger) to DspSeatFocusPreset.PASSENGER,
@@ -629,6 +635,103 @@ private fun EqBandControl(
                 DspValueSlider(stringResource(R.string.dsp_q), band.q, 0.1..20.0, "") {
                     onChange(band.copy(q = it))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HarmonicSection(profile: DspAudioProfile, onChange: (DspAudioProfile) -> Unit) {
+    val harmonic = profile.harmonic
+    val modes = listOf(
+        stringResource(R.string.dsp_harmonic_even) to DspHarmonicMode.EVEN,
+        stringResource(R.string.dsp_harmonic_odd) to DspHarmonicMode.ODD,
+        stringResource(R.string.dsp_harmonic_mixed) to DspHarmonicMode.MIXED,
+    )
+    val qualities = listOf(
+        stringResource(R.string.dsp_harmonic_quality_low) to DspHarmonicQuality.LOW,
+        stringResource(R.string.dsp_harmonic_quality_balanced) to DspHarmonicQuality.BALANCED,
+        stringResource(R.string.dsp_harmonic_quality_high) to DspHarmonicQuality.HIGH,
+    )
+    SectionCard(title = stringResource(R.string.dsp_harmonic_engine)) {
+        Text(stringResource(R.string.dsp_harmonic_note), style = MaterialTheme.typography.bodySmall)
+        ChoiceField(
+            title = stringResource(R.string.dsp_harmonic_mode),
+            selected = modes.first { it.second == harmonic.mode }.first,
+            choices = modes.map { it.first },
+            onSelect = { selected ->
+                onChange(profile.copy(harmonic = harmonic.copy(mode = modes.first { it.first == selected }.second)))
+            },
+        )
+        ChoiceField(
+            title = stringResource(R.string.dsp_harmonic_quality),
+            selected = qualities.first { it.second == harmonic.quality }.first,
+            choices = qualities.map { it.first },
+            onSelect = { selected ->
+                onChange(profile.copy(harmonic = harmonic.copy(quality = qualities.first { it.first == selected }.second)))
+            },
+        )
+        DspSwitchRow(
+            title = stringResource(R.string.dsp_harmonic_level_match),
+            checked = harmonic.levelMatchEnabled,
+            onCheckedChange = { onChange(profile.copy(harmonic = harmonic.copy(levelMatchEnabled = it))) },
+        )
+        DspSwitchRow(
+            title = stringResource(R.string.dsp_high_exciter),
+            checked = harmonic.highExciter.enabled,
+            onCheckedChange = { enabled ->
+                onChange(profile.copy(harmonic = harmonic.copy(highExciter = harmonic.highExciter.copy(enabled = enabled))))
+            },
+        )
+        if (harmonic.highExciter.enabled) {
+            DspValueSlider(
+                stringResource(R.string.dsp_harmonic_amount),
+                harmonic.highExciter.amount,
+                0.0..DspHighExciterConfig.MAX_AMOUNT,
+                "",
+            ) {
+                onChange(profile.copy(
+                    harmonic = harmonic.copy(highExciter = harmonic.highExciter.copy(amount = it)),
+                ))
+            }
+            DspValueSlider(
+                stringResource(R.string.dsp_high_exciter_crossover),
+                harmonic.highExciter.crossoverHz,
+                DspHighExciterConfig.MIN_CROSSOVER_HZ..DspHighExciterConfig.MAX_CROSSOVER_HZ,
+                "Hz",
+            ) {
+                onChange(profile.copy(
+                    harmonic = harmonic.copy(highExciter = harmonic.highExciter.copy(crossoverHz = it)),
+                ))
+            }
+        }
+        DspSwitchRow(
+            title = stringResource(R.string.dsp_virtual_bass),
+            checked = harmonic.virtualBass.enabled,
+            onCheckedChange = { enabled ->
+                onChange(profile.copy(harmonic = harmonic.copy(virtualBass = harmonic.virtualBass.copy(enabled = enabled))))
+            },
+        )
+        if (harmonic.virtualBass.enabled) {
+            DspValueSlider(
+                stringResource(R.string.dsp_harmonic_amount),
+                harmonic.virtualBass.amount,
+                0.0..DspHighExciterConfig.MAX_AMOUNT,
+                "",
+            ) {
+                onChange(profile.copy(
+                    harmonic = harmonic.copy(virtualBass = harmonic.virtualBass.copy(amount = it)),
+                ))
+            }
+            DspValueSlider(
+                stringResource(R.string.dsp_virtual_bass_crossover),
+                harmonic.virtualBass.crossoverHz,
+                DspVirtualBassConfig.MIN_CROSSOVER_HZ..DspVirtualBassConfig.MAX_CROSSOVER_HZ,
+                "Hz",
+            ) {
+                onChange(profile.copy(
+                    harmonic = harmonic.copy(virtualBass = harmonic.virtualBass.copy(crossoverHz = it)),
+                ))
             }
         }
     }

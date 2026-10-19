@@ -199,6 +199,41 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun harmonicCoreModeQualityAndEffectControlsReachNativeCreation() {
+        val bindings = FakeNativeDspBindings(reportedLatencyFrames = 16)
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                harmonic = DspHarmonicConfig(
+                    highExciter = DspHighExciterConfig(enabled = true, amount = 0.2, crossoverHz = 6_000.0),
+                    virtualBass = DspVirtualBassConfig(enabled = true, amount = 0.3, crossoverHz = 80.0),
+                    mode = DspHarmonicMode.ODD,
+                    quality = DspHarmonicQuality.HIGH,
+                    levelMatchEnabled = false,
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+        val harmonic = requireNotNull(bindings.createdHarmonic)
+
+        assertEquals(DspHarmonicConfig.NATIVE_VALUE_COUNT, harmonic.size)
+        assertEquals(1.0, harmonic[0], 0.0)
+        assertEquals(0.2, harmonic[1], 0.0)
+        assertEquals(6_000.0, harmonic[2], 0.0)
+        assertEquals(1.0, harmonic[3], 0.0)
+        assertEquals(0.3, harmonic[4], 0.0)
+        assertEquals(80.0, harmonic[5], 0.0)
+        assertEquals(DspHarmonicMode.ODD.ordinal.toDouble(), harmonic[6], 0.0)
+        assertEquals(DspHarmonicQuality.HIGH.ordinal.toDouble(), harmonic[7], 0.0)
+        assertEquals(0.0, harmonic[8], 0.0)
+        assertEquals(16, processor?.latencyFrames)
+        processor?.close()
+    }
+
+    @Test
     fun nativeProcessFailureReturnsAnErrorWithoutConsumingBuffers() {
         val format = DspAudioFormat(48_000, 2)
         val bindings = FakeNativeDspBindings(processStatus = 3)
@@ -266,6 +301,7 @@ class NativeDspProcessorTest {
     private class FakeNativeDspBindings(
         private val createHandle: Long = 42L,
         private val processStatus: Int = 0,
+        private val reportedLatencyFrames: Int = 0,
     ) : NativeDspBindings {
         var processCalls = 0
         var lastFrames = 0
@@ -279,6 +315,7 @@ class NativeDspProcessorTest {
         var createdBassCoefficients: DoubleArray? = null
         var createdMonoBassCoefficients: DoubleArray? = null
         var createdSpatial: DoubleArray? = null
+        var createdHarmonic: DoubleArray? = null
         var createdConvolverConfig: DoubleArray? = null
         var createdConvolverSamples: FloatArray? = null
 
@@ -294,6 +331,7 @@ class NativeDspProcessorTest {
             bassCoefficients: DoubleArray,
             monoBassCoefficients: DoubleArray,
             spatial: DoubleArray,
+            harmonic: DoubleArray,
             convolverConfig: DoubleArray,
             convolverSamples: FloatArray,
         ): Long {
@@ -305,6 +343,7 @@ class NativeDspProcessorTest {
             createdBassCoefficients = bassCoefficients.copyOf()
             createdMonoBassCoefficients = monoBassCoefficients.copyOf()
             createdSpatial = spatial.copyOf()
+            createdHarmonic = harmonic.copyOf()
             createdConvolverConfig = convolverConfig.copyOf()
             createdConvolverSamples = convolverSamples.copyOf()
             return createHandle
@@ -333,7 +372,7 @@ class NativeDspProcessorTest {
         }
 
         override fun reset(handle: Long): Int = 0
-        override fun latencyFrames(handle: Long): Int = 0
+        override fun latencyFrames(handle: Long): Int = reportedLatencyFrames
         override fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int = 0
         override fun destroy(handle: Long) {
             destroyedHandle = handle

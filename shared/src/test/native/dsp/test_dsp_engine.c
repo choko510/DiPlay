@@ -34,6 +34,17 @@ static const dsp_spatial_config bypass_spatial = {
     .seat_left_trim_linear = 1.0,
     .seat_right_trim_linear = 1.0,
 };
+static const dsp_harmonic_config bypass_harmonic = {
+    .high_exciter_enabled = 0,
+    .high_exciter_amount = 0.0,
+    .high_exciter_crossover_hz = 0.0,
+    .virtual_bass_enabled = 0,
+    .virtual_bass_amount = 0.0,
+    .virtual_bass_crossover_hz = 0.0,
+    .mode = DSP_HARMONIC_MODE_EVEN,
+    .quality = DSP_HARMONIC_QUALITY_LOW,
+    .level_match_enabled = 0,
+};
 static const dsp_convolver_config bypass_convolver = {0, 0, 0, 0, 0, 0.0f, NULL};
 
 static void fail(const char *message) {
@@ -63,6 +74,7 @@ static dsp_engine *create_test_engine(
         NULL,
         0,
         &bypass_spatial,
+        &bypass_harmonic,
         &bypass_convolver);
 }
 
@@ -86,6 +98,7 @@ static dsp_engine *create_test_engine_with_dynamics(
         NULL,
         0,
         &bypass_spatial,
+        &bypass_harmonic,
         &bypass_convolver);
 }
 
@@ -109,6 +122,7 @@ static dsp_engine *create_test_engine_with_multiband(
         NULL,
         0,
         &bypass_spatial,
+        &bypass_harmonic,
         &bypass_convolver);
 }
 
@@ -136,7 +150,68 @@ static dsp_engine *create_test_engine_with_spatial(
         mono_bass_coefficients,
         mono_bass_coefficient_count,
         spatial_config,
+        &bypass_harmonic,
         &bypass_convolver);
+}
+
+static dsp_engine *create_test_engine_with_harmonic(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_harmonic_config *harmonic_config) {
+    return dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        harmonic_config,
+        &bypass_convolver);
+}
+
+static void assert_true(int condition, const char *message);
+
+static double measure_harmonic_tone_component(
+    dsp_engine *engine,
+    double input_frequency_hz,
+    double output_frequency_hz,
+    double amplitude) {
+    double sine_projection = 0.0;
+    double cosine_projection = 0.0;
+    size_t measured_samples = 0;
+    size_t frame = 0;
+    while (frame < 48000) {
+        const size_t frames = 48000 - frame < 512 ? 48000 - frame : 512;
+        float input[512];
+        float output[512];
+        for (size_t index = 0; index < frames; index++) {
+            input[index] = (float)(amplitude * sin(2.0 * 3.14159265358979323846 * input_frequency_hz *
+                (double)(frame + index) / 48000.0));
+        }
+        assert_true(
+            dsp_engine_process(engine, input, frames, output, frames, (int)frames, 1) == DSP_STATUS_OK,
+            "harmonic spectral-analysis block processes");
+        for (size_t index = 0; index < frames; index++) {
+            if (frame + index < 4800) continue;
+            const double phase = 2.0 * 3.14159265358979323846 * output_frequency_hz *
+                (double)(frame + index) / 48000.0;
+            sine_projection += (double)output[index] * sin(phase);
+            cosine_projection += (double)output[index] * cos(phase);
+            measured_samples++;
+        }
+        frame += frames;
+    }
+    return 2.0 * sqrt(sine_projection * sine_projection + cosine_projection * cosine_projection) /
+        (double)measured_samples;
 }
 
 static dsp_engine *create_test_engine_with_convolver(
@@ -159,6 +234,7 @@ static dsp_engine *create_test_engine_with_convolver(
         NULL,
         0,
         &bypass_spatial,
+        &bypass_harmonic,
         convolver_config);
 }
 
@@ -182,6 +258,7 @@ static dsp_engine *create_test_engine_with_dynamic_eq(
         NULL,
         0,
         &bypass_spatial,
+        &bypass_harmonic,
         &bypass_convolver);
 }
 
@@ -263,7 +340,7 @@ static void test_bad_handles_arguments_and_capacities(void) {
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 16) == NULL, "too many filters are rejected");
     assert_true(
         dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL, &bypass_multiband, &bypass_dynamic_eq, NULL, 0, NULL, 0,
-            &bypass_spatial, &bypass_convolver) == NULL,
+            &bypass_spatial, &bypass_harmonic, &bypass_convolver) == NULL,
         "missing dynamics configuration is rejected");
 }
 
@@ -1058,6 +1135,7 @@ static void test_seat_focus_fractional_delay_fixed_latency_and_mono_bypass(void)
         NULL,
         0,
         &seat_focus,
+        &bypass_harmonic,
         &convolver);
     assert_true(engine != NULL, "combined seat focus and convolver graph creates");
     assert_true(
@@ -1780,6 +1858,7 @@ static void test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass(voi
         NULL,
         0,
         &bypass_spatial,
+        &bypass_harmonic,
         &mismatched_rate);
     assert_true(bypassed != NULL, "sample-rate-mismatched IR leaves DSP engine prepared");
     assert_true(dsp_engine_get_latency_frames(bypassed) == 0, "mismatched IR reports zero added latency");
@@ -1879,6 +1958,128 @@ static void test_convolver_sparse_sentinel_taps_reach_their_output_frames(void) 
     }
 }
 
+static void test_harmonic_modes_generate_bounded_even_and_odd_partials(void) {
+    dsp_harmonic_config even = {
+        .high_exciter_enabled = 0,
+        .virtual_bass_enabled = 1,
+        .virtual_bass_amount = 0.25,
+        .virtual_bass_crossover_hz = 80.0,
+        .mode = DSP_HARMONIC_MODE_EVEN,
+        .quality = DSP_HARMONIC_QUALITY_BALANCED,
+        .level_match_enabled = 0,
+    };
+    dsp_engine *engine = create_test_engine_with_harmonic(48000, 1, 512, &even);
+    assert_true(engine != NULL, "even harmonic engine creates");
+    assert_true(dsp_engine_get_latency_frames(engine) == 8, "balanced harmonic quality reports eight-frame FIR latency");
+    const double even_second = measure_harmonic_tone_component(engine, 40.0, 80.0, 0.8);
+    dsp_engine_destroy(engine);
+    assert_true(even_second > 0.02, "even mode generates the second harmonic");
+
+    engine = create_test_engine_with_harmonic(48000, 1, 512, &even);
+    assert_true(engine != NULL, "even harmonic engine recreates");
+    const double even_odd_leakage = measure_harmonic_tone_component(engine, 40.0, 120.0, 0.8);
+    dsp_engine_destroy(engine);
+    assert_true(even_odd_leakage < 0.005, "even mode rejects the third-harmonic component");
+
+    dsp_harmonic_config odd = even;
+    odd.mode = DSP_HARMONIC_MODE_ODD;
+    engine = create_test_engine_with_harmonic(48000, 1, 512, &odd);
+    assert_true(engine != NULL, "odd harmonic engine creates");
+    const double odd_third = measure_harmonic_tone_component(engine, 40.0, 120.0, 0.8);
+    dsp_engine_destroy(engine);
+    assert_true(odd_third > 0.01, "odd mode generates the third harmonic");
+
+    engine = create_test_engine_with_harmonic(48000, 1, 512, &odd);
+    assert_true(engine != NULL, "odd harmonic engine recreates");
+    const double odd_even_leakage = measure_harmonic_tone_component(engine, 40.0, 80.0, 0.8);
+    dsp_engine_destroy(engine);
+    assert_true(odd_even_leakage < 0.005, "odd mode rejects the second-harmonic component");
+}
+
+static void test_harmonic_quality_latency_aligns_dry_and_anti_aliases(void) {
+    const int qualities[] = {
+        DSP_HARMONIC_QUALITY_LOW,
+        DSP_HARMONIC_QUALITY_BALANCED,
+        DSP_HARMONIC_QUALITY_HIGH,
+    };
+    const int expected_latency[] = {4, 8, 16};
+    for (size_t index = 0; index < sizeof(qualities) / sizeof(qualities[0]); index++) {
+        const dsp_harmonic_config config = {
+            .high_exciter_enabled = 1,
+            .high_exciter_amount = 1e-6,
+            .high_exciter_crossover_hz = 3000.0,
+            .virtual_bass_enabled = 0,
+            .mode = DSP_HARMONIC_MODE_EVEN,
+            .quality = qualities[index],
+            .level_match_enabled = 0,
+        };
+        dsp_engine *engine = create_test_engine_with_harmonic(48000, 1, 64, &config);
+        assert_true(engine != NULL, "harmonic FIR quality graph creates");
+        assert_true(
+            dsp_engine_get_latency_frames(engine) == expected_latency[index],
+            "harmonic quality reports the measured FIR group delay");
+        float input[32] = {0.0f};
+        input[0] = 1.0f;
+        float output[32] = {0.0f};
+        assert_true(dsp_engine_process(engine, input, 32, output, 32, 32, 1) == DSP_STATUS_OK,
+            "harmonic dry-alignment impulse processes");
+        for (int frame = 0; frame < expected_latency[index]; frame++) {
+            assert_near(output[frame], 0.0, 1e-5, "harmonic dry path waits for the reported FIR latency");
+        }
+        assert_near(output[expected_latency[index]], 1.0, 1e-5,
+            "harmonic dry impulse arrives at the reported FIR latency");
+        dsp_engine_destroy(engine);
+    }
+
+    const dsp_harmonic_config high_exciter = {
+        .high_exciter_enabled = 1,
+        .high_exciter_amount = 0.3,
+        .high_exciter_crossover_hz = 3000.0,
+        .virtual_bass_enabled = 0,
+        .mode = DSP_HARMONIC_MODE_EVEN,
+        .quality = DSP_HARMONIC_QUALITY_HIGH,
+        .level_match_enabled = 0,
+    };
+    dsp_engine *engine = create_test_engine_with_harmonic(48000, 1, 512, &high_exciter);
+    assert_true(engine != NULL, "high-exciter alias test graph creates");
+    const double aliased_partial = measure_harmonic_tone_component(engine, 18000.0, 12000.0, 0.7);
+    dsp_engine_destroy(engine);
+    assert_true(aliased_partial < 0.02, "high-quality oversampling suppresses a Nyquist-folded even partial");
+
+    const float impulse[] = {1.0f};
+    const dsp_convolver_config convolver = {
+        .enabled = 1,
+        .sample_rate = 48000,
+        .channels = 1,
+        .frames = 1,
+        .sample_count = 1,
+        .wet = 1.0f,
+        .samples = impulse,
+    };
+    engine = dsp_engine_create(
+        48000,
+        1,
+        512,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        &high_exciter,
+        &convolver);
+    assert_true(engine != NULL, "harmonic and Convolver graph creates");
+    assert_true(
+        dsp_engine_get_latency_frames(engine) == 16 + DSP_CONVOLVER_PARTITION_FRAMES,
+        "harmonic oversampling group delay is added to Convolver latency");
+    dsp_engine_destroy(engine);
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
@@ -1909,6 +2110,8 @@ int main(void) {
     test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass();
     test_convolver_ir_sizes_and_validation();
     test_convolver_sparse_sentinel_taps_reach_their_output_frames();
+    test_harmonic_modes_generate_bounded_even_and_odd_partials();
+    test_harmonic_quality_latency_aligns_dry_and_anti_aliases();
     puts("native DSP tests passed");
     return 0;
 }

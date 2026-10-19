@@ -1794,7 +1794,8 @@ internal class AudioRenderer(
 
     private fun DspRuntimeConfig.requiresStateContinuity(): Boolean = enabled && (
         convolver.enabled && convolver.wet > 0.0 && convolver.impulseResponse != null ||
-            compressor.enabled || multiband.enabled || dynamicEq.enabled && dynamicEq.bands.any { it.enabled }
+            compressor.enabled || multiband.enabled || dynamicEq.enabled && dynamicEq.bands.any { it.enabled } ||
+            harmonic.isActive
         )
 
     private fun configureLiveUpdates(format: DspAudioFormat, forcePrepareCurrent: Boolean = false) {
@@ -1807,7 +1808,7 @@ internal class AudioRenderer(
             pendingDspUpdate.getAndSet(null)?.pipeline?.close()
             return
         }
-        if (liveUpdateFormat == format && liveUpdateController != null) return
+        if (liveUpdateFormat == format && liveUpdateController != null && !forcePrepareCurrent) return
         liveUpdateController?.close()
         liveUpdateController = null
         pendingDspUpdate.getAndSet(null)?.pipeline?.close()
@@ -2208,6 +2209,7 @@ internal class AudioRenderer(
             activeDecoderPcmFormat?.sampleRate ?: format.sampleRate,
             activeDecoderPcmFormat?.channels ?: format.channels.coerceIn(1, 2),
         )
+        val reprepareDeferredDsp = deferredDspGeneration != null && pendingDspUpdate.get() == null
         val mismatchedPipeline = dspPipeline?.takeIf { it.format != effectiveFormat }
         if (mismatchedPipeline != null) {
             dspPipeline = null
@@ -2224,6 +2226,7 @@ internal class AudioRenderer(
         } else {
             null
         }
+        if (reprepareDeferredDsp) configureLiveUpdates(effectiveFormat, forcePrepareCurrent = true)
     }
 
     private fun abandonLiveFade() {

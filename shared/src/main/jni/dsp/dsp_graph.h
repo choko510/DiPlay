@@ -8,6 +8,7 @@
 #include "dsp_multiband.h"
 #include "dsp_dynamic_eq.h"
 #include "dsp_spatial.h"
+#include "dsp_harmonic.h"
 #include "dsp_convolver.h"
 
 #include <stddef.h>
@@ -21,6 +22,7 @@ typedef struct {
     dsp_multiband multiband;
     dsp_dynamic_eq dynamic_eq;
     dsp_spatial spatial;
+    dsp_harmonic harmonic;
     dsp_convolver convolver;
     dsp_meter input_meter;
     dsp_meter output_meter;
@@ -41,6 +43,7 @@ int dsp_graph_prepare(
     const double *mono_bass_coefficients,
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
+    const dsp_harmonic_config *harmonic_config,
     const dsp_convolver_config *convolver_config);
 void dsp_graph_reset(dsp_graph *graph);
 void dsp_graph_close(dsp_graph *graph);

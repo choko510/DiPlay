@@ -14,11 +14,16 @@ import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
+import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
+import com.shilapi.xcertplay.media.dsp.DspHarmonicMode
+import com.shilapi.xcertplay.media.dsp.DspHarmonicQuality
+import com.shilapi.xcertplay.media.dsp.DspHighExciterConfig
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatFocusConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatFocusPreset
+import com.shilapi.xcertplay.media.dsp.DspVirtualBassConfig
 import java.io.File
 import java.nio.charset.StandardCharsets
 import org.json.JSONArray
@@ -139,6 +144,7 @@ internal class DspProfileRepository(
         val seatFocusJson = json.optJSONObject("seatFocus") ?: JSONObject()
         val advancedMsJson = json.optJSONObject("advancedMs") ?: JSONObject()
         val cabinCorrectionJson = json.optJSONObject("cabinCorrection") ?: JSONObject()
+        val harmonicJson = json.optJSONObject("harmonic") ?: JSONObject()
         val advancedMsLowJson = advancedMsJson.optJSONObject("low") ?: JSONObject()
         val advancedMsHighJson = advancedMsJson.optJSONObject("high") ?: JSONObject()
         val monoBassJson = stereoJson.optJSONObject("monoBass") ?: JSONObject()
@@ -232,6 +238,29 @@ internal class DspProfileRepository(
                     )
                 },
                 notches = cabinCorrectionJson.optJSONArray("notches")?.let(::readCabinNotches) ?: emptyList(),
+            ),
+            harmonic = DspHarmonicConfig(
+                highExciter = DspHighExciterConfig(
+                    enabled = harmonicJson.optJSONObject("highExciter")?.optBoolean("enabled", false) ?: false,
+                    amount = harmonicJson.optJSONObject("highExciter")?.readFiniteDouble("amount", 0.0) ?: 0.0,
+                    crossoverHz = harmonicJson.optJSONObject("highExciter")?.readFiniteDouble(
+                        "crossoverHz",
+                        DspHighExciterConfig.DEFAULT_CROSSOVER_HZ,
+                    ) ?: DspHighExciterConfig.DEFAULT_CROSSOVER_HZ,
+                ),
+                virtualBass = DspVirtualBassConfig(
+                    enabled = harmonicJson.optJSONObject("virtualBass")?.optBoolean("enabled", false) ?: false,
+                    amount = harmonicJson.optJSONObject("virtualBass")?.readFiniteDouble("amount", 0.0) ?: 0.0,
+                    crossoverHz = harmonicJson.optJSONObject("virtualBass")?.readFiniteDouble(
+                        "crossoverHz",
+                        DspVirtualBassConfig.DEFAULT_CROSSOVER_HZ,
+                    ) ?: DspVirtualBassConfig.DEFAULT_CROSSOVER_HZ,
+                ),
+                mode = DspHarmonicMode.valueOf(harmonicJson.optString("mode", DspHarmonicMode.MIXED.name)),
+                quality = DspHarmonicQuality.valueOf(
+                    harmonicJson.optString("quality", DspHarmonicQuality.BALANCED.name),
+                ),
+                levelMatchEnabled = harmonicJson.optBoolean("levelMatchEnabled", true),
             ),
             limiter = DspSafetyLimiterConfig(
                 enabled = limiterJson.optBoolean("enabled", true),
@@ -423,6 +452,21 @@ internal class DspProfileRepository(
                     }),
             )
             .put(
+                "harmonic",
+                JSONObject()
+                    .put("mode", profile.harmonic.mode.name)
+                    .put("quality", profile.harmonic.quality.name)
+                    .put("levelMatchEnabled", profile.harmonic.levelMatchEnabled)
+                    .put("highExciter", JSONObject()
+                        .put("enabled", profile.harmonic.highExciter.enabled)
+                        .put("amount", profile.harmonic.highExciter.amount)
+                        .put("crossoverHz", profile.harmonic.highExciter.crossoverHz))
+                    .put("virtualBass", JSONObject()
+                        .put("enabled", profile.harmonic.virtualBass.enabled)
+                        .put("amount", profile.harmonic.virtualBass.amount)
+                        .put("crossoverHz", profile.harmonic.virtualBass.crossoverHz)),
+            )
+            .put(
                 "limiter",
                 JSONObject()
                     .put("enabled", profile.limiter.enabled)
@@ -441,7 +485,7 @@ internal class DspProfileRepository(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 6
+        const val CURRENT_SCHEMA_VERSION = 7
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"

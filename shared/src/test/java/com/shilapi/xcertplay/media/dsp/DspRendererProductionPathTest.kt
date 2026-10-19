@@ -310,6 +310,107 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun harmonicAmountUpdateDefersUntilNewTrackForFilterHistory() {
+        val configA = harmonicRuntimeConfig(amount = 0.1, quality = DspHarmonicQuality.BALANCED)
+        val configB = harmonicRuntimeConfig(amount = 0.25, quality = DspHarmonicQuality.BALANCED)
+        val provider = MutableConfigProvider(configA)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = configA,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                val latencyFrames = config.harmonic.effectiveFor(
+                    DspAudioFormat(audioFormat.sampleRate, audioFormat.channels),
+                ).algorithmicLatencyFrames
+                StateProcessor(audioFormat, latencyFrames, 1.0f)
+                    .let { DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false) }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2) { 300 }), sample = 300)
+            val activeBeforeUpdate = renderer.dspPipeline
+            val clockBeforeUpdate = renderer.playbackClockForTesting()?.baseRtpSample
+            assertEquals(8, activeBeforeUpdate?.algorithmicLatencyFrames)
+
+            provider.update(configB)
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(128) { 300 }), sample = 400)
+
+            assertTrue(renderer.dspPipeline === activeBeforeUpdate)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertTrue(renderer.hasPreparedDspUpdateForTesting)
+            assertEquals(8, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+            assertEquals(clockBeforeUpdate, renderer.playbackClockForTesting()?.baseRtpSample)
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 300 }), sample = 500)
+
+            assertTrue(renderer.dspPipeline !== activeBeforeUpdate)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(8, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun harmonicQualityLatencyChangeDefersUntilANewTrack() {
+        val configA = harmonicRuntimeConfig(amount = 0.1, quality = DspHarmonicQuality.BALANCED)
+        val configB = harmonicRuntimeConfig(amount = 0.1, quality = DspHarmonicQuality.HIGH)
+        val provider = MutableConfigProvider(configA)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = configA,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                val latencyFrames = config.harmonic.effectiveFor(
+                    DspAudioFormat(audioFormat.sampleRate, audioFormat.channels),
+                ).algorithmicLatencyFrames
+                DspPcmPipeline(
+                    audioFormat,
+                    StateProcessor(audioFormat, latencyFrames, 1.0f),
+                    forceInitialLatencySilence = false,
+                )
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2) { 300 }), sample = 300)
+            val activePipeline = renderer.dspPipeline
+            assertEquals(8, activePipeline?.algorithmicLatencyFrames)
+
+            provider.update(configB)
+            assertTrue(awaitCondition(5_000) { renderer.deferredDspGenerationForTesting == 1L })
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(128) { 300 }), sample = 400)
+
+            assertTrue(renderer.dspPipeline === activePipeline)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(8, renderer.trackLatencyForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+
+            renderer.beginTrackGenerationForTesting()
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 300 }), sample = 500)
+
+            assertTrue(renderer.dspPipeline !== activePipeline)
+            assertEquals(16, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertEquals(16, renderer.trackLatencyForTesting)
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun rendererStartAndRtpSubmitReturnWhileWorkerPipelinePreparationIsBlocked() {
         val preparationEntered = CountDownLatch(1)
         val releasePreparation = CountDownLatch(1)
@@ -870,6 +971,24 @@ class DspRendererProductionPathTest {
             impulseResponse = ir,
         ),
     )
+
+    private fun harmonicRuntimeConfig(amount: Double, quality: DspHarmonicQuality): DspRuntimeConfig = DspRuntimeConfig(
+        enabled = true,
+        harmonic = DspHarmonicConfig(
+            highExciter = DspHighExciterConfig(enabled = true, amount = amount, crossoverHz = 6_000.0),
+            quality = quality,
+            levelMatchEnabled = false,
+        ),
+    )
+
+    private fun awaitCondition(timeoutMs: Long, condition: () -> Boolean): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+        while (System.nanoTime() < deadline) {
+            if (condition()) return true
+            Thread.sleep(1)
+        }
+        return condition()
+    }
 
     private fun pipeline(format: DspAudioFormat, latencyFrames: Int, gain: Float): DspPcmPipeline =
         DspPcmPipeline(

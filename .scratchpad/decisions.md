@@ -319,3 +319,11 @@ Keep the existing Stereo Width/Mono Bass code path byte-stable while Advanced M/
 ## Keep Cabin Correction as an approved PEQ profile change
 
 Accept only external frequency-response CSV with explicit noise-floor and clipping metadata. Validate low-band span/resolution, offer at most three bounded PEQ bell cuts for review, and do not enable them until the user approves them. Reuse PEQ slots rather than adding a duplicate notch node; if quality metadata or slot capacity is missing, return `CALIBRATION_UNAVAILABLE` and leave playback unchanged.
+
+## Keep Harmonic Engine bounded and opt-in
+
+Use one fixed-memory 2× oversampled harmonic core for High Exciter and Virtual Bass, with 9/17/33-tap FIR quality choices and 4/8/16-frame reported latency. Delay dry output by the FIR budget, include the same latency in the engine and playback clock, bound effect amounts, include their peak estimate in Auto Headroom, and leave both modules off in new and migrated profiles.
+
+## Reprepare deferred latency-changing graphs at a new track generation
+
+When a live DSP candidate changes algorithmic latency, keep the current track's latency fixed and record the generation as deferred. If the controller had to discard that candidate because the latency could not be adopted yet, force preparation from the latest config after the next AudioTrack generation begins; same-latency stateful candidates remain pending and are adopted directly.

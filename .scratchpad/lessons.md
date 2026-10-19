@@ -288,3 +288,5 @@ For live spatial tuning, keep graph latency invariant while channel delays chang
 For M/S band processing, test dual-mono and anti-phase inputs separately across the crossover. Recombine complementary low/high paths at unity, compare Mid and Side phase through the split, and verify band width changes only the intended side range. Run timing benchmarks apart from heavy Gradle build work; the emulator's FullHeavyChain p99 can exceed its gate when the device is under build load.
 
 For measured Cabin correction, keep the CSV parser pure and bounded, keep file I/O on the profile executor, and return an explicit unavailable reason when metadata/SNR/span/resolution fail. Persist only the validated summary and user-approved filters, not the source file path or raw capture.
+
+For a live DSP update that changes reported latency, a deferred generation marker alone is insufficient if the prepared pipeline was discarded. On a fresh AudioTrack generation, reprepare that current provider snapshot before accepting PCM; test both same-latency stateful candidates (retained) and latency-changing candidates (reprepared).

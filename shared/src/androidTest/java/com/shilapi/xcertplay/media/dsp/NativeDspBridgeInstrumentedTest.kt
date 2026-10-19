@@ -36,6 +36,7 @@ class NativeDspBridgeInstrumentedTest {
             bassCoefficients = prepared.bassCoefficients,
             monoBassCoefficients = prepared.monoBassCoefficients,
             spatial = prepared.spatial,
+            harmonic = prepared.harmonicValues,
             convolverConfig = prepared.convolverConfig,
             convolverSamples = prepared.convolverSamples,
         )
@@ -406,6 +407,39 @@ class NativeDspBridgeInstrumentedTest {
 
         assertEquals(10.0.pow(-9.0 / 20.0), measureNativeToneGain(config, 2, 80.0, antiPhase = true), 0.04)
         assertEquals(1.0, measureNativeToneGain(config, 2, 500.0, antiPhase = true), 0.03)
+    }
+
+    @Test
+    fun harmonicEngineCreatesNativeGraphWithReportedOversamplingLatency() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val processor = NativeDspProcessor.createOrNull(
+            DspAudioFormat(48_000, 1),
+            DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                harmonic = DspHarmonicConfig(
+                    virtualBass = DspVirtualBassConfig(enabled = true, amount = 0.15, crossoverHz = 80.0),
+                    mode = DspHarmonicMode.EVEN,
+                    quality = DspHarmonicQuality.HIGH,
+                    levelMatchEnabled = false,
+                ),
+            ),
+        )
+        assertNotNull(processor)
+        processor ?: return
+        try {
+            assertEquals(DspHarmonicQuality.HIGH.latencyFrames, processor.latencyFrames)
+            val input = floatBuffer(0.2f, -0.2f)
+            val output = ByteBuffer.allocateDirect(2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(input, output, frames = 2).status)
+            assertEquals(2 * Float.SIZE_BYTES, output.position())
+            output.flip()
+            assertTrue(output.float.isFinite())
+            assertTrue(output.float.isFinite())
+        } finally {
+            processor.close()
+        }
     }
 
     @Test

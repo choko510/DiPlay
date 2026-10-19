@@ -76,6 +76,7 @@ dsp_engine *dsp_engine_create(
     const double *mono_bass_coefficients,
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
+    const dsp_harmonic_config *harmonic_config,
     const dsp_convolver_config *convolver_config) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
@@ -85,7 +86,7 @@ dsp_engine *dsp_engine_create(
         (bass_coefficient_count > 0 && bass_coefficients == NULL) ||
         mono_bass_coefficient_count < 0 || mono_bass_coefficient_count > 1 ||
         (mono_bass_coefficient_count > 0 && mono_bass_coefficients == NULL) || spatial_config == NULL ||
-        convolver_config == NULL) {
+        harmonic_config == NULL || convolver_config == NULL) {
         return NULL;
     }
 
@@ -120,6 +121,7 @@ dsp_engine *dsp_engine_create(
             mono_bass_coefficients,
             mono_bass_coefficient_count,
             spatial_config,
+            harmonic_config,
             convolver_config)) {
         dsp_graph_close(&engine->graph);
         free(engine);
@@ -222,9 +224,12 @@ dsp_status dsp_engine_reset(dsp_engine *engine) {
 int dsp_engine_get_latency_frames(const dsp_engine *engine) {
     if (!engine_is_prepared(engine)) return -1;
     const int seat_latency = dsp_spatial_latency_frames(&engine->graph.spatial);
+    const int harmonic_latency = dsp_harmonic_latency_frames(&engine->graph.harmonic);
     const int convolver_latency = dsp_convolver_latency_frames(&engine->graph.convolver);
-    if (seat_latency < 0 || convolver_latency < 0 || convolver_latency > INT_MAX - seat_latency) return -1;
-    return seat_latency + convolver_latency;
+    if (seat_latency < 0 || harmonic_latency < 0 || convolver_latency < 0 ||
+        harmonic_latency > INT_MAX - seat_latency ||
+        convolver_latency > INT_MAX - seat_latency - harmonic_latency) return -1;
+    return seat_latency + harmonic_latency + convolver_latency;
 }
 
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics) {

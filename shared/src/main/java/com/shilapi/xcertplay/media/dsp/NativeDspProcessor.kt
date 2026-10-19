@@ -15,6 +15,7 @@ internal interface NativeDspBindings {
         bassCoefficients: DoubleArray,
         monoBassCoefficients: DoubleArray,
         spatial: DoubleArray,
+        harmonic: DoubleArray,
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
     ): Long
@@ -48,6 +49,7 @@ internal object NativeDspJni : NativeDspBindings {
         bassCoefficients: DoubleArray,
         monoBassCoefficients: DoubleArray,
         spatial: DoubleArray,
+        harmonic: DoubleArray,
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
     ): Long = nativeCreate(
@@ -62,6 +64,7 @@ internal object NativeDspJni : NativeDspBindings {
         bassCoefficients,
         monoBassCoefficients,
         spatial,
+        harmonic,
         convolverConfig,
         convolverSamples,
     )
@@ -106,6 +109,7 @@ internal object NativeDspJni : NativeDspBindings {
         bassCoefficients: DoubleArray,
         monoBassCoefficients: DoubleArray,
         spatial: DoubleArray,
+        harmonic: DoubleArray,
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
     ): Long
@@ -310,6 +314,7 @@ internal class NativeDspProcessor internal constructor(
                     bassCoefficients = prepared.bassCoefficients,
                     monoBassCoefficients = prepared.monoBassCoefficients,
                     spatial = prepared.spatial,
+                    harmonic = prepared.harmonicValues,
                     convolverConfig = prepared.convolverConfig,
                     convolverSamples = prepared.convolverSamples,
                 )

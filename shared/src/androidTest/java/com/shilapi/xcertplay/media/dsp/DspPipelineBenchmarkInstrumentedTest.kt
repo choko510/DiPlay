@@ -214,6 +214,18 @@ class DspPipelineBenchmarkInstrumentedTest {
                 ),
             ),
         )
+        val harmonicEngine = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            harmonic = DspHarmonicConfig(
+                highExciter = DspHighExciterConfig(enabled = true, amount = 0.18, crossoverHz = 6_000.0),
+                virtualBass = DspVirtualBassConfig(enabled = true, amount = 0.18, crossoverHz = 90.0),
+                mode = DspHarmonicMode.MIXED,
+                quality = DspHarmonicQuality.BALANCED,
+                levelMatchEnabled = true,
+            ),
+        )
         val cabinCorrection = DspRuntimeConfig(
             enabled = true,
             autoHeadroomEnabled = false,
@@ -239,6 +251,7 @@ class DspPipelineBenchmarkInstrumentedTest {
             BenchmarkCase("Gain", base.copyConfig(gainDb = 3.0)),
             BenchmarkCase("PEQ15", peq),
             BenchmarkCase("Cabin3Notches", cabinCorrection),
+            BenchmarkCase("HarmonicEngine", harmonicEngine),
             BenchmarkCase(
                 "PEQ_Compressor_Limiter",
                 DspRuntimeConfig(

@@ -355,12 +355,12 @@ BASE_REVIEW_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_BEHAVIOR_MAPPING_AND_LOCAL_TEST",
     },
     "1c93dc9b055bf7a9e8f93d91ed0da780476301bf": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The USBMUX change drains and preserves a read that completes between timeout and cancel, addressing a Telechips-specific report. The fork has no same-device timed-read trace, and changing timeout ownership can affect close/cancel races.",
-        "test": "NOT_RUN_TARGET: timed USBMUX completion race, cancel result, empty completion, teardown, and next-read recovery",
-        "related": "USBMUX-EX read/cancel lifecycle; distinct from PR-01 NCM receive recovery",
-        "rollback": "No patch imported; if reproduced, isolate timed-read recovery in IphoneUsbHost with a deterministic race test and one-commit rollback.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_USB_RACE_REPRO",
+        "disposition": "FORK_SUPERIOR",
+        "reason": "The upstream patch cancels and drains a timed-out USBMUX read to recover bytes that arrive in the timeout/cancel race. Fixed main avoids that cancellation window: Iap2UsbSession.read leaves the request queued on TimeoutException, and the next call awaits the same request, allowing a late completion to deliver its bytes without requeueing.",
+        "test": "PASS_LOCAL: PersistentUsbReadRequestStateTest.timeoutKeepsSameRequestQueuedAndDoesNotRequestCancellation; PASS_STATIC: Iap2UsbSession.read returns on timeout without canceling or requeueing and accepts the same request on the next completion; NOT_RUN_TARGET: no supported-head-unit trace confirms the reported timing",
+        "related": "USBMUX_READ_COMPLETION_RACE: fixed-main persistent request ownership; distinct from PR-01 NCM receive recovery and USBMUX trailer parsing",
+        "rollback": "No change needed; retain same-request ownership across wait timeouts and cancel only through close/failure ownership. Revisit only if a supported-device trace shows the queued request is invalidated after timeout.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_TIMEOUT_OWNER_COMPARISON",
     },
     "59c2652592ce92d2fb22e4554858deb0bbaa4656": {
         "disposition": "NEED_EVIDENCE",

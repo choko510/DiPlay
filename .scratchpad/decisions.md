@@ -352,6 +352,10 @@ Tag each primary-session `onPaintStatusReset()` with the current suspension gene
 
 Persist one NCM diagnostic profile only in debuggable builds. `AUTO` polls the status endpoint when available and keeps the 100 ms pre-ready OUT timeout; `NO_STATUS_POLLING` isolates the previous off behavior. Timeout, sync Bulk IN and forced function selection profiles inherit status polling so future timeout comparisons keep it enabled. Do not combine profiles or add CDC-NCM control requests without new A/B evidence.
 
+## Keep USBMUX request ownership through a timed wait
+
+Treat `requestWait(timeout)` as a wait expiry, not a completed or cancelled request. Keep the same queued request and buffer for the next wait; cancel only when the session closes or a terminal failure takes ownership. The current `PersistentUsbReadRequestState` and `Iap2UsbSession.read` already deliver a late completion through that owner.
+
 ## Keep local MFi identity outside tracked source
 
 Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Allow only the expected identity and certificate assets, and reject every other key-like file from APK asset inputs. Never copy those local assets into the worktree.

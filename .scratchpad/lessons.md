@@ -313,6 +313,8 @@ For DSP graph extensions, keep the disabled MEDIA path as a byte-for-byte PCM16 
 
 For a stereo seat-alignment delay, the selected near channel receives the distance-derived delay while the far channel remains at zero; report the maximum relative delay for the playback clock and sum it with downstream graph latency. Defer replacing an active delay ring until a track-generation boundary so the new buffer does not start without history.
 
+For USBMUX reads, a timed `requestWait` can leave the same `UsbRequest` pending. Reusing that owner for the next wait preserves a late completion without the cancel/drain race; keep cancellation in the close/failure path and test the lifecycle state separately from NCM.
+
 For two-band M/S processing, use matched cascaded Butterworth LP4/HP4 filters so the bands recombine with flat magnitude. Apply the same crossover state to Mid and Side, treat Mid as all center-panned content, and include the maximum positive band gain plus width in Auto Headroom; skip the old Width/Mono Bass stage only while the new module is active.
 
 For imported cabin correction, persist only a digest and measurement summary with the user-approved PEQ cuts, not the raw measurement file. Combine enabled cabin cuts with active PEQ bands before preparing the existing coefficient array, enforce the shared 15-band limit, and classify missing or poor-quality measurements as `CALIBRATION_UNAVAILABLE`.

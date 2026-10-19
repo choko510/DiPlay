@@ -16,6 +16,8 @@ import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
 import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import com.shilapi.xcertplay.transport.NcmUsbBridge
+import com.shilapi.xcertplay.transport.WiredPathDiagnostics
+import com.shilapi.xcertplay.transport.WiredPathEvent
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -49,6 +51,7 @@ class CarPlayVpnService : VpnService() {
         val mfi: MfiAuthenticator?,
         val listener: AirPlaySessionListener,
         val media: AirPlayMediaHandler,
+        val wiredPathDiagnostics: WiredPathDiagnostics?,
     )
 
     private val binder = LocalBinder()
@@ -59,7 +62,7 @@ class CarPlayVpnService : VpnService() {
     private var serverSocket: ServerSocket? = null
     private var bridge: Ipv6NcmBridge? = null
     private var tun: ParcelFileDescriptor? = null
-    private var attachGeneration = 0
+    @Volatile private var attachGeneration = 0
 
     override fun onBind(intent: Intent?): IBinder = binder
 
@@ -74,6 +77,7 @@ class CarPlayVpnService : VpnService() {
         mfi: MfiAuthenticator?,
         listener: AirPlaySessionListener,
         media: AirPlayMediaHandler,
+        wiredPathDiagnostics: WiredPathDiagnostics? = null,
     ): AttachResult {
         if (active.get()) {
             Log.i(TAG, "replacing stale NCM/VPN attachment")
@@ -81,6 +85,8 @@ class CarPlayVpnService : VpnService() {
         }
         active.set(true)
         val generation = ++attachGeneration
+        wiredPathDiagnostics?.recordAttachGeneration(generation.toLong())
+        ncm.setWiredPathAttachGeneration(generation.toLong())
         return try {
             val address = InetAddress.getByName(linkLocal)
             if (address !is Inet6Address || !address.isLinkLocalAddress) {
@@ -97,11 +103,16 @@ class CarPlayVpnService : VpnService() {
                 .establish()
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
+            wiredPathDiagnostics?.record(WiredPathEvent.VPN_ESTABLISHED, generation.toLong())
 
             val ipv6Bridge = Ipv6NcmBridge(
                 ncm = ncm,
                 tun = tunFd,
                 hostMac = hostMac,
+                wiredPathDiagnostics = wiredPathDiagnostics,
+                expectedAirPlayAddress = address.address,
+                airPlayPort = config.port,
+                attachGeneration = generation.toLong(),
                 onError = { error -> onTransportError(generation, listener, error) },
                 onBridgeStarted = {
                     // This marks worker startup, not a live NCM link.
@@ -113,7 +124,16 @@ class CarPlayVpnService : VpnService() {
 
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(address, config, identity, pairings, mfi, listener, media),
+                AirPlayAttachment(
+                    address,
+                    config,
+                    identity,
+                    pairings,
+                    mfi,
+                    listener,
+                    media,
+                    wiredPathDiagnostics,
+                ),
             )
             AttachResult.Started
         } catch (error: Exception) {
@@ -145,7 +165,7 @@ class CarPlayVpnService : VpnService() {
         return try {
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(bindAddress, config, identity, pairings, mfi, listener, media),
+                AirPlayAttachment(bindAddress, config, identity, pairings, mfi, listener, media, null),
             )
             AttachResult.Started
         } catch (error: Exception) {
@@ -173,6 +193,10 @@ class CarPlayVpnService : VpnService() {
     ) {
         val server = ServerSocket()
         server.bind(InetSocketAddress(replacement.address, replacement.config.port))
+        replacement.wiredPathDiagnostics?.record(
+            WiredPathEvent.LISTENER_BOUND,
+            generation.toLong(),
+        )
         attachment = replacement
         serverSocket = server
         Thread(
@@ -205,6 +229,10 @@ class CarPlayVpnService : VpnService() {
                         socket.close()
                         return
                     }
+                    current.wiredPathDiagnostics?.record(
+                        WiredPathEvent.LISTENER_ACCEPTED,
+                        generation.toLong(),
+                    )
                     current.listener.onConnectionTrace(ConnectionTraceStage.AIRPLAY_CONTROL_ACCEPTED)
                     AirPlaySession(
                         socket = socket,
@@ -219,6 +247,8 @@ class CarPlayVpnService : VpnService() {
                             }
                         },
                         media = current.media,
+                        wiredPathDiagnostics = current.wiredPathDiagnostics,
+                        attachGeneration = generation.toLong(),
                     ).also(::addSession)
                 }
                 session.start()

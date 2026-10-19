@@ -165,7 +165,39 @@ class NcmUsbBridgeFixtureTest {
         partialWrite.first.close()
     }
 
-    private fun newBridge(): Pair<NcmUsbBridge, ScriptedUsbDeviceConnectionShadow> {
+    @Test
+    fun wiredPathDiagnosticsDoNotChangeBulkOutResults() {
+        val frame = Step4TestFixtures.ethernetFrame(length = 60)
+        val disabled = WiredPathDiagnostics("disabled", 1, enabled = false)
+        val enabled = WiredPathDiagnostics("run-fixture", 1, enabled = true)
+        val (withoutDiagnostics, disabledScript) = newBridge(disabled)
+        val (withDiagnostics, enabledScript) = newBridge(enabled)
+        disabledScript.enqueueBulkOutResult(0)
+        enabledScript.enqueueBulkOutResult(0)
+
+        val disabledResults = listOf(
+            withoutDiagnostics.send(frame, timeoutMillis = 100),
+            withoutDiagnostics.send(frame, timeoutMillis = 100),
+        )
+        val enabledResults = listOf(
+            withDiagnostics.send(frame, timeoutMillis = 100),
+            withDiagnostics.send(frame, timeoutMillis = 100),
+        )
+        withoutDiagnostics.close()
+        withDiagnostics.close()
+
+        assertEquals(disabledResults, enabledResults)
+        assertEquals(1, disabledScript.outgoingBlocks.size)
+        assertEquals(1, enabledScript.outgoingBlocks.size)
+        assertEquals(0L, disabled.snapshot(WiredPathReportReason.FINAL)
+            .counter(WiredPathEvent.FIRST_BULK_OUT_FULL_SENT).count)
+        assertEquals(1L, enabled.snapshot(WiredPathReportReason.FINAL)
+            .counter(WiredPathEvent.FIRST_BULK_OUT_FULL_SENT).count)
+    }
+
+    private fun newBridge(
+        wiredPathDiagnostics: WiredPathDiagnostics? = null,
+    ): Pair<NcmUsbBridge, ScriptedUsbDeviceConnectionShadow> {
         val connection = ReflectionHelpers.callConstructor(UsbDeviceConnection::class.java)
         val script = Shadow.extract<ScriptedUsbDeviceConnectionShadow>(connection)
         val input = endpoint(address = 0x81, maxPacketSize = 512, direction = 0x80)
@@ -182,6 +214,7 @@ class NcmUsbBridgeFixtureTest {
             diagnosticAttempt = 1,
             diagnosticsEnabled = false,
             onDiagnosticLog = {},
+            wiredPathDiagnostics = wiredPathDiagnostics,
         )
         return bridge to script
     }

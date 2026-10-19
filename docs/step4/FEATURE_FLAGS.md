@@ -1,10 +1,11 @@
 # STEP4 Feature and Rollback Flags
 
-PR-00 records existing controls and planned defaults. It does not add a production feature flag.
+PR-00 records existing controls and planned defaults. EX-01 adds opt-in diagnostics only and does not change production transport behavior.
 
 | Area | Current main behavior | STEP4 default / gate |
 |---|---|---|
 | Connection trace | `debug_logs_enabled` persists through `AirPlayPersistence`, default false; the host passes it to `CarPlayController` | EX-01 remains opt-in and observational; it cannot change transport retries or deadlines |
+| Wired path V1 | No per-attempt wired packet provenance recorder exists in main | Uses the existing opt-in debug-log setting; OFF by default. Emits only fixed counters/timestamps, with no payloads or raw network identifiers. CPU `<1%` and memory `≤64 KiB` are targets and remain `NOT_RUN` on TS10 |
 | NCM diagnostic profile | `AUTO` is the default for missing/invalid preferences and all non-debuggable builds. Debug builds can save `NO_STATUS_POLLING`, timeout comparators, synchronous IN, or a forced function pair | Keep `AUTO`; forced pairs and sync IN are debug-only comparators, not release fallbacks |
 | DSP master | `DspProfileRuntime` reads `dsp_enabled` with default false | Keep master disabled until the user enables it; each new node defaults off |
 | Local Split | User selects `HostLayoutMode`; default is full CarPlay and the local CarPlay fraction is 55%, clamped to 50–60% | PR-06 LOCAL must remain local and must not depend on a remote ViewArea command |

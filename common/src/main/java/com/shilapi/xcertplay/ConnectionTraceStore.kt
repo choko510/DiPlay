@@ -32,6 +32,15 @@ internal class ConnectionTraceStore(private val directory: File) {
         }
     }
 
+    fun appendWiredPathReport(report: String) {
+        if (report.length > MAX_WIRED_PATH_REPORT_CHARS || !WIRED_PATH_REPORT.matches(report)) return
+        runCatching {
+            executor.execute {
+                runCatching { appendLine(report) }
+            }
+        }
+    }
+
     fun snapshot(): String = runCatching {
         val result: Future<String> = executor.submit<String> {
             runCatching {
@@ -98,8 +107,10 @@ internal class ConnectionTraceStore(private val directory: File) {
         private const val CURRENT_FILE = "connection-trace.log"
         private const val MAX_BYTES = 128 * 1024L
         private const val MAX_DETAIL_CHARS = 4_096
+        private const val MAX_WIRED_PATH_REPORT_CHARS = 4_096
         private const val MAX_TRACKED_ATTEMPTS = 256
         private val ATTEMPT_ID = Regex("attempt-[a-z0-9-]{1,40}")
+        private val WIRED_PATH_REPORT = Regex("WIRED_PATH_V1 schema=1(?: [A-Za-z0-9_]+=[A-Za-z0-9_=-]+)+")
         private val ARCHIVE_FILES = listOf("connection-trace-1.log", "connection-trace-2.log", "connection-trace-3.log")
         private val REPORT_FILES = ARCHIVE_FILES.reversed() + CURRENT_FILE
         private val nextId = AtomicLong()

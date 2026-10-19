@@ -24,6 +24,14 @@ If `createGroup(null)` succeeds but Android omits the system-generated passphras
 
 The debug setting applies from the next connection attempt and writes structured elapsed-time events to bounded app storage. This keeps tracing independent of the foreground activity lifecycle; existing session logs continue to supply throughput and media diagnostics in the same exported report.
 
+## Keep WIRED_PATH_V1 separate from ConnectionTraceEvent
+
+Use the existing debug-log opt-in for one wired-attempt recorder. Store only fixed atomic counters and first monotonic timestamps; keep `wiredStartupAttempt`, random controller run ID, and VPN `attachGeneration` distinct. Append the fixed `WIRED_PATH_V1` line through the bounded trace writer without adding stages/details to the existing trace-event schema. Sealing drops late events; a generation mismatch increments only `stale_callback`.
+
+## Consolidate STEP4 changes into fewer dependency-based PRs
+
+Fold EX-01 into the existing PR-00 draft rather than opening a standalone PR. Keep required implementation order in commits and validation records, and group later work at cohesive dependency boundaries instead of opening one PR for every named plan item.
+
 ## Keep one USBMUX IN request and use bounded recovery
 
 USBMUX now reuses one 32 KiB direct-buffer request across wait timeouts; framing rebuilds up to 64 KiB messages above the USB read layer. On failure, close the wired CSM, USBMUX/session, and VPN/NCM together, then allow three bounded clean retries at 400, 800, and 1,200 ms before surfacing a deep-recovery candidate. USBMUX and NCM remain on separate `UsbDeviceConnection`s because the current interface layout provides no evidence that combining them improves reliability.

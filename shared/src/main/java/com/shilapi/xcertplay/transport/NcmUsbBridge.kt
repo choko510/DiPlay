@@ -133,6 +133,7 @@ class NcmUsbBridge internal constructor(
     private val diagnosticAttempt: Int,
     private val diagnosticsEnabled: Boolean,
     private val onDiagnosticLog: (String) -> Unit,
+    private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
     val hostMac: ByteArray? get() = descriptorMac?.copyOf()
@@ -157,6 +158,8 @@ class NcmUsbBridge internal constructor(
     private val statusRunning = AtomicBoolean(statusPollingEnabled && statusEndpoint != null)
     @Volatile
     private var diagnosticEventListener: (NcmDiagnosticEvent) -> Unit = onDiagnosticEvent
+    @Volatile
+    private var wiredPathAttachGeneration: Long? = null
     private val firstEvents = mutableSetOf<NcmDiagnosticEvent>()
     private val peerMacLearned = AtomicBoolean(false)
     private val linkReadiness = NcmLinkReadiness()
@@ -186,6 +189,7 @@ class NcmUsbBridge internal constructor(
     private val syncReadCalls = AtomicLong()
     private val syncReadNoData = AtomicLong()
     private val startupTxLogCount = AtomicLong()
+    private val firstBulkOutFullSent = AtomicBoolean(false)
     private val statusThread = statusEndpoint?.takeIf { statusPollingEnabled }?.let { endpoint ->
         Thread({ drainStatus(endpoint) }, "ncm-status-in").apply {
             isDaemon = true
@@ -264,6 +268,13 @@ class NcmUsbBridge internal constructor(
         }
         writeSuccesses.incrementAndGet()
         writeBytes.addAndGet(transferred.toLong())
+        val wiredDiagnostics = wiredPathDiagnostics
+        if (wiredDiagnostics?.isEnabled == true && firstBulkOutFullSent.compareAndSet(false, true)) {
+            wiredDiagnostics.recordOnce(
+                WiredPathEvent.FIRST_BULK_OUT_FULL_SENT,
+                wiredPathAttachGeneration,
+            )
+        }
         if (ipv6 != null) {
             ipv6TxSuccesses.incrementAndGet()
             if (ndp) ndpTxSuccesses.incrementAndGet()
@@ -320,6 +331,11 @@ class NcmUsbBridge internal constructor(
         diagnosticEventListener = listener
     }
 
+    internal fun setWiredPathAttachGeneration(generation: Long) {
+        wiredPathAttachGeneration = generation
+        wiredPathDiagnostics?.recordAttachGeneration(generation)
+    }
+
     internal fun linkPhase(): NcmLinkPhase = linkReadiness.phase()
 
     internal fun markCarPlayStartSent() {
@@ -333,6 +349,11 @@ class NcmUsbBridge internal constructor(
     private fun emitFirst(event: NcmDiagnosticEvent) {
         val first = synchronized(firstEvents) { firstEvents.add(event) }
         if (first) runCatching { diagnosticEventListener(event) }
+    }
+
+    private fun recordWiredPath(event: WiredPathEvent) {
+        val diagnostics = wiredPathDiagnostics
+        if (diagnostics?.isEnabled == true) diagnostics.record(event, wiredPathAttachGeneration)
     }
 
     private fun logStartupTx(
@@ -521,6 +542,7 @@ class NcmUsbBridge internal constructor(
             throw failSession("NCM frame queue exceeded its bounds")
         }
         ethernetRxFrames.incrementAndGet()
+        recordWiredPath(WiredPathEvent.NCM_ETHERNET_COMPLETE)
         emitFirst(NcmDiagnosticEvent.FIRST_ETHERNET_RX)
         val ipv6 = EthernetIpv6Codec.parseIpv6View(frame)
         if (ipv6 != null) {
@@ -538,6 +560,7 @@ class NcmUsbBridge internal constructor(
     private fun pollFrame(): ByteArray {
         val frame = frames.removeFirst()
         queuedBytes -= frame.size
+        recordWiredPath(WiredPathEvent.NCM_ETHERNET_DELIVERED)
         return frame
     }
 
@@ -577,6 +600,7 @@ class NcmUsbBridge internal constructor(
                     }
                     readLifecycle.markQueued()
                     readQueues.incrementAndGet()
+                    recordWiredPath(WiredPathEvent.NCM_USB_QUEUE)
                     newlyQueued = true
                 }
                 current
@@ -645,6 +669,7 @@ class NcmUsbBridge internal constructor(
                         "requestWaitResult=COMPLETED bytes=$transferred",
                 )
             }
+            recordWiredPath(WiredPathEvent.NCM_USB_COMPLETION)
             if (transferred <= 0) return null
             directReadBuffer.flip()
             directReadBuffer.get(readBuffer, 0, transferred)
@@ -686,6 +711,7 @@ class NcmUsbBridge internal constructor(
         }
         val firstCompletion = readCompletions.incrementAndGet() == 1L
         readBytes.addAndGet(transferred.toLong())
+        recordWiredPath(WiredPathEvent.NCM_USB_COMPLETION)
         if (firstCompletion) {
             emitFirst(NcmDiagnosticEvent.FIRST_USB_COMPLETION)
             reportDiagnostic(
@@ -759,6 +785,7 @@ class NcmUsbBridge internal constructor(
             diagnosticAttempt: Int = 0,
             diagnosticsEnabled: Boolean = false,
             onDiagnosticLog: (String) -> Unit = {},
+            wiredPathDiagnostics: WiredPathDiagnostics? = null,
         ): NcmUsbBridge {
             val claimed = ArrayList<UsbInterface>(2)
             try {
@@ -854,6 +881,7 @@ class NcmUsbBridge internal constructor(
                     diagnosticAttempt,
                     diagnosticsEnabled,
                     onDiagnosticLog,
+                    wiredPathDiagnostics,
                 )
             } catch (error: Throwable) {
                 for (usbInterface in claimed.asReversed()) {

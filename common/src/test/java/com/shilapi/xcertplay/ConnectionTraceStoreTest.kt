@@ -68,6 +68,27 @@ class ConnectionTraceStoreTest {
         store.closeForTests()
     }
 
+    @Test fun wiredPathReportsUseTheirOwnFixedLineFormat() {
+        val directory = File(
+            RuntimeEnvironment.getApplication().cacheDir,
+            "trace-wired-path-${System.nanoTime()}",
+        )
+        val store = ConnectionTraceStore(directory)
+        val report = "WIRED_PATH_V1 schema=1 run=run-fixture attempt=1 attach_generation=7 " +
+            "reason=START sealed=0 counter_overflow=0 checksum=NOT_CHECKED " +
+            "v6_syn_to_airplay=1_first_ms=12"
+        try {
+            store.appendWiredPathReport(report)
+            store.appendWiredPathReport("WIRED_PATH_V1 schema=1 payload=fixture with spaces")
+
+            val snapshot = store.snapshot()
+            assertTrue(snapshot.contains(report))
+            assertFalse(snapshot.contains("payload=fixture"))
+        } finally {
+            store.closeForTests()
+        }
+    }
+
     @Test fun debugPreferenceSurvivesPreferenceReload() {
         val context = RuntimeEnvironment.getApplication()
         AirPlayPersistence.saveDebugLogsEnabled(context, true)

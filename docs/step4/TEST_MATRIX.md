@@ -20,6 +20,18 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | U-12 | 55% local Split geometry, PCM16 samples, encoded-video timing/crop | `Step4TestFixturesTest` | `FIXTURE_ONLY`; PR-06/07 add production-path checks |
 | U-13 | Legacy DSP OFF, profile migration/future-schema protection, native DSP buffers | Existing DSP unit tests | `PASS_LOCAL` on base SHA; physical audio/A/V remains `NOT_RUN` |
 
+## EX-01 wired path observability
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| EX01-01 | Ethernet II, VLAN/QinQ, IPv4 IHL/length/fragments, IPv6 extensions/fragments/jumbograms, TCP flags/ports/bounds | `WiredTcpPacketClassifierTest` | `PASS_LOCAL`; 100,000 deterministic arbitrary buffers |
+| EX01-02 | Concurrent counters, first timestamps, saturation, attach-generation fencing, idempotent seal and late-event rejection | `WiredPathDiagnosticsTest` | `PASS_LOCAL` |
+| EX01-03 | NCM send results are unchanged with diagnostics OFF/ON; TUN write failure, peer-MAC drop and SYN-ACK OUT NotReady are counted | `NcmUsbBridgeFixtureTest`, `Ipv6NcmBridgeWiredPathDiagnosticsTest` | `PASS_ROBOLECTRIC`; NotReady is one send attempt |
+| EX01-04 | RTSP screen stream setup distinguishes MAIN/ALT; only MAIN first frame is counted | `WiredPathAirPlayDiagnosticsTest` | `PASS_ROBOLECTRIC` |
+| EX01-05 | Separate fixed `WIRED_PATH_V1` line is persisted without changing `ConnectionTraceEvent` records | `ConnectionTraceStoreTest.wiredPathReportsUseTheirOwnFixedLineFormat` | `PASS_ROBOLECTRIC` |
+| EX01-06 | Same-attempt USB IN → Ethernet → IPv6 SYN → TUN → SYN-ACK → bulk OUT → listener accept → RECORD → MAIN on TS10/K706/iPhone | Physical device run | `NOT_RUN`; no target hardware is connected |
+| EX01-07 | Diagnostics OFF/ON CPU delta `<1%` and added memory `≤64 KiB` on target hardware | Physical performance A/B | `NOT_RUN`; emulator/host tests do not establish target cost |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |
@@ -29,6 +41,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | Android instrumentation | 16/16 on API 36.1 x86_64 AVD | Emulator is not TS10/K706/iPhone |
 | Native C | Host unsanitized suite passed | Host ASan/UBSan linking unavailable in MSYS2 |
 | App lint/build | Both app Debug/Benchmark builds and lints passed | No release signing/update exercise |
+| EX-01 branch verification | 483 shared + 137 common unit tests; both app lints and Debug/Benchmark assemblies passed | Full target-path and performance A/B remain `NOT_RUN` |
 | Hardware | No TS10/K706/iPhone was attached | `NOT_RUN`; not a pass |
 
-The remaining acceptance IDs in specification sections 8.3 and R-04 stay open for their dependent PR/EX stages.
+The remaining acceptance IDs in specification sections 8.3 and R-04 stay open for their dependent PR/EX stages. EX-01 has a source-level implementation and fixture coverage; it is not device-validated or release-ready.

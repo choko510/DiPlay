@@ -73,6 +73,10 @@ import com.shilapi.xcertplay.transport.NcmFunctionDiscovery
 import com.shilapi.xcertplay.transport.NcmDiagnosticEvent
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import com.shilapi.xcertplay.transport.rejectedLockdownPairRecordError
+import com.shilapi.xcertplay.transport.WiredPathDiagnostics
+import com.shilapi.xcertplay.transport.WiredPathEvent
+import com.shilapi.xcertplay.transport.WiredPathReportReason
+import com.shilapi.xcertplay.transport.WiredPathReportFormatter
 import java.io.Closeable
 import java.io.IOException
 import java.net.InetAddress
@@ -83,6 +87,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -147,6 +152,7 @@ class CarPlayController(
     private val locationProvider: Iap2LocationProvider? = null,
     private val connectionTraceEnabled: Boolean = false,
     private val onConnectionTrace: (ConnectionTraceEvent) -> Unit = {},
+    private val onWiredPathReport: (String) -> Unit = {},
 ) : Closeable {
     private data class WirelessStackResources(
         val tunnel: Iap2Session?,
@@ -251,6 +257,7 @@ class CarPlayController(
     private val wiredStartupStartedAtNanos = AtomicLong(0L)
     private val wiredDataPathGeneration = WiredDataPathGeneration()
     private val wiredStartupAttempt = AtomicInteger(0)
+    private val wiredPathDiagnosticsByAttempt = ConcurrentHashMap<Int, WiredPathDiagnostics>()
     private val activeWiredStartupAttempt = AtomicInteger(0)
     private val wiredStartupTimeoutAttempt = AtomicInteger(0)
     private val wiredTransportFailureAttempt = AtomicInteger(0)
@@ -431,6 +438,7 @@ class CarPlayController(
             traceConnection(ConnectionTraceStage.CANCELLED)
             closed = true
         }
+        wiredPathDiagnosticsByAttempt.keys.toList().forEach(::finishWiredPathDiagnostics)
         wiredDataPathGeneration.invalidate()
         closeReceivers()
         availabilityPollGeneration.incrementAndGet()
@@ -1839,6 +1847,17 @@ class CarPlayController(
     private fun openDataPaths(device: UsbDevice) {
         val dataPathGeneration = wiredDataPathGeneration.begin()
         val startupAttempt = wiredStartupAttempt.incrementAndGet()
+        wiredPathDiagnosticsByAttempt.keys.toList().forEach(::finishWiredPathDiagnostics)
+        if (connectionTraceEnabled) {
+            val wiredDiagnostics = WiredPathDiagnostics(
+                runId = UUID.randomUUID().toString(),
+                wiredStartupAttempt = startupAttempt,
+                enabled = true,
+            )
+            wiredPathDiagnosticsByAttempt[startupAttempt] = wiredDiagnostics
+            wiredDiagnostics.record(WiredPathEvent.START)
+            reportWiredPathDiagnostics(startupAttempt, WiredPathReportReason.START)
+        }
         connectionTraceErrorReported.set(false)
         phase = Phase.DATAPATHS
         debugLog("wired opening iPhone USB data paths")
@@ -1900,6 +1919,7 @@ class CarPlayController(
     ) {
         if (!isCurrentWiredDataPath(dataPathGeneration)) return
         wiredDataPathGeneration.invalidate()
+        finishWiredPathDiagnostics(startupAttempt)
         debugLog("wired $operation failed attempt=$startupAttempt", error)
         val deviceStillPresent = isUsbDevicePresent(device)
         val category = if (deviceStillPresent) connectionTraceError(error) else {
@@ -1989,6 +2009,7 @@ class CarPlayController(
                 diagnosticAttempt = startupAttempt,
                 diagnosticsEnabled = diagnosticsEnabled,
                 onDiagnosticLog = { message -> debugLog(message) },
+                wiredPathDiagnostics = wiredPathDiagnosticsByAttempt[startupAttempt],
             )
         } finally {
             if (!connectionTransferred) runCatching { connection.close() }
@@ -2375,6 +2396,7 @@ class CarPlayController(
                     WiredRecoveryDecision.Suppressed -> Unit
                 }
             }
+            finishWiredPathDiagnostics(startupAttempt)
         }
     }
 
@@ -2405,6 +2427,7 @@ class CarPlayController(
                     }
                 }
                 if (!snapshotClaimed) return@postDelayed
+                reportWiredPathDiagnostics(attempt, WiredPathReportReason.SOFT_8S)
                 wiredStartupDiagnosticSnapshot(attempt, WIRED_STARTUP_SOFT_TIMEOUT_MILLIS)?.let { snapshot ->
                     traceConnection(ConnectionTraceStage.WIRED_STARTUP_SLOW, detail = snapshot)
                     debugLog(snapshot)
@@ -2431,6 +2454,7 @@ class CarPlayController(
                     }
                 }
                 if (!timeoutClaimed) return@postDelayed
+                reportWiredPathDiagnostics(attempt, WiredPathReportReason.HARD_15S)
                 executeWiredTeardown("xcertplay-wired-watchdog-teardown") {
                     teardownTimedOutWiredAttempt(attempt)
                 }
@@ -2898,6 +2922,7 @@ class CarPlayController(
                 mfi = mfiSession?.client,
                 listener = wiredSessionListener(attempt),
                 media = media,
+                wiredPathDiagnostics = wiredPathDiagnosticsByAttempt[attempt],
             )
         } catch (error: Throwable) {
             ncm.close()
@@ -2931,7 +2956,10 @@ class CarPlayController(
                     ConnectionTraceStage.AIRPLAY_CONTROL_ACCEPTED -> {
                         wiredAirPlayControlAccepted.set(true)
                         markWiredNcmLinkReady(attempt)
+                        reportWiredPathDiagnostics(attempt, WiredPathReportReason.ACCEPT)
                     }
+                    ConnectionTraceStage.AIRPLAY_SESSION_ACTIVE ->
+                        reportWiredPathDiagnostics(attempt, WiredPathReportReason.RECORD)
                     ConnectionTraceStage.AIRPLAY_CONTROL_ENCRYPTION_STARTED ->
                         wiredAirPlayEncryptionStarted.set(true)
                     ConnectionTraceStage.AIRPLAY_CONTROL_ENCRYPTED -> wiredAirPlayEncrypted.set(true)
@@ -2943,6 +2971,18 @@ class CarPlayController(
                     !markWiredStartupComplete(attempt)
                 ) return
                 sessionListener.onConnectionTrace(stage)
+            }
+
+            override fun onScreenStreamOpened(session: AirPlaySession, streamType: Int) {
+                if (isCurrentWiredAttempt(attempt) && streamType == AIRPLAY_MAIN_SCREEN_STREAM_TYPE) {
+                    reportWiredPathDiagnostics(attempt, WiredPathReportReason.MAIN)
+                }
+            }
+
+            override fun onMainFirstFrameSubmittedToSurface(session: AirPlaySession) {
+                if (isCurrentWiredAttempt(attempt)) {
+                    reportWiredPathDiagnostics(attempt, WiredPathReportReason.MAIN)
+                }
             }
 
             override fun onSessionActive(session: AirPlaySession) {
@@ -3295,6 +3335,27 @@ class CarPlayController(
         }
     }
 
+    private fun reportWiredPathDiagnostics(attempt: Int, reason: WiredPathReportReason) {
+        val diagnostics = wiredPathDiagnosticsByAttempt[attempt] ?: return
+        synchronized(diagnostics) {
+            if (wiredPathDiagnosticsByAttempt[attempt] !== diagnostics || !diagnostics.isEnabled) return
+            val line = WiredPathReportFormatter.format(diagnostics.snapshot(reason))
+            runCatching { onWiredPathReport(line) }
+        }
+    }
+
+    private fun finishWiredPathDiagnostics(attempt: Int) {
+        val diagnostics = wiredPathDiagnosticsByAttempt[attempt] ?: return
+        synchronized(diagnostics) {
+            if (wiredPathDiagnosticsByAttempt[attempt] !== diagnostics) return
+            val snapshot = diagnostics.seal()
+            if (diagnostics.isEnabled) {
+                runCatching { onWiredPathReport(WiredPathReportFormatter.format(snapshot)) }
+            }
+            wiredPathDiagnosticsByAttempt.remove(attempt, diagnostics)
+        }
+    }
+
     private fun connectionTraceError(error: Throwable): ConnectionTraceError =
         classifyConnectionTraceError(error)
 
@@ -3395,6 +3456,7 @@ class CarPlayController(
         private const val WIRELESS_VIDEO_STALL_CHECK_INTERVAL_MILLIS = 5_000L
         private const val WIRED_STARTUP_SOFT_TIMEOUT_MILLIS = WiredStartupWatchdog.SOFT_TIMEOUT_MILLIS
         private const val WIRED_STARTUP_HARD_TIMEOUT_MILLIS = WiredStartupWatchdog.HARD_TIMEOUT_MILLIS
+        private const val AIRPLAY_MAIN_SCREEN_STREAM_TYPE = 110
         private const val WIRED_DIAGNOSTIC_CAPTURE_MILLIS = 120_000L
         private const val WIRED_DIAGNOSTIC_MAX_BYTES = 256 * 1024
         private const val WIRED_DIAGNOSTIC_MAX_MATCHES = 100

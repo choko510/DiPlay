@@ -4122,6 +4122,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     traceStore.append(traceAttemptId, traceSequence.incrementAndGet(), event)
                 }
             },
+            onWiredPathReport = traceStore::appendWiredPathReport,
         )
         controller = next
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this, backgroundStopAction())

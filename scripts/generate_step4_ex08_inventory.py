@@ -42,6 +42,14 @@ BASE_DECISION_OVERRIDES = {
     "71391aeb74a1f6e64aa3e4bd8cf4c5bc046d60ae": "REJECT_UNSAFE",
 }
 BASE_REVIEW_OVERRIDES = {
+    "3001bdebffc9d65f006cf011d664e3822fe0a20f": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 24-path change combines BYD DiLink 5.1 cluster-theme monitoring/presentation with generic LocalOnlyHotspot and TCP-liveness changes. Fixed main intentionally has no DiLink51Cluster classes; v3 quarantines BYD/OEM behavior and keeps WIRELESS-EX separate from the wired P0 path, so the aggregate is not a safe unit to port.",
+        "test": "PASS_STATIC: diff adds DiLink51Cluster/ClusterMapPresentation, PACKAGE_USAGE_STATS, hotspot-manager and TCP-liveness changes; fixed main has no DiLink51ClusterLayout/monitor; SOURCE_TESTS: upstream cluster/hotspot tests; NOT_RUN_TARGET: TS10/K706 cluster and supported-hotspot route/A-B acceptance",
+        "related": "Reject BYD/OEM plus WIRELESS-EX aggregate; preserve fixed-main BYD removal; no PR-01/EX-02 wired-path mapping",
+        "rollback": "No patch imported; any future generic hotspot fix must be split under WIRELESS-EX and independently measured without restoring BYD cluster code.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_BYD_WIRELESS_AGGREGATE",
+    },
     "ac75c94c25052388e9feb9fb879797fdf9534f49": {
         "disposition": "SKIP_OEM",
         "reason": "This change calibrates the car marker and map viewport to measured DiLink 5.1 cluster safe areas and BYD-specific steering-wheel modes. Fixed main deliberately removed BYD cluster projection; this geometry has no generic TS10/K706 mapping.",

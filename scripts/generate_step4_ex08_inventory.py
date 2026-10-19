@@ -371,12 +371,12 @@ BASE_REVIEW_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_REJECTED_PERMISSION_BYPASS",
     },
     "19649861dab5d65727f195f2d6b7762a0d141005": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The commit combines a USBMUX VERSION-after-trailer parser exception with a home-card transport label. The parser fix targets one iOS 27 capture and needs a byte-exact fork fixture; the separate UI label needs session/selection lifecycle validation.",
-        "test": "NOT_RUN_FORK: captured nested-trailer VERSION response, all transfer splits, following-frame preservation, and home-card session selection",
-        "related": "USBMUX-EX trailer framing; home-card transport/UI candidate, separate from PR-01 NCM",
-        "rollback": "No patch imported; split parser and UI changes, then add capture-driven tests before adopting either behavior.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_SPLIT_REVIEW",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The commit bundles a USBMUX parser exception for a reported iOS 27 VERSION-after-trailer frame with a persisted-setting-derived home-card transport title, translations, release-note claims, and UI state changes. Fixed main uses a strict UsbMuxFrameDecoder and derives connection behavior from explicit selection; the combined change would loosen framing and couple UI to persisted transport without target evidence.",
+        "test": "PASS_STATIC: diff changes UsbMuxFrameBuffer and DiPlayActivity/HomeCardTransport/resources; fixed main has a strict UsbMuxFrameDecoder and no HomeCardTransport; SOURCE_TESTS: upstream synthetic transfer-split cases; NOT_RUN_TARGET: supported-device VERSION-after-trailer capture and live home-card session transition",
+        "related": "Reject mixed USBMUX-EX trailer and home-card UI commit; PR-01 CDC-NCM padding is separate",
+        "rollback": "No parser exception or home-card state imported; retain fixed-main framing and connection-selection ownership. Any later trailer adaptation must be independently tested from a capture-derived fixture.",
+        "review_state": "PRIMARY_AGENT_PATCH_REJECTED_MIXED_USBMUX_UI",
     },
     "9f9bc1b36e227650754f095c783a1040fd19be3e": {
         "disposition": "REJECT_UNSAFE",

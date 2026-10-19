@@ -63,4 +63,4 @@
 - 2026-10-09: Made production `AUTO` poll an available CDC status endpoint, added debug `NO_STATUS_POLLING` for comparison, and kept OUT timeout at 100 ms. Focused NCM tests and all common tests pass; the full shared suite has one IPv6-loopback permission failure. Rebuilt and signature-verified the credentialed mobile arm64 APK; left it uninstalled as requested.
 # Four DSP modules in PR #22
 
-Implemented Phases 0–8 on `codex/diplay-4dsp` and opened/attached new PR #22 against `main`; PR remains unmerged. Local validation passed, and hosted Android checks run 39192798481 passed on attempt 2, including ASan/UBSan and instrumentation. TS10/CarPlay hardware validation remains unperformed.
+Implemented Phases 0–8 on `codex/diplay-4dsp` and opened/attached new PR #22 against `main`; PR remains unmerged. Local validation passed, and hosted Android checks run 39195803900 passed both jobs on head `ac20c40`, including ASan/UBSan and instrumentation. TS10/CarPlay hardware validation remains unperformed.

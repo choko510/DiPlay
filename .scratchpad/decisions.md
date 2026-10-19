@@ -138,13 +138,13 @@ Run the complete timing matrix inside Android instrumentation and clear/capture 
 
 Open the new PR only after implementation, phase commits, local regression suites, app builds, and benchmark artifacts are reviewable. Verify the final head's workflow run and check results; do not merge as part of implementation.
 
-## Trigger Android checks for codex implementation branches
-
-Run the same Android checks workflow on `codex/**` pushes as on pull requests. This gives the implementation branch a hosted result even if an app-created PR event did not create an initial workflow run.
-
 ## Recover workflow dispatch without widening Actions permissions
 
-If a workflow dispatch reports Actions disabled while the repository already has `enabled=true` and `allowed_actions=all`, reapply those same settings once and retry dispatch. Do not widen the allowlist; if it still returns disabled, report the hosted CI blocker and keep the PR unmerged until GitHub restores it.
+If a workflow dispatch reports Actions disabled while the repository already has `enabled=true` and `allowed_actions=all`, reapply those same settings once and retry dispatch. On DiPlay, that idempotent update allowed the dispatch to start without widening the allowlist.
+
+## Avoid duplicate Android workflows for PR branch pushes
+
+Keep the push filter limited to `main` and let `pull_request` be the authoritative check for PR branches. Enabling both push and pull_request for `codex/**` duplicates the full host/emulator matrix.
 ## Scope wired media negotiation to stereo LPCM
 
 Wired type 100 media advertises only configured high-rate stereo PCM, and wired `/info` omits type 102 AAC and latency entries. Wireless retains AAC-LC type 102 media with a matching latency type; keep the existing type 101 navigation high-rate negotiation independent.

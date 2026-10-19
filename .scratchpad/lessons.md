@@ -2,6 +2,8 @@
 
 For faster pull request feedback, keep inexpensive repository checks in an always-running job and gate costly builds/emulators with a conservative changed-file classifier. Compare against the last successful full run so documentation commits in a long-lived code PR can skip expensive jobs without hiding unverified code changes. Default unknown paths, missing baselines, and non-PR events to the full suite.
 
+When a repository tool only updates a reviewed inventory and its dedicated validator runs on every PR, an exact path allowlist can keep those review iterations off the Android build path. Do not generalize that exemption to other `scripts/` changes.
+
 When using `gh api` query parameters with `-f`, pass `--method GET` explicitly; otherwise the CLI switches to POST. Keep this explicit for read-only pagination and filter requests so an HTTP 404 cannot silently route every PR through expensive fallback checks.
 
 The Gradle setup action defaults non-default branches to read-only caching. Inspect its run summary; when repeated same-PR builds need task outputs, allow writes only to that PR's merge-ref cache and keep fork PRs read-only.

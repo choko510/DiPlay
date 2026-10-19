@@ -90,6 +90,30 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No change needed; keep the minSdk 28 policy and do not add an unreachable legacy cap.",
         "review_state": "PRIMARY_AGENT_FIXED_MAIN_AND_PLAN_COMPARISON",
     },
+    "ab6eb73bd90f483003b961cc13f0cb1f2a1ab596": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This PR478 merge mixes the NTB optional-pad repair with UsbRequest queue sizing. PR-01 has adapted the NCM boundary behavior to fixed main's persistent-read ownership, but its explicit queue(false) fallback remains conditional; minSdk 28 excludes the API 26/27 ceiling and no device-present API 28+ queue rejection has been captured.",
+        "test": "PASS_STATIC: fixed main common/mobile/automotive minSdk is 28; PASS_PR45: NcmUsbBridgeFixtureTest covers exact-boundary padded/unpadded NTBs, next-NTH16 preservation, fragmented reads, and sync/async paths; NOT_RUN_TARGET: API 28+ device-present UsbRequest.queue()==false",
+        "related": "PR-01 adapted NCM optional-pad/framing behavior; PR-02 API 26/27 cap NOT_APPLICABLE at minSdk 28; API 28+ queue(false) fallback remains CONDITIONAL",
+        "rollback": "No UsbRequest queue policy was imported. Keep the PR-01 framing fix isolated; any future queue fallback must be one reversible PR-45 change gated by a device-present queue(false) reproduction.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_FORK_TESTS",
+    },
+    "422a7d8e6368b406c8a958c5877bdd562bf6baf8": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The PR495 ladder retries explicit UsbRequest queue rejection from the capped size down to 2 KiB and expands session diagnostics with nested causes/stack frames. API 26/27 is excluded by minSdk 28, but the API 28+ fallback has no device-present queue(false) reproduction and the extra failure detail needs a separate privacy review.",
+        "test": "PASS_STATIC: fixed-main app minSdk is 28; NOT_RUN_TARGET: API 28+ device-present queue(false), queue/wait ownership, and request teardown; NOT_RUN_PRIVACY: cause-chain message/frame redaction for identifiers and payload-like values",
+        "related": "PR-02 API 28+ UsbRequest.queue(false) compatibility gate; EX-01 diagnostic privacy; separate from PR-01 NCM framing",
+        "rollback": "No queue ladder or cause-chain logging was imported; if justified later, split them into independently tested and revertible changes while retaining fixed-main request ownership.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_SPLIT_REVIEW",
+    },
+    "48ef3b46b13c816a47312923bb61de7c8fb6444c": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This integration commit combines the NTB optional-pad fix, the PR495 queue retry ladder, and expanded throwable diagnostics. PR-01 already adapts the NCM boundary repair; the API 28+ queue(false) behavior lacks a device-present reproduction, and the cause-chain logging is outside the reviewed NCM change and needs separate privacy/source review.",
+        "test": "PASS_PR45: NcmUsbBridgeFixtureTest covers the adapted exact-boundary/padding behavior; PASS_STATIC: fixed-main app minSdk is 28; NOT_RUN_TARGET: device-present API 28+ queue(false); NOT_RUN_PRIVACY: nested throwable diagnostics",
+        "related": "PR-01 NCM framing adapted; PR-02 queue(false) fallback CONDITIONAL; EX-01 diagnostic privacy",
+        "rollback": "Do not import the combined queue/logging behavior. Keep PR-01 framing isolated; future queue or diagnostic changes require separate evidence-backed PR-45 commits and independent rollback.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_SPLIT_REVIEW",
+    },
     "f7af3286ea28b73e7219e50f9aa4fa3128de9eec": {
         "disposition": "NEED_EVIDENCE",
         "reason": "The bounded trailer rule applies to USBMUX TCP replies, not CDC-NCM NTB padding. The fork uses a separate USBMUX parser and has no captured payload-bearing trailer showing this condition.",
@@ -216,6 +240,22 @@ BASE_REVIEW_OVERRIDES = {
         "test": "NOT_RUN_FORK: exact VERSION/SYN-ACK trailer capture, every transfer split, frame ordering, and malformed-length rejection",
         "related": "USBMUX-EX control-reply framing; separate from PR-01 NCM NTB recovery",
         "rollback": "No parser replacement imported; if reproduced, adapt only the validated bounded trailer cases behind a focused UsbMuxFrameDecoder test.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_PROTOCOL_CAPTURE",
+    },
+    "c11e298d8195be5c18cfa942d91b5be591a2c482": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This commit adds a bounded USBMUX parser exception for a four-byte trailer after VERSION or a captured-magic TCP SYN-ACK and validates the following TCP header/ports. Its tests synthesize split transfers, but fixed main already has a strict UsbMuxFrameDecoder and no TS10/K706/iPhone capture establishes this trailer on the supported path; this is separate from CDC-NCM padding.",
+        "test": "PASS_STATIC: origin/main uses UsbMuxFrameDecoder with bounded frame lengths; SOURCE_TESTS: upstream synthetic split/padding cases; NOT_RUN_FORK: real supported-device trailer capture, malformed-length corpus, and following-frame preservation",
+        "related": "USBMUX-EX control-reply framing; PR-01 CDC-NCM padding is separate",
+        "rollback": "No parser code imported; retain fixed-main framing. Any future adapter must be isolated and pass capture-derived split, malformed-length, and following-frame tests.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_PROTOCOL_CAPTURE",
+    },
+    "5f59f7780eb66ead8b3e63fd3626f6cacfa27b0c": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This follow-up broadens the four-byte trailer exception from VERSION/SYN-ACK to payload-bearing TCP replies with a valid header and nonzero ports. The added all-split tests are synthetic; no supported-device capture confirms the trailer, and the wider acceptance rule could hide a malformed declared length if copied without the exact boundary evidence.",
+        "test": "SOURCE_TESTS: upstream synthetic payload-bearing and every-transfer-split cases; NOT_RUN_FORK_USBMUX: real payload-reply trailer capture, malformed lengths, header-like payload bytes, and next-frame preservation",
+        "related": "USBMUX-EX payload-reply framing; distinct from PR-01 CDC-NCM recovery",
+        "rollback": "No parser code imported; retain fixed-main framing. If a capture proves the trailer, adapt only the exact observed response class in a separately revertible change.",
         "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_PROTOCOL_CAPTURE",
     },
     "4e97b53423764fdc8d8632e66178f63bdef2cbbe": {
@@ -946,7 +986,7 @@ def build_rows() -> list[dict[str, str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="validate sources and preview disposition counts without writing")
+    parser.add_argument("--check", action="store_true", help="validate sources and generated ledger without writing")
     args = parser.parse_args()
     try:
         rows = build_rows()
@@ -959,6 +999,17 @@ def main() -> int:
     print(f"Current dispositions: {dict(sorted(counts.items()))}")
     print("Note: NEED_EVIDENCE is an explicit pending decision, not semantic review or parity proof.")
     if args.check:
+        if not OUTPUT.is_file():
+            print(f"Generated EX-08 ledger is missing: {OUTPUT.relative_to(ROOT)}", file=sys.stderr)
+            return 1
+        with OUTPUT.open("r", encoding="utf-8", newline="") as stream:
+            generated_rows = list(csv.DictReader(stream))
+        if generated_rows != rows:
+            print(
+                f"Generated EX-08 ledger is stale: regenerate {OUTPUT.relative_to(ROOT)}",
+                file=sys.stderr,
+            )
+            return 1
         for row in rows[:2] + rows[-2:]:
             print(f"{row['inventory_group']} {row['source_index']} {row['commit_sha']} {row['disposition']} {row['subject']}")
         return 0

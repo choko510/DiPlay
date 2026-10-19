@@ -2,7 +2,7 @@
 
 ## Keep documentation-only PR checks lightweight
 
-For pull requests, always run public-tree and EX-08 inventory checks, but skip Android SDK setup, native tests, Gradle builds, and emulator instrumentation only when every path changed since the last successful full run is under `docs/`, `.scratchpad/`, or is a Markdown file. Treat unknown paths, pushes, manual runs, missing/failed baselines, large diffs, and API errors as requiring the full verification suite.
+For pull requests, always run public-tree and EX-08 inventory checks, but skip Android SDK setup, native tests, Gradle builds, and emulator instrumentation only when every path changed since the last successful full run is under `docs/`, `.scratchpad/`, is a Markdown file, or is the exact audit-only `scripts/generate_step4_ex08_inventory.py`. Its `--check` still runs on every PR. Treat other scripts, unknown paths, pushes, manual runs, missing/failed baselines, large diffs, and API errors as requiring the full verification suite.
 
 ## Cache Gradle task outputs only within the same pull request
 

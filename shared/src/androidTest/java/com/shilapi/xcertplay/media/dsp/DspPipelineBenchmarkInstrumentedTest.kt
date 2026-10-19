@@ -192,6 +192,18 @@ class DspPipelineBenchmarkInstrumentedTest {
             leftTrimDb = 3.0,
             rightTrimDb = -2.0,
         )
+        val advancedMs = DspAdvancedMsConfig(
+            enabled = true,
+            crossoverHz = 250.0,
+            centerFocusDb = 1.0,
+            midLowGainDb = -1.0,
+            midHighGainDb = 1.0,
+            sideLowGainDb = -1.0,
+            sideHighGainDb = 1.5,
+            lowBandWidth = 0.5,
+            highBandWidth = 1.4,
+            sideCompressor = DspMsSideCompressorConfig(enabled = true, thresholdDb = -28.0, ratio = 2.0),
+        )
         val base = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
         val peq = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, peqBands = peq15)
 
@@ -246,6 +258,15 @@ class DspPipelineBenchmarkInstrumentedTest {
                     safetyLimiter = DspSafetyLimiterConfig(enabled = false),
                 ),
             ),
+            BenchmarkCase(
+                "AdvancedMS",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    advancedMs = advancedMs,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
             BenchmarkCase("Convolver4k", convolverConfig(sampleRate, channels, 4_096)),
             BenchmarkCase("Convolver16k", convolverConfig(sampleRate, channels, 16_384)),
             BenchmarkCase("Convolver64k", convolverConfig(sampleRate, channels, 65_536)),
@@ -262,6 +283,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                     stereoWidth = 1.25,
                     monoBass = monoBass,
                     seatAlignment = seatAlignment.copy(nearSpeaker = DspSeatNearSpeaker.RIGHT),
+                    advancedMs = advancedMs,
                     convolver = convolverConfig(sampleRate, channels, 16_384).convolver,
                     multiband = multiband,
                     dynamicEq = dynamicEq,

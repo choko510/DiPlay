@@ -168,6 +168,7 @@ internal object DspAutoHeadroom {
         marginDb: Double = 1.0,
         staticBassBands: List<DspEqBand> = emptyList(),
         seatTrimDb: Double = 0.0,
+        advancedMsBoostDb: Double = 0.0,
     ): DspHeadroomResult {
         require(sampleRate in 8_000..192_000)
         require(preampDb.isFinite())
@@ -175,6 +176,7 @@ internal object DspAutoHeadroom {
         require(maxBandMakeupDb.isFinite())
         require(dynamicBoostDb.isFinite())
         require(seatTrimDb.isFinite())
+        require(advancedMsBoostDb.isFinite())
         require(stereoWidth.isFinite() && stereoWidth in 0.0..2.0)
         require(marginDb.isFinite() && marginDb >= 0.0)
         require(peqBands.size <= DspEqDesigner.MAX_BANDS)
@@ -198,7 +200,7 @@ internal object DspAutoHeadroom {
         val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth))
         val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
             max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) +
-            max(0.0, seatTrimDb) + widthWorstCaseDb
+            max(0.0, seatTrimDb) + widthWorstCaseDb + max(0.0, advancedMsBoostDb)
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
@@ -221,6 +223,7 @@ internal data class DspPreparedConfig(
 )
 
 internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
+    advancedMs.validateForSampleRate(format.sampleRate)
     val enabledBands = peqBands.filter(DspEqBand::enabled)
     val coefficients = DoubleArray(enabledBands.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
     enabledBands.forEachIndexed { index, band ->
@@ -289,7 +292,8 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
                 0.0
             },
             seatTrimDb = if (format.channels == 2) seatAlignment.positiveTrimForHeadroomDb else 0.0,
-            stereoWidth = stereoWidth,
+            stereoWidth = if (advancedMs.enabled) 1.0 else stereoWidth,
+            advancedMsBoostDb = if (format.channels == 2) advancedMs.worstCaseBoostDb else 0.0,
             marginDb = autoHeadroomMarginDb,
             staticBassBands = if (bass.enabled) {
                 listOf(
@@ -334,6 +338,21 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             seatAlignment.rightTrimDb,
             if (seatAlignment.invertLeft) 1.0 else 0.0,
             if (seatAlignment.invertRight) 1.0 else 0.0,
+            if (advancedMs.enabled && format.channels == 2) 1.0 else 0.0,
+            advancedMs.crossoverHz,
+            advancedMs.centerFocusDb,
+            advancedMs.midLowGainDb,
+            advancedMs.midHighGainDb,
+            advancedMs.sideLowGainDb,
+            advancedMs.sideHighGainDb,
+            advancedMs.lowBandWidth,
+            advancedMs.highBandWidth,
+            if (advancedMs.sideCompressor.enabled && format.channels == 2) 1.0 else 0.0,
+            advancedMs.sideCompressor.thresholdDb,
+            advancedMs.sideCompressor.ratio,
+            advancedMs.sideCompressor.attackMs,
+            advancedMs.sideCompressor.releaseMs,
+            advancedMs.sideCompressor.kneeDb,
         ),
         convolverConfig = doubleArrayOf(
             if (convolverEnabled) 1.0 else 0.0,

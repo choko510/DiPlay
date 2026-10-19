@@ -708,6 +708,71 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun activeAdvancedMidSideGraphUpdatesWaitUntilANewTrackGeneration() {
+        val initialConfig = DspRuntimeConfig(
+            enabled = true,
+            advancedMs = DspAdvancedMsConfig(enabled = true),
+        )
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, _ -> pipeline(audioFormat, latencyFrames = 0, gain = 1.0f) },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            val activePipeline = renderer.dspPipeline
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    advancedMs = initialConfig.advancedMs.copy(midHighGainDb = 1.0),
+                ),
+            )
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+
+            assertTrue(renderer.dspPipeline === activePipeline)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 30L,
+            )
+
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertTrue(renderer.dspPipeline !== activePipeline)
+            assertEquals(0, renderer.dspPipeline?.algorithmicLatencyFrames)
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun decoderFormatChangeCancelsAnInFlightFadeAndRetiresItsOldFormatGraph() {
         val oldCandidateClosed = CountDownLatch(1)
         val prepared = LinkedBlockingQueue<Unit>()

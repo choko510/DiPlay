@@ -3,12 +3,14 @@ package com.shilapi.xcertplay.dsp
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
+import com.shilapi.xcertplay.media.dsp.DspMsSideCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
@@ -53,6 +55,18 @@ class DspProfileRepositoryTest {
                 leftTrimDb = 2.0,
                 rightTrimDb = -3.0,
                 invertRight = true,
+            ),
+            advancedMs = DspAdvancedMsConfig(
+                enabled = true,
+                crossoverHz = 315.0,
+                centerFocusDb = 1.0,
+                midLowGainDb = -2.0,
+                midHighGainDb = 3.0,
+                sideLowGainDb = -1.0,
+                sideHighGainDb = 2.0,
+                lowBandWidth = 0.0,
+                highBandWidth = 1.5,
+                sideCompressor = DspMsSideCompressorConfig(enabled = true, thresholdDb = -30.0, ratio = 3.0),
             ),
             stereoWidth = 1.4,
             monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 100),
@@ -119,6 +133,7 @@ class DspProfileRepositoryTest {
         assertEquals(profile.eqBands, enabled.peqBands)
         assertEquals(profile.bass, enabled.bass)
         assertEquals(profile.seatAlignment, enabled.seatAlignment)
+        assertEquals(profile.advancedMs, enabled.advancedMs)
         assertEquals(profile.stereoWidth, enabled.stereoWidth, 0.0)
         assertEquals(profile.monoBass, enabled.monoBass)
         assertEquals(profile.convolver, enabled.convolver)
@@ -157,6 +172,10 @@ class DspProfileRepositoryTest {
             """{"schemaVersion":4,"id":"custom1","seatAlignment":{"distanceDifferenceCm":172}}""",
         )
         assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
+        profileFile.writeText(
+            """{"schemaVersion":5,"id":"custom1","advancedMs":{"highBandWidth":2.1}}""",
+        )
+        assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
     }
 
     @Test
@@ -192,7 +211,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspMultibandConfig.DEFAULT_LOW_MID_CROSSOVER_HZ, loaded.profile.multiband.lowMidCrossoverHz, 0.0)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":4"))
+        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":5"))
     }
 
     @Test
@@ -211,7 +230,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspDynamicEqConfig.MAX_BANDS, loaded.profile.dynamicEq.bands.size)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":4"))
+        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":5"))
     }
 
     @Test
@@ -229,7 +248,27 @@ class DspProfileRepositoryTest {
         assertFalse(loaded.profile.seatAlignment.enabled)
         assertEquals(DspSeatAlignmentConfig(), loaded.profile.seatAlignment)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
-        assertTrue(profileFile.readText().contains("\"schemaVersion\":4"))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":5"))
+    }
+
+    @Test
+    fun versionFourProfileMigratesWithAdvancedMsDisabledByDefault() {
+        val repository = repositoryWithDirectWriterForMigrationTests()
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        assertTrue(profileFile.parentFile!!.mkdirs())
+        profileFile.writeText(
+            """{"schemaVersion":4,"id":"custom1","stereo":{"width":1.25,"monoBass":{"enabled":true,"cutoffHz":120}},"advancedMs":{"enabled":true}}""",
+        )
+
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertEquals(4, loaded.migratedFromVersion)
+        assertFalse(loaded.profile.advancedMs.enabled)
+        assertEquals(DspAdvancedMsConfig(), loaded.profile.advancedMs)
+        assertEquals(1.25, loaded.profile.stereoWidth, 0.0)
+        assertTrue(loaded.profile.monoBass.enabled)
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":5"))
     }
 
     @Test

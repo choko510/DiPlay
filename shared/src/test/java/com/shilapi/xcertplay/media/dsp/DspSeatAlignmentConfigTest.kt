@@ -65,7 +65,7 @@ class DspSeatAlignmentConfigTest {
         val prepared = DspRuntimeConfig(enabled = true, seatAlignment = seat).prepare(DspAudioFormat(48_000, 2))
         val mono = DspRuntimeConfig(enabled = true, seatAlignment = seat).prepare(DspAudioFormat(48_000, 1))
 
-        assertEquals(10, prepared.spatial.size)
+        assertEquals(DSP_SPATIAL_NATIVE_VALUE_COUNT, prepared.spatial.size)
         assertEquals(1.0, prepared.spatial[3], 0.0)
         assertEquals(DspSeatNearSpeaker.RIGHT.nativeValue.toDouble(), prepared.spatial[4], 0.0)
         assertEquals(34.3, prepared.spatial[5], 0.0)
@@ -73,6 +73,8 @@ class DspSeatAlignmentConfigTest {
         assertEquals(6.0, prepared.spatial[7], 0.0)
         assertEquals(1.0, prepared.spatial[8], 0.0)
         assertEquals(0.0, prepared.spatial[9], 0.0)
+        assertEquals(0.0, prepared.spatial[10], 0.0)
+        assertEquals(DspAdvancedMsConfig.DEFAULT_CROSSOVER_HZ, prepared.spatial[11], 0.0)
         assertEquals(7.0, prepared.headroom.reductionDb, 0.02)
         assertEquals(0.0, mono.spatial[3], 0.0)
         assertEquals(1.0, mono.headroom.reductionDb, 0.02)

@@ -116,6 +116,16 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | DSP01-04 | TS10/K706 listening, measured speaker distances, A/V sync, and head-unit memory/CPU impact | Physical device run | `NOT_RUN`; no target head unit or listening path is connected |
 | DSP01-05 | Native ASan/UBSan on this Windows host | `scripts/test_dsp_native.sh --sanitize` | `BLOCKED_ENV`; MSYS2 GCC lacks `libasan`/`libubsan`; unsanitized C suite passes |
 
+## DSP-02 Advanced Mid/Side
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| DSP02-01 | Advanced M/S defaults off, legacy Stereo Width/Mono Bass are folded into low/high bands on first enable, sample-rate and parameter bounds are enforced, and positive Mid/Side/width gain enters Auto Headroom | `DspAdvancedMsConfigTest`, `DspAutoHeadroomTest` | `PASS_LOCAL` |
+| DSP02-02 | LR4 low/high split reconstructs unity magnitude; band-specific Side width, mono input, and anti-phase Side behavior remain stable; final limiter constrains width overshoot | `test_dsp_engine.c` | `PASS_LOCAL` unsanitized |
+| DSP02-03 | Mid/Side native parameters and DSP stateful-update deferral are wired through JNI and renderer lifecycle | `NativeDspProcessorTest`, `DspRendererProductionPathTest` | `PASS_LOCAL` / `PASS_ROBOLECTRIC` |
+| DSP02-04 | Advanced M/S and full-chain p99 plus allocation gate across 44.1/48 kHz mono/stereo | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (48 configurations after adding AdvancedMS) | `NOT_RUN` for this stage; scheduled with the final DSP matrix |
+| DSP02-05 | TS10/K706 listening, phase/group-delay assessment, mono/anti-phase car playback, and long-run validation | Physical device run | `NOT_RUN`; no target head unit or listening path is connected |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |

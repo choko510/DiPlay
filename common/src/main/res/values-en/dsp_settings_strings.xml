@@ -89,4 +89,19 @@
     <string name="dsp_preset_night">Night</string>
     <string name="dsp_preset_custom_1">Custom 1</string>
     <string name="dsp_preset_custom_2">Custom 2</string>
+    <string name="dsp_ms_advanced">Advanced Mid/Side</string>
+    <string name="dsp_ms_description">Mid includes all center-panned content, not only vocals. Legacy width and mono-bass controls are folded into these band controls when enabled.</string>
+    <string name="dsp_ms_crossover">Low/high crossover</string>
+    <string name="dsp_ms_center_focus">Center focus</string>
+    <string name="dsp_ms_mid_low">Low-band Mid tone</string>
+    <string name="dsp_ms_mid_high">High-band Mid tone</string>
+    <string name="dsp_ms_side_low">Low-band Side tone</string>
+    <string name="dsp_ms_side_high">High-band Side tone</string>
+    <string name="dsp_ms_low_width">Low-band width</string>
+    <string name="dsp_ms_high_width">High-band width</string>
+    <string name="dsp_ms_side_compressor">Side compressor</string>
+    <string name="dsp_ms_side_threshold">Side threshold</string>
+    <string name="dsp_ms_side_ratio">Side ratio</string>
+    <string name="dsp_ms_side_attack">Side attack</string>
+    <string name="dsp_ms_side_release">Side release</string>
 </resources>

@@ -239,7 +239,29 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         !isfinite(spatial_values_data[6]) || spatial_values_data[6] < -6.0 || spatial_values_data[6] > 6.0 ||
         !isfinite(spatial_values_data[7]) || spatial_values_data[7] < -6.0 || spatial_values_data[7] > 6.0 ||
         (spatial_values_data[8] != 0.0 && spatial_values_data[8] != 1.0) ||
-        (spatial_values_data[9] != 0.0 && spatial_values_data[9] != 1.0)) {
+        (spatial_values_data[9] != 0.0 && spatial_values_data[9] != 1.0) ||
+        (spatial_values_data[10] != 0.0 && spatial_values_data[10] != 1.0) ||
+        !isfinite(spatial_values_data[11]) || spatial_values_data[11] < 60.0 ||
+        spatial_values_data[11] > 1000.0 || !isfinite(spatial_values_data[12]) ||
+        spatial_values_data[12] < -6.0 || spatial_values_data[12] > 6.0 ||
+        !isfinite(spatial_values_data[13]) || spatial_values_data[13] < -6.0 ||
+        spatial_values_data[13] > 6.0 || !isfinite(spatial_values_data[14]) ||
+        spatial_values_data[14] < -6.0 || spatial_values_data[14] > 6.0 ||
+        !isfinite(spatial_values_data[15]) || spatial_values_data[15] < -6.0 ||
+        spatial_values_data[15] > 6.0 || !isfinite(spatial_values_data[16]) ||
+        spatial_values_data[16] < -6.0 || spatial_values_data[16] > 6.0 ||
+        !isfinite(spatial_values_data[17]) || spatial_values_data[17] < 0.0 ||
+        spatial_values_data[17] > 2.0 || !isfinite(spatial_values_data[18]) ||
+        spatial_values_data[18] < 0.0 || spatial_values_data[18] > 2.0 ||
+        (spatial_values_data[19] != 0.0 && spatial_values_data[19] != 1.0) ||
+        !isfinite(spatial_values_data[20]) || spatial_values_data[20] < -60.0 ||
+        spatial_values_data[20] > 0.0 || !isfinite(spatial_values_data[21]) ||
+        spatial_values_data[21] < 1.0 || spatial_values_data[21] > 8.0 ||
+        !isfinite(spatial_values_data[22]) || spatial_values_data[22] < 0.1 ||
+        spatial_values_data[22] > 2000.0 || !isfinite(spatial_values_data[23]) ||
+        spatial_values_data[23] < 0.1 || spatial_values_data[23] > 2000.0 ||
+        !isfinite(spatial_values_data[24]) || spatial_values_data[24] < 0.0 ||
+        spatial_values_data[24] > 24.0) {
         return 0;
     }
     (*env)->GetDoubleArrayRegion(env, convolver_values, 0, convolver_value_count, convolver_values_data);
@@ -288,6 +310,23 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         .seat_right_trim_db = spatial_values_data[7],
         .seat_invert_left = (int)spatial_values_data[8],
         .seat_invert_right = (int)spatial_values_data[9],
+        .advanced_ms = {
+            .enabled = (int)spatial_values_data[10],
+            .crossover_hz = spatial_values_data[11],
+            .center_focus_db = spatial_values_data[12],
+            .mid_low_gain_db = spatial_values_data[13],
+            .mid_high_gain_db = spatial_values_data[14],
+            .side_low_gain_db = spatial_values_data[15],
+            .side_high_gain_db = spatial_values_data[16],
+            .low_band_width = spatial_values_data[17],
+            .high_band_width = spatial_values_data[18],
+            .side_compressor_enabled = (int)spatial_values_data[19],
+            .side_compressor_threshold_db = spatial_values_data[20],
+            .side_compressor_ratio = spatial_values_data[21],
+            .side_compressor_attack_ms = spatial_values_data[22],
+            .side_compressor_release_ms = spatial_values_data[23],
+            .side_compressor_knee_db = spatial_values_data[24],
+        },
     };
     dsp_multiband_config multiband_config = {
         .enabled = (int)multiband_values_data[0],

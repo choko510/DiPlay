@@ -13,7 +13,7 @@ enum class DspSeatNearSpeaker(val nativeValue: Int) {
     RIGHT(2),
 }
 
-internal const val DSP_SPATIAL_NATIVE_VALUE_COUNT = 10
+internal const val DSP_SPATIAL_NATIVE_VALUE_COUNT = 25
 
 /** Stereo seat alignment with an explicitly selected nearer channel; steering side is never inferred. */
 data class DspSeatAlignmentConfig(

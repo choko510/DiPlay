@@ -89,4 +89,19 @@
     <string name="dsp_preset_night">Night</string>
     <string name="dsp_preset_custom_1">Custom 1</string>
     <string name="dsp_preset_custom_2">Custom 2</string>
+    <string name="dsp_ms_advanced">Advanced Mid/Side</string>
+    <string name="dsp_ms_description">Midにはボーカルだけでなく、中央定位のすべての音が含まれます。有効化すると従来の幅・低域モノ設定を各帯域設定へ引き継ぎます。</string>
+    <string name="dsp_ms_crossover">低域／高域のクロスオーバー</string>
+    <string name="dsp_ms_center_focus">センター強調</string>
+    <string name="dsp_ms_mid_low">低域Midトーン</string>
+    <string name="dsp_ms_mid_high">高域Midトーン</string>
+    <string name="dsp_ms_side_low">低域Sideトーン</string>
+    <string name="dsp_ms_side_high">高域Sideトーン</string>
+    <string name="dsp_ms_low_width">低域の幅</string>
+    <string name="dsp_ms_high_width">高域の幅</string>
+    <string name="dsp_ms_side_compressor">Sideコンプレッサー</string>
+    <string name="dsp_ms_side_threshold">Sideしきい値</string>
+    <string name="dsp_ms_side_ratio">Side比率</string>
+    <string name="dsp_ms_side_attack">Sideアタック</string>
+    <string name="dsp_ms_side_release">Sideリリース</string>
 </resources>

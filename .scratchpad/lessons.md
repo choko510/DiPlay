@@ -296,3 +296,5 @@ For multi-area `/info` changes, keep the legacy single-area serializer as the de
 For DSP graph extensions, keep the disabled MEDIA path as a byte-for-byte PCM16 bypass with zero added latency. Prepare scratch buffers, delay lines, filters and interpolation tables before audio processing; the render thread should only operate on preallocated state.
 
 For a stereo seat-alignment delay, the selected near channel receives the distance-derived delay while the far channel remains at zero; report the maximum relative delay for the playback clock and sum it with downstream graph latency. Defer replacing an active delay ring until a track-generation boundary so the new buffer does not start without history.
+
+For two-band M/S processing, use matched cascaded Butterworth LP4/HP4 filters so the bands recombine with flat magnitude. Apply the same crossover state to Mid and Side, treat Mid as all center-panned content, and include the maximum positive band gain plus width in Auto Headroom; skip the old Width/Mono Bass stage only while the new module is active.

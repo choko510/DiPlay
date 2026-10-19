@@ -4,12 +4,14 @@ import android.util.AtomicFile
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
+import com.shilapi.xcertplay.media.dsp.DspMsSideCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
@@ -131,6 +133,8 @@ internal class DspProfileRepository(
         val convolverJson = json.optJSONObject("convolver") ?: JSONObject()
         val limiterJson = json.optJSONObject("limiter") ?: JSONObject()
         val seatJson = json.optJSONObject("seatAlignment") ?: JSONObject()
+        val advancedMsJson = json.optJSONObject("advancedMs") ?: JSONObject()
+        val sideCompressorJson = advancedMsJson.optJSONObject("sideCompressor") ?: JSONObject()
         val multibandJson = json.optJSONObject("multiband") ?: JSONObject()
         val dynamicEqJson = json.optJSONObject("dynamicEq") ?: JSONObject()
         val monoBassJson = stereoJson.optJSONObject("monoBass") ?: JSONObject()
@@ -169,6 +173,28 @@ internal class DspProfileRepository(
                 invertLeft = seatJson.optBoolean("invertLeft", false),
                 invertRight = seatJson.optBoolean("invertRight", false),
             ),
+            advancedMs = if (schemaVersion >= 5) DspAdvancedMsConfig(
+                enabled = advancedMsJson.optBoolean("enabled", false),
+                crossoverHz = advancedMsJson.readFiniteDouble(
+                    "crossoverHz",
+                    DspAdvancedMsConfig.DEFAULT_CROSSOVER_HZ,
+                ),
+                centerFocusDb = advancedMsJson.readFiniteDouble("centerFocusDb", 0.0),
+                midLowGainDb = advancedMsJson.readFiniteDouble("midLowGainDb", 0.0),
+                midHighGainDb = advancedMsJson.readFiniteDouble("midHighGainDb", 0.0),
+                sideLowGainDb = advancedMsJson.readFiniteDouble("sideLowGainDb", 0.0),
+                sideHighGainDb = advancedMsJson.readFiniteDouble("sideHighGainDb", 0.0),
+                lowBandWidth = advancedMsJson.readFiniteDouble("lowBandWidth", 1.0),
+                highBandWidth = advancedMsJson.readFiniteDouble("highBandWidth", 1.0),
+                sideCompressor = DspMsSideCompressorConfig(
+                    enabled = sideCompressorJson.optBoolean("enabled", false),
+                    thresholdDb = sideCompressorJson.readFiniteDouble("thresholdDb", -24.0),
+                    ratio = sideCompressorJson.readFiniteDouble("ratio", 2.0),
+                    attackMs = sideCompressorJson.readFiniteDouble("attackMs", 10.0),
+                    releaseMs = sideCompressorJson.readFiniteDouble("releaseMs", 100.0),
+                    kneeDb = sideCompressorJson.readFiniteDouble("kneeDb", 6.0),
+                ),
+            ) else DspAdvancedMsConfig(),
             stereoWidth = stereoJson.readFiniteDouble("width", 1.0),
             monoBass = DspMonoBassConfig(
                 enabled = monoBassJson.optBoolean("enabled", false),
@@ -292,6 +318,29 @@ internal class DspProfileRepository(
                     .put("invertRight", profile.seatAlignment.invertRight),
             )
             .put(
+                "advancedMs",
+                JSONObject()
+                    .put("enabled", profile.advancedMs.enabled)
+                    .put("crossoverHz", profile.advancedMs.crossoverHz)
+                    .put("centerFocusDb", profile.advancedMs.centerFocusDb)
+                    .put("midLowGainDb", profile.advancedMs.midLowGainDb)
+                    .put("midHighGainDb", profile.advancedMs.midHighGainDb)
+                    .put("sideLowGainDb", profile.advancedMs.sideLowGainDb)
+                    .put("sideHighGainDb", profile.advancedMs.sideHighGainDb)
+                    .put("lowBandWidth", profile.advancedMs.lowBandWidth)
+                    .put("highBandWidth", profile.advancedMs.highBandWidth)
+                    .put(
+                        "sideCompressor",
+                        JSONObject()
+                            .put("enabled", profile.advancedMs.sideCompressor.enabled)
+                            .put("thresholdDb", profile.advancedMs.sideCompressor.thresholdDb)
+                            .put("ratio", profile.advancedMs.sideCompressor.ratio)
+                            .put("attackMs", profile.advancedMs.sideCompressor.attackMs)
+                            .put("releaseMs", profile.advancedMs.sideCompressor.releaseMs)
+                            .put("kneeDb", profile.advancedMs.sideCompressor.kneeDb),
+                    ),
+            )
+            .put(
                 "stereo",
                 JSONObject()
                     .put("width", profile.stereoWidth)
@@ -346,7 +395,7 @@ internal class DspProfileRepository(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 4
+        const val CURRENT_SCHEMA_VERSION = 5
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"

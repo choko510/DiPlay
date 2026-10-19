@@ -343,3 +343,7 @@ Explicitly configure the mobile debug signing config for v1 and v2 so OEM instal
 ## Freeze main behavior before STEP4 corrections
 
 PR-00 changes only tests and baseline/ownership/decision documentation. Keep the observed 512-byte no-pad NCM stall as a passing characterization until PR-01 changes the parser and flips the expected result; do not silently convert a failing behavior into an accepted baseline.
+
+## Integrate Advanced M/S by replacing legacy width controls only when enabled
+
+Keep the existing Stereo Width/Mono Bass path unchanged while Advanced M/S is off. On explicit first enable, fold those persisted settings into the new low/high Side-width values, then use one LR4 Mid/Side stage; v4 profiles migrate to schema v5 with Advanced M/S off. Defer stateful crossover and Side-compressor changes to the next track generation.

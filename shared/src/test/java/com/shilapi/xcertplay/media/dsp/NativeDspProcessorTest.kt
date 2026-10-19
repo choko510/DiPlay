@@ -144,6 +144,56 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun advancedMidSideSettingsArePassedToNativeAsOneIntegratedSpatialStage() {
+        val bindings = FakeNativeDspBindings()
+        val advancedMs = DspAdvancedMsConfig(
+            enabled = true,
+            crossoverHz = 315.0,
+            centerFocusDb = 1.0,
+            midLowGainDb = -2.0,
+            midHighGainDb = 3.0,
+            sideLowGainDb = -1.0,
+            sideHighGainDb = 2.0,
+            lowBandWidth = 0.0,
+            highBandWidth = 1.5,
+            sideCompressor = DspMsSideCompressorConfig(
+                enabled = true,
+                thresholdDb = -30.0,
+                ratio = 3.0,
+                attackMs = 5.0,
+                releaseMs = 120.0,
+                kneeDb = 4.0,
+            ),
+        )
+
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(enabled = true, advancedMs = advancedMs),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        val values = requireNotNull(bindings.createdSpatial)
+        assertTrue(processor != null)
+        assertEquals(1.0, values[10], 0.0)
+        assertEquals(315.0, values[11], 0.0)
+        assertEquals(1.0, values[12], 0.0)
+        assertEquals(-2.0, values[13], 0.0)
+        assertEquals(3.0, values[14], 0.0)
+        assertEquals(-1.0, values[15], 0.0)
+        assertEquals(2.0, values[16], 0.0)
+        assertEquals(0.0, values[17], 0.0)
+        assertEquals(1.5, values[18], 0.0)
+        assertEquals(1.0, values[19], 0.0)
+        assertEquals(-30.0, values[20], 0.0)
+        assertEquals(3.0, values[21], 0.0)
+        assertEquals(5.0, values[22], 0.0)
+        assertEquals(120.0, values[23], 0.0)
+        assertEquals(4.0, values[24], 0.0)
+        processor?.close()
+    }
+
+    @Test
     fun nativeProcessFailureReturnsAnErrorWithoutConsumingBuffers() {
         val format = DspAudioFormat(48_000, 2)
         val bindings = FakeNativeDspBindings(processStatus = 3)

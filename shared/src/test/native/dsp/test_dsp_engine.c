@@ -987,6 +987,121 @@ static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
     }
 }
 
+static dsp_spatial_config make_advanced_ms_config(void) {
+    return (dsp_spatial_config) {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+        .advanced_ms = {
+            .enabled = 1,
+            .crossover_hz = 250.0,
+            .center_focus_db = 0.0,
+            .mid_low_gain_db = 0.0,
+            .mid_high_gain_db = 0.0,
+            .side_low_gain_db = 0.0,
+            .side_high_gain_db = 0.0,
+            .low_band_width = 1.0,
+            .high_band_width = 1.0,
+            .side_compressor_enabled = 0,
+            .side_compressor_threshold_db = -24.0,
+            .side_compressor_ratio = 2.0,
+            .side_compressor_attack_ms = 10.0,
+            .side_compressor_release_ms = 100.0,
+            .side_compressor_knee_db = 6.0,
+        },
+    };
+}
+
+static void test_advanced_ms_crossover_mono_side_dynamics_and_limiter(void) {
+    dsp_spatial_config neutral = make_advanced_ms_config();
+    dsp_engine *engine = create_test_engine_with_spatial(48000, 2, 512, &neutral, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "advanced M/S neutral graph creates");
+    const double frequencies[] = {30.0, 60.0, 120.0, 250.0, 500.0, 2000.0, 10000.0, 20000.0};
+    for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
+        assert_near(measure_sine_gain(engine, frequencies[index], 2), 1.0, 0.025,
+            "neutral LR4 crossover has flat reconstructed magnitude");
+        assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "M/S crossover state resets between tones");
+    }
+    dsp_engine_destroy(engine);
+
+    dsp_spatial_config band_width = make_advanced_ms_config();
+    band_width.width = 0.0;
+    band_width.advanced_ms.low_band_width = 0.0;
+    band_width.advanced_ms.high_band_width = 1.0;
+    engine = create_test_engine_with_spatial(48000, 2, 512, &band_width, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "band-dependent M/S width graph creates");
+    assert_true(measure_sine_gain(engine, 60.0, 2) < 0.04,
+        "low Side energy is collapsed by the low-band width control");
+    assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "M/S width graph resets before high-band tone");
+    assert_true(measure_sine_gain(engine, 4000.0, 2) > 0.95,
+        "high Side energy remains at unity width");
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_spatial(48000, 2, 4, &band_width, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "M/S mono-compatibility graph creates");
+    const float mono_input[] = {0.1f, 0.1f, -0.2f, -0.2f, 0.3f, 0.3f, -0.4f, -0.4f};
+    float mono_output[8] = {0};
+    assert_true(dsp_engine_process(engine, mono_input, 8, mono_output, 8, 4, 2) == DSP_STATUS_OK,
+        "mono-compatible M/S block processes");
+    for (size_t frame = 0; frame < 4; frame++) {
+        assert_near(mono_output[frame * 2], mono_output[frame * 2 + 1], 1e-7,
+            "Side width controls do not create output from mono input");
+    }
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_spatial(48000, 2, 4, &band_width, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "M/S antiphase graph creates");
+    const float antiphase_input[] = {0.1f, -0.1f, -0.2f, 0.2f, 0.3f, -0.3f, -0.4f, 0.4f};
+    float antiphase_output[8] = {0};
+    assert_true(dsp_engine_process(engine, antiphase_input, 8, antiphase_output, 8, 4, 2) == DSP_STATUS_OK,
+        "antiphase-compatible M/S block processes");
+    for (size_t frame = 0; frame < 4; frame++) {
+        assert_near(antiphase_output[frame * 2], -antiphase_output[frame * 2 + 1], 1e-7,
+            "matched M/S crossover phase preserves antiphase separation");
+    }
+    dsp_engine_destroy(engine);
+
+    dsp_spatial_config compressed = make_advanced_ms_config();
+    compressed.advanced_ms.side_compressor_enabled = 1;
+    compressed.advanced_ms.side_compressor_threshold_db = -30.0;
+    compressed.advanced_ms.side_compressor_ratio = 4.0;
+    dsp_engine *side_compressor = create_test_engine_with_spatial(
+        48000, 2, 512, &compressed, NULL, 0, NULL, 0);
+    engine = create_test_engine_with_spatial(48000, 2, 512, &neutral, NULL, 0, NULL, 0);
+    assert_true(side_compressor != NULL && engine != NULL, "Side compressor and reference graphs create");
+    const double compressed_gain = measure_sine_gain_with_amplitude(side_compressor, 1000.0, 2, 0.8);
+    const double uncompressed_gain = measure_sine_gain_with_amplitude(engine, 1000.0, 2, 0.8);
+    assert_true(compressed_gain < uncompressed_gain * 0.75,
+        "optional Side compressor reduces sustained over-threshold Side energy");
+    dsp_engine_destroy(side_compressor);
+    dsp_engine_destroy(engine);
+
+    dsp_spatial_config wide = make_advanced_ms_config();
+    wide.advanced_ms.low_band_width = 2.0;
+    wide.advanced_ms.high_band_width = 2.0;
+    dsp_dynamics_config limiter = bypass_dynamics;
+    limiter.limiter_enabled = 1;
+    limiter.limiter_threshold_db = -1.0;
+    dsp_engine *limited = dsp_engine_create(
+        48000, 2, 16, 0.0, NULL, 0, &limiter, &bypass_multiband, &bypass_dynamic_eq,
+        NULL, 0, NULL, 0, &wide, &bypass_convolver);
+    assert_true(limited != NULL, "advanced M/S with final limiter graph creates");
+    const float antiphase[] = {0.8f, -0.8f, 0.8f, -0.8f, 0.8f, -0.8f, 0.8f, -0.8f};
+    float limited_output[8] = {0};
+    assert_true(dsp_engine_process(limited, antiphase, 8, limited_output, 8, 4, 2) == DSP_STATUS_OK,
+        "wide antiphase Side reaches the final limiter");
+    for (size_t index = 0; index < 8; index++) {
+        assert_true(fabsf(limited_output[index]) <= powf(10.0f, -1.0f / 20.0f) + 1e-5f,
+            "final limiter constrains M/S width overshoot");
+    }
+    dsp_engine_destroy(limited);
+
+    dsp_spatial_config invalid = make_advanced_ms_config();
+    invalid.advanced_ms.crossover_hz = 1001.0;
+    assert_true(create_test_engine_with_spatial(48000, 2, 8, &invalid, NULL, 0, NULL, 0) == NULL,
+        "M/S crossover outside the configured range is rejected");
+}
+
 static void test_multiband_unity_reconstruction_and_phase(void) {
     dsp_multiband_config config = bypass_multiband;
     config.enabled = 1;
@@ -1722,6 +1837,7 @@ int main(void) {
     test_spatial_width_and_mono_input_behavior();
     test_spatial_seat_alignment_and_latency();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
+    test_advanced_ms_crossover_mono_side_dynamics_and_limiter();
     test_multiband_unity_reconstruction_and_phase();
     test_multiband_compression_is_band_selective();
     test_multiband_chunk_invariance_reset_and_validation();

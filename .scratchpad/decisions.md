@@ -16,6 +16,10 @@ Pass `--parallel` only to the full CI Gradle task set. The previous no-flag full
 
 Keep public-tree and EX-08 checks on every PR update, and keep native, JVM, lint, build, and JNI verification on each code-changing update. Skip only connected Android instrumentation while a PR is draft; include `ready_for_review` so the latest commit receives the full emulator gate before review. Pushes and manual runs remain full, and a newer PR update cancels superseded work.
 
+## Validate manual-hotspot settings only for wireless transport
+
+`CarPlayRuntimeConfig` carries saved wireless settings into both transports. Require a manual hotspot SSID only for `WIRELESS`; a wired session does not start that hotspot. Keep the wireless credentials, route, and hotspot-manager behavior unchanged, and cover both sides of the validation boundary in a pure unit test.
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.

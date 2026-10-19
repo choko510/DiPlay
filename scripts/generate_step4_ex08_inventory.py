@@ -114,6 +114,14 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No patch imported; any mode-recheck work must be isolated from authentication and hotspot code and reverted independently.",
         "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_DEVICE_TRACE",
     },
+    "c4db31a6c454d9963cf0de9a4a0b6a6d521eac6a": {
+        "disposition": "ADAPT",
+        "reason": "The narrow constructor change gates MANUAL hotspot validation on WIRELESS transport. Fixed main supplies persisted hotspot settings to CarPlayRuntimeConfig for both transports, but a wired session does not start the hotspot and should not depend on its credentials. No wireless route or hotspot behavior is changed.",
+        "test": "PASS_LOCAL: ManualHotspotConfigTest confirms WIRED accepts a blank hotspot SSID and WIRELESS still rejects it; full PR-45 CI pending",
+        "related": "PR-08 integrated wired-config regression; WIRELESS-EX route and hotspot behavior remains separate",
+        "rollback": "Revert the transport-qualified constructor check and its two tests together; no hotspot manager, route, or retry behavior is changed.",
+        "review_state": "PRIMARY_AGENT_ADAPTED_WIRED_CONFIG_BOUNDARY",
+    },
     "5e8a6f9a14f771db23cafd2f9de8f34eaeb515d7": {
         "disposition": "NEED_EVIDENCE",
         "reason": "The patch requests CarPlay mode again when the same USB node appears to retain a DiPlay-started session. EX-04 remains conditional, and the report explicitly says in-car acceptance is pending; the fork has no same-node delayed-probe evidence.",

@@ -4,6 +4,8 @@ For faster pull request feedback, keep inexpensive repository checks on every up
 
 For long-lived draft PRs, retain host/JVM/build checks on each code update and defer only the slow emulator matrix until `ready_for_review`. Explicitly include that pull-request activity type when restricting event types, and cancel superseded runs so stale commits do not hold the latest feedback behind them.
 
+Validate transport-specific settings only for the active transport. A wired runtime can carry saved wireless preferences, but must not require unused hotspot credentials; retain the wireless validation and test both configurations.
+
 When a repository tool only updates a reviewed inventory and its dedicated validator runs on every PR, an exact path allowlist can keep those review iterations off the Android build path. Do not generalize that exemption to other `scripts/` changes.
 
 For generated audit files, make CI compare the checked-in output with the rows rebuilt from review overrides; source-catalog validation alone does not catch a stale generated ledger.

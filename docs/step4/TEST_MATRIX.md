@@ -78,6 +78,16 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR06L-03 | Local resize keeps the active session only with current owner, controller, Surface, and remote size; unsafe lifecycle states keep the restart fallback | `LocalCarPlayScalePolicyTest`, `CarPlayHostActivity` path audit | `PASS_LOCAL`; full Activity/Surface integration `NOT_RUN` |
 | PR06L-04 | 20 full↔split cycles with the same Controller/AirPlaySession, touch, YouTube identity, rotation/IME, owner/background, and Surface recreation on TS10/K706/iPhone | Physical device run | `NOT_RUN`; no target hardware is connected |
 
+## PR-05 explicit ViewArea declaration model
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| PR05-01 | Legacy display config with no explicit model still serializes one full/custom area and initial index 0 | `AirPlayInfoPlistTest`, `CarPlayViewAreasTest` | `PASS_LOCAL`; production app leaves `viewAreas=null` |
+| PR05-02 | Explicit Full/Split areas share one Main display entry/UUID; initial index, split fraction, physical size, RHD, and safe-area geometry remain valid | `CarPlayViewAreasTest` | `PASS_LOCAL` pure model/serializer test |
+| PR05-03 | Resolution and UI canvas scaling carry both area coordinate spaces onto the target pixel size; empty/out-of-bounds geometry and invalid indices are rejected | `CarPlayViewAreasTest`, `CarPlayDisplayScaleTest`, `CarPlayUiScaleTest` | `PASS_LOCAL` |
+| PR05-04 | iPhone acceptance of multiple Main ViewAreas and actual `/info` compatibility on TS10/K706/iPhone | Physical device run | `NOT_RUN`; the model is not enabled by the application |
+| PR05-05 | Dynamic switch command/acknowledgement and same-session frame-size change | Physical protocol capture | `NOT_RUN`; no command is sent and PR-06 DYNAMIC remains gated |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |
@@ -91,6 +101,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR-01 + EX-02 working-tree verification | 495 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Device path and independent second review remain `NOT_RUN` |
 | PR-04 working-tree verification | 502 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Physical microphone/Siri/call/voice-message checks remain `NOT_RUN` |
 | PR-06 LOCAL working-tree verification | 502 shared + 147 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Physical 20-cycle same-session validation remains `NOT_RUN` |
+| PR-05 working-tree verification | 507 shared + 147 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Multi-area `/info` acceptance and dynamic wire behavior remain `NOT_RUN` |
 | Hardware | No TS10/K706/iPhone was attached | `NOT_RUN`; not a pass |
 
 The remaining acceptance IDs in specification sections 8.3 and R-04 stay open for their dependent PR/EX stages. EX-01 has a source-level implementation and fixture coverage; it is not device-validated or release-ready.

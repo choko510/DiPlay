@@ -168,31 +168,37 @@ object AirPlayInfoPlist {
             "primaryInputDevice" to display.primaryInputDevice,
         )
 
-        entry["viewAreas"] = listOf(areaDict(display))
-        entry["initialViewArea"] = 0
+        val viewAreas = display.viewAreas ?: CarPlayViewAreas.single(display)
+        viewAreas.requireValidFor(display.widthPixels, display.heightPixels)
+        entry["viewAreas"] = viewAreas.areas.map { area ->
+            areaDict(display.widthPixels, display.heightPixels, area)
+        }
+        entry["initialViewArea"] = viewAreas.initialIndex
         if (display.initialUrl != null) entry["initialURL"] = display.initialUrl
         return entry
     }
 
-    private fun areaDict(display: AirPlayDisplayConfig): Map<String, Any?> {
+    private fun areaDict(
+        width: Int,
+        height: Int,
+        area: CarPlayViewAreaDefinition,
+    ): Map<String, Any?> {
         // The session SETUP response enables "viewAreas", so /info must always describe one.
         // A display without custom insets uses the full panel for both the view and safe areas.
-        val view = display.viewArea ?: AirPlayInsets()
-        val width = display.widthPixels
-        val height = display.heightPixels
+        val view = area.viewArea
         val result = linkedMapOf<String, Any?>(
             "widthPixels" to (width - view.left - view.right),
             "heightPixels" to (height - view.top - view.bottom),
             "originXPixels" to view.left,
             "originYPixels" to view.top,
         )
-        val safe = display.safeArea ?: AirPlayInsets()
+        val safe = area.safeArea
         val safeArea = linkedMapOf<String, Any?>(
             "widthPixels" to (width - safe.left - safe.right),
             "heightPixels" to (height - safe.top - safe.bottom),
             "originXPixels" to safe.left,
             "originYPixels" to safe.top,
-            "drawUIOutsideSafeArea" to (display.safeAreaDrawOutside ?: true),
+            "drawUIOutsideSafeArea" to area.safeAreaDrawOutside,
         )
         result["safeArea"] = safeArea
         return result

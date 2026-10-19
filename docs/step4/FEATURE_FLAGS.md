@@ -15,7 +15,7 @@ PR-00 records existing controls and planned defaults. EX-01 adds opt-in diagnost
 | EX-04 delayed re-enumeration | No 10 s same-node probe in main | Off until a same-node stall is reproduced |
 | EX-05 second StartSession | No additional StartSession retry in main | Off until the exact TS10 packet chronology is observed |
 | EX-07 IPv4 routing | NCM/TUN route is IPv6 | Keep IPv6-only unless a valid IPv4 path is observed and tested |
-| PR-05 dynamic ViewArea | No dynamic ViewArea switch feature exists in main | Off/experimental until phone acknowledgement and actual same-session frame-size change |
+| PR-05 ViewArea declaration | `AirPlayDisplayConfig.viewAreas` defaults to `null`; the app does not populate it | Preserve the legacy one-area plist by default. Two-area `/info` output is explicit-config-only; unknown switch commands stay off until phone acknowledgement and actual same-session frame-size change |
 | PR-07 codec tuning | No per-device low-latency codec flag added by PR-00 | Off unless capability and device testing support it |
 | PR-08 release | Main has Debug/Benchmark build variants, not STEP4 rollout flags | Release/experimental flags and rollback test are PR-08 work |
 

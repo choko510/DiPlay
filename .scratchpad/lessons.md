@@ -290,3 +290,5 @@ For delayed Host recovery, track restart, connection, background-owner, and loss
 For AirPlay microphone setup, distinguish advertised input capability from an actual MainAudio capture request. Treat explicit `input=false` as authoritative, validate the peer port without narrowing overflow, and keep capture mono to match the advertised input formats; leave normal downlink setup intact when capture is declined.
 
 For local CarPlay pane resizing, resize the view that owns the SurfaceTexture and its gesture overlay together while preserving the remote aspect ratio. Child-local touch coordinates then match the rendered area, letterbox taps never enter CarPlay, and the background Controller keeps its original negotiated dimensions.
+
+For multi-area `/info` changes, keep the legacy single-area serializer as the default and model each area's view/safe geometry against the full display coordinate space. Scale every area's insets with the display canvas, preserve display UUID/physical dimensions, and keep dynamic switch commands separate from declaration support.

@@ -6,6 +6,8 @@ When using `gh api` query parameters with `-f`, pass `--method GET` explicitly; 
 
 The Gradle setup action defaults non-default branches to read-only caching. Inspect its run summary; when repeated same-PR builds need task outputs, allow writes only to that PR's merge-ref cache and keep fork PRs read-only.
 
+When measuring a CI scheduling change, compare runs with similar task-cache hit counts. A warm-cache pass can make a build much faster while obscuring whether parallel scheduling helped.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

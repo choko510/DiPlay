@@ -33,6 +33,12 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - Extended the API 36.1 x86_64 matrix from 40 to 44 configurations with SeatAlignment and FullHeavyChain-with-seat at 44.1/48 kHz mono/stereo. Each configuration used three measured 256-block rounds and the existing production-path latency bypass. SeatAlignment stereo production p99 max was 1.50 ms; FullHeavyChain-with-seat stereo production p99 max was 2.76 ms. All instrumented tests passed 16/16, and the steady-state Kotlin allocation assertion stayed at zero.
 - The native graph embeds two 962-float delay rings (7,696 bytes total) per processor and prepares their delay taps/gains before audio processing. No runtime allocation, configuration/FFT work, or global locking was added to the render loop. Target-head-unit CPU/memory, acoustic alignment, and A/V sync remain unmeasured.
 
+## 2026-10-19 — DSP-02..05 integrated DSP cost
+
+- Extended the API 36.1 x86_64 matrix to 56 configurations (14 cases × 44.1/48 kHz × mono/stereo), each with three 256-block measured rounds. Instrumentation passed 19/19 methods, including 64 exact PCM16 whole-block/variable-block comparisons for the 16 combinations of Seat, Advanced M/S, Cabin, and Harmonic across all four formats. Every matrix case passed its p99 gate and zero steady-state Kotlin allocations. The four-format 14 kHz-class harmonic alias check measured a worst folded-alias/fundamental ratio of 4.1×10⁻⁵.
+- Median-run production/pipeline p99 for the new cases: AdvancedMS max 0.80 ms, Cabin3Notches max 0.64 ms, HarmonicEngine max 1.48 ms. FullHeavyChain-with-all-four modules max was 3.12 ms at 44.1 kHz stereo; the 48 kHz stereo result was 3.00 ms. These are emulator timings, not head-unit or playback A/V measurements.
+- HarmonicEngine uses preallocated FIR rings with 9/17/33 taps and reports 4/8/16 input-frame latency. High quality, both branches active, was the measured cost case; CPU, THD, speaker output and in-car alias performance remain `NOT_RUN` on target hardware. Host ASan/UBSan could not link because this MSYS2 toolchain lacks `libasan` and `libubsan`; the unsanitized native C suite passes.
+
 ## 2026-10-01 — CarPlay + YouTube split
 
 - Reuse the Activity-scoped primary GeckoSession across split exits for the same resolved profile; suspend it with `setActive(false)`, close popups before suspending, and avoid new `open()`/`loadUri()` calls on a healthy warm reopen. Keep the old view hidden until the active iPhone identity resolves.

@@ -25,6 +25,8 @@ enum class NcmDiagnosticEvent {
     LINK_READY,
 }
 
+private enum class Ntb16HeaderState { VALID, INCOMPLETE, INVALID }
+
 sealed interface NcmSendResult {
     data object Sent : NcmSendResult
     data object NotReady : NcmSendResult
@@ -148,8 +150,10 @@ class NcmUsbBridge internal constructor(
     private var queuedBytes = 0
     private var buffered = ByteArray(0)
     private var bufferedSize = 0
+    private var resyncBytesSkipped = 0
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
     private val statusPollingEnabled = diagnosticProfile.shouldPollStatusEndpoint(statusEndpoint != null)
+    private val bulkInPacketSize = inEndpoint.maxPacketSize.takeIf { it > 0 } ?: DEFAULT_USB_PACKET_SIZE
     // Bulk IN uses one persistent async request: bulkTransfer() pins its byte[] in a JNI critical
     // section for the whole wait, which blocks ART's GC thread flip and, with it, every other USB
     // transfer (seen as ~0.8 s stalls of video and audio). A timed-out request stays queued, so no
@@ -506,23 +510,131 @@ class NcmUsbBridge internal constructor(
 
     private fun drainFrames() {
         while (true) {
-            if (bufferedSize < 12) return
-            if (readU32(buffered, 0) != Ntb16Codec.NTH16_SIG) {
-                throw failSession("NCM read buffer does not begin with an NTB16 header")
+            when (validateNtb16Header(0)) {
+                Ntb16HeaderState.INVALID -> {
+                    resyncBufferedFrames()
+                    continue
+                }
+                Ntb16HeaderState.INCOMPLETE -> return
+                Ntb16HeaderState.VALID -> Unit
             }
-            val blockLength = readU16(buffered, 8)
-            if (blockLength < 28) throw failSession("Invalid NTB16 block length $blockLength")
-            val padded = blockLength % USB_PACKET_SIZE == 0
-            val wireLength = blockLength + if (padded) 1 else 0
-            if (bufferedSize < wireLength) return
-            if (padded && buffered[blockLength].toInt() != 0) {
-                throw failSession("Invalid NTB16 short-packet pad")
+            val blockLength = readU16(buffered, NTH16_BLOCK_LENGTH_OFFSET)
+            val frames = Ntb16Codec.parse(buffered, 0, blockLength)
+            if (frames.isEmpty()) {
+                resyncBufferedFrames()
+                continue
             }
-            for (frame in Ntb16Codec.parse(buffered, 0, blockLength)) enqueueFrame(frame)
+            for (frame in frames) enqueueFrame(frame)
+            val hasOptionalPad = blockLength % bulkInPacketSize == 0 &&
+                bufferedSize > blockLength && buffered[blockLength].toInt() == 0
+            val wireLength = blockLength + if (hasOptionalPad) 1 else 0
             val remaining = bufferedSize - wireLength
             buffered.copyInto(buffered, 0, wireLength, bufferedSize)
             bufferedSize = remaining
+            resyncBytesSkipped = 0
         }
+    }
+
+    private fun validateNtb16Header(offset: Int): Ntb16HeaderState {
+        val available = bufferedSize - offset
+        if (available < NTH16_HEADER_BYTES) return Ntb16HeaderState.INCOMPLETE
+        if (readU32(buffered, offset) != Ntb16Codec.NTH16_SIG) return Ntb16HeaderState.INVALID
+        if (readU16(buffered, offset + NTH16_HEADER_LENGTH_OFFSET) != NTH16_HEADER_BYTES) {
+            return Ntb16HeaderState.INVALID
+        }
+        val blockLength = readU16(buffered, offset + NTH16_BLOCK_LENGTH_OFFSET)
+        if (blockLength < MIN_NTB16_BLOCK_LENGTH) return Ntb16HeaderState.INVALID
+        var ndpOffset = readU16(buffered, offset + NTH16_NDP_INDEX_OFFSET)
+        if (ndpOffset < NTH16_HEADER_BYTES || ndpOffset > blockLength - NDP16_MINIMUM_LENGTH) {
+            return Ntb16HeaderState.INVALID
+        }
+
+        var ndpTables = 0
+        var datagramCount = 0
+        while (ndpOffset != 0) {
+            if (ndpTables++ >= MAX_NDP_TABLES || ndpOffset > blockLength - NDP16_MINIMUM_LENGTH) {
+                return Ntb16HeaderState.INVALID
+            }
+            if (available < ndpOffset + NDP16_HEADER_BYTES) return Ntb16HeaderState.INCOMPLETE
+            val ndpAbsolute = offset + ndpOffset
+            val ndpSignature = readU32(buffered, ndpAbsolute) and NDP16_SIGNATURE_MASK
+            if (ndpSignature != (Ntb16Codec.NDP16_SIG and NDP16_SIGNATURE_MASK)) {
+                return Ntb16HeaderState.INVALID
+            }
+            val ndpLength = readU16(buffered, ndpAbsolute + NDP16_LENGTH_OFFSET)
+            if (ndpLength < NDP16_MINIMUM_LENGTH || ndpLength % NDP16_ENTRY_BYTES != 0 ||
+                ndpLength > blockLength - ndpOffset
+            ) {
+                return Ntb16HeaderState.INVALID
+            }
+            if (available < ndpOffset + ndpLength) return Ntb16HeaderState.INCOMPLETE
+            val ndpEnd = ndpOffset + ndpLength
+            var entryOffset = ndpOffset + NDP16_HEADER_BYTES
+            var terminated = false
+            while (entryOffset + NDP16_ENTRY_BYTES <= ndpEnd) {
+                val datagramOffset = readU16(buffered, offset + entryOffset)
+                val datagramLength = readU16(buffered, offset + entryOffset + NDP16_ENTRY_LENGTH_OFFSET)
+                if (datagramOffset == 0 && datagramLength == 0) {
+                    terminated = true
+                    break
+                }
+                if (datagramOffset < NTH16_HEADER_BYTES || datagramLength == 0 ||
+                    datagramOffset > blockLength - datagramLength
+                ) {
+                    return Ntb16HeaderState.INVALID
+                }
+                val datagramEnd = datagramOffset + datagramLength
+                if (datagramOffset < ndpEnd && datagramEnd > ndpOffset) return Ntb16HeaderState.INVALID
+                datagramCount++
+                entryOffset += NDP16_ENTRY_BYTES
+            }
+            if (!terminated) return Ntb16HeaderState.INVALID
+            val nextNdpOffset = readU16(buffered, offset + ndpOffset + NDP16_NEXT_OFFSET)
+            if (nextNdpOffset != 0 && (nextNdpOffset < NTH16_HEADER_BYTES ||
+                    nextNdpOffset > blockLength - NDP16_MINIMUM_LENGTH)
+            ) {
+                return Ntb16HeaderState.INVALID
+            }
+            if (nextNdpOffset == ndpOffset) return Ntb16HeaderState.INVALID
+            ndpOffset = nextNdpOffset
+        }
+        if (datagramCount == 0) return Ntb16HeaderState.INVALID
+        if (available < blockLength) return Ntb16HeaderState.INCOMPLETE
+        return Ntb16HeaderState.VALID
+    }
+
+    private fun resyncBufferedFrames() {
+        val remainingBudget = MAX_RESYNC_BYTES - resyncBytesSkipped
+        if (remainingBudget <= 0) {
+            throw failSession("NCM_RESYNC_ERROR: bounded NTB16 resynchronization limit exceeded")
+        }
+        var candidateOffset = 1
+        val lastCandidateOffset = minOf(bufferedSize - NTH16_HEADER_BYTES, remainingBudget)
+        while (candidateOffset <= lastCandidateOffset) {
+            if (validateNtb16Header(candidateOffset) != Ntb16HeaderState.INVALID) {
+                discardBuffered(candidateOffset)
+                resyncBytesSkipped += candidateOffset
+                return
+            }
+            candidateOffset++
+        }
+        val bufferedBefore = bufferedSize
+        val retainBytes = minOf(bufferedBefore, NTH16_HEADER_BYTES - 1)
+        val discardable = minOf((bufferedBefore - retainBytes).coerceAtLeast(0), remainingBudget)
+        if (discardable > 0) {
+            discardBuffered(discardable)
+            resyncBytesSkipped += discardable
+        }
+        if (discardable < bufferedBefore - retainBytes ||
+            (resyncBytesSkipped >= MAX_RESYNC_BYTES && bufferedSize >= NTH16_HEADER_BYTES)
+        ) {
+            throw failSession("NCM_RESYNC_ERROR: bounded NTB16 resynchronization limit exceeded")
+        }
+    }
+
+    private fun discardBuffered(bytes: Int) {
+        buffered.copyInto(buffered, 0, bytes, bufferedSize)
+        bufferedSize -= bytes
     }
 
     private fun appendBuffered(source: ByteArray, length: Int) {
@@ -754,7 +866,21 @@ class NcmUsbBridge internal constructor(
 
     companion object {
         private const val READ_CHUNK_BYTES = 32 * 1024
-        private const val USB_PACKET_SIZE = 512
+        private const val DEFAULT_USB_PACKET_SIZE = 512
+        private const val NTH16_HEADER_BYTES = 12
+        private const val NTH16_HEADER_LENGTH_OFFSET = 4
+        private const val NTH16_BLOCK_LENGTH_OFFSET = 8
+        private const val NTH16_NDP_INDEX_OFFSET = 10
+        private const val NDP16_HEADER_BYTES = 8
+        private const val NDP16_LENGTH_OFFSET = 4
+        private const val NDP16_NEXT_OFFSET = 6
+        private const val NDP16_ENTRY_BYTES = 4
+        private const val NDP16_ENTRY_LENGTH_OFFSET = 2
+        private const val NDP16_MINIMUM_LENGTH = 12
+        private const val NDP16_SIGNATURE_MASK = 0x00ffffff
+        private const val MIN_NTB16_BLOCK_LENGTH = 28
+        private const val MAX_NDP_TABLES = 16
+        private const val MAX_RESYNC_BYTES = 1 shl 20
         private const val STATUS_POLL_TIMEOUT_MILLIS = 20
         private const val STATUS_POLL_INTERVAL_MILLIS = 500L
         private const val STATUS_POLL_LOG_EVERY = 20L

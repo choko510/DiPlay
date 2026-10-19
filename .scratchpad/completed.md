@@ -6,6 +6,7 @@
 - 2026-10-20: Rejected a mixed overlay/keyframe patch that also adds AccessibilityService USB auto-confirm; kept explicit USB consent and fixed-main overlay ownership.
 - 2026-10-20: Rejected USB auto-confirm activation via local ADB and the related silent wireless-to-wired preference switch on USB attach.
 - 2026-10-20: Rejected the ADB/Accessibility USB auto-confirm merge with hotspot/VPN lifecycle changes and its duplicate patch occurrence.
+- 2026-10-20: Rejected a mixed USB permission, attach, overlay, and release-signing commit; kept those changes behind their separate consent, lifecycle, and release gates.
 - 2026-10-20: Kept full host/native/JVM/lint/build/JNI checks on draft code updates, deferred the 19-test API 35 emulator job until `ready_for_review`, and cancelled superseded PR runs. Run #151 logs show the emulator job took 5m12s; the final full gate remains enabled.
 - 2026-10-20: Adapted the manual-hotspot config check to the active transport: wired configs ignore unused hotspot credentials while wireless configs still require an SSID. Both focused tests pass locally and in PR #45 run #168.
 - 2026-10-20: Added generated-ledger parity checking and a narrow EX-08 inventory fast path that still runs public-tree and ledger checks; full run #151 passed after an emulator-only retry, and audit run #152 passed in 21s.

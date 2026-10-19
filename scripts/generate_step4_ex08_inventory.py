@@ -771,12 +771,12 @@ BASE_REVIEW_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_UNSAFE_PERMISSION_AND_PREFERENCE_SWITCH",
     },
     "8633aae3e0a357622b7b44f0ead12c1da74627aa": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The patch combines cancellable USB setup with release-signing configuration changes that remove the debug fallback. The USB lifecycle needs device evidence, and the signing change has not passed the fork's release/update/signature gate.",
-        "test": "PASS_LOCAL: prior Debug/Benchmark CI; NOT_RUN: signed release, update, rollback, and missing-keystore build behavior",
-        "related": "PR-00 USB permission setup; PR-02 platform lifecycle; release signature/update gate",
-        "rollback": "No patch imported; preserve current signing behavior and evaluate permission changes separately from release configuration.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_RELEASE_AND_DEVICE_TESTS",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 12-path change combines local-ADB permission setup and AccessibilityService USB auto-confirm with USB attach transport switching, overlay/mirror behavior, and release-signing changes. Fixed main keeps explicit per-device UsbManager consent and a local release-signing fallback; v3 gates USB lifecycle and release/rollback independently, so this aggregate cannot be taken as a cancellable permission fix.",
+        "test": "PASS_STATIC: source diff adds UsbPermissionSetup/UsbAutoConfirmService, rewrites wired attach behavior, changes CenterMapOverlay/AndroidMediaSink, and removes the release debug-signing fallback; PR-45 Debug/Benchmark checks do not cover signed release/update behavior; NOT_RUN_BY_DESIGN: no ADB auto-grant",
+        "related": "Reject mixed consent, attach, overlay, and signing changes; PR-00 USB permission, EX-04 attach lifecycle, PR-06 overlay, and PR-08 release-signature gates remain separate",
+        "rollback": "No patch imported; preserve per-device USB consent and current signing fallback until the independent PR-08 release/update gate passes.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_UNSAFE_RELEASE_PERMISSION_MIX",
     },
     "949e1eddbc29b159ef97a49b3c00d1047b1b2180": {
         "disposition": "REJECT_UNSAFE",

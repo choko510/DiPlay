@@ -104,4 +104,20 @@
     <string name="dsp_ms_side_ratio">Side比率</string>
     <string name="dsp_ms_side_attack">Sideアタック</string>
     <string name="dsp_ms_side_release">Sideリリース</string>
+    <string name="dsp_cabin_correction">車室補正</string>
+    <string name="dsp_cabin_description">測定済みCSV応答を読み込むか、PEQカットを手動追加します。再生中の音楽から車室応答は推定しません。各カットは確認後に明示的に有効化してください。</string>
+    <string name="dsp_cabin_import">測定CSVを読み込む</string>
+    <string name="dsp_cabin_undo">測定とカットをクリア</string>
+    <string name="dsp_cabin_measurement_summary">%1$d点、%2$.0f～%3$.0f Hz、元データSHA-256 %4$s</string>
+    <string name="dsp_cabin_notch">%1$.0f Hzカット</string>
+    <string name="dsp_cabin_frequency">カット周波数</string>
+    <string name="dsp_cabin_gain">カット量</string>
+    <string name="dsp_cabin_q">カットQ</string>
+    <string name="dsp_cabin_remove_notch">カットを削除</string>
+    <string name="dsp_cabin_add_manual_notch">手動カットを追加</string>
+    <string name="dsp_cabin_enabled">承認済みカットを適用</string>
+    <string name="dsp_cabin_measurement_imported">測定を取り込みました。%1$d個の候補は明示的に有効化するまでOFFです。</string>
+    <string name="dsp_cabin_unavailable">CALIBRATION_UNAVAILABLE: CSVの周波数範囲、1/6オクターブ間隔、ノイズ余裕、クリッピング情報を確認してください。</string>
+    <string name="dsp_cabin_choose_notch">先にカットを有効化するか追加してください。</string>
+    <string name="dsp_cabin_peq_capacity">車室カットを追加するにはPEQバンドをいくつか無効にしてください。</string>
 </resources>

@@ -51,6 +51,9 @@ import com.shilapi.xcertplay.dsp.DspImpulseImportResult
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionNotch
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementParseResult
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
@@ -139,6 +142,27 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                     DspImpulseImportResult.TooLarge -> Toast.makeText(context, R.string.dsp_ir_too_large, Toast.LENGTH_LONG).show()
                     DspImpulseImportResult.WriteFailed -> Toast.makeText(context, R.string.dsp_ir_write_failed, Toast.LENGTH_LONG).show()
                     else -> Toast.makeText(context, R.string.dsp_ir_invalid, Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+    val openCabinMeasurement = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runtime.importCabinMeasurementCsvAsync(
+                openInput = { context.contentResolver.openInputStream(uri) },
+            ) { result ->
+                when (result) {
+                    is DspCabinMeasurementParseResult.Available -> {
+                        profile = profile.copy(cabinCorrection = result.correction)
+                        Toast.makeText(
+                            context,
+                            context.getString(R.string.dsp_cabin_measurement_imported, result.suggestedNotchCount),
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                    is DspCabinMeasurementParseResult.CalibrationUnavailable -> {
+                        Toast.makeText(context, R.string.dsp_cabin_unavailable, Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }
@@ -390,6 +414,123 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                             sideCompressor = ms.sideCompressor.copy(releaseMs = it),
                         )) }
                     }
+                }
+                SectionCard(title = stringResource(R.string.dsp_cabin_correction)) {
+                    val cabin = profile.cabinCorrection
+                    Text(stringResource(R.string.dsp_cabin_description))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = {
+                            openCabinMeasurement.launch(arrayOf("text/csv", "text/plain", "application/csv"))
+                        }) {
+                            Text(stringResource(R.string.dsp_cabin_import))
+                        }
+                        TextButton(onClick = { profile = profile.copy(cabinCorrection = DspCabinCorrectionConfig()) }) {
+                            Text(stringResource(R.string.dsp_cabin_undo))
+                        }
+                    }
+                    cabin.measurement?.let { measurement ->
+                        Text(
+                            stringResource(
+                                R.string.dsp_cabin_measurement_summary,
+                                measurement.pointCount,
+                                measurement.minimumFrequencyHz,
+                                measurement.maximumFrequencyHz,
+                                measurement.sourceSha256.take(8),
+                            ),
+                        )
+                    }
+                    cabin.notches.forEachIndexed { index, notch ->
+                        DspSwitchRow(
+                            title = stringResource(R.string.dsp_cabin_notch, notch.frequencyHz),
+                            checked = notch.enabled,
+                            onCheckedChange = { enabled ->
+                                val next = cabin.notches.mapIndexed { notchIndex, candidate ->
+                                    if (notchIndex == index) candidate.copy(enabled = enabled) else candidate
+                                }
+                                val nextActiveCount = next.count(DspCabinCorrectionNotch::enabled)
+                                val activeEqCount = profile.eqBands.count(DspEqBand::enabled)
+                                if (cabin.enabled && activeEqCount + nextActiveCount > DspAudioProfile.MAX_EQ_BANDS) {
+                                    Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
+                                } else {
+                                    profile = profile.copy(
+                                        cabinCorrection = cabin.copy(
+                                            enabled = cabin.enabled && nextActiveCount > 0,
+                                            notches = next,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
+                        DspValueSlider(
+                            stringResource(R.string.dsp_cabin_frequency),
+                            notch.frequencyHz,
+                            DspCabinCorrectionNotch.MIN_FREQUENCY_HZ..DspCabinCorrectionNotch.MAX_FREQUENCY_HZ,
+                            "Hz",
+                        ) { value ->
+                            profile = profile.copy(cabinCorrection = cabin.copy(
+                                notches = cabin.notches.mapIndexed { notchIndex, candidate ->
+                                    if (notchIndex == index) candidate.copy(frequencyHz = value) else candidate
+                                },
+                            ))
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_cabin_gain),
+                            notch.gainDb,
+                            DspCabinCorrectionNotch.MIN_GAIN_DB..DspCabinCorrectionNotch.MAX_GAIN_DB,
+                            "dB",
+                        ) { value ->
+                            profile = profile.copy(cabinCorrection = cabin.copy(
+                                notches = cabin.notches.mapIndexed { notchIndex, candidate ->
+                                    if (notchIndex == index) candidate.copy(gainDb = value) else candidate
+                                },
+                            ))
+                        }
+                        DspValueSlider(
+                            stringResource(R.string.dsp_cabin_q),
+                            notch.q,
+                            DspCabinCorrectionNotch.MIN_Q..DspCabinCorrectionNotch.MAX_Q,
+                            "",
+                        ) { value ->
+                            profile = profile.copy(cabinCorrection = cabin.copy(
+                                notches = cabin.notches.mapIndexed { notchIndex, candidate ->
+                                    if (notchIndex == index) candidate.copy(q = value) else candidate
+                                },
+                            ))
+                        }
+                        TextButton(onClick = {
+                            val next = cabin.notches.filterIndexed { notchIndex, _ -> notchIndex != index }
+                            profile = profile.copy(cabinCorrection = cabin.copy(
+                                enabled = cabin.enabled && next.any(DspCabinCorrectionNotch::enabled),
+                                notches = next,
+                            ))
+                        }) {
+                            Text(stringResource(R.string.dsp_cabin_remove_notch))
+                        }
+                    }
+                    if (cabin.notches.size < DspCabinCorrectionConfig.MAX_NOTCHES) {
+                        OutlinedButton(onClick = {
+                            profile = profile.copy(
+                                cabinCorrection = cabin.copy(notches = cabin.notches + DspCabinCorrectionNotch()),
+                            )
+                        }) {
+                            Text(stringResource(R.string.dsp_cabin_add_manual_notch))
+                        }
+                    }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_cabin_enabled),
+                        checked = cabin.enabled,
+                        onCheckedChange = { enabled ->
+                            val activeNotches = cabin.notches.count(DspCabinCorrectionNotch::enabled)
+                            val activeEqBands = profile.eqBands.count(DspEqBand::enabled)
+                            if (enabled && activeNotches == 0) {
+                                Toast.makeText(context, R.string.dsp_cabin_choose_notch, Toast.LENGTH_SHORT).show()
+                            } else if (enabled && activeEqBands + activeNotches > DspAudioProfile.MAX_EQ_BANDS) {
+                                Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
+                            } else {
+                                profile = profile.copy(cabinCorrection = cabin.copy(enabled = enabled))
+                            }
+                        },
+                    )
                 }
                 SectionCard(title = stringResource(R.string.dsp_parametric_eq)) {
                     profile.eqBands.forEachIndexed { index, band ->

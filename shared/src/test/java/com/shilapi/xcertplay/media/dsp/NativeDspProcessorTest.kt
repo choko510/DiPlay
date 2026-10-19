@@ -194,6 +194,30 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun approvedCabinNotchesArePreparedInsideTheExistingPeqArray() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                peqBands = listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 2.0)),
+                cabinCorrection = DspCabinCorrectionConfig(
+                    enabled = true,
+                    notches = listOf(DspCabinCorrectionNotch(enabled = true, frequencyHz = 80.0, gainDb = -6.0)),
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertTrue(processor != null)
+        assertEquals(2 * DspEqDesigner.COEFFICIENTS_PER_BAND, bindings.createdEqCoefficients?.size)
+        assertEquals(DSP_SPATIAL_NATIVE_VALUE_COUNT, bindings.createdSpatial?.size)
+        assertEquals(0.0, bindings.createdSpatial?.get(10) ?: -1.0, 0.0)
+        processor?.close()
+    }
+
+    @Test
     fun nativeProcessFailureReturnsAnErrorWithoutConsumingBuffers() {
         val format = DspAudioFormat(48_000, 2)
         val bindings = FakeNativeDspBindings(processStatus = 3)

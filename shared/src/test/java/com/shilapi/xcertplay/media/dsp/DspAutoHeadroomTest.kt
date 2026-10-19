@@ -130,4 +130,36 @@ class DspAutoHeadroomTest {
         assertTrue(result.filterPeakDb.isFinite())
         assertEquals(0.0, result.filterPeakDb, 0.02)
     }
+
+    @Test
+    fun measuredCabinCutsReusePeqSlotsAndRejectMoreThanFifteenActiveFilters() {
+        val cabinCorrection = DspCabinCorrectionConfig(
+            enabled = true,
+            notches = listOf(
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 70.0, gainDb = -6.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 120.0, gainDb = -4.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 210.0, gainDb = -3.0),
+            ),
+        )
+        val existingBands = (0 until 12).map { index ->
+            DspEqBand(DspEqType.PEAK, 300.0 + index * 100.0, gainDb = 0.0, enabled = true)
+        }
+
+        val prepared = DspRuntimeConfig(
+            enabled = true,
+            peqBands = existingBands,
+            cabinCorrection = cabinCorrection,
+        ).prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals(DspEqDesigner.MAX_BANDS * DspEqDesigner.COEFFICIENTS_PER_BAND, prepared.eqCoefficients.size)
+        assertTrue(
+            runCatching {
+                DspRuntimeConfig(
+                    enabled = true,
+                    peqBands = existingBands + DspEqBand(DspEqType.PEAK, 1_600.0, enabled = true),
+                    cabinCorrection = cabinCorrection,
+                ).prepare(DspAudioFormat(48_000, 2))
+            }.isFailure,
+        )
+    }
 }

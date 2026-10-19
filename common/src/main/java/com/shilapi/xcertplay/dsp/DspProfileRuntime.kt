@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementCsv
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementParseResult
 import com.shilapi.xcertplay.media.dsp.DspConfigProvider
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import java.io.InputStream
@@ -113,6 +115,23 @@ internal class DspProfileRuntime private constructor(context: Context) {
         }
     }
 
+    fun importCabinMeasurementCsvAsync(
+        openInput: () -> InputStream?,
+        onComplete: (DspCabinMeasurementParseResult) -> Unit,
+    ) {
+        ioExecutor.execute {
+            val result = runCatching {
+                val input = openInput() ?: return@runCatching unavailableCabinMeasurement()
+                val contents = input.use(::readBoundedCabinCsv)
+                    ?: return@runCatching DspCabinMeasurementParseResult.CalibrationUnavailable(
+                        DspCabinMeasurementParseResult.CalibrationUnavailable.Reason.INPUT_TOO_LARGE,
+                    )
+                DspCabinMeasurementCsv.parse(contents)
+            }.getOrElse { unavailableCabinMeasurement() }
+            Handler(Looper.getMainLooper()).post { onComplete(result) }
+        }
+    }
+
     private fun applyWithImpulse(profile: DspAudioProfile, enabled: Boolean, impulse: DspImpulseResponse?) {
         activeProfile.set(profile)
         dspEnabled.set(enabled)
@@ -145,6 +164,23 @@ internal class DspProfileRuntime private constructor(context: Context) {
         val id = profile.convolver.impulseResponseId ?: return null
         return cachedImpulseResponse(profile) ?: impulseRepository.load(id)?.also { impulseCache[id] = it }
     }
+
+    private fun readBoundedCabinCsv(input: InputStream): String? {
+        val builder = StringBuilder()
+        val reader = input.bufferedReader(Charsets.UTF_8)
+        val buffer = CharArray(4096)
+        while (true) {
+            val count = reader.read(buffer)
+            if (count < 0) break
+            if (builder.length + count > DspCabinMeasurementCsv.MAX_INPUT_CHARACTERS) return null
+            builder.append(buffer, 0, count)
+        }
+        return builder.toString()
+    }
+
+    private fun unavailableCabinMeasurement() = DspCabinMeasurementParseResult.CalibrationUnavailable(
+        DspCabinMeasurementParseResult.CalibrationUnavailable.Reason.INVALID_DATA,
+    )
 
     private fun loadProfile(profileId: String): DspAudioProfile? {
         DspProfilePresets.find(profileId)?.let { preset ->

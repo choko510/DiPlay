@@ -204,6 +204,14 @@ class DspPipelineBenchmarkInstrumentedTest {
             highBandWidth = 1.4,
             sideCompressor = DspMsSideCompressorConfig(enabled = true, thresholdDb = -28.0, ratio = 2.0),
         )
+        val cabinCorrection = DspCabinCorrectionConfig(
+            enabled = true,
+            notches = listOf(
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 55.0, gainDb = -6.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 110.0, gainDb = -5.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 220.0, gainDb = -4.0),
+            ),
+        )
         val base = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
         val peq = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, peqBands = peq15)
 
@@ -267,6 +275,15 @@ class DspPipelineBenchmarkInstrumentedTest {
                     safetyLimiter = DspSafetyLimiterConfig(enabled = false),
                 ),
             ),
+            BenchmarkCase(
+                "Cabin3Notches",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    cabinCorrection = cabinCorrection,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
             BenchmarkCase("Convolver4k", convolverConfig(sampleRate, channels, 4_096)),
             BenchmarkCase("Convolver16k", convolverConfig(sampleRate, channels, 16_384)),
             BenchmarkCase("Convolver64k", convolverConfig(sampleRate, channels, 65_536)),
@@ -284,6 +301,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                     monoBass = monoBass,
                     seatAlignment = seatAlignment.copy(nearSpeaker = DspSeatNearSpeaker.RIGHT),
                     advancedMs = advancedMs,
+                    cabinCorrection = cabinCorrection,
                     convolver = convolverConfig(sampleRate, channels, 16_384).convolver,
                     multiband = multiband,
                     dynamicEq = dynamicEq,

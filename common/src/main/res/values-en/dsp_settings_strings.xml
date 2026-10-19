@@ -104,4 +104,20 @@
     <string name="dsp_ms_side_ratio">Side ratio</string>
     <string name="dsp_ms_side_attack">Side attack</string>
     <string name="dsp_ms_side_release">Side release</string>
+    <string name="dsp_cabin_correction">Cabin correction</string>
+    <string name="dsp_cabin_description">Import a measured CSV response or add a manual PEQ cut. Playback audio is never used to estimate cabin response. Review and enable each cut explicitly.</string>
+    <string name="dsp_cabin_import">Import measurement CSV</string>
+    <string name="dsp_cabin_undo">Clear measurement and cuts</string>
+    <string name="dsp_cabin_measurement_summary">%1$d points, %2$.0f–%3$.0f Hz, source SHA-256 %4$s</string>
+    <string name="dsp_cabin_notch">%1$.0f Hz notch</string>
+    <string name="dsp_cabin_frequency">Notch frequency</string>
+    <string name="dsp_cabin_gain">Notch gain</string>
+    <string name="dsp_cabin_q">Notch Q</string>
+    <string name="dsp_cabin_remove_notch">Remove cut</string>
+    <string name="dsp_cabin_add_manual_notch">Add manual cut</string>
+    <string name="dsp_cabin_enabled">Apply approved cuts</string>
+    <string name="dsp_cabin_measurement_imported">Measurement accepted. %1$d suggested cuts are off until you enable them.</string>
+    <string name="dsp_cabin_unavailable">CALIBRATION_UNAVAILABLE: check CSV coverage, 1/6-octave spacing, noise margin, and clipping metadata.</string>
+    <string name="dsp_cabin_choose_notch">Enable or add at least one cut first.</string>
+    <string name="dsp_cabin_peq_capacity">Disable some PEQ bands to make room for the cabin cuts.</string>
 </resources>

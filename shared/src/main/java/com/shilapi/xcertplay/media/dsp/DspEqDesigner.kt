@@ -224,7 +224,9 @@ internal data class DspPreparedConfig(
 
 internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
     advancedMs.validateForSampleRate(format.sampleRate)
-    val enabledBands = peqBands.filter(DspEqBand::enabled)
+    val cabinBands = cabinCorrection.approvedEqBands()
+    val enabledBands = (peqBands + cabinBands).filter(DspEqBand::enabled)
+    require(enabledBands.size <= DspEqDesigner.MAX_BANDS)
     val coefficients = DoubleArray(enabledBands.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
     enabledBands.forEachIndexed { index, band ->
         DspEqDesigner.design(format.sampleRate, band)
@@ -274,7 +276,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
             preampDb = gainDb,
-            peqBands = peqBands,
+            peqBands = enabledBands,
             compressorMakeupDb = if (compressor.enabled) compressor.makeupDb else 0.0,
             maxBandMakeupDb = if (multiband.enabled) {
                 maxOf(

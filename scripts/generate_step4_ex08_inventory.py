@@ -747,12 +747,12 @@ BASE_REVIEW_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_UNSAFE_PERMISSION_AUTOMATION",
     },
     "dd05f5a9b43a6807ff78013203db140402a57c6f": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The patch mixes center-map overlay flicker/keyframe changes with HomeScreenMonitor filtering and USB AccessibilityService edits. Fixed main's overlay lifecycle differs from the upstream side-panel/card path, so none of these should be cherry-picked as a permission-only fix.",
-        "test": "NOT_RUN_FORK: overlay first-frame/recovery, host start/stop, accessibility foreground filtering, and mirror attach",
-        "related": "EX-01 UI lifecycle diagnostics; PR-06 LOCAL display/overlay interaction; USB permission security",
-        "rollback": "No patch imported; split any reproduced overlay and permission fixes into independent changes with separate tests.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_SPLIT_REVIEW",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The purported overlay fix also changes HomeScreenMonitor, modifies AccessibilityService foreground filtering, and carries the USB auto-confirm service that checks Always allow and clicks system permission. This combines overlay/Surface lifecycle, foreground ownership, ADB timing, and automatic USB consent; fixed main preserves explicit per-device permission and has a different overlay owner.",
+        "test": "PASS_STATIC: diff changes CenterMapOverlay, AndroidMediaSink recovery, HomeScreenMonitor, and UsbAutoConfirmService; fixed main has no auto-confirm service and requests USB permission through UsbManager; NOT_RUN_BY_DESIGN: no accessibility auto-grant behavior is tested or enabled",
+        "related": "Reject mixed overlay and auto-consent patch; PR-00 USB consent and PR-06 LOCAL overlay lifecycle remain separate; not an EX-04 retry fix",
+        "rollback": "No patch imported; retain fixed-main consent and overlay ownership. Any later reproduced frame/keyframe issue must be isolated without AccessibilityService USB auto-confirm.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_UNSAFE_PERMISSION_AND_OVERLAY_MIX",
     },
     "ed9f6367c491b5cf274abe5e2f66ded5071e091c": {
         "disposition": "FORK_SUPERIOR",

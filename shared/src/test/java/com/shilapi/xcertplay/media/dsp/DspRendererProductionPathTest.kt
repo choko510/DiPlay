@@ -18,6 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import kotlin.math.pow
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -33,33 +34,53 @@ import org.robolectric.annotation.Config
 class DspRendererProductionPathTest {
     @Test
     fun dspOffLpcmProductionPathWritesTheOriginalPcm16Samples() {
-        val writes = CopyOnWriteArrayList<ByteArray>()
-        val renderer = renderer(
-            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
-            initialConfig = DspRuntimeConfig.disabled(),
-            writeAdapter = { bytes, offset, length, _ ->
-                writes.add(bytes.copyOfRange(offset, offset + length))
-                length
-            },
-            pipelinePreparer = { _, _ -> error("DSP-OFF must not prepare a pipeline") },
+        val disabledProfileConfig = DspRuntimeConfig(
+            enabled = false,
+            gainDb = 18.0,
+            stereoWidth = 1.75,
         )
-        try {
-            renderer.prepareLpcmPipelineForTesting()
-            renderer.beginTrackGenerationForTesting()
-            renderer.handleRtpForTesting(lpcmRtp(intArrayOf(0)), sample = 100)
-            val samples = IntArray(64) { frame -> (frame * 701 % 30_000) - 15_000 }
-            renderer.handleRtpForTesting(lpcmRtp(samples), sample = 200)
+        for (sampleRate in intArrayOf(44_100, 48_000)) {
+            for (channels in 1..2) {
+                for (frames in intArrayOf(1, 128, 512, 1_537, DspBufferSizing.MAX_DECODER_PCM_FRAMES)) {
+                    val writes = CopyOnWriteArrayList<ByteArray>()
+                    val renderer = renderer(
+                        format = audioFormat(AudioCodecKind.LPCM, channels = channels, sampleRate = sampleRate),
+                        initialConfig = disabledProfileConfig,
+                        writeAdapter = { bytes, offset, length, _ ->
+                            writes.add(bytes.copyOfRange(offset, offset + length))
+                            length
+                        },
+                        pipelinePreparer = { _, _ -> error("DSP-OFF must not prepare a pipeline") },
+                    )
+                    try {
+                        renderer.prepareLpcmPipelineForTesting()
+                        renderer.beginTrackGenerationForTesting()
+                        renderer.handleRtpForTesting(lpcmRtp(IntArray(channels)), sample = 100)
+                        val samples = IntArray(frames * channels) { index ->
+                            ((index * 701 + 12_345) % 60_000) - 30_000
+                        }
+                        renderer.handleRtpForTesting(lpcmRtp(samples), sample = 200)
 
-            assertNull(renderer.dspPipeline)
-            assertEquals(2, writes.size)
-            val actual = writes[1]
-            samples.forEachIndexed { index, sample ->
-                assertEquals(sample.toByte(), actual[index * 2])
-                assertEquals((sample shr 8).toByte(), actual[index * 2 + 1])
+                        assertNull(renderer.dspPipeline)
+                        assertEquals(0, renderer.trackLatencyForTesting)
+                        val actual = ByteArray(writes.drop(1).sumOf(ByteArray::size))
+                        var offset = 0
+                        writes.drop(1).forEach { chunk ->
+                            chunk.copyInto(actual, offset)
+                            offset += chunk.size
+                        }
+                        val expected = ByteArray(samples.size * Short.SIZE_BYTES)
+                        samples.forEachIndexed { index, sample ->
+                            expected[index * Short.SIZE_BYTES] = sample.toByte()
+                            expected[index * Short.SIZE_BYTES + 1] = (sample shr 8).toByte()
+                        }
+                        assertArrayEquals("$sampleRate Hz, $channels channels, $frames frames", expected, actual)
+                        assertEquals(100L, renderer.playbackClockForTesting()?.baseRtpSample)
+                    } finally {
+                        renderer.releaseForTesting()
+                    }
+                }
             }
-            assertEquals(100L, renderer.playbackClockForTesting()?.baseRtpSample)
-        } finally {
-            renderer.releaseForTesting()
         }
     }
 
@@ -761,9 +782,9 @@ class DspRendererProductionPathTest {
         )
     }
 
-    private fun audioFormat(codec: AudioCodecKind, channels: Int): AudioFormat = AudioFormat(
+    private fun audioFormat(codec: AudioCodecKind, channels: Int, sampleRate: Int = 48_000): AudioFormat = AudioFormat(
         codec = codec,
-        sampleRate = 48_000,
+        sampleRate = sampleRate,
         channels = channels,
         payloadType = if (codec == AudioCodecKind.LPCM) 100 else 96,
         audioType = "media",

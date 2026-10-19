@@ -153,6 +153,9 @@ class DspProfileRepositoryTest {
         assertEquals(3.0, loaded.profile.preampDb, 0.0)
         assertFalse(loaded.profile.autoHeadroomEnabled)
         assertEquals(15, loaded.profile.eqBands.size)
+        val disabledRuntime = loaded.profile.toRuntimeConfig(masterEnabled = false)
+        assertFalse(disabledRuntime.enabled)
+        assertEquals(3.0, disabledRuntime.gainDb, 0.0)
     }
 
     @Test

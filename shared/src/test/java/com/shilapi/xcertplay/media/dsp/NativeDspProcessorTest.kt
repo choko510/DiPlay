@@ -77,7 +77,7 @@ class NativeDspProcessorTest {
         assertEquals(1.0, bindings.createdDynamics?.get(7) ?: -1.0, 0.0)
         assertEquals(0, bindings.createdBassCoefficients?.size)
         assertEquals(0, bindings.createdMonoBassCoefficients?.size)
-        assertEquals(10, bindings.createdSpatial?.size)
+        assertEquals(10 + DspAdvancedMsConfig.NATIVE_VALUE_COUNT, bindings.createdSpatial?.size)
         assertEquals(1.0, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
         assertEquals(0.0, bindings.createdSpatial?.get(1) ?: -1.0, 0.0)
         assertEquals(120.0, bindings.createdSpatial?.get(2) ?: 0.0, 0.0)
@@ -145,6 +145,56 @@ class NativeDspProcessorTest {
         assertEquals(1.0, spatial[8], 0.0)
         assertEquals(0.0, spatial[9], 0.0)
         assertEquals(-7.0, bindings.createdGainDb ?: 0.0, 0.02)
+        processor?.close()
+    }
+
+    @Test
+    fun advancedMsBandsAndSideCompressorArePreparedForNativeCreation() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                advancedMs = DspAdvancedMsConfig(
+                    enabled = true,
+                    crossoverHz = 180.0,
+                    low = DspAdvancedMsBandConfig(midGainDb = 1.0, sideGainDb = -1.0, width = 0.5),
+                    high = DspAdvancedMsBandConfig(midGainDb = -2.0, sideGainDb = 2.0, width = 1.5),
+                    centerFocusDb = 2.5,
+                    sideCompressor = DspCompressorConfig(
+                        enabled = true,
+                        thresholdDb = -26.0,
+                        ratio = 3.0,
+                        attackMs = 8.0,
+                        releaseMs = 150.0,
+                        kneeDb = 3.0,
+                        makeupDb = 1.0,
+                    ),
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+        val spatial = requireNotNull(bindings.createdSpatial)
+
+        assertEquals(10 + DspAdvancedMsConfig.NATIVE_VALUE_COUNT, spatial.size)
+        assertEquals(1.0, spatial[10], 0.0)
+        assertEquals(180.0, spatial[11], 0.0)
+        assertEquals(1.0, spatial[12], 0.0)
+        assertEquals(-1.0, spatial[13], 0.0)
+        assertEquals(0.5, spatial[14], 0.0)
+        assertEquals(-2.0, spatial[15], 0.0)
+        assertEquals(2.0, spatial[16], 0.0)
+        assertEquals(1.5, spatial[17], 0.0)
+        assertEquals(2.5, spatial[18], 0.0)
+        assertEquals(1.0, spatial[19], 0.0)
+        assertEquals(-26.0, spatial[20], 0.0)
+        assertEquals(3.0, spatial[21], 0.0)
+        assertEquals(8.0, spatial[22], 0.0)
+        assertEquals(150.0, spatial[23], 0.0)
+        assertEquals(3.0, spatial[24], 0.0)
+        assertEquals(1.0, spatial[25], 0.0)
         processor?.close()
     }
 

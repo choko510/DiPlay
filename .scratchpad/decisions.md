@@ -311,3 +311,7 @@ Explicitly configure the mobile debug signing config for v1 and v2 so OEM instal
 ## Keep Seat Focus tied to measured physical channels
 
 Driver/Passenger/Center/Custom identify the target seat; only explicit physical left/right distances determine delay. Keep a fixed 5 ms stereo graph budget for every enabled distance configuration, allocate delay rings during graph preparation, and add Seat Focus latency to Convolver latency. This keeps distance edits eligible for the existing live crossfade without a playback-clock shift.
+
+## Make Advanced M/S replace the legacy width branch
+
+Keep the existing Stereo Width/Mono Bass code path byte-stable while Advanced M/S is off. When enabled, use one shared complementary low/high crossover for Mid and Side, apply band-specific gains/width once, and process optional compression on Side only. Map legacy width and Mono Bass settings into the untouched Advanced M/S defaults on first enable; do not apply the legacy stage a second time.

@@ -165,6 +165,7 @@ internal object DspAutoHeadroom {
         maxBandMakeupDb: Double = 0.0,
         dynamicBoostDb: Double = 0.0,
         maxSeatFocusTrimDb: Double = 0.0,
+        maxAdvancedMsBoostDb: Double = 0.0,
         stereoWidth: Double = 1.0,
         marginDb: Double = 1.0,
         staticBassBands: List<DspEqBand> = emptyList(),
@@ -175,6 +176,7 @@ internal object DspAutoHeadroom {
         require(maxBandMakeupDb.isFinite())
         require(dynamicBoostDb.isFinite())
         require(maxSeatFocusTrimDb.isFinite() && maxSeatFocusTrimDb in DspSeatFocusLimits.MIN_TRIM_DB..DspSeatFocusLimits.MAX_TRIM_DB)
+        require(maxAdvancedMsBoostDb.isFinite() && maxAdvancedMsBoostDb in 0.0..39.0)
         require(stereoWidth.isFinite() && stereoWidth in 0.0..2.0)
         require(marginDb.isFinite() && marginDb >= 0.0)
         require(peqBands.size <= DspEqDesigner.MAX_BANDS)
@@ -198,7 +200,7 @@ internal object DspAutoHeadroom {
         val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth))
         val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
             max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) +
-            max(0.0, maxSeatFocusTrimDb) + widthWorstCaseDb
+            max(0.0, maxSeatFocusTrimDb) + max(0.0, maxAdvancedMsBoostDb) + widthWorstCaseDb
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
@@ -223,6 +225,8 @@ internal data class DspPreparedConfig(
 
 internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
     val seatFocusConfig = seatFocus.prepare(format)
+    val advancedMsConfig = advancedMs.copy(enabled = advancedMs.enabled && format.channels == 2)
+    val monoBassEnabled = monoBass.enabled && !advancedMsConfig.enabled
     val enabledBands = peqBands.filter(DspEqBand::enabled)
     val coefficients = DoubleArray(enabledBands.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
     enabledBands.forEachIndexed { index, band ->
@@ -239,7 +243,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     } else {
         DoubleArray(0)
     }
-    val monoBassCoefficients = if (monoBass.enabled) {
+    val monoBassCoefficients = if (monoBassEnabled) {
         DoubleArray(DspEqDesigner.COEFFICIENTS_PER_BAND).also { destination ->
             DspEqDesigner.design(
                 format.sampleRate,
@@ -295,7 +299,8 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             } else {
                 0.0
             },
-            stereoWidth = stereoWidth,
+            maxAdvancedMsBoostDb = advancedMsConfig.maximumBoostDb,
+            stereoWidth = if (advancedMsConfig.enabled) 1.0 else stereoWidth,
             marginDb = autoHeadroomMarginDb,
             staticBassBands = if (bass.enabled) {
                 listOf(
@@ -330,8 +335,8 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         bassCoefficients = bassCoefficients,
         monoBassCoefficients = monoBassCoefficients,
         spatial = doubleArrayOf(
-            stereoWidth,
-            if (monoBass.enabled) 1.0 else 0.0,
+            if (advancedMsConfig.enabled) 1.0 else stereoWidth,
+            if (monoBassEnabled) 1.0 else 0.0,
             monoBass.cutoffHz.toDouble(),
             if (seatFocusConfig.enabled) 1.0 else 0.0,
             seatFocusConfig.leftDelayFrames,
@@ -340,7 +345,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             seatFocusConfig.rightTrimLinear,
             if (seatFocusConfig.leftPolarityInverted) 1.0 else 0.0,
             if (seatFocusConfig.rightPolarityInverted) 1.0 else 0.0,
-        ),
+        ) + advancedMsConfig.toNativeValues(),
         convolverConfig = doubleArrayOf(
             if (convolverEnabled) 1.0 else 0.0,
             activeImpulseResponse?.sampleRate?.toDouble() ?: 0.0,

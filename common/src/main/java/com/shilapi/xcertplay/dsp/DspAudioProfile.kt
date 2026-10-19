@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.dsp
 
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
@@ -30,6 +31,7 @@ data class DspAudioProfile(
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
     val limiter: DspSafetyLimiterConfig = DspSafetyLimiterConfig(),
     val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
+    val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
 ) {
     init {
         require(ID_PATTERN.matches(id))
@@ -58,6 +60,7 @@ data class DspAudioProfile(
         multiband = multiband,
         dynamicEq = dynamicEq,
         seatFocus = seatFocus,
+        advancedMs = advancedMs,
     )
 
     companion object {

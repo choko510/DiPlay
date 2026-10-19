@@ -17,6 +17,7 @@ class DspRuntimeConfig(
     val multiband: DspMultibandConfig = DspMultibandConfig(),
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
     val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
+    val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double
@@ -37,6 +38,7 @@ class DspRuntimeConfig(
         multiband = multiband,
         dynamicEq = dynamicEq,
         seatFocus = seatFocus,
+        advancedMs = advancedMs,
     )
 
     init {

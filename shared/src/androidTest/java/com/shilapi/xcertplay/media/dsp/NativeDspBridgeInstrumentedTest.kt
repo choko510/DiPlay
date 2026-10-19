@@ -351,6 +351,39 @@ class NativeDspBridgeInstrumentedTest {
     }
 
     @Test
+    fun nativeAdvancedMsAppliesBandWidthAndKeepsMonoInputUnchanged() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val config = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            advancedMs = DspAdvancedMsConfig(
+                enabled = true,
+                crossoverHz = 120.0,
+                low = DspAdvancedMsBandConfig(width = 0.0),
+                high = DspAdvancedMsBandConfig(width = 1.5),
+            ),
+        )
+        assertTrue(measureNativeToneGain(config, 2, 40.0, antiPhase = true) < 0.03)
+        assertEquals(1.5, measureNativeToneGain(config, 2, 4_000.0, antiPhase = true), 0.03)
+
+        val mono = NativeDspProcessor.createOrNull(DspAudioFormat(48_000, 1), config)
+        assertNotNull(mono)
+        mono ?: return
+        try {
+            val input = floatBuffer(0.25f, -0.5f)
+            val output = ByteBuffer.allocateDirect(2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            assertEquals(0, mono.latencyFrames)
+            assertEquals(DspProcessStatus.SUCCESS, mono.process(input, output, frames = 2).status)
+            output.flip()
+            assertEquals(0.25f, output.float, 0f)
+            assertEquals(-0.5f, output.float, 0f)
+        } finally {
+            mono.close()
+        }
+    }
+
+    @Test
     fun nativeBassShelfAndMonoBassFrequencyResponsesReachTheJniEngine() {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val bassConfig = DspRuntimeConfig(

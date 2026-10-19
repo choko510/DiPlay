@@ -49,6 +49,8 @@ import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.dsp.DspProfileSaveResult
 import com.shilapi.xcertplay.dsp.DspImpulseImportResult
 import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsBandConfig
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
@@ -204,22 +206,24 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                 DspValueSlider(stringResource(R.string.dsp_bass_frequency), profile.bass.frequencyHz, 20.0..300.0, "Hz") {
                     profile = profile.copy(bass = profile.bass.copy(frequencyHz = it))
                 }
-                DspValueSlider(stringResource(R.string.dsp_stereo_width), profile.stereoWidth, 0.0..2.0, "") {
-                    profile = profile.copy(stereoWidth = it)
+                if (!profile.advancedMs.enabled) {
+                    DspValueSlider(stringResource(R.string.dsp_stereo_width), profile.stereoWidth, 0.0..2.0, "") {
+                        profile = profile.copy(stereoWidth = it)
+                    }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_mono_bass),
+                        checked = profile.monoBass.enabled,
+                        onCheckedChange = { profile = profile.copy(monoBass = profile.monoBass.copy(enabled = it)) },
+                    )
+                    ChoiceField(
+                        title = stringResource(R.string.dsp_mono_bass_cutoff),
+                        selected = "${profile.monoBass.cutoffHz} Hz",
+                        choices = DspMonoBassConfig.CUTOFFS_HZ.sorted().map { "$it Hz" },
+                        onSelect = { value ->
+                            profile = profile.copy(monoBass = profile.monoBass.copy(cutoffHz = value.substringBefore(' ').toInt()))
+                        },
+                    )
                 }
-                DspSwitchRow(
-                    title = stringResource(R.string.dsp_mono_bass),
-                    checked = profile.monoBass.enabled,
-                    onCheckedChange = { profile = profile.copy(monoBass = profile.monoBass.copy(enabled = it)) },
-                )
-                ChoiceField(
-                    title = stringResource(R.string.dsp_mono_bass_cutoff),
-                    selected = "${profile.monoBass.cutoffHz} Hz",
-                    choices = DspMonoBassConfig.CUTOFFS_HZ.sorted().map { "$it Hz" },
-                    onSelect = { value ->
-                        profile = profile.copy(monoBass = profile.monoBass.copy(cutoffHz = value.substringBefore(' ').toInt()))
-                    },
-                )
             }
 
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -245,6 +249,7 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                         "dB",
                     ) { profile = profile.copy(autoHeadroomMarginDb = it) }
                 }
+                AdvancedMsSection(profile = profile) { profile = it }
                 val seatFocusPresets = listOf(
                     stringResource(R.string.dsp_seat_preset_driver) to DspSeatFocusPreset.DRIVER,
                     stringResource(R.string.dsp_seat_preset_passenger) to DspSeatFocusPreset.PASSENGER,
@@ -596,6 +601,142 @@ private fun EqBandControl(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun AdvancedMsSection(profile: DspAudioProfile, onChange: (DspAudioProfile) -> Unit) {
+    val advancedMs = profile.advancedMs
+    SectionCard(title = stringResource(R.string.dsp_advanced_ms)) {
+        Text(stringResource(R.string.dsp_advanced_ms_note), style = MaterialTheme.typography.bodySmall)
+        DspSwitchRow(
+            title = stringResource(R.string.dsp_advanced_ms_enabled),
+            checked = advancedMs.enabled,
+            onCheckedChange = { enabled ->
+                val configuredMs = if (enabled && advancedMs == DspAdvancedMsConfig()) {
+                    advancedMs.copy(
+                        crossoverHz = profile.monoBass.cutoffHz.toDouble(),
+                        low = advancedMs.low.copy(width = if (profile.monoBass.enabled) 0.0 else profile.stereoWidth),
+                        high = advancedMs.high.copy(width = profile.stereoWidth),
+                    )
+                } else {
+                    advancedMs
+                }
+                onChange(profile.copy(advancedMs = configuredMs.copy(enabled = enabled)))
+            },
+        )
+        DspValueSlider(
+            stringResource(R.string.dsp_ms_crossover),
+            advancedMs.crossoverHz,
+            DspAdvancedMsConfig.MIN_CROSSOVER_HZ..DspAdvancedMsConfig.MAX_CROSSOVER_HZ,
+            "Hz",
+        ) { onChange(profile.copy(advancedMs = advancedMs.copy(crossoverHz = it))) }
+        DspAdvancedMsBandControl(
+            title = stringResource(R.string.dsp_ms_low_band),
+            widthTitle = stringResource(R.string.dsp_ms_low_width),
+            midGainTitle = stringResource(R.string.dsp_ms_low_mid_gain),
+            sideGainTitle = stringResource(R.string.dsp_ms_low_side_gain),
+            config = advancedMs.low,
+            onChange = { onChange(profile.copy(advancedMs = advancedMs.copy(low = it))) },
+        )
+        DspAdvancedMsBandControl(
+            title = stringResource(R.string.dsp_ms_high_band),
+            widthTitle = stringResource(R.string.dsp_ms_high_width),
+            midGainTitle = stringResource(R.string.dsp_ms_high_mid_gain),
+            sideGainTitle = stringResource(R.string.dsp_ms_high_side_gain),
+            config = advancedMs.high,
+            onChange = { onChange(profile.copy(advancedMs = advancedMs.copy(high = it))) },
+        )
+        DspValueSlider(
+            stringResource(R.string.dsp_ms_center_focus),
+            advancedMs.centerFocusDb,
+            -6.0..6.0,
+            "dB",
+        ) { onChange(profile.copy(advancedMs = advancedMs.copy(centerFocusDb = it))) }
+        DspSwitchRow(
+            title = stringResource(R.string.dsp_ms_side_compressor),
+            checked = advancedMs.sideCompressor.enabled,
+            onCheckedChange = { enabled ->
+                onChange(
+                    profile.copy(
+                        advancedMs = advancedMs.copy(sideCompressor = advancedMs.sideCompressor.copy(enabled = enabled)),
+                    ),
+                )
+            },
+        )
+        if (advancedMs.sideCompressor.enabled) {
+            DspValueSlider(
+                stringResource(R.string.dsp_ms_side_threshold),
+                advancedMs.sideCompressor.thresholdDb,
+                -60.0..0.0,
+                "dB",
+            ) {
+                onChange(
+                    profile.copy(
+                        advancedMs = advancedMs.copy(
+                            sideCompressor = advancedMs.sideCompressor.copy(thresholdDb = it),
+                        ),
+                    ),
+                )
+            }
+            DspValueSlider(
+                stringResource(R.string.dsp_ms_side_ratio),
+                advancedMs.sideCompressor.ratio,
+                1.0..20.0,
+                ":1",
+            ) {
+                onChange(
+                    profile.copy(
+                        advancedMs = advancedMs.copy(sideCompressor = advancedMs.sideCompressor.copy(ratio = it)),
+                    ),
+                )
+            }
+            DspValueSlider(
+                stringResource(R.string.dsp_ms_side_attack),
+                advancedMs.sideCompressor.attackMs,
+                0.1..2_000.0,
+                "ms",
+            ) {
+                onChange(
+                    profile.copy(
+                        advancedMs = advancedMs.copy(sideCompressor = advancedMs.sideCompressor.copy(attackMs = it)),
+                    ),
+                )
+            }
+            DspValueSlider(
+                stringResource(R.string.dsp_ms_side_release),
+                advancedMs.sideCompressor.releaseMs,
+                0.1..2_000.0,
+                "ms",
+            ) {
+                onChange(
+                    profile.copy(
+                        advancedMs = advancedMs.copy(sideCompressor = advancedMs.sideCompressor.copy(releaseMs = it)),
+                    ),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DspAdvancedMsBandControl(
+    title: String,
+    widthTitle: String,
+    midGainTitle: String,
+    sideGainTitle: String,
+    config: DspAdvancedMsBandConfig,
+    onChange: (DspAdvancedMsBandConfig) -> Unit,
+) {
+    Text(title, style = MaterialTheme.typography.titleSmall)
+    DspValueSlider(widthTitle, config.width, 0.0..2.0, "") {
+        onChange(config.copy(width = it))
+    }
+    DspValueSlider(midGainTitle, config.midGainDb, -6.0..6.0, "dB") {
+        onChange(config.copy(midGainDb = it))
+    }
+    DspValueSlider(sideGainTitle, config.sideGainDb, -6.0..6.0, "dB") {
+        onChange(config.copy(sideGainDb = it))
     }
 }
 

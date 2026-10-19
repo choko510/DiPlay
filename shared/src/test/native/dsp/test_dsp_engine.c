@@ -745,6 +745,71 @@ static double measure_sine_gain(dsp_engine *engine, double frequency, int channe
     return measure_sine_gain_with_amplitude(engine, frequency, channels, 0.1);
 }
 
+static double measure_correlated_stereo_sine_gain(
+    dsp_engine *engine,
+    double frequency,
+    int right_polarity,
+    double amplitude) {
+    double input_square = 0.0;
+    double output_square = 0.0;
+    size_t frame = 0;
+    while (frame < 48000) {
+        const size_t frames = 48000 - frame < 512 ? 48000 - frame : 512;
+        float input[1024];
+        float output[1024];
+        for (size_t index = 0; index < frames; index++) {
+            const float sample = (float)(amplitude * sin(2.0 * 3.14159265358979323846 * frequency *
+                (double)(frame + index) / 48000.0));
+            input[index * 2] = sample;
+            input[index * 2 + 1] = sample * (float)right_polarity;
+        }
+        assert_true(
+            dsp_engine_process(engine, input, frames * 2, output, frames * 2, (int)frames, 2) == DSP_STATUS_OK,
+            "M/S frequency response block processes");
+        for (size_t index = 0; index < frames; index++) {
+            if (frame + index < 4096) continue;
+            const double input_sample = input[index * 2];
+            const double output_sample = output[index * 2];
+            input_square += input_sample * input_sample;
+            output_square += output_sample * output_sample;
+        }
+        frame += frames;
+    }
+    return sqrt(output_square / input_square);
+}
+
+static double measure_correlated_stereo_sine_phase(
+    dsp_engine *engine,
+    double frequency,
+    int right_polarity) {
+    const double omega = 2.0 * 3.14159265358979323846 * frequency / 48000.0;
+    double sine_projection = 0.0;
+    double cosine_projection = 0.0;
+    size_t frame = 0;
+    while (frame < 48000) {
+        const size_t frames = 48000 - frame < 512 ? 48000 - frame : 512;
+        float input[1024];
+        float output[1024];
+        for (size_t index = 0; index < frames; index++) {
+            const double phase = omega * (double)(frame + index);
+            const float sample = (float)(0.1 * sin(phase));
+            input[index * 2] = sample;
+            input[index * 2 + 1] = sample * (float)right_polarity;
+        }
+        assert_true(
+            dsp_engine_process(engine, input, frames * 2, output, frames * 2, (int)frames, 2) == DSP_STATUS_OK,
+            "M/S phase response block processes");
+        for (size_t index = 0; index < frames; index++) {
+            if (frame + index < 4096) continue;
+            const double phase = omega * (double)(frame + index);
+            sine_projection += (double)output[index * 2] * sin(phase);
+            cosine_projection += (double)output[index * 2] * cos(phase);
+        }
+        frame += frames;
+    }
+    return atan2(cosine_projection, sine_projection);
+}
+
 static void test_spatial_width_and_mono_input_behavior(void) {
     const dsp_spatial_config mono_width = {.width = 0.0, .mono_bass_enabled = 0, .mono_bass_cutoff_hz = 120,
         .seat_left_trim_linear = 1.0, .seat_right_trim_linear = 1.0};
@@ -833,6 +898,101 @@ static void test_spatial_width_and_mono_input_behavior(void) {
         assert_true(isfinite(finite_output[index]), "spatial stage output remains finite");
     }
     dsp_engine_destroy(non_finite_engine);
+}
+
+static void test_advanced_ms_complementarity_width_mono_and_side_compression(void) {
+    dsp_spatial_config advanced_ms = bypass_spatial;
+    advanced_ms.advanced_ms_enabled = 1;
+    advanced_ms.advanced_ms_crossover_hz = 120.0;
+    advanced_ms.advanced_ms_low_width = 1.0;
+    advanced_ms.advanced_ms_high_width = 1.0;
+    dsp_engine *engine = NULL;
+    const double frequencies[] = {30.0, 120.0, 500.0, 4000.0, 12000.0};
+    for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
+        engine = create_test_engine_with_spatial(48000, 2, 512, &advanced_ms, NULL, 0, NULL, 0);
+        assert_true(engine != NULL, "neutral advanced M/S graph creates");
+        assert_true(dsp_engine_get_latency_frames(engine) == 0, "advanced M/S adds no algorithmic latency");
+        assert_near(
+            measure_correlated_stereo_sine_gain(engine, frequencies[index], -1, 0.1),
+            1.0,
+            0.025,
+            "complementary low/high M/S split preserves anti-phase magnitude");
+        dsp_engine_destroy(engine);
+    }
+    const double phase_frequencies[] = {60.0, 120.0, 500.0, 4000.0, 12000.0};
+    for (size_t index = 0; index < sizeof(phase_frequencies) / sizeof(phase_frequencies[0]); index++) {
+        engine = create_test_engine_with_spatial(48000, 2, 512, &advanced_ms, NULL, 0, NULL, 0);
+        assert_true(engine != NULL, "M/S mid phase graph creates");
+        const double mid_phase = measure_correlated_stereo_sine_phase(engine, phase_frequencies[index], 1);
+        dsp_engine_destroy(engine);
+        engine = create_test_engine_with_spatial(48000, 2, 512, &advanced_ms, NULL, 0, NULL, 0);
+        assert_true(engine != NULL, "M/S side phase graph creates");
+        const double side_phase = measure_correlated_stereo_sine_phase(engine, phase_frequencies[index], -1);
+        dsp_engine_destroy(engine);
+        const double phase_difference = atan2(sin(mid_phase - side_phase), cos(mid_phase - side_phase));
+        assert_near(
+            phase_difference,
+            0.0,
+            0.002,
+            "complementary crossover keeps Mid and Side phase and group delay aligned");
+    }
+
+    dsp_spatial_config band_width = advanced_ms;
+    band_width.advanced_ms_low_width = 0.0;
+    band_width.advanced_ms_high_width = 1.5;
+    engine = create_test_engine_with_spatial(48000, 2, 512, &band_width, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "band-width advanced M/S graph creates");
+    assert_true(
+        measure_correlated_stereo_sine_gain(engine, 40.0, -1, 0.1) < 0.03,
+        "low-band width zero removes low-frequency side energy");
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_spatial(48000, 2, 512, &band_width, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "high-band width advanced M/S graph recreates");
+    assert_near(
+        measure_correlated_stereo_sine_gain(engine, 4000.0, -1, 0.1),
+        1.5,
+        0.03,
+        "high-band width applies only to high-frequency side energy");
+    dsp_engine_destroy(engine);
+
+    dsp_spatial_config mid_tone = advanced_ms;
+    mid_tone.advanced_ms_center_focus_db = 2.0;
+    mid_tone.advanced_ms_low_mid_gain_db = 3.0;
+    engine = create_test_engine_with_spatial(48000, 2, 512, &mid_tone, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "center-focused M/S graph creates");
+    assert_near(
+        measure_correlated_stereo_sine_gain(engine, 40.0, 1, 0.1),
+        pow(10.0, 5.0 / 20.0),
+        0.035,
+        "center focus and low-band mid tone affect correlated content");
+    dsp_engine_destroy(engine);
+
+    dsp_spatial_config compressed_side = advanced_ms;
+    compressed_side.advanced_ms_side_compressor_enabled = 1;
+    compressed_side.advanced_ms_side_compressor_threshold_db = -20.0;
+    compressed_side.advanced_ms_side_compressor_ratio = 4.0;
+    compressed_side.advanced_ms_side_compressor_attack_ms = 5.0;
+    compressed_side.advanced_ms_side_compressor_release_ms = 100.0;
+    compressed_side.advanced_ms_side_compressor_knee_db = 0.0;
+    compressed_side.advanced_ms_side_compressor_makeup_db = 0.0;
+    engine = create_test_engine_with_spatial(48000, 2, 512, &compressed_side, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "side-dynamics M/S graph creates");
+    assert_true(
+        measure_correlated_stereo_sine_gain(engine, 1000.0, -1, 0.5) < 0.5,
+        "side compressor reduces high-level side energy without linking the mid");
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_spatial(48000, 1, 512, &advanced_ms, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "mono advanced M/S graph creates");
+    const float mono_input[] = {0.25f, -0.5f};
+    float mono_output[] = {0.0f, 0.0f};
+    assert_true(dsp_engine_get_latency_frames(engine) == 0, "mono M/S bypass has zero latency");
+    assert_true(dsp_engine_process(engine, mono_input, 2, mono_output, 2, 2, 1) == DSP_STATUS_OK,
+        "mono input bypasses advanced M/S");
+    assert_near(mono_output[0], mono_input[0], 0.0, "mono M/S bypass preserves sample zero");
+    assert_near(mono_output[1], mono_input[1], 0.0, "mono M/S bypass preserves sample one");
+    dsp_engine_destroy(engine);
 }
 
 static void test_seat_focus_fractional_delay_fixed_latency_and_mono_bypass(void) {
@@ -1732,6 +1892,7 @@ int main(void) {
     test_compressor_attack_and_release_steps();
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
+    test_advanced_ms_complementarity_width_mono_and_side_compression();
     test_seat_focus_fractional_delay_fixed_latency_and_mono_bypass();
     test_seat_focus_fractional_delay_phase_error();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();

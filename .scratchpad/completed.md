@@ -1,6 +1,7 @@
 # Completed
 
-- 2026-10-20: Added a reusable STEP4 batch implementation prompt and classified the BYD-only cluster preview/settings removal as `SKIP_OEM`; regenerated the 1,289-row EX-08 inventory and synchronized the summary counts. PR run #184 passed the audit-only lane in 48s with runtime setup and tests skipped.
+- 2026-10-20: Added a reusable STEP4 batch implementation prompt and classified the BYD-only cluster preview/settings removal as `SKIP_OEM`; regenerated the 1,289-row EX-08 inventory and synchronized the summary counts. PR runs #184/#185 passed the audit-only lane in 48s/43s with runtime setup and tests skipped.
+- 2026-10-20: Batched five USB/NCM integration records: classified the already-adapted PR478 NCM path as `FORK_SUPERIOR` and rejected four mixed USBMUX/queue/diagnostic aggregates; left individual protocol/device gates pending. Regenerated the ledger with 77 final base rows.
 - 2026-10-20: Added a draft quick CI lane with native/sanitizer and shared/common unit tests while deferring lint, app builds, JNI and emulator checks to `ready_for_review`. Run #169 passed in 2m13 versus #168's 9m39 full draft host run; docs/audit-only runs #170–176 passed in 33s/41s/41s/44s/48s/43s/39s.
 - 2026-10-20: Recorded the identical manual-hotspot patch under both upstream source SHAs while keeping one wired-config adaptation in the fork; regenerated the 1,289-row EX-08 ledger and documented the new counts.
 - 2026-10-20: Rejected the upstream AccessibilityService USB auto-confirm commit: it clicks the persistent allow option and broadens the USB filter; fixed main keeps explicit per-device consent.

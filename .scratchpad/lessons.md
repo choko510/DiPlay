@@ -322,3 +322,5 @@ For imported cabin correction, persist only a digest and measurement summary wit
 For 2× harmonic processing, zero-stuff each input into a fixed even-sized phase ring, use matched normalized half-band FIRs around the waveshaper, and keep a separate preallocated state per channel/branch. The two linear-phase FIR group delays sum to `(tapCount - 1) / 2` input frames; use that same delay for the dry path and add it to the playback-clock latency.
 
 For long STEP4 audits, group related upstream commits by subsystem and update their review overrides, generated CSV, and count summaries together. Keep unresolved physical or protocol requirements explicit instead of reopening the same implementation or CI loop for each inventory row.
+
+For a multi-area upstream commit, review the actual patch and fixed-main gate separately from its individual component candidates. It can be rejected as an aggregate without treating a useful constituent patch as disproven; keep that constituent's own row `NEED_EVIDENCE` until its target-specific gate passes.

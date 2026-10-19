@@ -379,3 +379,7 @@ Accept only CSV responses with declared noise-floor/clipping metadata, 20–300 
 ## Harmonic effects use bounded 2× FIR oversampling and report the dry-matched latency
 
 Share one 2× oversampled waveshaper across the Exciter and Virtual Bass branches, use fixed 9/17/33-tap Blackman FIR presets, and delay dry audio by the matching 4/8/16 frames. Keep the effects off by default, bound each branch to 0.5, include worst-case additive gain in Auto Headroom, retain the final limiter, and defer active filter-state changes until the next track generation.
+
+## Batch remaining STEP4 work in the existing PR
+
+Keep all remaining STEP4 stages in PR #45 and update related EX-08 decisions, generated inventory counts, and documentation in one batch. Use the draft quick lane for iterative code feedback and reserve the full host/emulator lane for `ready_for_review`; missing hardware/protocol evidence remains `NOT_RUN` or `NEED_EVIDENCE`. The second independent review stays `NOT_RUN` per the user's direction.

@@ -50,6 +50,14 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No patch imported; any future generic hotspot fix must be split under WIRELESS-EX and independently measured without restoring BYD cluster code.",
         "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_BYD_WIRELESS_AGGREGATE",
     },
+    "d87152ca9f165368151bd0f3a44cad2c130d1520": {
+        "disposition": "SKIP_OEM",
+        "reason": "The patch removes a BYD-only cluster marker preview from the BYD navigation settings and guide. Fixed main has no CarPlayClusterDisplay or ClusterMarkerPreview and the v3 plan preserves the BYD cluster removal; there is no generic ViewArea or local Split behavior to adapt.",
+        "test": "PASS_STATIC: changed paths are ClusterMarkerPreview, BYD marker controls, and docs/BYD_NAVIGATION.md; fixed main contains no cluster marker settings or preview",
+        "related": "BYD/OEM quarantine; no generic PR-05/06 ViewArea or PR-06 LOCAL Split mapping",
+        "rollback": "No change needed; retain fixed-main's removal of BYD cluster preview and marker controls.",
+        "review_state": "PRIMARY_AGENT_PLAN_EXCLUSION_VERIFIED",
+    },
     "ac75c94c25052388e9feb9fb879797fdf9534f49": {
         "disposition": "SKIP_OEM",
         "reason": "This change calibrates the car marker and map viewport to measured DiLink 5.1 cluster safe areas and BYD-specific steering-wheel modes. Fixed main deliberately removed BYD cluster projection; this geometry has no generic TS10/K706 mapping.",

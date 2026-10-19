@@ -2,6 +2,8 @@
 
 For faster pull request feedback, keep inexpensive repository checks in an always-running job and gate costly builds/emulators with a conservative changed-file classifier. Compare against the last successful full run so documentation commits in a long-lived code PR can skip expensive jobs without hiding unverified code changes. Default unknown paths, missing baselines, and non-PR events to the full suite.
 
+When using `gh api` query parameters with `-f`, pass `--method GET` explicitly; otherwise the CLI switches to POST. Keep this explicit for read-only pagination and filter requests so an HTTP 404 cannot silently route every PR through expensive fallback checks.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

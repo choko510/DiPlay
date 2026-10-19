@@ -101,7 +101,7 @@ jobs:
         run: bash scripts/test_dsp_native.sh --sanitize
       - name: Unit tests, lint, debug and optimized builds
         if: needs.changes.outputs.runtime == 'true'
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --stacktrace
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --parallel --stacktrace
       - name: Verify JNI names survive R8
         if: needs.changes.outputs.runtime == 'true'
         run: python3 scripts/check_jni_mapping.py

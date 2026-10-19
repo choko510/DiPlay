@@ -170,6 +170,38 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No patch imported; preserve the current Bluetooth/Direct setup until wireless-mode behavior is separately approved and testable.",
         "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_WIRELESS_TESTS",
     },
+    "5a5b53287a4e2f53aa089dff05f95c76db8922ad": {
+        "disposition": "ADAPT",
+        "reason": "The upstream change recovers a following valid NTB after malformed NCM data and bounds resynchronization. PR-01 adapts this behavior to the fork's persistent UsbRequest, typed send results, diagnostic profiles, and exact optional-pad boundary handling; it does not copy the upstream wall-clock resync policy.",
+        "test": "PASS_LOCAL: NcmUsbBridgeFixtureTest covers malformed NDP/header recovery, false NTH, unknown NTH32, 1 MiB resync ceiling, 64/512-byte pad boundaries, and preservation of the next NTB",
+        "related": "PR-01 NCM framing/recovery; PR-00 test fixtures; PR-45 commit bc08b6b",
+        "rollback": "Revert PR-45 commit bc08b6b if the framing/recovery fixture suite regresses; retain the fork's persistent request and diagnostics.",
+        "review_state": "PRIMARY_AGENT_BEHAVIOR_MAPPING_AND_LOCAL_TEST",
+    },
+    "1c93dc9b055bf7a9e8f93d91ed0da780476301bf": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The USBMUX change drains and preserves a read that completes between timeout and cancel, addressing a Telechips-specific report. The fork has no same-device timed-read trace, and changing timeout ownership can affect close/cancel races.",
+        "test": "NOT_RUN_TARGET: timed USBMUX completion race, cancel result, empty completion, teardown, and next-read recovery",
+        "related": "USBMUX-EX read/cancel lifecycle; distinct from PR-01 NCM receive recovery",
+        "rollback": "No patch imported; if reproduced, isolate timed-read recovery in IphoneUsbHost with a deterministic race test and one-commit rollback.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_USB_RACE_REPRO",
+    },
+    "59c2652592ce92d2fb22e4554858deb0bbaa4656": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The patch uses an existing local ADB trust to grant USB permission through a shell app_process when Android 7.1–9 has no permission activity. API 28 is within fixed main's minSdk, but no TS10 permission-UI failure is evidenced and the shell grant needs explicit security/lifecycle review.",
+        "test": "NOT_RUN_TARGET: Android 9 missing permission UI, ADB trust and revocation, grant fencing, and USB detach lifecycle",
+        "related": "PR-00 USB permission fixtures; EX-01/04 permission and re-enumeration lifecycle; security review",
+        "rollback": "No grant fallback imported; retain the standard permission request until a supported device reproduces the missing-UI case and the ADB path is reviewed.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_PERMISSION_SECURITY",
+    },
+    "19649861dab5d65727f195f2d6b7762a0d141005": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "The commit combines a USBMUX VERSION-after-trailer parser exception with a home-card transport label. The parser fix targets one iOS 27 capture and needs a byte-exact fork fixture; the separate UI label needs session/selection lifecycle validation.",
+        "test": "NOT_RUN_FORK: captured nested-trailer VERSION response, all transfer splits, following-frame preservation, and home-card session selection",
+        "related": "USBMUX-EX trailer framing; home-card transport/UI candidate, separate from PR-01 NCM",
+        "rollback": "No patch imported; split parser and UI changes, then add capture-driven tests before adopting either behavior.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_SPLIT_REVIEW",
+    },
 }
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {

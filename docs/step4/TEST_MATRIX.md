@@ -64,8 +64,8 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 
 | Evidence ID | Scenario | Main test/evidence | Status |
 |---|---|---|---|
-| EX08-01 | Enumerate all upstream-only commit SHAs from the frozen base plus 57-commit delta, with source URLs, patch digests, changed paths, disposition, test, STEP4 mapping, and rollback field | `scripts/generate_step4_ex08_inventory.py --check`, `docs/step4/EX08_COMMIT_LEDGER.csv` | `PASS_LOCAL` inventory: 1,289 unique SHAs (1,232 + 57); 3 `ADAPT`, 4 `FORK_SUPERIOR`, 10 `SKIP_OEM`, 28 `REJECT_UNSAFE`, 1,244 `NEED_EVIDENCE` |
-| EX08-02 | Complete semantic review and final per-commit decision for each row | Pinned audit catalog, patch archives, fork source, commit-specific regression tests | `INCOMPLETE`: all 1,232 base rows have heuristic-only source status; 14 high-priority candidates have targeted gate review; all 57 delta rows have explicit decisions, with 17 still `NEED_EVIDENCE`; 1,244 rows remain `NEED_EVIDENCE` overall |
+| EX08-01 | Enumerate all upstream-only commit SHAs from the frozen base plus 57-commit delta, with source URLs, patch digests, changed paths, disposition, test, STEP4 mapping, and rollback field | `scripts/generate_step4_ex08_inventory.py --check`, `docs/step4/EX08_COMMIT_LEDGER.csv` | `PASS_LOCAL` inventory: 1,289 unique SHAs (1,232 + 57); 4 `ADAPT`, 4 `FORK_SUPERIOR`, 10 `SKIP_OEM`, 28 `REJECT_UNSAFE`, 1,243 `NEED_EVIDENCE` |
+| EX08-02 | Complete semantic review and final per-commit decision for each row | Pinned audit catalog, patch archives, fork source, commit-specific regression tests | `INCOMPLETE`: all 1,232 base rows have heuristic-only source status; selected high-priority/transport rows have targeted gate review; all 57 delta rows have explicit decisions, with 17 still `NEED_EVIDENCE`; 1,243 rows remain `NEED_EVIDENCE` overall |
 
 ## PR-04 microphone request classification and routing
 

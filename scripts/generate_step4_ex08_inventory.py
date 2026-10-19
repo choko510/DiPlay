@@ -298,6 +298,14 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No aggregate merge imported; any independently justified component must be a separate PR-45 change with its own tests and one-commit rollback.",
         "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
     },
+    "bc7aa5e92917747e7cea5e4eee9670397b9c869c": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This sync merge has 166 changed paths and 425 diff hunks spanning BYD features, NCM/UsbRequest, Wi-Fi P2P, microphone, Surface, and side-panel/UI code. It is not an atomic STEP4 feature and cannot be safely transplanted as one commit; v3 forbids upstream bulk merges and requires retaining the fixed-main BYD removals.",
+        "test": "PASS_STATIC: source diff confirms multiple unrelated transport/media/OEM/UI areas; origin/main retains minSdk 28 and BYD quarantine; NOT_RUN_PER_COMMIT: isolated behavior tests for the individual upstream changes",
+        "related": "Reject aggregate sync merge; review underlying commits separately under PR-01/02, PR-04/06/07, wireless, and BYD/OEM quarantine",
+        "rollback": "No merge imported; keep fixed-main code and evaluate only independently supported constituent commits in revertible PR-45 changes.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
     "2ed938e67a5f245a36a665733bb69d8807091587": {
         "disposition": "NEED_EVIDENCE",
         "reason": "This merge combines a nested four-byte USBMUX trailer exception before an exact VERSION reply with a wired home-card title/Wi-Fi-hint change and translations. The parser tests use synthetic input, while the home-card helper does not exercise fixed-main session and saved-transport lifecycle; the mixed change has no complete STEP4 mapping.",

@@ -32,6 +32,10 @@ Use the existing debug-log opt-in for one wired-attempt recorder. Store only fix
 
 Per the user's latest instruction, fold every remaining STEP4 stage into the existing PR #45. Preserve the specification's dependency order through sequential commits and validation records; do not open additional STEP4 PRs. The second independent review remains `NOT_RUN` by user direction.
 
+## Keep conditional transport changes evidence-gated
+
+Do not alter watchdog deadlines/completion, USB queue fallback, initial NCM OUT timing, StartSession retry, status polling, or IPv4/scope/listener behavior without the corresponding device evidence in the v3 plan. EX-01 already records the needed per-stage wired milestones; this run has no TS10/iPhone trigger trace, so record the conditional branches as `NO_GO_THIS_RUN` or `NOT_RUN` and preserve existing behavior.
+
 ## Keep one USBMUX IN request and use bounded recovery
 
 USBMUX now reuses one 32 KiB direct-buffer request across wait timeouts; framing rebuilds up to 64 KiB messages above the USB read layer. On failure, close the wired CSM, USBMUX/session, and VPN/NCM together, then allow three bounded clean retries at 400, 800, and 1,200 ms before surfacing a deep-recovery candidate. USBMUX and NCM remain on separate `UsbDeviceConnection`s because the current interface layout provides no evidence that combining them improves reliability.

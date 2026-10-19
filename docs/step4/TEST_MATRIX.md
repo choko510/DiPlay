@@ -48,6 +48,18 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | EX02-01 | Failed → pending → recovered session cancels the old ticket; a later second loss gets a fresh ticket | `ReconnectAfterLossGateTest` | `PASS_LOCAL` policy test |
 | EX02-02 | Stale restart/connection/owner epochs, live session, shutdown, menu plus pending resize, handshake reset, and controller-owned wired recovery cannot trigger the delayed host retry | `ReconnectAfterLossGateTest`, `CarPlayHostActivity` gate wiring | `PASS_LOCAL` policy test; full Activity/owner-handoff simulation `NOT_RUN` |
 
+## EX-03 watchdog observation and conditional-stage dispositions
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| EX03-01 | Existing 8 s slow snapshot / 15 s hard timeout, stale token rejection, MAIN/ALT setup separation, and MAIN first-frame timing | `WiredStartupWatchdogTest`, `WiredPathAirPlayDiagnosticsTest`, `CarPlayController` path audit | `PASS_LOCAL` observation coverage; no timeout or completion behavior changed |
+| EX03-02 | Select different control/screen deadlines or a MAIN-only completion condition from TS10/iPhone timing and UX evidence | Physical device A/B | `NOT_RUN`; preserve 8 s / 15 s and current completion policy |
+| EX04-01 | Recheck the same USB node 10 s after a mode-change request, with permission and generation fencing | Physical USB trace | `NO_GO_THIS_RUN`; same-node mode migration without detach/attach has not been observed |
+| PR02-01 | API 28+ queue-false size fallback; keep an already-queued timeout on the same request | Queue-failure reproduction on a supported device | `NO_GO_THIS_RUN`; API 26/27 is `NOT_APPLICABLE` at minSdk 28, and no API 28+ device-present queue-false failure is evidenced |
+| PR03-01 / EX05-01 | Compare first NCM OUT readiness and consider one conditional StartSession retry only for the proven delayed-OUT/SYN-ACK-loss chain | Same-attempt TS10/iPhone wired trace | `NO_GO_THIS_RUN`; required causal timing evidence is unavailable; current OUT/retry behavior is unchanged |
+| EX06-01 | Compare `AUTO` and `NO_STATUS_POLLING` for status usefulness, GC, packet loss, and RTSP timing | Physical device A/B | `NOT_RUN`; retain current polling behavior |
+| EX07-01 | Reproduce IPv4-only traffic, IPv6 link-local scope failure, or stale accept generation before changing bridge/listener behavior | Physical interface evidence and targeted stress test | `NO_GO_THIS_RUN`; no trigger condition is evidenced |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |

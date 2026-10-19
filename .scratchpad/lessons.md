@@ -4,6 +4,8 @@ For faster pull request feedback, keep inexpensive repository checks in an alway
 
 When a repository tool only updates a reviewed inventory and its dedicated validator runs on every PR, an exact path allowlist can keep those review iterations off the Android build path. Do not generalize that exemption to other `scripts/` changes.
 
+For generated audit files, make CI compare the checked-in output with the rows rebuilt from review overrides; source-catalog validation alone does not catch a stale generated ledger.
+
 When using `gh api` query parameters with `-f`, pass `--method GET` explicitly; otherwise the CLI switches to POST. Keep this explicit for read-only pagination and filter requests so an HTTP 404 cannot silently route every PR through expensive fallback checks.
 
 The Gradle setup action defaults non-default branches to read-only caching. Inspect its run summary; when repeated same-PR builds need task outputs, allow writes only to that PR's merge-ref cache and keep fork PRs read-only.

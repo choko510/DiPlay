@@ -763,12 +763,12 @@ BASE_REVIEW_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_FIXED_MAIN_PERMISSION_COMPARISON",
     },
     "4d7904b8f198f78eb0521ba65b0698a75301327b": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The one-click setup still enables accessibility automation and also changes the saved wireless setting to USB when an iPhone attachment arrives. That persistent transport switch can surprise users and must be compared with the fork's explicit connection selection before any adoption.",
-        "test": "NOT_RUN_FORK: accessibility opt-in/ADB grant, USB attachment with wireless selected, saved preference, and Activity recreation",
-        "related": "PR-00 USB permissions; EX-04 attach lifecycle; WIRELESS-EX connection preference ownership",
-        "rollback": "No patch imported; preserve the saved wireless preference and require a separate opt-in flow for any future permission helper.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_PERMISSION_AND_SETTINGS_TESTS",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The change adds a local-ADB/Accessibility path to auto-enable USB permission confirmation and saves wirelessEnabled=false on iPhone USB attach, silently changing the user's persisted connection choice. Fixed main preserves explicit per-device UsbManager consent and explicit transport settings; the convenience setup does not justify either behavior change.",
+        "test": "PASS_STATIC: source enables UsbAutoConfirmService through local ADB and changes the saved wireless preference in onCreate/onNewIntent; origin/main has no auto-confirm service and uses UsbManager.requestPermission; SOURCE_TESTS: upstream transport-switch assertion exists; NOT_RUN_BY_DESIGN: no automatic permission or preference-changing behavior is tested or enabled",
+        "related": "Reject USB permission and persisted-transport automation; PR-00 explicit consent, EX-04 attach lifecycle, and WIRELESS-EX connection choice are separate; not an EX-04 retry fix",
+        "rollback": "No ADB/accessibility grant or preference switch imported; retain explicit USB consent and the saved transport selection. Any future attach recovery must be opt-in and must not rewrite the wireless preference.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_UNSAFE_PERMISSION_AND_PREFERENCE_SWITCH",
     },
     "8633aae3e0a357622b7b44f0ead12c1da74627aa": {
         "disposition": "NEED_EVIDENCE",

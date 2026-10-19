@@ -54,6 +54,9 @@ import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionNotch
 import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementParseResult
+import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
+import com.shilapi.xcertplay.media.dsp.DspHarmonicMode
+import com.shilapi.xcertplay.media.dsp.DspHarmonicQuality
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
@@ -530,6 +533,82 @@ private fun DspSettingsScreen(runtime: DspProfileRuntime, onBack: () -> Unit) {
                                 profile = profile.copy(cabinCorrection = cabin.copy(enabled = enabled))
                             }
                         },
+                    )
+                }
+                SectionCard(title = stringResource(R.string.dsp_harmonic_engine)) {
+                    val harmonic = profile.harmonic
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_harmonic_engine),
+                        checked = harmonic.enabled,
+                        description = stringResource(R.string.dsp_harmonic_description),
+                        onCheckedChange = { profile = profile.copy(harmonic = harmonic.copy(enabled = it)) },
+                    )
+                    val modeOptions = listOf(
+                        DspHarmonicMode.EVEN to stringResource(R.string.dsp_harmonic_even),
+                        DspHarmonicMode.ODD to stringResource(R.string.dsp_harmonic_odd),
+                        DspHarmonicMode.MIXED to stringResource(R.string.dsp_harmonic_mixed),
+                    )
+                    ChoiceField(
+                        title = stringResource(R.string.dsp_harmonic_mode),
+                        selected = modeOptions.first { it.first == harmonic.mode }.second,
+                        choices = modeOptions.map { it.second },
+                        onSelect = { selected ->
+                            profile = profile.copy(harmonic = harmonic.copy(mode = modeOptions.first { it.second == selected }.first))
+                        },
+                    )
+                    val qualityOptions = listOf(
+                        DspHarmonicQuality.LOW to stringResource(R.string.dsp_harmonic_quality_low),
+                        DspHarmonicQuality.MEDIUM to stringResource(R.string.dsp_harmonic_quality_medium),
+                        DspHarmonicQuality.HIGH to stringResource(R.string.dsp_harmonic_quality_high),
+                    )
+                    ChoiceField(
+                        title = stringResource(R.string.dsp_harmonic_quality),
+                        selected = qualityOptions.first { it.first == harmonic.quality }.second,
+                        choices = qualityOptions.map { it.second },
+                        onSelect = { selected ->
+                            profile = profile.copy(
+                                harmonic = harmonic.copy(quality = qualityOptions.first { it.second == selected }.first),
+                            )
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_harmonic_exciter),
+                        checked = harmonic.exciterEnabled,
+                        onCheckedChange = { profile = profile.copy(harmonic = harmonic.copy(exciterEnabled = it)) },
+                    )
+                    DspValueSlider(
+                        stringResource(R.string.dsp_harmonic_exciter_amount),
+                        harmonic.exciterAmount,
+                        0.0..DspHarmonicConfig.MAX_AMOUNT,
+                        "",
+                    ) { profile = profile.copy(harmonic = harmonic.copy(exciterAmount = it)) }
+                    DspValueSlider(
+                        stringResource(R.string.dsp_harmonic_exciter_cutoff),
+                        harmonic.exciterCutoffHz,
+                        DspHarmonicConfig.MIN_EXCITER_CUTOFF_HZ..DspHarmonicConfig.MAX_EXCITER_CUTOFF_HZ,
+                        "Hz",
+                    ) { profile = profile.copy(harmonic = harmonic.copy(exciterCutoffHz = it)) }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_harmonic_virtual_bass),
+                        checked = harmonic.virtualBassEnabled,
+                        onCheckedChange = { profile = profile.copy(harmonic = harmonic.copy(virtualBassEnabled = it)) },
+                    )
+                    DspValueSlider(
+                        stringResource(R.string.dsp_harmonic_virtual_bass_amount),
+                        harmonic.virtualBassAmount,
+                        0.0..DspHarmonicConfig.MAX_AMOUNT,
+                        "",
+                    ) { profile = profile.copy(harmonic = harmonic.copy(virtualBassAmount = it)) }
+                    DspValueSlider(
+                        stringResource(R.string.dsp_harmonic_virtual_bass_cutoff),
+                        harmonic.virtualBassCutoffHz,
+                        DspHarmonicConfig.MIN_VIRTUAL_BASS_CUTOFF_HZ..DspHarmonicConfig.MAX_VIRTUAL_BASS_CUTOFF_HZ,
+                        "Hz",
+                    ) { profile = profile.copy(harmonic = harmonic.copy(virtualBassCutoffHz = it)) }
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_harmonic_level_match),
+                        checked = harmonic.levelMatchEnabled,
+                        onCheckedChange = { profile = profile.copy(harmonic = harmonic.copy(levelMatchEnabled = it)) },
                     )
                 }
                 SectionCard(title = stringResource(R.string.dsp_parametric_eq)) {

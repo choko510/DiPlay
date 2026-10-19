@@ -212,6 +212,17 @@ class DspPipelineBenchmarkInstrumentedTest {
                 DspCabinCorrectionNotch(enabled = true, frequencyHz = 220.0, gainDb = -4.0),
             ),
         )
+        val harmonic = DspHarmonicConfig(
+            enabled = true,
+            mode = DspHarmonicMode.MIXED,
+            quality = DspHarmonicQuality.HIGH,
+            exciterEnabled = true,
+            exciterAmount = 0.3,
+            exciterCutoffHz = 6_000.0,
+            virtualBassEnabled = true,
+            virtualBassAmount = 0.2,
+            virtualBassCutoffHz = 120.0,
+        )
         val base = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
         val peq = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, peqBands = peq15)
 
@@ -284,6 +295,15 @@ class DspPipelineBenchmarkInstrumentedTest {
                     safetyLimiter = DspSafetyLimiterConfig(enabled = false),
                 ),
             ),
+            BenchmarkCase(
+                "HarmonicEngine",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    harmonic = harmonic,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
             BenchmarkCase("Convolver4k", convolverConfig(sampleRate, channels, 4_096)),
             BenchmarkCase("Convolver16k", convolverConfig(sampleRate, channels, 16_384)),
             BenchmarkCase("Convolver64k", convolverConfig(sampleRate, channels, 65_536)),
@@ -293,7 +313,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                     enabled = true,
                     gainDb = 2.0,
                     autoHeadroomEnabled = false,
-                    peqBands = peq15,
+                    peqBands = peq15.take(12),
                     bass = bass,
                     compressor = compressor,
                     safetyLimiter = limiter,
@@ -302,6 +322,7 @@ class DspPipelineBenchmarkInstrumentedTest {
                     seatAlignment = seatAlignment.copy(nearSpeaker = DspSeatNearSpeaker.RIGHT),
                     advancedMs = advancedMs,
                     cabinCorrection = cabinCorrection,
+                    harmonic = harmonic,
                     convolver = convolverConfig(sampleRate, channels, 16_384).convolver,
                     multiband = multiband,
                     dynamicEq = dynamicEq,

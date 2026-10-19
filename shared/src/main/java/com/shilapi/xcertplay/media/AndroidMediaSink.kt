@@ -1795,7 +1795,8 @@ internal class AudioRenderer(
     private fun DspRuntimeConfig.requiresStateContinuity(): Boolean = enabled && (
         convolver.enabled && convolver.wet > 0.0 && convolver.impulseResponse != null ||
             compressor.enabled || multiband.enabled || dynamicEq.enabled && dynamicEq.bands.any { it.enabled } ||
-            seatAlignment.requiresStateContinuity || advancedMs.requiresStateContinuity
+            seatAlignment.requiresStateContinuity || advancedMs.requiresStateContinuity ||
+            harmonic.requiresStateContinuity
         )
 
     private fun configureLiveUpdates(format: DspAudioFormat, forcePrepareCurrent: Boolean = false) {

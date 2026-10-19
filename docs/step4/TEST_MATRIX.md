@@ -123,7 +123,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | DSP02-01 | Advanced M/S defaults off, legacy Stereo Width/Mono Bass are folded into low/high bands on first enable, sample-rate and parameter bounds are enforced, and positive Mid/Side/width gain enters Auto Headroom | `DspAdvancedMsConfigTest`, `DspAutoHeadroomTest` | `PASS_LOCAL` |
 | DSP02-02 | LR4 low/high split reconstructs unity magnitude; band-specific Side width, mono input, and anti-phase Side behavior remain stable; final limiter constrains width overshoot | `test_dsp_engine.c` | `PASS_LOCAL` unsanitized |
 | DSP02-03 | Mid/Side native parameters and DSP stateful-update deferral are wired through JNI and renderer lifecycle | `NativeDspProcessorTest`, `DspRendererProductionPathTest` | `PASS_LOCAL` / `PASS_ROBOLECTRIC` |
-| DSP02-04 | Advanced M/S and full-chain p99 plus allocation gate across 44.1/48 kHz mono/stereo | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (52 configurations after adding AdvancedMS and Cabin3Notches) | `NOT_RUN` for this stage; scheduled with the final DSP matrix |
+| DSP02-04 | Advanced M/S and full-chain p99 plus allocation gate across 44.1/48 kHz mono/stereo | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (56 configurations after adding the four new DSP cases) | `NOT_RUN` for this stage; scheduled with the final DSP matrix |
 | DSP02-05 | TS10/K706 listening, phase/group-delay assessment, mono/anti-phase car playback, and long-run validation | Physical device run | `NOT_RUN`; no target head unit or listening path is connected |
 
 ## DSP-03 Measured cabin correction
@@ -132,8 +132,18 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 |---|---|---|---|
 | DSP03-01 | External CSV format, measurement metadata, 20–300 Hz coverage, 1/6-octave spacing, ≥12 dB signal/noise margin, clipping rejection, bounded suggestions, and `CALIBRATION_UNAVAILABLE` outcomes | `DspCabinMeasurementCsvTest` | `PASS_LOCAL` |
 | DSP03-02 | Up to three user-reviewed static PEQ cuts; manual edit/remove/undo; schema v5→v6 migration defaults off; no program-audio analysis | `DspProfileRepositoryTest`, `DspAutoHeadroomTest`, `NativeDspProcessorTest` | `PASS_LOCAL` |
-| DSP03-03 | Cabin3Notches and final-chain p99 plus allocation gate across 44.1/48 kHz mono/stereo | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (52 configurations) | `NOT_RUN` for this stage; scheduled with the final DSP matrix |
+| DSP03-03 | Cabin3Notches and final-chain p99 plus allocation gate across 44.1/48 kHz mono/stereo | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (56 configurations) | `NOT_RUN` for this stage; scheduled with the final DSP matrix |
 | DSP03-04 | TS10/K706 measured response, noise/clipping environment, listening and A/V validation | Physical device run | `NOT_RUN`; no target measurement or listening path is connected |
+
+## DSP-04 Harmonic Engine
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| DSP04-01 | EVEN/ODD/MIXED shaping, 9/17/33-tap 2× FIR, matched dry latency of 4/8/16 frames, amount/cutoff bounds, and Auto Headroom | `DspHarmonicConfigTest`, `DspAutoHeadroomTest` | `PASS_LOCAL` |
+| DSP04-02 | Disabled-path parity, block invariance, mode-specific harmonic generation, 14 kHz→6 kHz alias rejection, and latency sum with Convolver | `test_dsp_engine.c` | `PASS_LOCAL` unsanitized |
+| DSP04-03 | Harmonic JNI parameters, profile v6→v7 migration, and active update deferral to the next track | `NativeDspProcessorTest`, `DspProfileRepositoryTest`, `DspRendererProductionPathTest` | `PASS_LOCAL` / `PASS_ROBOLECTRIC` |
+| DSP04-04 | HarmonicEngine and FullHeavyChain p99/peak/allocation across 44.1/48 kHz mono/stereo | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (56 configurations) | `NOT_RUN` for this stage; scheduled with the final DSP matrix |
+| DSP04-05 | TS10/K706 THD/alias, peak, listening, A/V sync, and long-run behavior | Physical device run | `NOT_RUN`; no target head unit or listening path is connected |
 
 ## Main baseline runs
 

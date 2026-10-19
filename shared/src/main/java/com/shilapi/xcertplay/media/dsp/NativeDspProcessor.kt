@@ -17,6 +17,7 @@ internal interface NativeDspBindings {
         spatial: DoubleArray,
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
+        harmonicValues: DoubleArray,
     ): Long
     fun process(
         handle: Long,
@@ -50,6 +51,7 @@ internal object NativeDspJni : NativeDspBindings {
         spatial: DoubleArray,
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
+        harmonicValues: DoubleArray,
     ): Long = nativeCreate(
         sampleRate,
         channels,
@@ -64,6 +66,7 @@ internal object NativeDspJni : NativeDspBindings {
         spatial,
         convolverConfig,
         convolverSamples,
+        harmonicValues,
     )
 
     override fun process(
@@ -108,6 +111,7 @@ internal object NativeDspJni : NativeDspBindings {
         spatial: DoubleArray,
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
+        harmonicValues: DoubleArray,
     ): Long
     private external fun nativeProcess(
         handle: Long,
@@ -312,6 +316,7 @@ internal class NativeDspProcessor internal constructor(
                     spatial = prepared.spatial,
                     convolverConfig = prepared.convolverConfig,
                     convolverSamples = prepared.convolverSamples,
+                    harmonicValues = prepared.harmonic,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

@@ -351,3 +351,7 @@ Keep the existing Stereo Width/Mono Bass path unchanged while Advanced M/S is of
 ## Cabin correction requires external measurements and explicit approval
 
 Accept only CSV responses with declared noise-floor/clipping metadata, 20–300 Hz coverage, near-1/6-octave spacing, and at least 12 dB margin above the floor. Suggest at most three bounded static PEQ cuts, keep them off until user approval, and reuse existing PEQ slots; do not estimate the cabin from program audio or add a dynamic tracking stage without calibrated continuous input.
+
+## Harmonic effects use bounded 2× FIR oversampling and report the dry-matched latency
+
+Share one 2× oversampled waveshaper across the Exciter and Virtual Bass branches, use fixed 9/17/33-tap Blackman FIR presets, and delay dry audio by the matching 4/8/16 frames. Keep the effects off by default, bound each branch to 0.5, include worst-case additive gain in Auto Headroom, retain the final limiter, and defer active filter-state changes until the next track generation.

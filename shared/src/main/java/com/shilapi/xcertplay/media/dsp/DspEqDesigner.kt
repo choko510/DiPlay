@@ -169,6 +169,7 @@ internal object DspAutoHeadroom {
         staticBassBands: List<DspEqBand> = emptyList(),
         seatTrimDb: Double = 0.0,
         advancedMsBoostDb: Double = 0.0,
+        harmonicBoostDb: Double = 0.0,
     ): DspHeadroomResult {
         require(sampleRate in 8_000..192_000)
         require(preampDb.isFinite())
@@ -177,6 +178,7 @@ internal object DspAutoHeadroom {
         require(dynamicBoostDb.isFinite())
         require(seatTrimDb.isFinite())
         require(advancedMsBoostDb.isFinite())
+        require(harmonicBoostDb.isFinite())
         require(stereoWidth.isFinite() && stereoWidth in 0.0..2.0)
         require(marginDb.isFinite() && marginDb >= 0.0)
         require(peqBands.size <= DspEqDesigner.MAX_BANDS)
@@ -200,7 +202,8 @@ internal object DspAutoHeadroom {
         val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth))
         val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
             max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) +
-            max(0.0, seatTrimDb) + widthWorstCaseDb + max(0.0, advancedMsBoostDb)
+            max(0.0, seatTrimDb) + widthWorstCaseDb +
+            max(0.0, advancedMsBoostDb) + max(0.0, harmonicBoostDb)
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
@@ -219,11 +222,13 @@ internal data class DspPreparedConfig(
     val convolverSamples: FloatArray,
     val multiband: DoubleArray,
     val dynamicEq: DoubleArray,
+    val harmonic: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
 internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
     advancedMs.validateForSampleRate(format.sampleRate)
+    harmonic.validateForSampleRate(format.sampleRate)
     val cabinBands = cabinCorrection.approvedEqBands()
     val enabledBands = (peqBands + cabinBands).filter(DspEqBand::enabled)
     require(enabledBands.size <= DspEqDesigner.MAX_BANDS)
@@ -296,6 +301,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             seatTrimDb = if (format.channels == 2) seatAlignment.positiveTrimForHeadroomDb else 0.0,
             stereoWidth = if (advancedMs.enabled) 1.0 else stereoWidth,
             advancedMsBoostDb = if (format.channels == 2) advancedMs.worstCaseBoostDb else 0.0,
+            harmonicBoostDb = harmonic.worstCaseBoostDb,
             marginDb = autoHeadroomMarginDb,
             staticBassBands = if (bass.enabled) {
                 listOf(
@@ -366,6 +372,18 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         convolverSamples = convolverSamples,
         multiband = multibandNativeValues,
         dynamicEq = dynamicEqNativeValues,
+        harmonic = doubleArrayOf(
+            if (harmonic.isActive) 1.0 else 0.0,
+            harmonic.mode.nativeValue.toDouble(),
+            harmonic.quality.taps.toDouble(),
+            if (harmonic.isActive && harmonic.exciterEnabled) 1.0 else 0.0,
+            harmonic.exciterAmount,
+            harmonic.exciterCutoffHz,
+            if (harmonic.isActive && harmonic.virtualBassEnabled) 1.0 else 0.0,
+            harmonic.virtualBassAmount,
+            harmonic.virtualBassCutoffHz,
+            if (harmonic.levelMatchEnabled) 1.0 else 0.0,
+        ),
         headroom = headroom,
     )
 }

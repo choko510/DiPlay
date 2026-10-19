@@ -300,3 +300,5 @@ For a stereo seat-alignment delay, the selected near channel receives the distan
 For two-band M/S processing, use matched cascaded Butterworth LP4/HP4 filters so the bands recombine with flat magnitude. Apply the same crossover state to Mid and Side, treat Mid as all center-panned content, and include the maximum positive band gain plus width in Auto Headroom; skip the old Width/Mono Bass stage only while the new module is active.
 
 For imported cabin correction, persist only a digest and measurement summary with the user-approved PEQ cuts, not the raw measurement file. Combine enabled cabin cuts with active PEQ bands before preparing the existing coefficient array, enforce the shared 15-band limit, and classify missing or poor-quality measurements as `CALIBRATION_UNAVAILABLE`.
+
+For 2× harmonic processing, zero-stuff each input into a fixed even-sized phase ring, use matched normalized half-band FIRs around the waveshaper, and keep a separate preallocated state per channel/branch. The two linear-phase FIR group delays sum to `(tapCount - 1) / 2` input frames; use that same delay for the dry path and add it to the playback-clock latency.

@@ -15,6 +15,6 @@
 
 ## Latest continuation checkpoint
 
-- PR #45 remains the only STEP4 PR. DSP-01 `62a4326` and DSP-02 `13c287a` are committed and pushed. Current working-tree changes implement DSP-03 measured cabin correction. The PR body/title still need the full DSP-01..05 scope and final verification summary.
-- DSP-03 parser/config/repository/PEQ integration and common profile tests compile and pass; the 52-case API 36.1 matrix is deferred to DSP-05. Measurement-device/listening gates remain `NOT_RUN`; dynamic tracking is excluded without calibrated continuous input. Next stage: DSP-04 Harmonic Engine.
-- Keep the fixed main SHA, second-review `NOT_RUN`, all physical acceptance gates, and ASan/UBSan limitations explicit. DSP-03 commit, DSP-04/05, final full verification, #45 update, superseded draft cleanup, and EX-08 ledger remain incomplete.
+- PR #45 remains the only STEP4 PR. DSP-01 `62a4326`, DSP-02 `13c287a`, and DSP-03 `bade57a` are committed and pushed. Current working-tree changes implement DSP-04 Harmonic Engine. The PR body/title still need the full DSP-01..05 scope and final verification summary.
+- DSP-04 shared/common focused tests and host unsanitized native C pass, including mode output, quality latency, dry alignment, chunk invariance, and 14 kHz→6 kHz alias rejection. The 56-case API 36.1 matrix is deferred to DSP-05. Target THD/listening/A-V gates remain `NOT_RUN`. Next: DSP-05 final graph integration and audit.
+- Keep the fixed main SHA, second-review `NOT_RUN`, all physical acceptance gates, and host ASan/UBSan limitation explicit. DSP-04 commit, DSP-05, final full verification, #45 metadata update, superseded draft cleanup, and EX-08 ledger remain incomplete.

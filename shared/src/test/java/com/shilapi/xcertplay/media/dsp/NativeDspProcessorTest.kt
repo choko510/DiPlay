@@ -77,6 +77,7 @@ class NativeDspProcessorTest {
         assertEquals(0, bindings.createdBassCoefficients?.size)
         assertEquals(0, bindings.createdMonoBassCoefficients?.size)
         assertEquals(DSP_SPATIAL_NATIVE_VALUE_COUNT, bindings.createdSpatial?.size)
+        assertEquals(DSP_HARMONIC_NATIVE_VALUE_COUNT, bindings.createdHarmonic?.size)
         assertEquals(1.0, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
         assertEquals(0.0, bindings.createdSpatial?.get(1) ?: -1.0, 0.0)
         assertEquals(120.0, bindings.createdSpatial?.get(2) ?: 0.0, 0.0)
@@ -218,6 +219,46 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun harmonicControlsAndAntiAliasQualityArePassedToNativeCreation() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                harmonic = DspHarmonicConfig(
+                    enabled = true,
+                    mode = DspHarmonicMode.EVEN,
+                    quality = DspHarmonicQuality.HIGH,
+                    exciterEnabled = true,
+                    exciterAmount = 0.3,
+                    exciterCutoffHz = 9_000.0,
+                    virtualBassEnabled = true,
+                    virtualBassAmount = 0.25,
+                    virtualBassCutoffHz = 100.0,
+                    levelMatchEnabled = false,
+                ),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        val values = requireNotNull(bindings.createdHarmonic)
+        assertTrue(processor != null)
+        assertEquals(DSP_HARMONIC_NATIVE_VALUE_COUNT, values.size)
+        assertEquals(1.0, values[0], 0.0)
+        assertEquals(DspHarmonicMode.EVEN.nativeValue.toDouble(), values[1], 0.0)
+        assertEquals(33.0, values[2], 0.0)
+        assertEquals(1.0, values[3], 0.0)
+        assertEquals(0.3, values[4], 0.0)
+        assertEquals(9_000.0, values[5], 0.0)
+        assertEquals(1.0, values[6], 0.0)
+        assertEquals(0.25, values[7], 0.0)
+        assertEquals(100.0, values[8], 0.0)
+        assertEquals(0.0, values[9], 0.0)
+        processor?.close()
+    }
+
+    @Test
     fun nativeProcessFailureReturnsAnErrorWithoutConsumingBuffers() {
         val format = DspAudioFormat(48_000, 2)
         val bindings = FakeNativeDspBindings(processStatus = 3)
@@ -300,6 +341,7 @@ class NativeDspProcessorTest {
         var createdSpatial: DoubleArray? = null
         var createdConvolverConfig: DoubleArray? = null
         var createdConvolverSamples: FloatArray? = null
+        var createdHarmonic: DoubleArray? = null
 
         override fun create(
             sampleRate: Int,
@@ -315,6 +357,7 @@ class NativeDspProcessorTest {
             spatial: DoubleArray,
             convolverConfig: DoubleArray,
             convolverSamples: FloatArray,
+            harmonicValues: DoubleArray,
         ): Long {
             createdGainDb = gainDb
             createdEqCoefficients = eqCoefficients.copyOf()
@@ -326,6 +369,7 @@ class NativeDspProcessorTest {
             createdSpatial = spatial.copyOf()
             createdConvolverConfig = convolverConfig.copyOf()
             createdConvolverSamples = convolverSamples.copyOf()
+            createdHarmonic = harmonicValues.copyOf()
             return createHandle
         }
 

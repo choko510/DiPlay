@@ -8,6 +8,9 @@ import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionNotch
 import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementSummary
+import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
+import com.shilapi.xcertplay.media.dsp.DspHarmonicMode
+import com.shilapi.xcertplay.media.dsp.DspHarmonicQuality
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
@@ -140,6 +143,7 @@ internal class DspProfileRepository(
         val sideCompressorJson = advancedMsJson.optJSONObject("sideCompressor") ?: JSONObject()
         val cabinJson = json.optJSONObject("cabinCorrection") ?: JSONObject()
         val cabinMeasurementJson = cabinJson.optJSONObject("measurement")
+        val harmonicJson = json.optJSONObject("harmonic") ?: JSONObject()
         val multibandJson = json.optJSONObject("multiband") ?: JSONObject()
         val dynamicEqJson = json.optJSONObject("dynamicEq") ?: JSONObject()
         val monoBassJson = stereoJson.optJSONObject("monoBass") ?: JSONObject()
@@ -214,6 +218,18 @@ internal class DspProfileRepository(
                 },
                 notches = readCabinNotches(cabinJson.optJSONArray("notches")),
             ) else DspCabinCorrectionConfig(),
+            harmonic = if (schemaVersion >= 7) DspHarmonicConfig(
+                enabled = harmonicJson.optBoolean("enabled", false),
+                mode = DspHarmonicMode.valueOf(harmonicJson.optString("mode", DspHarmonicMode.MIXED.name)),
+                quality = DspHarmonicQuality.valueOf(harmonicJson.optString("quality", DspHarmonicQuality.MEDIUM.name)),
+                exciterEnabled = harmonicJson.optBoolean("exciterEnabled", false),
+                exciterAmount = harmonicJson.readFiniteDouble("exciterAmount", 0.2),
+                exciterCutoffHz = harmonicJson.readFiniteDouble("exciterCutoffHz", 6_000.0),
+                virtualBassEnabled = harmonicJson.optBoolean("virtualBassEnabled", false),
+                virtualBassAmount = harmonicJson.readFiniteDouble("virtualBassAmount", 0.2),
+                virtualBassCutoffHz = harmonicJson.readFiniteDouble("virtualBassCutoffHz", 120.0),
+                levelMatchEnabled = harmonicJson.optBoolean("levelMatchEnabled", true),
+            ) else DspHarmonicConfig(),
             stereoWidth = stereoJson.readFiniteDouble("width", 1.0),
             monoBass = DspMonoBassConfig(
                 enabled = monoBassJson.optBoolean("enabled", false),
@@ -399,6 +415,20 @@ internal class DspProfileRepository(
                     }),
             )
             .put(
+                "harmonic",
+                JSONObject()
+                    .put("enabled", profile.harmonic.enabled)
+                    .put("mode", profile.harmonic.mode.name)
+                    .put("quality", profile.harmonic.quality.name)
+                    .put("exciterEnabled", profile.harmonic.exciterEnabled)
+                    .put("exciterAmount", profile.harmonic.exciterAmount)
+                    .put("exciterCutoffHz", profile.harmonic.exciterCutoffHz)
+                    .put("virtualBassEnabled", profile.harmonic.virtualBassEnabled)
+                    .put("virtualBassAmount", profile.harmonic.virtualBassAmount)
+                    .put("virtualBassCutoffHz", profile.harmonic.virtualBassCutoffHz)
+                    .put("levelMatchEnabled", profile.harmonic.levelMatchEnabled),
+            )
+            .put(
                 "stereo",
                 JSONObject()
                     .put("width", profile.stereoWidth)
@@ -453,7 +483,7 @@ internal class DspProfileRepository(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 6
+        const val CURRENT_SCHEMA_VERSION = 7
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"

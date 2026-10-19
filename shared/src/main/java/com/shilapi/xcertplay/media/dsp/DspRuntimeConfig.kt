@@ -19,6 +19,7 @@ class DspRuntimeConfig(
     val seatAlignment: DspSeatAlignmentConfig = DspSeatAlignmentConfig(),
     val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
     val cabinCorrection: DspCabinCorrectionConfig = DspCabinCorrectionConfig(),
+    val harmonic: DspHarmonicConfig = DspHarmonicConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double
@@ -41,6 +42,7 @@ class DspRuntimeConfig(
         dynamicEq = dynamicEq,
         advancedMs = advancedMs,
         cabinCorrection = cabinCorrection,
+        harmonic = harmonic,
     )
 
     init {

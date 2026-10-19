@@ -162,4 +162,23 @@ class DspAutoHeadroomTest {
             }.isFailure,
         )
     }
+
+    @Test
+    fun activeHarmonicBranchesAddTheirWorstCaseBoostToAutoHeadroom() {
+        val config = DspRuntimeConfig(
+            enabled = true,
+            harmonic = DspHarmonicConfig(
+                enabled = true,
+                exciterEnabled = true,
+                exciterAmount = 0.5,
+                virtualBassEnabled = true,
+                virtualBassAmount = 0.25,
+            ),
+        )
+
+        val prepared = config.prepare(DspAudioFormat(48_000, 2))
+        val expectedBoostDb = 20.0 * kotlin.math.log10(1.75)
+        assertEquals(expectedBoostDb + 1.0, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-expectedBoostDb - 1.0, prepared.appliedPreampDb, 0.02)
+    }
 }

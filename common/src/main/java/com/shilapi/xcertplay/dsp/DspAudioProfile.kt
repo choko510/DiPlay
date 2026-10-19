@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
@@ -34,6 +35,7 @@ data class DspAudioProfile(
     val seatAlignment: DspSeatAlignmentConfig = DspSeatAlignmentConfig(),
     val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
     val cabinCorrection: DspCabinCorrectionConfig = DspCabinCorrectionConfig(),
+    val harmonic: DspHarmonicConfig = DspHarmonicConfig(),
 ) {
     init {
         require(ID_PATTERN.matches(id))
@@ -64,6 +66,7 @@ data class DspAudioProfile(
         dynamicEq = dynamicEq,
         advancedMs = advancedMs,
         cabinCorrection = cabinCorrection,
+        harmonic = harmonic,
     )
 
     companion object {

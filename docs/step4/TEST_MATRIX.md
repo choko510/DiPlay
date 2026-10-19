@@ -88,6 +88,14 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR05-04 | iPhone acceptance of multiple Main ViewAreas and actual `/info` compatibility on TS10/K706/iPhone | Physical device run | `NOT_RUN`; the model is not enabled by the application |
 | PR05-05 | Dynamic switch command/acknowledgement and same-session frame-size change | Physical protocol capture | `NOT_RUN`; no command is sent and PR-06 DYNAMIC remains gated |
 
+## PR-06 DYNAMIC and PR-07 conditional gates
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| PR06D-01 | Phone accepts a specific ViewArea switch, acknowledges it, and changes the main frame size without reconnect across 20 full/split cycles | TS10/K706/iPhone protocol and video trace | `NO_GO_THIS_RUN`; no accepted command or same-session frame-size evidence; dynamic control remains off |
+| PR07-01 | Codec-specific capability, output-format, Surface recovery, first-frame, pacing, and stall behavior on TS10/K706 | Physical decoder/Surface run | `NO_GO_THIS_RUN`; no target codec/Surface issue is evidenced; vendor-specific tuning remains off |
+| PR07-02 | Existing codec CSD/random-access, decoder queue, and display diagnostic regression harnesses | `MediaCodecSupportTest`, `VideoDecodeQueueTest`, `DisplayDiagnosticSnapshotTest` | `PASS_LOCAL`; existing fallback remains unchanged |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |

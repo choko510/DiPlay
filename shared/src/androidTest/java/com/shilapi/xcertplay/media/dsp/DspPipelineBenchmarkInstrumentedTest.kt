@@ -214,10 +214,31 @@ class DspPipelineBenchmarkInstrumentedTest {
                 ),
             ),
         )
+        val cabinCorrection = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                measurement = DspCabinMeasurementSummary(
+                    noiseFloorDb = -60.0,
+                    pointCount = 120,
+                    minimumFrequencyHz = 20.0,
+                    maximumFrequencyHz = 300.0,
+                    clippedSamples = 0,
+                ),
+                notches = listOf(
+                    DspCabinNotchConfig(frequencyHz = 43.0, gainDb = -6.0, q = 2.5),
+                    DspCabinNotchConfig(frequencyHz = 83.0, gainDb = -8.0, q = 4.0),
+                    DspCabinNotchConfig(frequencyHz = 160.0, gainDb = -4.0, q = 3.0),
+                ),
+            ),
+        )
 
         val cases = listOf(
             BenchmarkCase("Gain", base.copyConfig(gainDb = 3.0)),
             BenchmarkCase("PEQ15", peq),
+            BenchmarkCase("Cabin3Notches", cabinCorrection),
             BenchmarkCase(
                 "PEQ_Compressor_Limiter",
                 DspRuntimeConfig(

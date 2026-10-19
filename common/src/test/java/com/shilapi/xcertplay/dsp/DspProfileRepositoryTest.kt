@@ -1,6 +1,9 @@
 package com.shilapi.xcertplay.dsp
 
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementSummary
+import com.shilapi.xcertplay.media.dsp.DspCabinNotchConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsBandConfig
@@ -98,6 +101,20 @@ class DspProfileRepositoryTest {
                     releaseMs = 150.0,
                 ),
             ),
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                measurement = DspCabinMeasurementSummary(
+                    noiseFloorDb = -60.0,
+                    pointCount = 120,
+                    minimumFrequencyHz = 20.0,
+                    maximumFrequencyHz = 300.0,
+                    clippedSamples = 0,
+                ),
+                notches = listOf(
+                    DspCabinNotchConfig(frequencyHz = 80.0, gainDb = -6.0, q = 3.0),
+                    DspCabinNotchConfig(frequencyHz = 180.0, gainDb = -4.0, q = 2.0),
+                ),
+            ),
         )
 
         assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
@@ -139,6 +156,7 @@ class DspProfileRepositoryTest {
         assertEquals(profile.multiband, enabled.multiband)
         assertEquals(profile.dynamicEq, enabled.dynamicEq)
         assertEquals(profile.advancedMs, enabled.advancedMs)
+        assertEquals(profile.cabinCorrection, enabled.cabinCorrection)
         assertTrue(runCatching { (enabled.peqBands as MutableList).clear() }.isFailure)
     }
 
@@ -206,7 +224,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspMultibandConfig.DEFAULT_LOW_MID_CROSSOVER_HZ, loaded.profile.multiband.lowMidCrossoverHz, 0.0)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":5"))
+        assertTrue("schema v1 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":6"))
     }
 
     @Test
@@ -225,7 +243,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspDynamicEqConfig.MAX_BANDS, loaded.profile.dynamicEq.bands.size)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
         val savedProfile = profileFile.readText()
-        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":5"))
+        assertTrue("schema v2 saved profile=$savedProfile", savedProfile.contains("\"schemaVersion\":6"))
     }
 
     @Test
@@ -244,7 +262,7 @@ class DspProfileRepositoryTest {
         assertEquals(DspSeatFocusPreset.CENTER, loaded.profile.seatFocus.preset)
         assertEquals(0.0, loaded.profile.seatFocus.leftDistanceCm, 0.0)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
-        assertTrue(profileFile.readText().contains("\"schemaVersion\":5"))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":6"))
     }
 
     @Test
@@ -263,7 +281,26 @@ class DspProfileRepositoryTest {
         assertEquals(120.0, loaded.profile.seatFocus.leftDistanceCm, 0.0)
         assertFalse(loaded.profile.advancedMs.enabled)
         assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
-        assertTrue(profileFile.readText().contains("\"schemaVersion\":5"))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":6"))
+    }
+
+    @Test
+    fun versionFiveProfileMigratesWithCabinCorrectionDisabledByDefault() {
+        val repository = repositoryWithDirectWriterForMigrationTests()
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        assertTrue(profileFile.parentFile!!.mkdirs())
+        profileFile.writeText(
+            """{"schemaVersion":5,"id":"custom1","name":"Existing","advancedMs":{"enabled":true}}""",
+        )
+
+        val loaded = repository.load("custom1") as DspProfileReadResult.Loaded
+
+        assertEquals(5, loaded.migratedFromVersion)
+        assertTrue(loaded.profile.advancedMs.enabled)
+        assertFalse(loaded.profile.cabinCorrection.enabled)
+        assertTrue(loaded.profile.cabinCorrection.notches.isEmpty())
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(loaded.profile))
+        assertTrue(profileFile.readText().contains("\"schemaVersion\":6"))
     }
 
     @Test

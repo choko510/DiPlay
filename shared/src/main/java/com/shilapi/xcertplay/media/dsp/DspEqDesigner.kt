@@ -227,7 +227,13 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     val seatFocusConfig = seatFocus.prepare(format)
     val advancedMsConfig = advancedMs.copy(enabled = advancedMs.enabled && format.channels == 2)
     val monoBassEnabled = monoBass.enabled && !advancedMsConfig.enabled
-    val enabledBands = peqBands.filter(DspEqBand::enabled)
+    val cabinNotchBands = if (cabinCorrection.enabled) {
+        cabinCorrection.notches.filter(DspCabinNotchConfig::enabled).map(DspCabinNotchConfig::toEqBand)
+    } else {
+        emptyList()
+    }
+    val enabledBands = peqBands.filter(DspEqBand::enabled) + cabinNotchBands
+    require(enabledBands.size <= DspEqDesigner.MAX_BANDS)
     val coefficients = DoubleArray(enabledBands.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
     enabledBands.forEachIndexed { index, band ->
         DspEqDesigner.design(format.sampleRate, band)
@@ -277,7 +283,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
             preampDb = gainDb,
-            peqBands = peqBands,
+            peqBands = enabledBands,
             compressorMakeupDb = if (compressor.enabled) compressor.makeupDb else 0.0,
             maxBandMakeupDb = if (multiband.enabled) {
                 maxOf(

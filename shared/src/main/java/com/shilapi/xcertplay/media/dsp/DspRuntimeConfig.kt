@@ -18,6 +18,7 @@ class DspRuntimeConfig(
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
     val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
     val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
+    val cabinCorrection: DspCabinCorrectionConfig = DspCabinCorrectionConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double
@@ -39,11 +40,17 @@ class DspRuntimeConfig(
         dynamicEq = dynamicEq,
         seatFocus = seatFocus,
         advancedMs = advancedMs,
+        cabinCorrection = cabinCorrection,
     )
 
     init {
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)
         require(this.peqBands.size <= DspEqDesigner.MAX_BANDS)
+        require(
+            !cabinCorrection.enabled ||
+                this.peqBands.count(DspEqBand::enabled) + cabinCorrection.notches.count { it.enabled } <=
+                DspEqDesigner.MAX_BANDS,
+        )
         require(autoHeadroomMarginDb.isFinite() && autoHeadroomMarginDb in 0.0..MAX_HEADROOM_MARGIN_DB)
         require(stereoWidth.isFinite() && stereoWidth in 0.0..MAX_STEREO_WIDTH)
     }

@@ -286,3 +286,5 @@ A config-level `enabled=false` assertion is not enough for the legacy audio cont
 For live spatial tuning, keep graph latency invariant while channel delays change, then test adoption through `AudioRenderer` and preserve the playback-clock anchor. Validate fractional delay with an impulse and phase measurements at more than one frequency; a sample-aligned expected output alone does not measure interpolation error.
 
 For M/S band processing, test dual-mono and anti-phase inputs separately across the crossover. Recombine complementary low/high paths at unity, compare Mid and Side phase through the split, and verify band width changes only the intended side range. Run timing benchmarks apart from heavy Gradle build work; the emulator's FullHeavyChain p99 can exceed its gate when the device is under build load.
+
+For measured Cabin correction, keep the CSV parser pure and bounded, keep file I/O on the profile executor, and return an explicit unavailable reason when metadata/SNR/span/resolution fail. Persist only the validated summary and user-approved filters, not the source file path or raw capture.

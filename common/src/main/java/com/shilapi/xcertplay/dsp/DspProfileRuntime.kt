@@ -3,10 +3,14 @@ package com.shilapi.xcertplay.dsp
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementCsv
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementImportResult
 import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
 import com.shilapi.xcertplay.media.dsp.DspConfigProvider
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -113,6 +117,40 @@ internal class DspProfileRuntime private constructor(context: Context) {
         }
     }
 
+    fun importCabinMeasurementAsync(
+        openInput: () -> InputStream?,
+        onComplete: (DspCabinMeasurementImportResult) -> Unit,
+    ) {
+        ioExecutor.execute {
+            val result = runCatching {
+                val input = openInput() ?: return@runCatching DspCabinMeasurementImportResult.InvalidCsv
+                readCabinCsv(input)
+            }.getOrElse { DspCabinMeasurementImportResult.InvalidCsv }
+            Handler(Looper.getMainLooper()).post { onComplete(result) }
+        }
+    }
+
+    private fun readCabinCsv(input: InputStream): DspCabinMeasurementImportResult {
+        val bytes = try {
+            input.use { stream ->
+                val output = ByteArrayOutputStream()
+                val buffer = ByteArray(CSV_READ_BUFFER_BYTES)
+                var total = 0
+                while (true) {
+                    val read = stream.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    if (total > MAX_CABIN_CSV_BYTES) return DspCabinMeasurementImportResult.TooLarge
+                    output.write(buffer, 0, read)
+                }
+                output.toByteArray()
+            }
+        } catch (_: Exception) {
+            return DspCabinMeasurementImportResult.InvalidCsv
+        }
+        return DspCabinMeasurementCsv.parse(String(bytes, StandardCharsets.UTF_8))
+    }
+
     private fun applyWithImpulse(profile: DspAudioProfile, enabled: Boolean, impulse: DspImpulseResponse?) {
         activeProfile.set(profile)
         dspEnabled.set(enabled)
@@ -157,6 +195,8 @@ internal class DspProfileRuntime private constructor(context: Context) {
     }
 
     companion object {
+        private const val MAX_CABIN_CSV_BYTES = 256 * 1024
+        private const val CSV_READ_BUFFER_BYTES = 4 * 1024
         private const val PREFERENCES_NAME = "dsp_profile_selection"
         private const val KEY_DSP_ENABLED = "enabled"
         private const val KEY_SELECTED_PROFILE_ID = "selected_profile_id"

@@ -384,6 +384,31 @@ class NativeDspBridgeInstrumentedTest {
     }
 
     @Test
+    fun approvedCabinNotchUsesTheExistingNativePeqPath() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val cabinCorrection = DspCabinCorrectionConfig(
+            enabled = true,
+            measurement = DspCabinMeasurementSummary(
+                noiseFloorDb = -60.0,
+                pointCount = 120,
+                minimumFrequencyHz = 20.0,
+                maximumFrequencyHz = 300.0,
+                clippedSamples = 0,
+            ),
+            notches = listOf(DspCabinNotchConfig(frequencyHz = 80.0, gainDb = -9.0, q = 6.0)),
+        )
+        val config = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            cabinCorrection = cabinCorrection,
+        )
+
+        assertEquals(10.0.pow(-9.0 / 20.0), measureNativeToneGain(config, 2, 80.0, antiPhase = true), 0.04)
+        assertEquals(1.0, measureNativeToneGain(config, 2, 500.0, antiPhase = true), 0.03)
+    }
+
+    @Test
     fun nativeBassShelfAndMonoBassFrequencyResponsesReachTheJniEngine() {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val bassConfig = DspRuntimeConfig(

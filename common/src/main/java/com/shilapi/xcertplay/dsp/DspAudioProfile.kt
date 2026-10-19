@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.dsp
 
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
@@ -32,6 +33,7 @@ data class DspAudioProfile(
     val limiter: DspSafetyLimiterConfig = DspSafetyLimiterConfig(),
     val seatFocus: DspSeatFocusConfig = DspSeatFocusConfig(),
     val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
+    val cabinCorrection: DspCabinCorrectionConfig = DspCabinCorrectionConfig(),
 ) {
     init {
         require(ID_PATTERN.matches(id))
@@ -39,6 +41,10 @@ data class DspAudioProfile(
         require(preampDb.isFinite() && preampDb in MIN_PREAMP_DB..MAX_PREAMP_DB)
         require(autoHeadroomMarginDb.isFinite() && autoHeadroomMarginDb in 0.0..MAX_HEADROOM_MARGIN_DB)
         require(eqBands.size <= MAX_EQ_BANDS)
+        require(
+            !cabinCorrection.enabled ||
+                eqBands.count(DspEqBand::enabled) + cabinCorrection.notches.count { it.enabled } <= MAX_EQ_BANDS,
+        )
         require(stereoWidth.isFinite() && stereoWidth in 0.0..MAX_STEREO_WIDTH)
     }
 
@@ -61,6 +67,7 @@ data class DspAudioProfile(
         dynamicEq = dynamicEq,
         seatFocus = seatFocus,
         advancedMs = advancedMs,
+        cabinCorrection = cabinCorrection,
     )
 
     companion object {

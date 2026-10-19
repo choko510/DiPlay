@@ -2,6 +2,9 @@ package com.shilapi.xcertplay.dsp
 
 import android.util.AtomicFile
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementSummary
+import com.shilapi.xcertplay.media.dsp.DspCabinNotchConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsBandConfig
@@ -135,6 +138,7 @@ internal class DspProfileRepository(
         val dynamicEqJson = json.optJSONObject("dynamicEq") ?: JSONObject()
         val seatFocusJson = json.optJSONObject("seatFocus") ?: JSONObject()
         val advancedMsJson = json.optJSONObject("advancedMs") ?: JSONObject()
+        val cabinCorrectionJson = json.optJSONObject("cabinCorrection") ?: JSONObject()
         val advancedMsLowJson = advancedMsJson.optJSONObject("low") ?: JSONObject()
         val advancedMsHighJson = advancedMsJson.optJSONObject("high") ?: JSONObject()
         val monoBassJson = stereoJson.optJSONObject("monoBass") ?: JSONObject()
@@ -216,6 +220,19 @@ internal class DspProfileRepository(
                 centerFocusDb = advancedMsJson.readFiniteDouble("centerFocusDb", 0.0),
                 sideCompressor = readCompressor(advancedMsJson.optJSONObject("sideCompressor") ?: JSONObject()),
             ),
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = cabinCorrectionJson.optBoolean("enabled", false),
+                measurement = cabinCorrectionJson.optJSONObject("measurement")?.let { measurement ->
+                    DspCabinMeasurementSummary(
+                        noiseFloorDb = measurement.readFiniteDouble("noiseFloorDb", -60.0),
+                        pointCount = measurement.optInt("pointCount", 0),
+                        minimumFrequencyHz = measurement.readFiniteDouble("minimumFrequencyHz", 0.0),
+                        maximumFrequencyHz = measurement.readFiniteDouble("maximumFrequencyHz", 0.0),
+                        clippedSamples = measurement.optInt("clippedSamples", -1),
+                    )
+                },
+                notches = cabinCorrectionJson.optJSONArray("notches")?.let(::readCabinNotches) ?: emptyList(),
+            ),
             limiter = DspSafetyLimiterConfig(
                 enabled = limiterJson.optBoolean("enabled", true),
                 thresholdDb = limiterJson.readFiniteDouble("thresholdDb", -1.0),
@@ -254,6 +271,19 @@ internal class DspProfileRepository(
                 maxBoostDb = values.readFiniteDouble("maxBoostDb", 6.0),
                 maxCutDb = values.readFiniteDouble("maxCutDb", 6.0),
                 mode = DspDynamicEqMode.valueOf(values.optString("mode", DspDynamicEqMode.CUT.name)),
+            )
+        }
+    }
+
+    private fun readCabinNotches(array: JSONArray): List<DspCabinNotchConfig> {
+        require(array.length() <= DspCabinCorrectionConfig.MAX_NOTCHES)
+        return List(array.length()) { index ->
+            val values = requireNotNull(array.optJSONObject(index))
+            DspCabinNotchConfig(
+                frequencyHz = values.readFiniteDouble("frequencyHz", 80.0),
+                gainDb = values.readFiniteDouble("gainDb", -3.0),
+                q = values.readFiniteDouble("q", 1.0),
+                enabled = values.optBoolean("enabled", true),
             )
         }
     }
@@ -369,6 +399,30 @@ internal class DspProfileRepository(
                         .put("makeupDb", profile.advancedMs.sideCompressor.makeupDb)),
             )
             .put(
+                "cabinCorrection",
+                JSONObject()
+                    .put("enabled", profile.cabinCorrection.enabled)
+                    .put("measurement", profile.cabinCorrection.measurement?.let { measurement ->
+                        JSONObject()
+                            .put("noiseFloorDb", measurement.noiseFloorDb)
+                            .put("pointCount", measurement.pointCount)
+                            .put("minimumFrequencyHz", measurement.minimumFrequencyHz)
+                            .put("maximumFrequencyHz", measurement.maximumFrequencyHz)
+                            .put("clippedSamples", measurement.clippedSamples)
+                    } ?: JSONObject.NULL)
+                    .put("notches", JSONArray().apply {
+                        profile.cabinCorrection.notches.forEach { notch ->
+                            put(
+                                JSONObject()
+                                    .put("frequencyHz", notch.frequencyHz)
+                                    .put("gainDb", notch.gainDb)
+                                    .put("q", notch.q)
+                                    .put("enabled", notch.enabled),
+                            )
+                        }
+                    }),
+            )
+            .put(
                 "limiter",
                 JSONObject()
                     .put("enabled", profile.limiter.enabled)
@@ -387,7 +441,7 @@ internal class DspProfileRepository(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 5
+        const val CURRENT_SCHEMA_VERSION = 6
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"

@@ -315,3 +315,7 @@ Driver/Passenger/Center/Custom identify the target seat; only explicit physical 
 ## Make Advanced M/S replace the legacy width branch
 
 Keep the existing Stereo Width/Mono Bass code path byte-stable while Advanced M/S is off. When enabled, use one shared complementary low/high crossover for Mid and Side, apply band-specific gains/width once, and process optional compression on Side only. Map legacy width and Mono Bass settings into the untouched Advanced M/S defaults on first enable; do not apply the legacy stage a second time.
+
+## Keep Cabin Correction as an approved PEQ profile change
+
+Accept only external frequency-response CSV with explicit noise-floor and clipping metadata. Validate low-band span/resolution, offer at most three bounded PEQ bell cuts for review, and do not enable them until the user approves them. Reuse PEQ slots rather than adding a duplicate notch node; if quality metadata or slot capacity is missing, return `CALIBRATION_UNAVAILABLE` and leave playback unchanged.

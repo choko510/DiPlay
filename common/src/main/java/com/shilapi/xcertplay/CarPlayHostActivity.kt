@@ -96,6 +96,7 @@ import com.shilapi.xcertplay.youtube.HostLayoutMode
 import com.shilapi.xcertplay.youtube.HostLayoutState
 import com.shilapi.xcertplay.youtube.ImeResizeResumePolicy
 import com.shilapi.xcertplay.youtube.IphoneIdentityResolver
+import com.shilapi.xcertplay.youtube.LocalCarPlayScalePolicy
 import com.shilapi.xcertplay.youtube.SplitLayoutConfig
 import com.shilapi.xcertplay.youtube.SplitPerformanceCounter
 import com.shilapi.xcertplay.youtube.SplitPerformanceTracer
@@ -292,6 +293,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private var videoView: TextureView? = null
     private var gestureOverlay: View? = null
+    private var carPlayContent: FrameLayout? = null
     private var hostRoot: FrameLayout? = null
     private var hostContentRow: LinearLayout? = null
     private var carPlayPane: FrameLayout? = null
@@ -352,6 +354,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var currentSurface: Surface? = null
     private var currentSurfaceTexture: SurfaceTexture? = null
     private var activeDisplaySize: DisplaySize? = null
+    private var localViewportSize: DisplaySize? = null
     private var pendingDisplaySize: DisplaySize? = null
     private val displayResizeCoordinator = DisplayResizeCoordinator()
     private var restartReadyToStart = false
@@ -505,8 +508,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 decor.postOnAnimation(this)
                 return
             }
-            val view = videoView ?: return
-            val size = DisplaySize(view.width, view.height)
+            val size = currentCarPlayViewportSize() ?: return
             if (size.width <= 0 || size.height <= 0) {
                 decor.postOnAnimation(this)
                 return
@@ -567,11 +569,11 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             appendLog(if (existing === surface) "Texture surface reused" else "Texture surface created")
             attachSurface(surface)
-            scheduleDisplaySize(width, height)
+            scheduleCurrentCarPlayViewportSize(width, height)
         }
 
         override fun onSurfaceTextureSizeChanged(texture: SurfaceTexture, width: Int, height: Int) {
-            scheduleDisplaySize(width, height)
+            scheduleCurrentCarPlayViewportSize(width, height)
         }
 
         override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
@@ -906,10 +908,7 @@ class CarPlayHostActivity : ComponentActivity() {
         applyFullscreenMode()
         stageStatusView?.maxWidth = (resources.displayMetrics.widthPixels * 0.78f).toInt()
         scrollLogsToBottom()
-        videoView?.post {
-            val view = videoView ?: return@post
-            scheduleDisplaySize(view.width, view.height)
-        }
+        carPlayPane?.post { scheduleCurrentCarPlayViewportSize() }
     }
 
     override fun onDestroy() {
@@ -955,6 +954,7 @@ class CarPlayHostActivity : ComponentActivity() {
             orientation = LinearLayout.HORIZONTAL
         }
         val carPlay = FrameLayout(this)
+        val carPlayContent = FrameLayout(this)
         val video = TextureView(this).apply {
             isOpaque = false
             surfaceTextureListener = textureListener
@@ -963,8 +963,9 @@ class CarPlayHostActivity : ComponentActivity() {
             isClickable = true
             setOnTouchListener { view, event -> onHostTouch(view, event) }
         }
-        carPlay.addView(video, FrameLayout.LayoutParams(-1, -1))
-        carPlay.addView(gestureLayer, FrameLayout.LayoutParams(-1, -1))
+        carPlayContent.addView(video, FrameLayout.LayoutParams(-1, -1))
+        carPlayContent.addView(gestureLayer, FrameLayout.LayoutParams(-1, -1))
+        carPlay.addView(carPlayContent, FrameLayout.LayoutParams(-1, -1, Gravity.CENTER))
         val panel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -1060,6 +1061,7 @@ class CarPlayHostActivity : ComponentActivity() {
         hostRoot = root
         hostContentRow = contentRow
         carPlayPane = carPlay
+        this.carPlayContent = carPlayContent
         youtubePane = youtube
         youtubeContent = browserContent
         youtubeStatusView = status
@@ -1163,10 +1165,7 @@ class CarPlayHostActivity : ComponentActivity() {
         updateHostLayout()
         if (wasSplit) Log.i(TAG, "YouTube split exited")
         SplitPerformanceTracer.summary()?.let { Log.i(TAG, "Split performance $it") }
-        videoView?.post {
-            val view = videoView ?: return@post
-            scheduleDisplaySize(view.width, view.height)
-        }
+        carPlayPane?.post { scheduleCurrentCarPlayViewportSize() }
     }
 
     private fun scheduleYoutubePreparationAfterLayout(resetTimeout: Boolean) {
@@ -1176,7 +1175,7 @@ class CarPlayHostActivity : ComponentActivity() {
         view.post {
             val layoutView = videoView ?: return@post
             if (hostLayoutState.mode != HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) return@post
-            scheduleDisplaySize(layoutView.width, layoutView.height)
+            scheduleCurrentCarPlayViewportSize()
             if (!youtubeLayoutStartupLogged) {
                 youtubeLayoutStartupLogged = true
                 logYoutubeStartup("layout-requested")
@@ -3602,11 +3601,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun currentActivitySize(): DisplaySize? {
-        val view = videoView
-        if (view != null && view.width > 0 && view.height > 0) {
-            return DisplaySize(view.width, view.height)
-        }
-        return activeDisplaySize
+        return activeDisplaySize ?: currentCarPlayViewportSize()
     }
 
     private fun resolvePhysicalSize(size: DisplaySize): AirPlayPhysicalSizeMm =
@@ -3698,10 +3693,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun refreshDisplaySizeAfterLayout() {
-        videoView?.post {
-            val view = videoView ?: return@post
-            scheduleDisplaySize(view.width, view.height)
-        }
+        carPlayPane?.post { scheduleCurrentCarPlayViewportSize() }
     }
 
     private fun observeImeInsets() {
@@ -4049,6 +4041,7 @@ class CarPlayHostActivity : ComponentActivity() {
             activeDisplaySize = DisplaySize(snapshot.width, snapshot.height)
             displayResizeCoordinator.observe(DisplaySize(snapshot.width, snapshot.height))
         }
+        localViewportSize = currentCarPlayViewportSize()
         snapshot.controller.currentAirPlaySession()?.let { session ->
             activeAirPlaySession = session
             deviceInfoSession = session
@@ -4095,6 +4088,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val controllerGeneration = restartGeneration
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)
+        localViewportSize = currentCarPlayViewportSize() ?: size
         val locationProvider: Iap2LocationProvider? =
             if (config.locationReportingEnabled) {
                 AndroidCarPlayLocationProvider(this)
@@ -4162,6 +4156,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         controller = next
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this, backgroundStopAction())
+        localViewportSize?.takeIf { canScaleCarPlayLocally() }?.let(::applyLocalCarPlayBounds)
         try {
             startForegroundService(Intent(this, DiPlaySessionService::class.java))
             next.start()
@@ -4209,6 +4204,59 @@ class CarPlayHostActivity : ComponentActivity() {
         return File(filesDir, AUDIO_CAPTURE_DIRECTORY)
     }
 
+    private fun currentCarPlayViewportSize(): DisplaySize? {
+        val pane = carPlayPane
+        if (pane != null && pane.width > 0 && pane.height > 0) return DisplaySize(pane.width, pane.height)
+        val video = videoView ?: return null
+        return DisplaySize(video.width, video.height).takeIf { it.width > 0 && it.height > 0 }
+    }
+
+    private fun scheduleCurrentCarPlayViewportSize(fallbackWidth: Int = 0, fallbackHeight: Int = 0) {
+        val viewport = currentCarPlayViewportSize()
+            ?: DisplaySize(fallbackWidth, fallbackHeight).takeIf { it.width > 0 && it.height > 0 }
+            ?: return
+        scheduleDisplaySize(viewport.width, viewport.height)
+    }
+
+    private fun canScaleCarPlayLocally(): Boolean = LocalCarPlayScalePolicy.shouldKeepSession(
+        hasController = controller != null,
+        ownsController = CarPlayBackgroundSession.isOwner(this),
+        hasUsableSurface = currentSurface?.isValid == true,
+        hasRemoteSize = activeDisplaySize?.let { it.width > 0 && it.height > 0 } == true,
+        handshakeReset = handshakeResetInProgress,
+        restartPending = restartHandoffToken != null || restartReadyToStart ||
+            CarPlayBackgroundSession.hasPendingRestart(),
+        shuttingDown = shuttingDown.get() || isFinishing || isDestroyed,
+    )
+
+    private fun applyLocalCarPlayBounds(viewport: DisplaySize): Boolean {
+        val remote = activeDisplaySize ?: return false
+        val bounds = LocalCarPlayScalePolicy.fitBounds(remote, viewport) ?: return false
+        val content = carPlayContent ?: return false
+        val params = content.layoutParams as? FrameLayout.LayoutParams ?: return false
+        if (params.width != bounds.width || params.height != bounds.height || params.gravity != Gravity.CENTER) {
+            params.width = bounds.width
+            params.height = bounds.height
+            params.gravity = Gravity.CENTER
+            content.layoutParams = params
+        }
+        localViewportSize = viewport
+        return true
+    }
+
+    private fun resetLocalCarPlayBounds() {
+        val content = carPlayContent ?: return
+        val params = content.layoutParams as? FrameLayout.LayoutParams ?: return
+        if (params.width != ViewGroup.LayoutParams.MATCH_PARENT ||
+            params.height != ViewGroup.LayoutParams.MATCH_PARENT || params.gravity != Gravity.CENTER
+        ) {
+            params.width = ViewGroup.LayoutParams.MATCH_PARENT
+            params.height = ViewGroup.LayoutParams.MATCH_PARENT
+            params.gravity = Gravity.CENTER
+            content.layoutParams = params
+        }
+    }
+
     private fun scheduleDisplaySize(width: Int, height: Int) {
         if (width <= 0 || height <= 0 || shuttingDown.get() || isFinishing || isDestroyed) return
         val size = DisplaySize(width, height)
@@ -4217,12 +4265,20 @@ class CarPlayHostActivity : ComponentActivity() {
             return
         }
         if (size == pendingDisplaySize) return
-        CarPlayBackgroundSession.observePendingRestartSize(this, size)
-        displayResizeCoordinator.observe(size)
-        if (size == activeDisplaySize) {
+        val scaleLocally = canScaleCarPlayLocally()
+        if (!scaleLocally) {
+            CarPlayBackgroundSession.observePendingRestartSize(this, size)
+            displayResizeCoordinator.observe(size)
+        }
+        val currentSize = if (scaleLocally) localViewportSize else activeDisplaySize
+        if (size == currentSize) {
+            if (!scaleLocally && controller == null) {
+                localViewportSize = size
+                resetLocalCarPlayBounds()
+            }
             pendingDisplaySize = null
             mainHandler.removeCallbacks(applyDisplaySize)
-            if (restartReadyToStart) {
+            if (!scaleLocally && restartReadyToStart) {
                 mainHandler.removeCallbacks(finishRestartAfterResize)
                 mainHandler.postDelayed(finishRestartAfterResize, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
             }
@@ -4250,13 +4306,18 @@ class CarPlayHostActivity : ComponentActivity() {
             ignoreImeDisplayResize()
             return
         }
+        if (canScaleCarPlayLocally() && applyLocalCarPlayBounds(size)) return
         CarPlayBackgroundSession.markPendingRestartLayoutReady(this, size)
         if (size == activeDisplaySize) {
+            localViewportSize = size
+            if (controller == null) resetLocalCarPlayBounds()
             if (restartReadyToStart) finishRestartAtLatestSize(size)
             return
         }
         val previous = activeDisplaySize
         activeDisplaySize = size
+        localViewportSize = size
+        resetLocalCarPlayBounds()
         recordDetectedMaximum(size)
         updateResolutionMenu()
         if (previous == null) {
@@ -4301,6 +4362,8 @@ class CarPlayHostActivity : ComponentActivity() {
             restartHandoffRetryScheduled = false
             mainHandler.removeCallbacks(retryRestartHandoff)
             activeDisplaySize = handedOffSize
+            localViewportSize = handedOffSize
+            resetLocalCarPlayBounds()
             displayResizeCoordinator.observe(handedOffSize)
         }
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) {
@@ -4436,6 +4499,8 @@ class CarPlayHostActivity : ComponentActivity() {
         restartHandoffRetryScheduled = false
         val size = displayResizeCoordinator.completeRestart(handedOffSize)
         activeDisplaySize = size
+        localViewportSize = currentCarPlayViewportSize() ?: size
+        resetLocalCarPlayBounds()
         restartReadyToStart = false
         restartFallbackSize = null
         handshakeResetInProgress = false

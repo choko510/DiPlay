@@ -69,6 +69,15 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR04-03 | Repeated request for the same active audio owner does not replace/start another microphone uplink; inactive same-token uplink remains recoverable | `AndroidMediaSinkStateTest` | `PASS_ROBOLECTRIC` |
 | PR04-04 | Siri, telephone call, voice message, permission-denied, and real AudioRecord/uplink behavior on TS10/K706/iPhone | Physical device run | `NOT_RUN`; no target hardware is connected |
 
+## PR-06 LOCAL split scaling without reconnect
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| PR06L-01 | Fit the fixed remote 16:9 display inside 55% split and portrait viewports with centered letterbox bounds; repeated full/split geometry leaves remote dimensions unchanged | `LocalCarPlayScalePolicyTest` | `PASS_LOCAL` policy/geometry test |
+| PR06L-02 | Touch center maps to the same normalized remote coordinate; letterbox bars lie outside the fitted content hit region | `LocalCarPlayScaleTouchTest`, `LocalCarPlayScalePolicyTest` | `PASS_ROBOLECTRIC` / `PASS_LOCAL` |
+| PR06L-03 | Local resize keeps the active session only with current owner, controller, Surface, and remote size; unsafe lifecycle states keep the restart fallback | `LocalCarPlayScalePolicyTest`, `CarPlayHostActivity` path audit | `PASS_LOCAL`; full Activity/Surface integration `NOT_RUN` |
+| PR06L-04 | 20 full↔split cycles with the same Controller/AirPlaySession, touch, YouTube identity, rotation/IME, owner/background, and Surface recreation on TS10/K706/iPhone | Physical device run | `NOT_RUN`; no target hardware is connected |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |
@@ -81,6 +90,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | EX-01 branch verification | 483 shared + 137 common unit tests; both app lints and Debug/Benchmark assemblies passed | Full target-path and performance A/B remain `NOT_RUN` |
 | PR-01 + EX-02 working-tree verification | 495 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Device path and independent second review remain `NOT_RUN` |
 | PR-04 working-tree verification | 502 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Physical microphone/Siri/call/voice-message checks remain `NOT_RUN` |
+| PR-06 LOCAL working-tree verification | 502 shared + 147 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Physical 20-cycle same-session validation remains `NOT_RUN` |
 | Hardware | No TS10/K706/iPhone was attached | `NOT_RUN`; not a pass |
 
 The remaining acceptance IDs in specification sections 8.3 and R-04 stay open for their dependent PR/EX stages. EX-01 has a source-level implementation and fixture coverage; it is not device-validated or release-ready.

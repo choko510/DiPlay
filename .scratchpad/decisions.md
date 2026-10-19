@@ -40,6 +40,10 @@ Do not alter watchdog deadlines/completion, USB queue fallback, initial NCM OUT 
 
 Keep `input=false` as a hard microphone veto while allowing the audio downlink to continue. Accept capture only on MainAudio with an advertised voice input type, valid peer port, enabled microphone permission, and mono negotiated format; reuse the existing owner-scoped uplink so an active recorder is not started twice.
 
+## Keep LOCAL Split resizing inside Android
+
+While the current owner has a Controller, valid Surface, and known remote dimensions, preserve the negotiated AirPlay display size and fit a centered content frame into the current pane. Put the TextureView and touch overlay in the same fitted frame so overlay-local coordinates remain normalized to the rendered content and the letterbox bars receive no CarPlay touches. Keep the existing restart path when the local-session preconditions fail or an explicit settings change requests a new controller.
+
 ## Keep one USBMUX IN request and use bounded recovery
 
 USBMUX now reuses one 32 KiB direct-buffer request across wait timeouts; framing rebuilds up to 64 KiB messages above the USB read layer. On failure, close the wired CSM, USBMUX/session, and VPN/NCM together, then allow three bounded clean retries at 400, 800, and 1,200 ms before surfacing a deep-recovery candidate. USBMUX and NCM remain on separate `UsbDeviceConnection`s because the current interface layout provides no evidence that combining them improves reliability.

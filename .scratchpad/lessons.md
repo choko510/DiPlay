@@ -288,3 +288,5 @@ For NCM receive framing, resolve optional short-pad length from the actual Bulk 
 For delayed Host recovery, track restart, connection, background-owner, and loss epochs separately. A recovered session consumes only its matching pending ticket; a later loss gets a new ticket, while ownership transfer, active sessions, resize/menu, shutdown, and controller-managed recovery fence old work.
 
 For AirPlay microphone setup, distinguish advertised input capability from an actual MainAudio capture request. Treat explicit `input=false` as authoritative, validate the peer port without narrowing overflow, and keep capture mono to match the advertised input formats; leave normal downlink setup intact when capture is declined.
+
+For local CarPlay pane resizing, resize the view that owns the SurfaceTexture and its gesture overlay together while preserving the remote aspect ratio. Child-local touch coordinates then match the rendered area, letterbox taps never enter CarPlay, and the background Controller keeps its original negotiated dimensions.

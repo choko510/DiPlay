@@ -96,6 +96,16 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR07-01 | Codec-specific capability, output-format, Surface recovery, first-frame, pacing, and stall behavior on TS10/K706 | Physical decoder/Surface run | `NO_GO_THIS_RUN`; no target codec/Surface issue is evidenced; vendor-specific tuning remains off |
 | PR07-02 | Existing codec CSD/random-access, decoder queue, and display diagnostic regression harnesses | `MediaCodecSupportTest`, `VideoDecodeQueueTest`, `DisplayDiagnosticSnapshotTest` | `PASS_LOCAL`; existing fallback remains unchanged |
 
+## DSP-00 existing DSP baseline
+
+| Evidence ID | Scenario | Main test/evidence | Status |
+|---|---|---|---|
+| DSP00-01 | Profile schema v3, schema 0/1/2 migration, validation, and future-schema preservation | `DspProfileRepositoryTest` | `PASS_LOCAL` |
+| DSP00-02 | Global master defaults off, MEDIA-only full DSP policy, and DSP-OFF PCM16 byte passthrough with zero track-generation latency and no pipeline preparation | `DspProfileRuntimeTest`, `DspStreamPolicyTest`, `DspRendererProductionPathTest.dspOffLpcmProductionPathWritesTheOriginalPcm16Samples` | `PASS_ROBOLECTRIC` |
+| DSP00-03 | Existing mono/stereo Float32 pipeline chunking, reusable output, latency, reset, and failure behavior | `DspPcmPipelineTest`, `NativeDspProcessorTest` | `PASS_LOCAL` |
+| DSP00-04 | Existing native graph C regression | `scripts/test_dsp_native.sh` with MSYS2 UCRT GCC | `PASS_LOCAL` unsanitized; `--sanitize` is blocked because this host lacks `libasan`/`libubsan` |
+| DSP00-05 | Existing 40-case API 36.1 emulator performance baseline from the optimization ledger | `.scratchpad/optimization.md` | Prior baseline: worst light p99 1.10 ms, heavy p99 2.92 ms, zero steady-state Kotlin allocations; not rerun on a target head unit |
+
 ## Main baseline runs
 
 | Level | Main-SHA result | Limit |

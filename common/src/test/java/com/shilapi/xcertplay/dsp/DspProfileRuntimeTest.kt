@@ -15,6 +15,19 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class DspProfileRuntimeTest {
     @Test
+    fun missingGlobalMasterPreferenceKeepsDspDisabled() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        DspProfileRuntime.resetForTesting()
+
+        val runtime = DspProfileRuntime.get(context)
+
+        assertFalse(runtime.isDspEnabled())
+        assertFalse(runtime.configProvider.snapshot().enabled)
+        DspProfileRuntime.resetForTesting()
+    }
+
+    @Test
     fun globalMasterPreferenceEnablesLegacyDisabledCustomProfileAfterRuntimeRecreation() {
         val context: Application = RuntimeEnvironment.getApplication()
         val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)

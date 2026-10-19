@@ -46,6 +46,7 @@ class DspRendererProductionPathTest {
         try {
             renderer.prepareLpcmPipelineForTesting()
             renderer.beginTrackGenerationForTesting()
+            assertEquals(0, renderer.trackLatencyForTesting)
             renderer.handleRtpForTesting(lpcmRtp(intArrayOf(0)), sample = 100)
             val samples = IntArray(64) { frame -> (frame * 701 % 30_000) - 15_000 }
             renderer.handleRtpForTesting(lpcmRtp(samples), sample = 200)

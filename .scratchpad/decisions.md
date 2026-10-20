@@ -491,3 +491,7 @@ For WIRELESS-EX, keep Same-LAN/P2P, dual-stack address selection, public hotspot
 For PR-07 decoder candidates, keep size probing, operating-rate hints, MediaTek/FFmpeg paths, frame-at-once output, SurfaceView frame retention, and teardown synchronization behind codec-capability and target resource tests. Reject unconditional stream restarts and do not treat a BYD/Raspberry Pi codec result as TS10/K706 acceptance.
 
 For VIDEO_DISPLAY candidates, reject Android OS multi-window and unrequested resolution/safe-area disabling; keep corner masks, system bars, square rotation, and safe-area mapping behind target geometry/touch checks. Preserve the fixed canvas for PR-06 LOCAL.
+
+For TEST_BUILD, keep the default CI lane limited to supported product modules and reject any release-signing fallback to a debug key. Test-only helpers require a demonstrated flaky/blocked gate before they enter PR-45.
+
+EX-08 is semantically reviewed across all 1,232 base and 57 delta rows. Keep `NEED_EVIDENCE` as explicit pending target/protocol/content proof, not an adoption or parity claim; no candidate becomes product code by appearing in the ledger.

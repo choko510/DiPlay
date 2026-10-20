@@ -358,3 +358,5 @@ For wireless source audits, preserve the target model, Android API, permission p
 For a feature that changes transport, focus, routing, or persisted network state, inspect its default value as well as its opt-in control. A visible toggle does not make a default-on behavior a safe opt-in rollout.
 
 For microphone requests, distinguish `audioType` classification from an actual capture request: check the main stream, explicit `input=false`, and a typed valid data port. Unit coverage does not establish voice-message, Siri, call, AEC, or RTP behavior on a supported head unit.
+
+Keep Android camera-window resizing, same-session in-app Split, and iPhone ViewArea changes as separate test cases. A local Activity resize or simulator response does not prove the phone accepted multiple ViewAreas or that the GeckoView Split lifecycle is stable.

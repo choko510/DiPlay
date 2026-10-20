@@ -475,3 +475,7 @@ Keep external HID, Bluetooth service restoration, settings export/restore, call-
 For AUDIO-EX candidates explicitly listed in v3, keep music buffering/pacing, format-specific buffer settings, Opus fallback, microphone/RTP clock, navigation attenuation, and AEC changes at `NEED_EVIDENCE` until the named target and protocol matrices pass. Reject default-on experimental call processing and bundled review merges; skip Geely/BYD-specific wheel-key integrations from generic STEP4.
 
 Keep PR-04 microphone classification narrow: main audio stream, recognized voice type, explicit `input=false` veto, and a validated numeric `dataPort`. Do not add dynamic stream-key logging when typed diagnostics suffice.
+
+Keep iPhone ViewArea/dock/square-canvas changes disabled until target ACK and same-session geometry pass; camera-window resize is a separate Android lifecycle case, not GeckoView Split acceptance. Treat wireless dynamic AirPlay port fallback separately from wired TCP7000, and do not restore the explicitly reverted wired stream-only fast restart.
+
+Keep Bluetooth auto-launch, saved connection-mode, ADB repair, updater, and MFi CH341-selection candidates behind their own consent/security gates. Reject unrequested background update and boot/doze repair features.

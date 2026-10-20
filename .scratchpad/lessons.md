@@ -334,3 +334,5 @@ When an upstream runtime patch also edits repository configuration, inspect depe
 For a commit that combines USB re-enumeration and audio PCM processing, classify the actual patch as a cross-gate aggregate. Preserve each narrow candidate's separate device, audio-quality, and rollback evidence requirements.
 
 Before porting an upstream UI fix, verify that the modified view builder has a call site in fixed main. An upstream test for an unreachable activity panel is not evidence that the active settings screen needs the same fix.
+
+When a BYD-only adapter contributes a generic helper, review the actual call chain before classifying the helper as independently portable. If the only producer/consumer is an OEM ADB or cluster path that fixed main removed, the aggregate remains `SKIP_OEM`.

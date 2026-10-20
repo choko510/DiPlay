@@ -401,3 +401,7 @@ Reject the upstream 10-second USB mode recheck plus navigation PCM attenuation a
 ## Do not import settings fixes for an inactive host overlay
 
 Reject hotspot-save patches that target `buildSettingsMenu()` while fixed main's `openSettingsMenu()` launches `DiPlayActivity`. If the same behavior is reproduced in the active screen, implement and test it there rather than reviving the unused overlay.
+
+## Keep BYD cluster and vehicle telemetry out of generic STEP4
+
+Classify BYD ADB map, song, battery, and wheel-speed outputs as `SKIP_OEM`. Generic NMEA or iAP2 helpers inside a BYD-only patch do not create a generic TS10 feature; preserve the fixed-main OEM removal.

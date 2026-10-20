@@ -396,6 +396,8 @@ Classify BYD dashboard-map, battery, wheel-speed, cluster-song, DiLink overlay, 
 
 Keep DiLink cluster Activity, ADB mirroring, turn-card, dashboard-map, and HUD media-line changes at `SKIP_OEM`; reject origin/main and conflict-resolution merges that bundle those paths with unrelated upstream settings. Do not map vendor cluster stream ownership to PR-05/06 generic display acceptance.
 
+Reject broad upstream release merges that bundle wireless, Android TV/platform, HUD, and map-scaling changes. Keep isolated BYD casting, picture-control, virtual-cluster, and dashboard-content rows at `SKIP_OEM` when their sink is the DiLink surface.
+
 Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/bus/usb` node paths are outside the aggregate `WIRED_PATH_V1` schema and are not changed by the source diagnostic redactor.
 
 ## Exclude upstream-only locale and OEM copy from STEP4

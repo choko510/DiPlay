@@ -24,6 +24,10 @@ Keep public-tree and EX-08 checks on every PR update. For code-changing draft up
 
 Draft unit tests require API 37.0/37.1 and Build Tools 36.0.0, but their task graph has no external native build or ADB task. Omit platform-tools and NDK 27 from this path; full host and emulator verification continue to install their full SDK packages.
 
+## Verify profile migration with Android AtomicFile
+
+Keep the JVM schema-migration tests for broad version coverage and exercise a schema-v3 profile through the platform `AtomicFile` in `common` instrumentation. This establishes Android file-write/read behavior and default-off fields; it does not establish an installed-release rollback or production-signed APK upgrade.
+
 ## Validate manual-hotspot settings only for wireless transport
 
 `CarPlayRuntimeConfig` carries saved wireless settings into both transports. Require a manual hotspot SSID only for `WIRELESS`; a wired session does not start that hotspot. Keep the wireless credentials, route, and hotspot-manager behavior unchanged, and cover both sides of the validation boundary in a pure unit test.

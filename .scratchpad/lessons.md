@@ -362,3 +362,5 @@ For microphone requests, distinguish `audioType` classification from an actual c
 Keep Android camera-window resizing, same-session in-app Split, and iPhone ViewArea changes as separate test cases. A local Activity resize or simulator response does not prove the phone accepted multiple ViewAreas or that the GeckoView Split lifecycle is stable.
 
 For startup recovery, distinguish saved ADB authorization rechecks from new grants, and distinguish the dynamic wireless AirPlay port from wired TCP7000. A recovery path that needs hidden-API exemptions or changes the wired listener must stay out until its own failure and consent case is reproduced.
+
+For diagnostics, validate queue bounds and shutdown flush order as well as each field's sensitivity. A local phone-page endpoint or visible Downloads fallback changes who can reach a report, even when payloads and credentials are excluded.

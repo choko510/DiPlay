@@ -78,3 +78,4 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - 2026-10-21: GitHub Actions run #231 passed on audit-only head `fb212b6`; public-source and EX-08 checks ran while Android SDK, Gradle, native, unit, lint/build/JNI, emulator, and baseline jobs were skipped. This confirms the short audit lane remains active; the next push has not run yet.
 - 2026-10-21: GitHub Actions run #232 passed on audit-only head `8acb3d3`; public-source and EX-08 checks ran while Android runtime, host, and quick-baseline jobs were skipped.
 - 2026-10-21: GitHub Actions run #233 passed on audit-only head `24b62fc`; public-source and EX-08 checks ran while Android instrumentation, host-baseline, and quick-baseline jobs were skipped.
+- 2026-10-21: GitHub Actions run #234 passed on audit-only head `f3a6e6e`; public-source and EX-08 checks ran while Android instrumentation, host-baseline, and quick-baseline jobs were skipped.

@@ -481,3 +481,5 @@ Keep iPhone ViewArea/dock/square-canvas changes disabled until target ACK and sa
 Keep Bluetooth auto-launch, saved connection-mode, ADB repair, updater, and MFi CH341-selection candidates behind their own consent/security gates. Reject unrequested background update and boot/doze repair features.
 
 Keep iAP2 older-iOS message retry, Android 17 local-network permission, and wireless hotspot start/port fallback conditional until the supported API/vehicle behavior is observed. Never use hidden TetheringManager exemptions or ADB shell hotspot mutation as a generic recovery path.
+
+Keep diagnostics user-triggered and bounded: redact before queueing, retain only app-owned crash/audio/USB metadata, and do not require public report uploads or expose reports through an unverified phone-page server. Android storage/location permission fallbacks stay target- and API-gated.

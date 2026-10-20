@@ -68,6 +68,7 @@ The table preserves the original PR-00 through PR-08 identifiers; added EX/DSP w
 | Draft PR CI run #244 | PASS, 4m08 | Public-tree, native, hosted ASan/UBSan and shared/common unit checks passed; full host build/lint/JNI and instrumentation were skipped |
 | Ready/full PR CI run #245 | PASS, 10m24 overall | Host check passed in 10m20 (Gradle verification 9m26); parallel API 35 x86_64 instrumentation passed in 5m05 |
 | Same-repository PR cache-write run #247 | PASS, 5m20 | Draft lane passed; Gradle Action ran `Cache mode: write` and saved PR-scoped cache entries |
+| Warm-cache docs-only draft run #248 | PASS, 1m50 | Unit task phase 25s; 30/51 Gradle tasks were restored from the same PR cache |
 
 The PR-00 fixture addition contains eight new shared unit tests. After that addition, the current report totals are 461 shared + 136 common = 597 tests, all passing with 0 failures/errors/skips. The new Robolectric tests validate only scripted test doubles and the existing NCM `recv()` path; they do not establish Android USB-controller behavior.
 

@@ -13,6 +13,12 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-20 — STEP4 repeat-run CI
+
+- Run #188 took 11m44s overall. The host Gradle invocation took 10m56s; the API 35 instrumentation job took 4m49s and overlapped it. The Gradle action reported its cache as read-only on this PR branch.
+- Enable Gradle's local build cache and allow writes only from same-repository PRs; keep fork PR cache access read-only. Skip the emulator job on PRs that do not touch DSP/native code, DSP Kotlin, instrumentation tests, or relevant Gradle inputs. `main` pushes and manual dispatch still run the full workflow.
+- Post-change timing is pending a GitHub Actions run; no speedup is claimed until measured.
+
 ## 2026-10-02 — PR #14 CI wall time
 
 - Moved API 35 emulator boot and `:shared:connectedDebugAndroidTest` into a parallel `android-instrumentation` job, and stopped installing the emulator system image in the host verification job. Kept all 40 DSP cases, three 256-block measurement rounds, and the p99 gate unchanged.

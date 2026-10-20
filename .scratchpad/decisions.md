@@ -1,5 +1,9 @@
 # Decisions
 
+## Keep repeated PR Gradle builds incremental and scope emulator runs to DSP changes
+
+Allow Gradle cache writes only for pull requests from the same repository; keep fork PR caches read-only. Enable Gradle's local build cache in CI so unchanged task outputs can be reused on later commits. The API 35 emulator job covers the DSP JNI bridge and benchmark, so run it for DSP/native, DSP Kotlin, instrumentation, and relevant Gradle inputs on PRs; retain the full matrix for `main` pushes and manual dispatch.
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.

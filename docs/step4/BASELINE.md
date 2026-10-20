@@ -32,7 +32,7 @@ The SDK resolves from local `local.properties`. Installed SDK platforms include 
 | `python scripts/check_jni_mapping.py` | `PASS_LOCAL` | Mobile and automotive Benchmark R8 mapping files verified |
 | `python scripts/check_public_tree.py` | `PASS_LOCAL` | No credential containers or private-key blocks found |
 | `scripts/run_android_instrumentation.sh` | `PASS_EMULATOR` | Medium_Phone_API_36.1 AVD: 16/16 tests, 0 skipped/failed; 120 DSP benchmark records = 40 configurations × 3 runs; benchmark-log assertion passed |
-| GitHub CI for the PR-00 branch | `NOT_RUN` | Main workflow has separate host and API 35 emulator jobs; PR check pending review-branch creation |
+| GitHub CI for PR #47 head `0a5c886d` | `PASS_CI` | Run #188 passed both host checks and API 35 emulator instrumentation; independent review remains `NOT_RUN` |
 | TS10/K706 + iPhone physical acceptance | `NOT_RUN` | AVD evidence is not head-unit evidence |
 
 ## Review status

@@ -7,6 +7,36 @@ on:
 permissions:
   contents: read
 jobs:
+  dsp_changes:
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.filter.outputs.required }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+            echo "Running full Android instrumentation on $EVENT_NAME."
+            exit 0
+          fi
+
+          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -Eq '^(shared/src/main/jni/|shared/src/main/java/com/shilapi/xcertplay/media/dsp/|shared/src/androidTest/|shared/build.gradle.kts$|build.gradle(\.kts)?$|settings.gradle(\.kts)?$|scripts/run_android_instrumentation\.sh$|gradle/|gradle\.properties$)'; then
+            echo "required=true" >> "$GITHUB_OUTPUT"
+            echo "DSP or Android instrumentation inputs changed; running emulator verification."
+          else
+            echo "required=false" >> "$GITHUB_OUTPUT"
+            echo "No DSP or Android instrumentation inputs changed; emulator verification is not needed for this pull request."
+          fi
+
   check:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -22,12 +52,14 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref_name != github.event.repository.default_branch && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) }}
       - name: Host native DSP tests
         run: bash scripts/test_dsp_native.sh
       - name: Host native DSP tests with ASan and UBSan
         run: bash scripts/test_dsp_native.sh --sanitize
       - name: Unit tests, lint, debug and optimized builds
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --stacktrace
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --stacktrace
       - name: Verify JNI names survive R8
         run: python3 scripts/check_jni_mapping.py
 
@@ -43,6 +75,8 @@ jobs:
             automotive/build/reports/lint-results-debug.html
 
   android-instrumentation:
+    needs: dsp_changes
+    if: needs.dsp_changes.outputs.required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -55,6 +89,8 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973 system-images;android-35;google_apis;x86_64
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.ref_name != github.event.repository.default_branch && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository) }}
       - name: Install Android Emulator binary
         run: |
           curl --fail --location --retry 3 "https://dl.google.com/android/repository/emulator-linux_x64-16433917.zip" -o "$RUNNER_TEMP/emulator.zip"
@@ -67,6 +103,8 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: JNI DSP smoke test
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          GRADLE_OPTS: -Dorg.gradle.caching=true
         with:
           api-level: 35
           arch: x86_64

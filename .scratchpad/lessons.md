@@ -1,5 +1,9 @@
 # Lessons
 
+## Reuse Gradle task outputs across safe PR updates
+
+`setup-gradle` defaults caches to read-only on non-default branches. On same-repository pull requests, allow writes to the PR-scoped cache and pass `--build-cache` to repeated Gradle tasks; keep fork PRs read-only. Gate long emulator smoke tests by the production/test paths they exercise, while retaining full validation on the default branch and manual runs.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

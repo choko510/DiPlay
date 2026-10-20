@@ -18,6 +18,11 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - Compare changes since the latest successful quick baseline and run host native DSP plus ASan/UBSan only when DSP C, KissFFT, native DSP test files, or `scripts/test_dsp_native.sh` changed. Keep shared/common unit tests on every code-changing draft update; full host, main-push, and manual runs still include all native checks. Missing baselines, API errors, and large diffs fall back to full verification.
 - Run #252 passed on `a130158` in 2m07. Shared/common draft unit tests passed while native DSP and ASan/UBSan were skipped, confirming the non-native path. This run did not reduce elapsed time against run #242's 2m00; the saved work for future Kotlin-only edits is the native test/sanitizer execution, with its wall-time impact unmeasured.
 
+## 2026-10-21 — Trim draft SDK setup and workflow-only checks
+
+- Draft unit tests use API 37.0/37.1 and Build Tools 36.0.0 without platform-tools or NDK 27. Gradle dry-run confirmed the shared/common unit-test task graph contains no external native build tasks. In run #254, Android SDK setup took 21s versus 36s in #252, and the unit tests passed; total time was 2m18 because Gradle test and cache-cleanup times varied upward, so the package trim did not reduce total wall time on its own.
+- Classify `.github/workflows/*` as workflow-only so the active Actions workflow still runs public-tree and EX-08 checks but skips product runtime setup/tests. Run #255 passed in 32s, compared with 2m18 for #254's workflow-only edit; the 1m46 reduction includes the skipped Gradle/native work. Product-source, main-push, and manual verification paths remain unchanged.
+
 ## 2026-10-20 — Shorten draft PR feedback
 
 - Run #151 logs showed the host check job taking 2m45s (Gradle command 1m04s) and the instrumentation job taking 5m12s. Run #168 then took 9m39s overall, with the Gradle unit/lint/build/JNI command alone at 7m33s, despite the emulator job being skipped.

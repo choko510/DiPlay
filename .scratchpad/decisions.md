@@ -1,8 +1,8 @@
 # Decisions
 
-## Keep documentation-only PR checks lightweight
+## Keep documentation-only and workflow-only PR checks lightweight
 
-For pull requests, always run public-tree and EX-08 inventory checks. Compare host verification against the latest successful `host-baseline` marker and emulator instrumentation against the latest successful full `check` plus `android-instrumentation` run. Only paths under `docs/`, `.scratchpad/`, Markdown files, and the exact audit-only `scripts/generate_step4_ex08_inventory.py` may skip host work; its `--check` still runs on every PR. Unknown paths, missing/failed baselines, large diffs, and API errors require the relevant verification path. Pushes and manual runs use the full suite.
+For pull requests, always run public-tree and EX-08 inventory checks. Compare host verification against the latest successful `host-baseline` marker and emulator instrumentation against the latest successful full `check` plus `android-instrumentation` run. Changes limited to `docs/`, `.scratchpad/`, `.github/workflows/`, Markdown files, or the exact audit-only `scripts/generate_step4_ex08_inventory.py` may skip product runtime checks; the inventory `--check` still runs on every PR. Unknown paths, missing/failed baselines, large diffs, and API errors require the relevant verification path. Pushes and manual runs use the full suite.
 
 ## Cache Gradle task outputs only within the same pull request
 
@@ -15,6 +15,10 @@ Pass `--parallel` only to the full CI Gradle task set. The previous no-flag full
 ## Defer emulator instrumentation while a PR is draft
 
 Keep public-tree and EX-08 checks on every PR update. For code-changing draft updates, always run shared/common unit tests; run native DSP and ASan/UBSan only when DSP C, KissFFT, native test files, or their test script changed since the latest successful quick baseline. Defer lint, app builds, JNI, and connected instrumentation until `ready_for_review`. A successful draft quick-check marker is separate from the full host baseline, so documentation-only follow-ups can skip it without satisfying the full-review gate. Pushes, manual runs, and review-ready source updates run the full suite; unknown paths, missing baselines, large diffs, and API errors also fall back to full verification.
+
+## Use the minimal Android SDK for draft unit tests
+
+Draft unit tests require API 37.0/37.1 and Build Tools 36.0.0, but their task graph has no external native build or ADB task. Omit platform-tools and NDK 27 from this path; full host and emulator verification continue to install their full SDK packages.
 
 ## Validate manual-hotspot settings only for wireless transport
 

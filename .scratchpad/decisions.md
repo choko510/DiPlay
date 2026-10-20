@@ -483,3 +483,5 @@ Keep Bluetooth auto-launch, saved connection-mode, ADB repair, updater, and MFi 
 Keep iAP2 older-iOS message retry, Android 17 local-network permission, and wireless hotspot start/port fallback conditional until the supported API/vehicle behavior is observed. Never use hidden TetheringManager exemptions or ADB shell hotspot mutation as a generic recovery path.
 
 Keep diagnostics user-triggered and bounded: redact before queueing, retain only app-owned crash/audio/USB metadata, and do not require public report uploads or expose reports through an unverified phone-page server. Android storage/location permission fallbacks stay target- and API-gated.
+
+Keep unrequested Now Playing artwork and ambient-light output out of fixed main. Automatic playback-rate clock trim is rejected unless a separate implementation is explicitly off by default and passes target pitch, DSP, and A/V measurements; audio focus, frame pacing, and codec-thread candidates remain separately gated.

@@ -364,3 +364,5 @@ Keep Android camera-window resizing, same-session in-app Split, and iPhone ViewA
 For startup recovery, distinguish saved ADB authorization rechecks from new grants, and distinguish the dynamic wireless AirPlay port from wired TCP7000. A recovery path that needs hidden-API exemptions or changes the wired listener must stay out until its own failure and consent case is reproduced.
 
 For diagnostics, validate queue bounds and shutdown flush order as well as each field's sensitivity. A local phone-page endpoint or visible Downloads fallback changes who can reach a report, even when payloads and credentials are excluded.
+
+For media-performance candidates, separate packet arrival pacing, decoder backlog, playback-clock trim, and Android audio-focus behavior. Synthetic drift results or another car's measurements do not establish target pitch, DSP, or A/V behavior.

@@ -1786,6 +1786,97 @@ BASE_REVIEW_OVERRIDES.update({
     },
 })
 
+BASE_REVIEW_OVERRIDES.update({
+    "1acae0f77f470aa065ee191554a680fe64bb3e89": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 77-path commit merges upstream main into main and carries a broad repository integration, not an isolated WIRELESS-EX change. The v3 plan pins the fork baseline and prohibits upstream bulk merges.",
+        "test": "PASS_STATIC: source commit subject identifies a main-to-main merge with 77 changed paths; no merged tree is used as the fork implementation base",
+        "related": "Reject upstream main integration; evaluate isolated feature commits against the pinned fork main",
+        "rollback": "Do not import the upstream merge; keep the pinned fork baseline and PR-45 changes.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "6a25ee31ec41d0790da4360e3e6db7b171c60e59": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 55-path commit merges upstream main into fix/about-in-settings-hierarchy. The aggregate settings/UI integration is not an isolated STEP4 candidate and upstream bulk merges are prohibited by the v3 baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a feature branch; 55 paths changed",
+        "related": "Reject upstream integration merge; evaluate individual settings changes only if they map to an explicit STEP4 gate",
+        "rollback": "Do not import the upstream main tree or settings integration; preserve fixed-main settings behavior.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "d71ae772cd2425650f30e2705d08de4f1db58a5c": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 59-path commit merges upstream main into fix/car-menu-button-style. The broad UI integration is not an isolated STEP4 candidate and upstream bulk merges are prohibited by the v3 baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a feature branch; 59 paths changed",
+        "related": "Reject upstream integration merge; evaluate individual UI changes only if they map to an explicit STEP4 gate",
+        "rollback": "Do not import the upstream main tree or menu integration; preserve fixed-main UI behavior.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "2e983c768d6e7435c50254a21630a772f0ee2851": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 61-path commit merges upstream main into fix/update-installer-chooser. The installer/UI integration is not an isolated STEP4 candidate and upstream bulk merges are prohibited by the v3 baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into an update feature branch; 61 paths changed",
+        "related": "Reject upstream integration merge; installer and update behavior remain subject to PR-08 release gates",
+        "rollback": "Do not import the upstream main tree or update-installer integration; retain the fixed-main update path.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "b04cfd3a5fd947837d7c7fd5e6263a0108adf408": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 68-path commit merges upstream main into feat/disable-media-key-audio-focus. It combines upstream integration with a separate audio-focus feature and is not a safe single-gate STEP4 change.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into an audio-focus feature branch; 68 paths changed",
+        "related": "Reject upstream bulk merge; review any isolated media-key/focus change against PR-04 and audio regression gates",
+        "rollback": "Do not import the upstream tree or bundled media-key/focus changes; preserve fixed-main audio behavior.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "b3a9cfdc20bb10fe94e06c773ca74eaee9f97959": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 63-path commit merges upstream main into feature/cluster-speedometer. It includes a broad upstream integration around a vendor-cluster feature that is outside generic STEP4 scope.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a cluster-speedometer branch; 63 paths changed",
+        "related": "Reject upstream main merge and BYD/cluster integration; generic features require isolated fixed-main review",
+        "rollback": "Do not import the upstream tree or cluster-speedometer behavior; preserve the fixed-main BYD exclusion.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "4657003348c2c686a764f554d035fd6a6a32a2f1": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 46-path commit merges upstream main into fix/wired-usbmux-home-card. The source is a broad integration into a UI/USBMUX feature branch, not an isolated USBMUX repair for the pinned fork.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a USBMUX UI branch; 46 paths changed",
+        "related": "Reject upstream bulk merge; keep the independently reviewed fixed-main USBMUX timeout owner and PR-01 behavior",
+        "rollback": "Do not import the upstream tree or home-card/USBMUX integration; preserve fixed-main USBMUX and UI behavior.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "258a3db3c5d5f31d28d919cb66de754dcbeaf60b": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 18-path commit merges upstream main into feat/transient-system-bars-754. The system-bar UI integration is not an isolated STEP4 feature and upstream bulk merges are prohibited by the v3 baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a system-bar feature branch; 18 paths changed",
+        "related": "Reject upstream integration merge; no PR-05/06 mapping established by the merge itself",
+        "rollback": "Do not import the upstream main tree or system-bar changes; retain fixed-main UI behavior.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "23457526c501bb849312e54e0ee8ab383d5d4b11": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 32-path commit merges upstream main into feat/815-wheel-media-play-pause. The broad media-key integration is not an isolated STEP4 candidate and upstream bulk merges are prohibited by the v3 baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a wheel/media branch; 32 paths changed",
+        "related": "Reject upstream integration merge; review only isolated media-key changes against the existing CarPlay input behavior",
+        "rollback": "Do not import the upstream main tree or wheel/media-key changes; retain fixed-main controls.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "7d7b73df9a87696737edde0170ef38e18ab87dc2": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 39-path commit merges upstream main into feat/local-black-corner-overlay-635. The UI overlay integration is not an isolated STEP4 candidate and upstream bulk merges are prohibited by the v3 baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a display-overlay branch; 39 paths changed",
+        "related": "Reject upstream integration merge; no local Split acceptance can be inferred from the merge",
+        "rollback": "Do not import the upstream main tree or overlay changes; preserve fixed-main display and Split behavior.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "d31f528bba7f29149e09df23da4e6cd4e3d06bba": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 60-path commit merges upstream main into feat/wheel-siri-double-press. The broad Siri/media-key integration is not an isolated STEP4 candidate and upstream bulk merges are prohibited by the v3 baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a wheel/Siri feature branch; 60 paths changed",
+        "related": "Reject upstream integration merge; Siri and call routing remain governed by PR-04 and voice regression gates",
+        "rollback": "Do not import the upstream main tree or wheel/Siri changes; preserve fixed-main controls and voice routing.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+})
+
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {
         "disposition": "REJECT_UNSAFE",

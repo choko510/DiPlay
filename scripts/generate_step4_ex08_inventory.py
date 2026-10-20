@@ -3251,6 +3251,116 @@ BASE_REVIEW_OVERRIDES.update({
     },
 })
 
+BASE_REVIEW_OVERRIDES.update({
+    "aafb1ef7475a9e0ddc64a7b818d362c52433931c": {
+        "disposition": "SKIP_OEM",
+        "reason": "This adds a configurable speedometer to the DiLink 3 cluster Activity. The display, vehicle-speed source, and user preference are BYD cluster outputs.",
+        "test": "PASS_STATIC: source diff adds ClusterSpeedometerView/Overlay and settings; NOT_RUN_TARGET: DiLink 3 speed display and vehicle data",
+        "related": "BYD cluster/vehicle-data exclusion; do not map cluster overlays to PR-05/06 generic display",
+        "rollback": "No DiLink speedometer overlay or vehicle-speed display imported.",
+        "review_state": "PRIMARY_AGENT_BYD_FEATURE_SKIPPED_FIXED_MAIN_OEM_REMOVAL",
+    },
+    "f65ca5c25f2cbf0be243e7f35d51f1bef57fac2a": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This claims steering-wheel next/previous keys directly in the foreground CarPlay window when the head unit lacks an ADB wheel service. It changes input ownership and media dispatch and needs target key and TV-remote coexistence evidence.",
+        "test": "PASS_STATIC: source diff adds a CarPlay-window media-button path for next/previous keys; NOT_RUN_TARGET: key identity, repeat/long-press, and media-session dispatch on TS10/K706",
+        "related": "WIRELESS-EX steering-input and AUDIO-B media-key focus gates",
+        "rollback": "Keep fixed-main key ownership until physical key events and media routing pass on target.",
+        "review_state": "PRIMARY_AGENT_STEERING_MEDIA_KEYS_NEEDS_TARGET_EVIDENCE",
+    },
+    "c80c8e4250b59502813f81e05da2767b07751fb1": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 44-path commit merges upstream main into fix/skip-absent-byd-someip-hud. It bundles upstream integration with vendor HUD behavior and is prohibited by the v3 fixed-baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a BYD HUD repair branch; 44 paths changed",
+        "related": "Reject upstream integration; review isolated BYD/SOME-IP candidates separately",
+        "rollback": "No upstream main or bundled HUD changes imported.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "b4c352c113ca536d88d96c091a9bc8459ac711ed": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 46-path commit merges upstream main into fix/issue-519-legacy-dilink. It combines a legacy DiLink repair with upstream changes rather than providing an isolated fixed-main STEP4 patch.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a legacy DiLink repair branch; 46 paths changed",
+        "related": "Reject upstream bulk merge; inspect isolated legacy cluster fixes only if they map to an explicit gate",
+        "rollback": "Do not import upstream main or the bundled legacy DiLink changes.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "3dd9b89ac85500e45cf5c13c4f18b94dceb47792": {
+        "disposition": "SKIP_OEM",
+        "reason": "This merge integrates the legacy DiLink cluster route repair. Its output surface and route are vendor-specific and excluded from generic STEP4.",
+        "test": "PASS_STATIC: merge diff changes the four-path issue-519 legacy DiLink cluster route",
+        "related": "BYD/DiLink cluster repair; do not map to PR-05/06 generic ViewArea",
+        "rollback": "No legacy DiLink cluster route or display behavior imported.",
+        "review_state": "PRIMARY_AGENT_BYD_FEATURE_SKIPPED_FIXED_MAIN_OEM_REMOVAL",
+    },
+    "7a464794d7adf3b4ea9e67ba85ddc9cb39cfc565": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 15-path commit merges upstream main into fix/localized-connection-stage. It is a review-branch integration of localized UI and other upstream changes, not an isolated STEP4 candidate.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a connection-stage branch; 15 paths changed",
+        "related": "Reject upstream merge; language/UI candidates require independent fixed-main mapping",
+        "rollback": "No upstream main or localized connection-stage bundle imported.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "428780661be1b5a0d63681e68abf7f4f270da0ff": {
+        "disposition": "SKIP_OEM",
+        "reason": "This merge adds the DiLink 3 cluster speedometer overlay. Its surface and speed data are BYD-specific, not generic CarPlay media or Split output.",
+        "test": "PASS_STATIC: merge diff adds ClusterSpeedometerView/Overlay and BYD settings; NOT_RUN_TARGET: DiLink 3 vehicle-speed presentation",
+        "related": "BYD speedometer merge occurrence of aafb1ef7475a9e0ddc64a7b818d362c52433931c",
+        "rollback": "No BYD cluster speedometer or settings imported.",
+        "review_state": "PRIMARY_AGENT_BYD_FEATURE_SKIPPED_FIXED_MAIN_OEM_REMOVAL",
+    },
+    "a5f9dd81fafa888398e511089a96a25647d9f01a": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 51-path commit merges upstream main into feat/geely-wheel-keys. It combines upstream integration with OEM wheel-key behavior and cannot be treated as an isolated STEP4 feature.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a Geely wheel-key branch; 51 paths changed",
+        "related": "Reject upstream integration; review isolated wheel-key candidates under WIRELESS-EX separately",
+        "rollback": "Do not import upstream main or Geely wheel-key changes.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "f739ceb3c040ec53121f443bad51edfed47211f9": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 89-path commit merges upstream main into feat/telecom-phone-audio-route. It combines upstream integration with system call/audio-routing changes and is prohibited by the fixed-baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into a Telecom audio-route branch; 89 paths changed",
+        "related": "Reject upstream merge; review the isolated call-route candidate under PR-04/AUDIO-B with device evidence",
+        "rollback": "No upstream main or bundled Telecom route changes imported.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "3a1ac81a796edaa9cd6839e98b3f753845258a91": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This merge adds an Android Telecom phone-audio route watcher and attaches it outside DiPlay's foreground call screen. It changes call ownership and system routing and needs explicit target call/Siri evidence.",
+        "test": "PASS_STATIC: merge diff attaches PhoneAudioRoute to application/Telecom watcher; NOT_RUN_TARGET: SCO, echo, permission, and hangup behavior on TS10/K706",
+        "related": "PR-04 call/microphone and AUDIO-B route gates",
+        "rollback": "Keep the fixed-main call/audio owner until route, echo, and watcher teardown pass on target.",
+        "review_state": "PRIMARY_AGENT_PHONE_AUDIO_ROUTE_NEEDS_TARGET_EVIDENCE",
+    },
+    "da61c34d81795a105ef80f291e792b17b35ec3d4": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 98-path commit merges upstream main into fce-cluster-guidance, bundling generic upstream updates with OEM navigation, call, and display changes.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into an FCE cluster branch; 98 paths changed",
+        "related": "Reject upstream merge; evaluate any isolated FCE/BYD cluster behavior as OEM-specific",
+        "rollback": "No upstream main or bundled FCE cluster guidance imported.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+    "4f104791680d2e8bf274742287b414d79b707ef5": {
+        "disposition": "SKIP_OEM",
+        "reason": "This merge adds opt-in FCE cluster guidance using the OEM display surface. It is not the generic CarPlay ViewArea or local pane path.",
+        "test": "PASS_STATIC: merge diff extends cluster guidance to FCE head units under an explicit OEM opt-in; NOT_RUN_TARGET: FCE cluster surface",
+        "related": "OEM cluster guidance exclusion; PR-05/06 generic display behavior remains separate",
+        "rollback": "No FCE cluster guidance UI or output imported.",
+        "review_state": "PRIMARY_AGENT_OEM_CLUSTER_SKIPPED_FIXED_MAIN",
+    },
+})
+
+BASE_REVIEW_OVERRIDES.update({
+    "67d4c55aa6453f21f7d327b782419de6ca906fb2": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 105-path commit merges upstream main into settings-backup-web. It combines a broad repository update with settings/export changes and violates the v3 fixed-baseline rule.",
+        "test": "PASS_STATIC: source commit subject identifies an upstream-main merge into settings-backup-web; 105 paths changed",
+        "related": "Reject upstream integration; any settings backup/export behavior needs an isolated privacy and release review",
+        "rollback": "Do not import upstream main or its settings-backup web changes.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
+    },
+})
+
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {
         "disposition": "REJECT_UNSAFE",

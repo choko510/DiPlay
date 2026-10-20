@@ -31,6 +31,7 @@ The source requirements are in v3 §8.1–8.4 and §R-04. This matrix keeps ever
 | Ready/full PR CI run #245 | `CI_ANDROID_PASS`; host check and API 35 x86_64 instrumentation both succeeded in 10m24 overall |
 | PR-scoped Gradle cache write, run #247 | `CI_ANDROID_PASS`; same-repository PR cache write succeeded; fork/manual non-main runs remain read-only |
 | Warm-cache docs-only draft run #248 | `CI_ANDROID_PASS`; 30/51 Gradle tasks restored from cache and the unit task phase completed in 25s |
+| Ready/full run #250 | `CI_ANDROID_PASS`; host Gradle checks and API 35 x86_64 instrumentation passed, with 68/359 host tasks from cache |
 | TS10/K706/iPhone wired, audio, split and release rollback checks | `NOT_RUN` |
 
 The 8 new fixture tests verify the fixture contract, including a `NcmUsbBridge.recv()` call against a scripted Robolectric USB-IN request. The queue, completion and packet contents are explicit in the test; this is not physical USB evidence. The fake bulk-OUT path has no implicit success value.

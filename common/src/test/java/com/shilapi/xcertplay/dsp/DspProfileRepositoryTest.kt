@@ -173,6 +173,50 @@ class DspProfileRepositoryTest {
     }
 
     @Test
+    fun rollingBackEachAddedModulePreservesLegacyConfigAndOtherProfiles() {
+        val repository = repositoryWithDirectWriterForMigrationTests()
+        val profile = DspProfilePresets.customProfile("custom1").copy(
+            preampDb = -2.5,
+            eqBands = listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 2.0)),
+            bass = DspBassConfig(enabled = true, gainDb = 3.0, frequencyHz = 90.0),
+            seatAlignment = DspSeatAlignmentConfig(
+                enabled = true,
+                preset = DspSeatPreset.DRIVER,
+                nearSpeaker = DspSeatNearSpeaker.LEFT,
+                distanceDifferenceCm = 34.3,
+            ),
+            advancedMs = DspAdvancedMsConfig(enabled = true, sideLowGainDb = 1.0),
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                notches = listOf(DspCabinCorrectionNotch(enabled = true, frequencyHz = 80.0, gainDb = -3.0)),
+            ),
+            harmonic = DspHarmonicConfig(enabled = true, exciterEnabled = true, exciterAmount = 0.3),
+        )
+        val otherProfile = DspProfilePresets.customProfile("custom2").copy(preampDb = 4.0)
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(otherProfile))
+
+        val rollbackProfiles = listOf(
+            profile.copy(seatAlignment = profile.seatAlignment.copy(enabled = false)),
+            profile.copy(advancedMs = profile.advancedMs.copy(enabled = false)),
+            profile.copy(cabinCorrection = profile.cabinCorrection.copy(enabled = false)),
+            profile.copy(harmonic = profile.harmonic.copy(enabled = false)),
+        )
+        for (rolledBackProfile in rollbackProfiles) {
+            assertEquals(DspProfileSaveResult.SAVED, repository.save(rolledBackProfile))
+            assertEquals(
+                rolledBackProfile,
+                (repository.load("custom1") as DspProfileReadResult.Loaded).profile,
+            )
+            assertEquals(
+                otherProfile,
+                (repository.load("custom2") as DspProfileReadResult.Loaded).profile,
+            )
+            assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
+        }
+    }
+
+    @Test
     fun malformedNonFiniteAndUnknownEnumProfilesUseSafeInvalidResult() {
         val repository = repository()
         val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))

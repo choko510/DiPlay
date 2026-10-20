@@ -303,3 +303,7 @@ Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Al
 ## Include both APK signing schemes for mobile debug distribution
 
 Explicitly configure the mobile debug signing config for v1 and v2 so OEM installers that depend on JAR signatures can parse the APK. Verify the resulting artifact with `apksigner`; the manifest minSdk can affect which scheme is reported as applicable.
+
+## Keep PR-00 fixtures test-only and script USB outcomes explicitly
+
+Build the fixed-main baseline and fork-specific fixtures without changing production behavior. Robolectric USB fakes must script queue, wait, and bulk-transfer results; an unscripted action is an error, not assumed success. Record the exact 512-byte no-pad receiver stall as `PASS_CHARACTERIZATION` until PR-01 changes it.

@@ -1,0 +1,23 @@
+# PR-00 — Main Ownership Map
+
+This map records `origin/main` at `95ba398f95ee104527812cd2b095977d71c51f98`. It is a source-grounded starting point for later state, failure, and rollback tests, not proof of physical ownership/race acceptance.
+
+| Area | Main owner | Owned state / boundary | Existing evidence |
+|---|---|---|---|
+| USB discovery and permission | `IphoneUsbHost` (`shared/.../transport/IphoneUsbHost.kt`) | Configured-iPhone matching, permission requests, USB-mode transition requests, and USBMUX session opening | Source mapped; no direct `IphoneUsbHost` Robolectric test in main |
+| USBMUX session | `Iap2UsbSession` in `IphoneUsbHost.kt` | Separate USBMUX connection/endpoints, read/write locks, one persistent IN request, timeout/failure and close/cancel order | `PersistentUsbReadRequestStateTest`, `UsbMuxFrameDecoderTest` |
+| NCM interface selection | `NcmFunctionDiscovery` (`shared/.../transport/NcmFunctionDiscovery.kt`) | CDC control/data pairing from Union descriptors; rejects ambiguous/malformed candidates | `NcmFunctionDiscoveryTest` |
+| NCM pipe | `NcmUsbBridge` (`shared/.../transport/NcmUsbBridge.kt`) | NCM connection/endpoints, persistent bulk-IN request, receive buffer/frame queue, optional status poller, typed send results, link evidence and per-bridge counters | `PersistentUsbReadRequestStateTest`, `NcmNtbParametersTest`, `NcmDiagnosticProfileTest`, PR-00 NCM fixtures |
+| NTB16 encoding | `Ntb16Codec` (`shared/.../transport/Ntb16Codec.kt`) | NTB16 framing/encoding, separate from USBMUX framing | `Ntb16CodecTest`, PR-00 frame fixtures |
+| NCM readiness/retry | `NcmLinkReadiness` and `NcmStartupNdpRetry` (`shared/.../transport`, `shared/.../network`) | Readiness uses inbound/outbound IPv6 evidence; only bounded NDP resolution retry is present | `NcmLinkReadinessTest`, `NcmStartupNdpRetryTest` |
+| Wired composition | `CarPlayController.openDataPaths()` (`shared/.../orchestration/CarPlayController.kt`) | Allocates wired attempt/generation, opens USBMUX then NCM on separate connections, composes the data path, fences stale results, owns recovery decisions | `WiredStartupWatchdogTest`; PR-00 startup trace fixtures |
+| IPv6/TUN bridge | `Ipv6NcmBridge` (`shared/.../network/Ipv6NcmBridge.kt`) | Owns the TUN descriptor and NCM→TUN/TUN→NCM worker threads; learns peer MAC from NCM IPv6; closes NCM and TUN | `EthernetIpv6CodecTest`; physical TUN acceptance `NOT_RUN` |
+| Startup deadlines | `WiredStartupWatchdog` (`shared/.../orchestration/WiredStartupWatchdog.kt`) | Attempt/generation tokens; 8-second soft and 15-second hard policy; Controller handles callbacks and resources | `WiredStartupWatchdogTest` |
+| Host/background session | `CarPlayHostActivity`, `CarPlayBackgroundSession` (`common/.../CarPlayHostActivity.kt`) | Activity owns host UI/layout commands; process-local session retains controller/media sink across covered or replaced Activities | `CarPlayHostActionsTest`, `CarPlayRestartHandoffTest` |
+| YouTube/Split | `YoutubeBrowserController`, `SplitLayoutState`, `DisplayResizeCoordinator` (`common/.../youtube`) | Gecko session/profile, local layout/resize state; default CarPlay fraction 55% | `YoutubeBrowserLifecycleTest`, `YoutubeDeviceProfileTest`, `SplitLayoutStateTest`, `DisplayResizeCoordinatorTest` |
+| Remote display declaration | `AirPlayInfoPlist` (`shared/.../airplay/AirPlayInfoPlist.kt`) | Serializes the existing display and optional alternate-screen declaration; default main path retains the single-area contract | `AirPlayInfoPlistTest` |
+| Media and microphone | `CarPlayMediaEngine`, `AndroidMediaSink`, `MicrophoneUplink` (`shared/.../airplay`, `shared/.../media`) | Audio stream owner tokens and roles; AndroidMediaSink owns AudioTrack/decoder rendering; MicrophoneUplink owns AudioRecord/encoder/socket lifecycle | `AudioStreamLifecycleTest`, `MicrophoneUplinkLifecycleTest`, `AudioStreamClassificationTest` |
+| DSP pipeline | `DspPcmPipeline`, `DspLiveUpdateController`, `NativeDspProcessor` (`shared/.../media/dsp`) | Existing MEDIA-only graph and native/JNI processor; config graph updates are prepared away from PCM processing | `DspStreamPolicyTest`, `DspOffLegacyPcmTest`, `DspLiveUpdateControllerTest`, PR-00 AVD baseline |
+| Connection trace | `ConnectionTraceStore` (`common/.../ConnectionTraceStore.kt`) | Existing opt-in app-owned trace store; not the proposed EX-01 per-wired-attempt TCP/TUN recorder | `ConnectionTraceStoreTest`, `DiagnosticRedactorTest`, `DiagnosticExportStoreTest` |
+
+**PR-00 test seams:** the Robolectric USB fixture scripts queue, wait, and bulk-transfer outcomes; an unscripted operation throws. The test-only TUN, clock/scheduler, PCM/video, and startup trace fixtures do not replace production owners.

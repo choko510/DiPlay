@@ -27,6 +27,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_DRAFT: ${{ github.event.pull_request.draft }}
         run: |
           set -euo pipefail
@@ -42,10 +43,37 @@ jobs:
           previous_host_sha=""
           previous_quick_sha=""
           previous_full_sha=""
-          candidate_sha="$PR_HEAD_SHA"
-          searched=0
-          while [[ -n "$candidate_sha" && "$searched" -lt 100 ]]; do
-            if ! checks="$(gh api --method GET --paginate "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}/check-runs" -f per_page=100 --jq '.check_runs[] | select(.conclusion == "success") | .name')"; then
+          if ! commit_history="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${PR_BASE_SHA}...${PR_HEAD_SHA}" --jq '(.commits // []) | reverse | .[:100] | .[].sha')"; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mapfile -t commit_shas <<< "$commit_history"
+          if [[ -z "${commit_shas[0]:-}" ]]; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          has_check() {
+            [[ ",$1," == *,"$2",* ]]
+          }
+
+          inspected=0
+          for ((offset = 0; offset < ${#commit_shas[@]}; offset += 8)); do
+            batch=("${commit_shas[@]:offset:8}")
+            if ! batch_checks="$(printf '%s\n' "${batch[@]}" | xargs -r -P 8 -I{} bash -c '
+              set -euo pipefail
+              sha="$1"
+              checks="$(gh api --method GET --paginate "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs" -f per_page=100 --jq "$2" | sort -u | paste -sd, -)"
+              printf "%s\\t%s\\n" "$sha" "$checks"
+            ' _ {} '.check_runs[] | select(.conclusion == "success") | .name')"; then
               echo "host=true" >> "$GITHUB_OUTPUT"
               echo "full_host=true" >> "$GITHUB_OUTPUT"
               echo "quick=true" >> "$GITHUB_OUTPUT"
@@ -53,39 +81,38 @@ jobs:
               echo "safe=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            if [[ -z "$previous_host_sha" ]] && grep -Fxq "host-baseline" <<< "$checks"; then
-              previous_host_sha="$candidate_sha"
-            fi
-            if [[ -z "$previous_quick_sha" ]] && grep -Fxq "quick-baseline" <<< "$checks"; then
-              previous_quick_sha="$candidate_sha"
-            fi
-            if grep -Fxq "host-baseline" <<< "$checks"; then
-              if [[ -z "$previous_quick_sha" ]]; then
-                previous_quick_sha="$candidate_sha"
-              fi
-            fi
-            if [[ -z "$previous_full_sha" ]] && grep -Fxq "check" <<< "$checks" && grep -Fxq "android-instrumentation" <<< "$checks"; then
-              previous_full_sha="$candidate_sha"
-              if [[ -z "$previous_host_sha" ]]; then
+            inspected=$((inspected + ${#batch[@]}))
+
+            for candidate_sha in "${batch[@]}"; do
+              checks="$(awk -F '\t' -v sha="$candidate_sha" '$1 == sha { print substr($0, index($0, "\t") + 1); exit }' <<< "$batch_checks")"
+              if [[ -z "$previous_host_sha" ]] && has_check "$checks" "host-baseline"; then
                 previous_host_sha="$candidate_sha"
               fi
-              if [[ -z "$previous_quick_sha" ]]; then
+              if [[ -z "$previous_quick_sha" ]] && has_check "$checks" "quick-baseline"; then
                 previous_quick_sha="$candidate_sha"
               fi
-            fi
+              if has_check "$checks" "host-baseline" && [[ -z "$previous_quick_sha" ]]; then
+                previous_quick_sha="$candidate_sha"
+              fi
+              if [[ -z "$previous_full_sha" ]] && has_check "$checks" "check" && has_check "$checks" "android-instrumentation"; then
+                previous_full_sha="$candidate_sha"
+                if [[ -z "$previous_host_sha" ]]; then
+                  previous_host_sha="$candidate_sha"
+                fi
+                if [[ -z "$previous_quick_sha" ]]; then
+                  previous_quick_sha="$candidate_sha"
+                fi
+              fi
+              if [[ -n "$previous_host_sha" && -n "$previous_quick_sha" && -n "$previous_full_sha" ]]; then
+                break
+              fi
+            done
+
             if [[ -n "$previous_host_sha" && -n "$previous_quick_sha" && -n "$previous_full_sha" ]]; then
               break
             fi
-            if ! candidate_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}" --jq '.parents[0].sha // empty')"; then
-              echo "host=true" >> "$GITHUB_OUTPUT"
-              echo "full_host=true" >> "$GITHUB_OUTPUT"
-              echo "quick=true" >> "$GITHUB_OUTPUT"
-              echo "instrumentation=true" >> "$GITHUB_OUTPUT"
-              echo "safe=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            searched=$((searched + 1))
           done
+          echo "Inspected $inspected of ${#commit_shas[@]} recent PR commits while locating successful check baselines."
 
           classify_since() {
             local baseline_sha="$1"

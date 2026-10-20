@@ -479,3 +479,5 @@ Keep PR-04 microphone classification narrow: main audio stream, recognized voice
 Keep iPhone ViewArea/dock/square-canvas changes disabled until target ACK and same-session geometry pass; camera-window resize is a separate Android lifecycle case, not GeckoView Split acceptance. Treat wireless dynamic AirPlay port fallback separately from wired TCP7000, and do not restore the explicitly reverted wired stream-only fast restart.
 
 Keep Bluetooth auto-launch, saved connection-mode, ADB repair, updater, and MFi CH341-selection candidates behind their own consent/security gates. Reject unrequested background update and boot/doze repair features.
+
+Keep iAP2 older-iOS message retry, Android 17 local-network permission, and wireless hotspot start/port fallback conditional until the supported API/vehicle behavior is observed. Never use hidden TetheringManager exemptions or ADB shell hotspot mutation as a generic recovery path.

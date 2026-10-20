@@ -360,3 +360,5 @@ For a feature that changes transport, focus, routing, or persisted network state
 For microphone requests, distinguish `audioType` classification from an actual capture request: check the main stream, explicit `input=false`, and a typed valid data port. Unit coverage does not establish voice-message, Siri, call, AEC, or RTP behavior on a supported head unit.
 
 Keep Android camera-window resizing, same-session in-app Split, and iPhone ViewArea changes as separate test cases. A local Activity resize or simulator response does not prove the phone accepted multiple ViewAreas or that the GeckoView Split lifecycle is stable.
+
+For startup recovery, distinguish saved ADB authorization rechecks from new grants, and distinguish the dynamic wireless AirPlay port from wired TCP7000. A recovery path that needs hidden-API exemptions or changes the wired listener must stay out until its own failure and consent case is reproduced.

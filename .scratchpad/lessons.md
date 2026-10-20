@@ -4,6 +4,8 @@
 
 `setup-gradle` defaults caches to read-only on non-default branches. On same-repository pull requests, allow writes to the PR-scoped cache and pass `--build-cache` to repeated Gradle tasks; keep fork PRs read-only. Gate emulator smoke tests and optimized JNI/R8 APK builds by the production/test paths they exercise, while retaining full validation on the default branch and manual runs.
 
+CI execution is independent test evidence, not an independent code review. If a second reviewer is unavailable and the user directs `NOT_RUN`, retain that status, report static review and CI separately, and keep the branch out of production rollout.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

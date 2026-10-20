@@ -1,6 +1,6 @@
 # PR-00 — Fixed-Main Baseline
 
-Recorded 2026-10-20 (JST) on `codex/step4-pr-00-baseline-v3`, created from fork `origin/main` at `95ba398f95ee104527812cd2b095977d71c51f98`. The v3 target SHA matches. No open PR branch, implementation, test result, or review was used as evidence. PR-00 changes test sources and documentation only; production behavior is unchanged.
+Recorded 2026-10-20 (JST) on `codex/step4-pr-00-baseline-v3`, created from fork `origin/main` at `95ba398f95ee104527812cd2b095977d71c51f98`. The v3 target SHA matches. No pre-existing open PR branch, implementation, test result, or review was used as evidence. PR-00 adds test fixtures, baseline documents, and CI-only cache/path tuning; it changes no application production source, runtime behavior, or default.
 
 ## Build and host environment
 
@@ -32,12 +32,12 @@ The SDK resolves from local `local.properties`. Installed SDK platforms include 
 | `python scripts/check_jni_mapping.py` | `PASS_LOCAL` | Mobile and automotive Benchmark R8 mapping files verified |
 | `python scripts/check_public_tree.py` | `PASS_LOCAL` | No credential containers or private-key blocks found |
 | `scripts/run_android_instrumentation.sh` | `PASS_EMULATOR` | Medium_Phone_API_36.1 AVD: 16/16 tests, 0 skipped/failed; 120 DSP benchmark records = 40 configurations × 3 runs; benchmark-log assertion passed |
-| GitHub CI for PR #47 head `0a5c886d` | `PASS_CI` | Run #188 passed both host checks and API 35 emulator instrumentation; independent review remains `NOT_RUN` |
+| GitHub CI for PR #47 | `PASS_CI` | Run #188 on head `0a5c886d` passed host checks and API 35 instrumentation. Run #190 on final head `fbd166e` passed host tests/lint/Debug builds; optimized APK/R8 and emulator jobs were correctly skipped because no relevant native paths changed. |
 | TS10/K706 + iPhone physical acceptance | `NOT_RUN` | AVD evidence is not head-unit evidence |
 
 ## Review status
 
-Author review of PR-00: `PASS_SELF_REVIEW` for scope, ownership, explicit scripted outcomes, no production changes, and honest characterization of the current no-pad defect. This is not an independent review. The independent reviewer gate is `NOT_RUN`; PR-00 must not advance to EX-01 until the external review is completed and findings are fixed.
+Review A / author static review: `PASS_SELF_REVIEW` for scope, ownership, explicit scripted outcomes, no application production changes, and honest characterization of the current no-pad defect. Review B / independent reviewer: `NOT_RUN` per user direction; no dual-review claim is made. Supplementary evidence is the full unit/host/emulator run #188 and final-head host CI run #190. Keep this work in draft; it is not approved for production rollout.
 
 ## Environment warnings and limits
 

@@ -4,6 +4,10 @@
 
 Allow Gradle cache writes only for pull requests from the same repository; keep fork PR caches read-only. Enable Gradle's local build cache in CI so unchanged task outputs can be reused on later commits. Run optimized APK/R8 JNI checks and the API 35 emulator job for DSP, JNI, R8, instrumentation, and relevant Gradle inputs; retain the full matrix for `main` pushes and manual dispatch.
 
+## Record the missing independent review without claiming approval
+
+When no independent reviewer is assigned, record Review B as `NOT_RUN`, perform and report the available static review and CI test evidence, and keep the PR in draft with no production rollout. Continue implementation work only with the missing review clearly disclosed; do not relabel internal self-review as independent.
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.

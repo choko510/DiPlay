@@ -17,7 +17,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 
 - Run #188 took 11m44s overall. The host Gradle invocation took 10m56s; the API 35 instrumentation job took 4m49s and overlapped it. The Gradle action reported its cache as read-only on this PR branch.
 - Enable Gradle's local build cache and allow writes only from same-repository PRs; keep fork PR cache access read-only. Skip optimized APK/R8 JNI checks and the emulator job on PRs that do not touch DSP/native code, DSP Kotlin, Linux I2C JNI, instrumentation tests, or relevant Gradle/keep-rule inputs. `main` pushes and manual dispatch still run the full workflow.
-- Post-change timing is pending a GitHub Actions run; no speedup is claimed until measured.
+- Run #190 on the tuned workflow took 6m25s from the first change-filter job log to the final host-job log, versus 11m44s for run #188 (about 45% less wall time). The task sets differed: run #190 skipped optimized APK/R8 and emulator jobs for this non-native PR, while run #188 ran both. This measures the path gate, not the cache-only benefit. The run also confirmed `cache-read-only: false` and no benchmark tasks executed.
 
 ## 2026-10-02 — PR #14 CI wall time
 

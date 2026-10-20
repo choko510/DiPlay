@@ -368,3 +368,5 @@ For diagnostics, validate queue bounds and shutdown flush order as well as each 
 For media-performance candidates, separate packet arrival pacing, decoder backlog, playback-clock trim, and Android audio-focus behavior. Synthetic drift results or another car's measurements do not establish target pitch, DSP, or A/V behavior.
 
 For Wi-Fi candidates, separate mDNS address publication, hotspot readiness, Wi-Fi Direct channel choice, and Bluetooth handoff. A BYD-only scan-pause result or another head unit's hotspot setup does not establish TS10/K706 behavior.
+
+For decoder fallbacks, distinguish codec-list size support from an actual configure/output success. Verify the selected format, Surface handoff, first frame, queue lifetime, and target CPU/A/V behavior before changing codec or thread policy.

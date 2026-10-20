@@ -346,3 +346,5 @@ Documentation and test-only commits can receive a final `SKIP_OEM` decision when
 Classify user-facing video claims against fixed-main entry points and the PR-07 acceptance gate. If only upstream documentation changes, keep the unsupported playback claim out until the decoder/surface path is implemented and tested.
 
 When release-note commits collect several upstream fixes, inspect every claim against fixed-main code and its target gate. A pending acceptance note or an upstream PR link does not establish that the fork implements the behavior.
+
+Link-only edits to upstream release notes still change user-facing claims. Validate the referenced behavior and release scope before carrying the link into the fork; a source PR URL is not parity evidence.

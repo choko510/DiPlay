@@ -414,4 +414,6 @@ Reject parked-video documentation when fixed main has no matching player path an
 
 Reject upstream release-note bundles when they advertise unverified device behavior or permission changes that the fork does not ship. Release documentation is not acceptance evidence and must not imply that a pending gate has passed.
 
+Reject release-note links for upstream issues/features when their behavior is absent from the fixed-main release record. Keep BYD cluster claims at `SKIP_OEM`; leave generic Bluetooth, hotspot, and display changes behind their target gates.
+
 Keep BYD battery status, DiLink AMap ETA, ambient lighting, dashboard-call copy, and car-music-rhythm retries out of generic STEP4; their source clients use BYD properties, ADB workers, or cluster firmware.

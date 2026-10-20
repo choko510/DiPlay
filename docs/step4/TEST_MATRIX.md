@@ -46,7 +46,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | Evidence ID | Scenario | Main test/evidence | Status |
 |---|---|---|---|
 | EX02-01 | Failed → pending → recovered session cancels the old ticket; a later second loss gets a fresh ticket | `ReconnectAfterLossGateTest` | `PASS_LOCAL` policy test |
-| EX02-02 | Stale restart/connection/owner epochs, live session, shutdown, menu plus pending resize, handshake reset, and controller-owned wired recovery cannot trigger the delayed host retry | `ReconnectAfterLossGateTest`, `CarPlayHostActivity` gate wiring | `PASS_LOCAL` policy test; full Activity/owner-handoff simulation `NOT_RUN` |
+| EX02-02 | Stale restart/connection/owner epochs, live session, shutdown, menu plus pending resize, handshake reset, and controller-owned wired recovery cannot trigger the delayed host retry | `ReconnectAfterLossGateTest`; `CarPlayHostActivityReconnectTest.staleOwnerEpochTicketIsRejectedByTheActivityDelayRunnable` | `PARTIAL`: `PASS_LOCAL` policy matrix and delayed Activity callback owner-epoch wiring; full Activity lifecycle/owner-handoff simulation `NOT_RUN` |
 
 ## EX-03 watchdog observation and conditional-stage dispositions
 

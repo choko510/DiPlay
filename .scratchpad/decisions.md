@@ -461,3 +461,5 @@ The DOC_TRANSLATION base bucket now has no heuristic-only rows. Keep Allwinner B
 Reject upstream app-locale, launcher-map, and language-resource bundles that change UI scope; keep navigation stream-type changes at `NEED_EVIDENCE` until target call/navigation routing passes. The UI_SETTINGS bucket remains under semantic review after the first 16 records.
 
 Treat app-preparation layout, compact-layout selection, permission prompts, VPN scope, and side-panel behavior as separate owners. Use `FORK_SUPERIOR` when a cleanup targets duplicate code absent from pinned main; do not import app-level multi-window or launcher overlay work as PR-06 LOCAL.
+
+Keep side-panel recreation, nullable USB-service ownership, and live-picture controls pending until target lifecycle tests pass. Reject settings modularization, custom car-button/overlay, and ambient-theme UI changes when they are not tied to an explicit v3 gate.

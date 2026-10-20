@@ -4392,6 +4392,89 @@ BASE_REVIEW_OVERRIDES.update({
     },
 })
 
+BASE_REVIEW_OVERRIDES.update({
+    "f1ca1a8c85b33f8b94664e76c47f69d62bc4fcb4": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This restores side-panel state across host recreation and RTL layouts. The side-panel surface and live switch need same-session Split, touch, window-recreation, and profile-isolation evidence before mapping to PR-06.",
+        "test": "PASS_STATIC: source diff restores SidePanel state after recreation and includes layout changes; NOT_RUN_TARGET: RTL, rotate/recreate, touch, and same-session CarPlay behavior",
+        "related": "PR-06 LOCAL/DYNAMIC display acceptance; source side-panel restoration is not ViewArea evidence",
+        "rollback": "Keep fixed-main side-panel lifecycle until host recreation, RTL, and Split cycles pass on target.",
+        "review_state": "PRIMARY_AGENT_SIDE_PANEL_NEEDS_TARGET_EVIDENCE",
+    },
+    "79e72b000136a553ce8e404b7af458bbdac3b7a4": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This extracts settings into modular components and unifies menu widgets. It is a broad settings refactor unrelated to any single STEP4 gate and would increase merge/review scope.",
+        "test": "PASS_STATIC: source diff reorganizes connection/display/theme/settings widgets across six paths; no STEP4 behavior isolated",
+        "related": "Reject settings refactor from the STEP4 PR; keep existing fixed-main settings ownership",
+        "rollback": "No settings component extraction or menu-widget redesign imported.",
+        "review_state": "PRIMARY_AGENT_SETTINGS_REFACTOR_OUT_OF_STEP4_SCOPE_REJECT",
+    },
+    "35430ea619f449ab889bc3249b0a86da864c987d": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This changes preview cancellation and settings navigation within the upstream modular-settings refactor. It is a UI flow outside the v3 functional gates.",
+        "test": "PASS_STATIC: source diff changes settings preview/navigation and widget tests; no wired/audio/display acceptance mapping",
+        "related": "Reject upstream settings preview behavior; preserve fixed-main settings/navigation flow",
+        "rollback": "No preview cancellation or settings-widget refactor imported.",
+        "review_state": "PRIMARY_AGENT_SETTINGS_REFACTOR_OUT_OF_STEP4_SCOPE_REJECT",
+    },
+    "31e81ff8539a8ed5f3cb5a9844e5bff9c54fdcb8": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This merge packages the modular-settings refactor, widget unification, and preview-flow changes. It is a multi-file UI redesign unrelated to the requested STEP4 implementation.",
+        "test": "PASS_STATIC: merge diff reorganizes settings components/widgets across eight paths; no STEP4 runtime change isolated",
+        "related": "Reject settings-refactor aggregate; do not combine with PR-05/06 display work",
+        "rollback": "No modular settings, menu-widget, or preview-navigation changes imported.",
+        "review_state": "PRIMARY_AGENT_SETTINGS_REFACTOR_OUT_OF_STEP4_SCOPE_REJECT",
+    },
+    "a5f048df38d35442dce17f6afac4d7d84afaf5dc": {
+        "disposition": "NEED_EVIDENCE",
+        "reason": "This fixes a nullable USB-service case so a wireless-local controller can reach MFi without a USB host service. It needs validation that the wired owner and wireless local session remain mutually exclusive and that no stale USB callback tears down the active session.",
+        "test": "PASS_STATIC: merge diff adds nullable-service Controller coverage; NOT_RUN_TARGET: wired-to-wireless transition, permissions, and stale USB callback behavior on TS10/K706",
+        "related": "WIRELESS-EX transport owner and EX-02 retry/ownership gates",
+        "rollback": "Keep fixed-main controller creation and transport ownership until mixed USB/wireless lifecycle tests pass.",
+        "review_state": "PRIMARY_AGENT_TRANSPORT_OWNER_NEEDS_TARGET_EVIDENCE",
+    },
+    "b9b7f4e9ae97a964956ce48ae0114f6267d47cb8": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This shows ambient-light settings only in ambient night mode. It is a settings/appearance change outside the STEP4 runtime gates and does not establish generic CarPlay display behavior.",
+        "test": "PASS_STATIC: settings visibility toggled by CarPlayNightMode; no transport, split, or audio behavior changed",
+        "related": "No explicit PR/EX/DSP mapping; retain fixed-main theme/settings behavior",
+        "rollback": "No ambient-night settings visibility change imported.",
+        "review_state": "PRIMARY_AGENT_UI_SETTINGS_OUT_OF_STEP4_SCOPE_REJECT",
+    },
+    "a29241b19433b4035cc7563a424f01015f6817ab": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This merge packages ambient-night settings visibility changes. It is a UI availability adjustment without a STEP4 acceptance mapping.",
+        "test": "PASS_STATIC: merge diff changes settings visibility for ambient mode; no runtime or target gate closed",
+        "related": "Ambient-night settings merge occurrence of b9b7f4e9ae97a964956ce48ae0114f6267d47cb8",
+        "rollback": "No ambient-night settings UI change imported.",
+        "review_state": "PRIMARY_AGENT_UI_SETTINGS_OUT_OF_STEP4_SCOPE_REJECT",
+    },
+    "cbe2f2657531f520b901abd67fc3cf83246956cc": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This adds home-screen controls for a custom car button/icon. It is an unrelated user-customization feature and has no STEP4 acceptance or profile-migration mapping.",
+        "test": "PASS_STATIC: source diff adds custom icon file selection and settings persistence; NOT_RUN_TARGET: image-picker and profile lifecycle",
+        "related": "No PR-00..PR-08 or EX/DSP scope; avoid extra home-settings behavior in the STEP4 change",
+        "rollback": "No custom car-button/icon setting imported.",
+        "review_state": "PRIMARY_AGENT_FEATURE_OUT_OF_STEP4_SCOPE_REJECT",
+    },
+    "b9c724c673a67f82db6e118f8933e797e049e879": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This adds an image-picker error message for the custom car-button setting. The feature is outside STEP4, so its UI error handling is not adopted here.",
+        "test": "PASS_STATIC: one image-picker failure handler/message added; no STEP4 runtime path changed",
+        "related": "Custom car-button feature is out of scope",
+        "rollback": "No custom-icon picker or error message imported.",
+        "review_state": "PRIMARY_AGENT_FEATURE_OUT_OF_STEP4_SCOPE_REJECT",
+    },
+    "6ab7de164a3c550ca25b624c03f6fe008134cdaa": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This merge packages custom car-button/icon settings and image-picker failure handling. It is a separate home-settings feature without a STEP4 gate.",
+        "test": "PASS_STATIC: merge diff adds car-button settings/icon and image-picker paths; no product acceptance mapping",
+        "related": "Reject custom car-button settings merge as out of scope",
+        "rollback": "No custom car-button setting or image-picker integration imported.",
+        "review_state": "PRIMARY_AGENT_FEATURE_OUT_OF_STEP4_SCOPE_REJECT",
+    },
+})
+
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {
         "disposition": "REJECT_UNSAFE",

@@ -24,7 +24,7 @@ The controlling plan is `C:\Users\eita2\Downloads\DiPlay_STEP4_v3_2026-10-18.md`
 
 `./gradlew tasks --all` succeeded in 15 seconds. It exposes `:shared:testDebugUnitTest`, `:common:testDebugUnitTest`, both app lint/build tasks, and `:shared:connectedDebugAndroidTest`. Before PR-00, `.github/workflows/android.yml` ran host native and ASan/UBSan, shared/common unit tests, app lint and Debug/Benchmark builds, JNI mapping, and a separate API 35 x86_64 instrumentation job in parallel; it applied the full path to every PR update.
 
-PR-00 adds a fast draft loop: each draft PR update still runs public-tree, host native/sanitizer, and shared/common unit checks; app lint/build/JNI and API 35 instrumentation wait until the PR is marked ready for review. Ready PRs, `main` pushes, and manual workflow runs retain the full gate. Superseded PR runs are cancelled, and Gradle invocations use task output caching and parallel project execution. GitHub Actions must still verify the draft and full paths before this workflow change is considered complete.
+PR-00 adds a fast draft loop: each draft PR update still runs public-tree, host native/sanitizer, and shared/common unit checks; app lint/build/JNI and API 35 instrumentation wait until the PR is marked ready for review. Ready PRs, `main` pushes, and manual workflow runs retain the full gate. Superseded PR runs are cancelled, and Gradle invocations use task output caching and parallel project execution. Actions runs #244 and #245 verified both draft and full paths.
 
 ## Required stage order and status at PR-00
 
@@ -65,7 +65,8 @@ The table preserves the original PR-00 through PR-08 identifiers; added EX/DSP w
 | `python scripts/check_jni_mapping.py` | PASS | Both optimized application mappings retain required JNI names |
 | `python scripts/check_public_tree.py` | PASS | No tracked credential containers/private-key blocks |
 | `git diff --check` | PASS | Working diff at the time of the check |
-| Draft PR CI on a fresh GitHub runner | `NOT_RUN` | Must be recorded after PR-00 is opened |
+| Draft PR CI run #244 | PASS, 4m08 | Public-tree, native, hosted ASan/UBSan and shared/common unit checks passed; full host build/lint/JNI and instrumentation were skipped |
+| Ready/full PR CI run #245 | PASS, 10m24 overall | Host check passed in 10m20 (Gradle verification 9m26); parallel API 35 x86_64 instrumentation passed in 5m05 |
 
 The PR-00 fixture addition contains eight new shared unit tests. After that addition, the current report totals are 461 shared + 136 common = 597 tests, all passing with 0 failures/errors/skips. The new Robolectric tests validate only scripted test doubles and the existing NCM `recv()` path; they do not establish Android USB-controller behavior.
 

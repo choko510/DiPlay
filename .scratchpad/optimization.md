@@ -13,10 +13,11 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
-## 2026-10-21 — Reduce draft STEP4 feedback (Actions validation pending)
+## 2026-10-21 — Reduce draft STEP4 feedback
 
 - Fixed-main CI previously ran the full host and API 35 emulator jobs on every PR update. PR-00 now keeps public-tree, native/sanitizer and shared/common unit checks on draft updates, defers app lint/build/JNI and emulator instrumentation until `ready_for_review`, cancels superseded PR runs, and keeps main pushes/manual runs full. Gradle host/instrumentation invocations use `--build-cache --parallel`.
-- Local `scripts/run_android_instrumentation.sh` passed 16/16 on the API 36.1 emulator in 41s after adding the Gradle flags; the preceding 55s run used a different warmed state, so that is not a controlled speed comparison. Record PR Actions timings after both draft and full paths run; do not claim a CI reduction before then.
+- Draft Actions run #244 passed in 4m08: public-tree, host native, hosted ASan/UBSan, and shared/common unit checks passed, while full host and emulator steps were skipped. Ready/full run #245 passed in 10m24: the host job took 10m20 (Gradle verification step 9m26) and the parallel API 35 emulator job took 5m05. The scopes differ, so report lane timings rather than a controlled speedup ratio.
+- Local `scripts/run_android_instrumentation.sh` passed 16/16 on API 36.1 in 41s after adding Gradle flags; the earlier 55s run used a different warmed state, so it is not a controlled comparison. The PR draft lane avoids repeating lint/build/JNI and emulator work during implementation; all full gates ran on ready-for-review.
 
 ## 2026-10-02 — PR #14 CI wall time
 

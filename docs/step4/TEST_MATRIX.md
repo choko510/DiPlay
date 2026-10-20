@@ -27,7 +27,8 @@ The source requirements are in v3 §8.1–8.4 and §R-04. This matrix keeps ever
 | DSP emulator benchmark | `EMULATOR_PASS`, 40 configurations × 3 repetitions at 44.1/48 kHz mono/stereo; maximum median production p99 3.42 ms for Convolver64k at 44.1 kHz stereo |
 | Mobile/automotive Debug lint and Debug/Benchmark builds | `PASS_LOCAL`; both lint reports have 0 issues |
 | `scripts/check_jni_mapping.py` / `scripts/check_public_tree.py` | Both `PASS_LOCAL` |
-| Fresh PR CI | `NOT_RUN` until the PR-00 branch is opened |
+| Draft PR CI run #244 | `CI_ANDROID_PASS` for public-tree/native/sanitizer/shared/common unit checks; quick lane finished in 4m08 |
+| Ready/full PR CI run #245 | `CI_ANDROID_PASS`; host check and API 35 x86_64 instrumentation both succeeded in 10m24 overall |
 | TS10/K706/iPhone wired, audio, split and release rollback checks | `NOT_RUN` |
 
 The 8 new fixture tests verify the fixture contract, including a `NcmUsbBridge.recv()` call against a scripted Robolectric USB-IN request. The queue, completion and packet contents are explicit in the test; this is not physical USB evidence. The fake bulk-OUT path has no implicit success value.

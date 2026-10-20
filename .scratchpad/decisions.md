@@ -467,3 +467,5 @@ Keep side-panel recreation, nullable USB-service ownership, and live-picture con
 Retain settings-lifecycle, side-panel geometry, interface-size, and VPN-consent changes as evidence-gated candidates. Reject locale registration, icon/style polish, custom-picker, and setup-guide refactors when they do not map to a fixed-main STEP4 gate.
 
 Reject a global appearance/theme rollout and icon/style polish as out-of-scope UI changes. Keep wireless reconnect, navigation wheel-volume, settings discard, gesture, responsive menu, and automatic appearance behavior target-gated; skip the DiLink waiting-screen theme.
+
+Keep external HID, Bluetooth service restoration, settings export/restore, call-speakerphone, VPN switching, physical-length, and initial-appearance candidates at `NEED_EVIDENCE`; reject VPN-consent bypass and broad appearance/UI refactors. The policy is to preserve explicit user permission and verify system-service teardown on target.

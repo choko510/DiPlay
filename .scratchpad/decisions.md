@@ -404,6 +404,8 @@ Keep default-off DiLink call controls, wheel-service restoration, and generic ar
 
 Skip DiLink small-window navigation and independent instrument-task routes when their sink is the vendor cluster. Keep Bluetooth pause/recovery and small-window overlay geometry at `NEED_EVIDENCE` until ADB authorization, restore, touch, resize, and same-session evidence is recorded; reject marker/consent and multi-PR integration bundles.
 
+Treat ambient-light following, DiLink-version detection, BYD call-popup handling, and FCE cluster guidance as OEM outputs. Keep Telecom call routing, VoIP watcher, wheel-key restoration, and track-key call control at `NEED_EVIDENCE` until system permission and call-path evidence are available; reject the 75-path remaining-PR integration.
+
 Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/bus/usb` node paths are outside the aggregate `WIRED_PATH_V1` schema and are not changed by the source diagnostic redactor.
 
 ## Exclude upstream-only locale and OEM copy from STEP4

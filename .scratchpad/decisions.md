@@ -459,3 +459,5 @@ Reject additional language-pack and website commits when they translate settings
 The DOC_TRANSLATION base bucket now has no heuristic-only rows. Keep Allwinner Bluetooth and hotspot import/save descriptions as `NEED_EVIDENCE` because they are not TS10/K706 acceptance; reject untranslated claims for app languages, settings, and release pages absent from fixed main.
 
 Reject upstream app-locale, launcher-map, and language-resource bundles that change UI scope; keep navigation stream-type changes at `NEED_EVIDENCE` until target call/navigation routing passes. The UI_SETTINGS bucket remains under semantic review after the first 16 records.
+
+Treat app-preparation layout, compact-layout selection, permission prompts, VPN scope, and side-panel behavior as separate owners. Use `FORK_SUPERIOR` when a cleanup targets duplicate code absent from pinned main; do not import app-level multi-window or launcher overlay work as PR-06 LOCAL.

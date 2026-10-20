@@ -20,10 +20,10 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - Run #169 passed in 2m13 with public-tree/EX-08, both host native suites, and shared/common unit tests; the app lint/build/JNI matrix and emulator job were skipped by the draft lane. Compared with run #168's 9m39 full draft host check (Gradle 7m33), this reduced end-to-end feedback by 7m26. Follow-up docs/audit runs #170–176 passed in 33s/41s/41s/44s/48s/43s/39s with runtime checks skipped, including #172 after regenerating the EX-08 ledger. Runs #184–186 completed in 48s/43s/56s, with Android/Gradle/native/unit/instrumentation work skipped. The lanes are not equivalent: the full host and emulator checks still run when the PR is ready for review.
 - Run #241 passed on audit-only head `9155cb5` in 76s: public-source and EX-08 inventory checks passed; Android instrumentation, host-baseline, and quick-baseline jobs were skipped. This confirms the audit-only lane avoids runtime checks for memory and ledger updates.
 
-## 2026-10-21 — Reduce baseline discovery latency (pending CI)
+## 2026-10-21 — Reduce baseline discovery latency
 
 - Run #241's `changes` job took 63s because it queried check runs and commit parents serially while walking the PR history. The classifier now retrieves up to the latest 100 PR commit SHAs in one compare request, checks check-run markers in batches of eight, and stops when all prior baselines are found. API failures and an empty history still fall back to full verification.
-- The extracted workflow Bash block passes `bash -n` and `git diff --check`; run #242 must confirm the actual classification result and elapsed time.
+- Run #242 passed in 2m00. Baseline discovery took 16s (12s for classification), inspected 96 of 100 recent PR commits, and reduced the `changes` job from 63s in #241 by 47s (75%). Native DSP, hosted sanitizer, and shared/common draft unit checks passed; Android instrumentation and the full-host baseline remained skipped for the draft. The extracted workflow Bash block and `git diff --check` pass.
 
 ## 2026-10-19 — PR #45 Android CI feedback and Gradle cache
 

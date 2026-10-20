@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.content.Context
 import com.shilapi.xcertplay.orchestration.ConnectionTraceEvent
 import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import org.junit.Assert.assertFalse
@@ -89,11 +90,24 @@ class ConnectionTraceStoreTest {
         }
     }
 
-    @Test fun debugPreferenceSurvivesPreferenceReload() {
+    @Test fun debugPreferenceDefaultsOffAndCanBeReturnedToOff() {
         val context = RuntimeEnvironment.getApplication()
-        AirPlayPersistence.saveDebugLogsEnabled(context, true)
+        val preferences = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+        val hadSavedValue = preferences.contains("debug_logs_enabled")
+        val savedValue = preferences.getBoolean("debug_logs_enabled", false)
 
-        assertTrue(AirPlayPersistence.loadDebugLogsEnabled(context))
-        AirPlayPersistence.saveDebugLogsEnabled(context, false)
+        try {
+            preferences.edit().remove("debug_logs_enabled").commit()
+            assertFalse(AirPlayPersistence.loadDebugLogsEnabled(context))
+            AirPlayPersistence.saveDebugLogsEnabled(context, true)
+            assertTrue(AirPlayPersistence.loadDebugLogsEnabled(context))
+            AirPlayPersistence.saveDebugLogsEnabled(context, false)
+            assertFalse(AirPlayPersistence.loadDebugLogsEnabled(context))
+        } finally {
+            val editor = preferences.edit()
+            if (hadSavedValue) editor.putBoolean("debug_logs_enabled", savedValue)
+            else editor.remove("debug_logs_enabled")
+            editor.commit()
+        }
     }
 }

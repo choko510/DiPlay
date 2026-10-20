@@ -2,7 +2,7 @@
 
 ## Reuse Gradle task outputs across safe PR updates
 
-`setup-gradle` defaults caches to read-only on non-default branches. On same-repository pull requests, allow writes to the PR-scoped cache and pass `--build-cache` to repeated Gradle tasks; keep fork PRs read-only. Gate long emulator smoke tests by the production/test paths they exercise, while retaining full validation on the default branch and manual runs.
+`setup-gradle` defaults caches to read-only on non-default branches. On same-repository pull requests, allow writes to the PR-scoped cache and pass `--build-cache` to repeated Gradle tasks; keep fork PRs read-only. Gate emulator smoke tests and optimized JNI/R8 APK builds by the production/test paths they exercise, while retaining full validation on the default branch and manual runs.
 
 ## Parallelize slow emulator checks in CI
 

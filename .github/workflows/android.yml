@@ -10,7 +10,7 @@ jobs:
   dsp_changes:
     runs-on: ubuntu-latest
     outputs:
-      required: ${{ steps.filter.outputs.required }}
+      run_native_gates: ${{ steps.filter.outputs.run_native_gates }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,20 +24,21 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" != "pull_request" ]]; then
-            echo "required=true" >> "$GITHUB_OUTPUT"
-            echo "Running full Android instrumentation on $EVENT_NAME."
+            echo "run_native_gates=true" >> "$GITHUB_OUTPUT"
+            echo "Running all native, optimized APK, and Android instrumentation checks on $EVENT_NAME."
             exit 0
           fi
 
-          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -Eq '^(shared/src/main/jni/|shared/src/main/java/com/shilapi/xcertplay/media/dsp/|shared/src/androidTest/|shared/build.gradle.kts$|build.gradle(\.kts)?$|settings.gradle(\.kts)?$|scripts/run_android_instrumentation\.sh$|gradle/|gradle\.properties$)'; then
-            echo "required=true" >> "$GITHUB_OUTPUT"
-            echo "DSP or Android instrumentation inputs changed; running emulator verification."
+          if git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep -Eq '^(shared/src/main/jni/|shared/src/main/java/com/shilapi/xcertplay/media/dsp/|shared/src/main/java/com/shilapi/xcertplay/transport/LinuxI2cTransport\.kt$|shared/src/androidTest/|shared/build.gradle(\.kts)?$|shared/consumer-rules\.pro$|mobile/build.gradle\.kts$|automotive/build.gradle\.kts$|mobile/src/main/keepRules/|automotive/src/main/keepRules/|scripts/(run_android_instrumentation\.sh|check_jni_mapping\.py)$|build.gradle(\.kts)?$|settings.gradle(\.kts)?$|gradle/|gradle\.properties$)'; then
+            echo "run_native_gates=true" >> "$GITHUB_OUTPUT"
+            echo "DSP, JNI, R8, or Android instrumentation inputs changed; running optimized and emulator verification."
           else
-            echo "required=false" >> "$GITHUB_OUTPUT"
-            echo "No DSP or Android instrumentation inputs changed; emulator verification is not needed for this pull request."
+            echo "run_native_gates=false" >> "$GITHUB_OUTPUT"
+            echo "No DSP, JNI, R8, or Android instrumentation inputs changed; skipping optimized APK and emulator verification for this pull request."
           fi
 
   check:
+    needs: dsp_changes
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -59,8 +60,26 @@ jobs:
       - name: Host native DSP tests with ASan and UBSan
         run: bash scripts/test_dsp_native.sh --sanitize
       - name: Unit tests, lint, debug and optimized builds
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --stacktrace
+        env:
+          RUN_NATIVE_GATES: ${{ needs.dsp_changes.outputs.run_native_gates }}
+        run: |
+          gradle_tasks=(
+            :shared:testDebugUnitTest
+            :common:testDebugUnitTest
+            :mobile:lintDebug
+            :automotive:lintDebug
+            :mobile:assembleDebug
+            :automotive:assembleDebug
+          )
+          if [[ "$RUN_NATIVE_GATES" == "true" ]]; then
+            gradle_tasks+=(
+              :mobile:assembleBenchmark
+              :automotive:assembleBenchmark
+            )
+          fi
+          ./gradlew "${gradle_tasks[@]}" --build-cache --stacktrace
       - name: Verify JNI names survive R8
+        if: needs.dsp_changes.outputs.run_native_gates == 'true'
         run: python3 scripts/check_jni_mapping.py
 
       - name: Test reports
@@ -76,7 +95,7 @@ jobs:
 
   android-instrumentation:
     needs: dsp_changes
-    if: needs.dsp_changes.outputs.required == 'true'
+    if: needs.dsp_changes.outputs.run_native_gates == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

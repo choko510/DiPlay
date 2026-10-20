@@ -16,7 +16,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 ## 2026-10-20 — STEP4 repeat-run CI
 
 - Run #188 took 11m44s overall. The host Gradle invocation took 10m56s; the API 35 instrumentation job took 4m49s and overlapped it. The Gradle action reported its cache as read-only on this PR branch.
-- Enable Gradle's local build cache and allow writes only from same-repository PRs; keep fork PR cache access read-only. Skip the emulator job on PRs that do not touch DSP/native code, DSP Kotlin, instrumentation tests, or relevant Gradle inputs. `main` pushes and manual dispatch still run the full workflow.
+- Enable Gradle's local build cache and allow writes only from same-repository PRs; keep fork PR cache access read-only. Skip optimized APK/R8 JNI checks and the emulator job on PRs that do not touch DSP/native code, DSP Kotlin, Linux I2C JNI, instrumentation tests, or relevant Gradle/keep-rule inputs. `main` pushes and manual dispatch still run the full workflow.
 - Post-change timing is pending a GitHub Actions run; no speedup is claimed until measured.
 
 ## 2026-10-02 — PR #14 CI wall time

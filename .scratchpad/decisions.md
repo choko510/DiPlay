@@ -1,8 +1,8 @@
 # Decisions
 
-## Keep repeated PR Gradle builds incremental and scope emulator runs to DSP changes
+## Keep repeated PR Gradle builds incremental and scope native gates to relevant changes
 
-Allow Gradle cache writes only for pull requests from the same repository; keep fork PR caches read-only. Enable Gradle's local build cache in CI so unchanged task outputs can be reused on later commits. The API 35 emulator job covers the DSP JNI bridge and benchmark, so run it for DSP/native, DSP Kotlin, instrumentation, and relevant Gradle inputs on PRs; retain the full matrix for `main` pushes and manual dispatch.
+Allow Gradle cache writes only for pull requests from the same repository; keep fork PR caches read-only. Enable Gradle's local build cache in CI so unchanged task outputs can be reused on later commits. Run optimized APK/R8 JNI checks and the API 35 emulator job for DSP, JNI, R8, instrumentation, and relevant Gradle inputs; retain the full matrix for `main` pushes and manual dispatch.
 
 ## Run emulator instrumentation beside host verification
 

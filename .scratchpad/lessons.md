@@ -332,3 +332,5 @@ For EX-08 content rows, compare the archived patch with fixed-main locale regist
 When an upstream runtime patch also edits repository configuration, inspect dependency-source changes as part of the aggregate. A later commit that removes an unapproved mirror can support rejecting the earlier aggregate without claiming the separate runtime behavior is disproven.
 
 For a commit that combines USB re-enumeration and audio PCM processing, classify the actual patch as a cross-gate aggregate. Preserve each narrow candidate's separate device, audio-quality, and rollback evidence requirements.
+
+Before porting an upstream UI fix, verify that the modified view builder has a call site in fixed main. An upstream test for an unreachable activity panel is not evidence that the active settings screen needs the same fix.

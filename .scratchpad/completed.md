@@ -1,5 +1,6 @@
 # Completed
 
+- 2026-10-20: Rejected two hotspot-save commits because they modify an uncalled `CarPlayHostActivity` menu; fixed main opens settings through `DiPlayActivity`. Regenerated and checked the 1,289-row ledger; 6 delta rows remain `NEED_EVIDENCE`.
 - 2026-10-20: Rejected the mixed EX-04 USB re-enumeration and navigation-PCM commit as an aggregate; retained both narrow changes behind their separate device evidence gates. Regenerated and checked the 1,289-row ledger; 8 delta rows remain `NEED_EVIDENCE`.
 - 2026-10-20: Rejected the upstream Bluetooth adapter/diagnostics aggregate because it also adds an unapproved Aliyun Maven source absent from fixed main; left later Bluetooth radio-state/wait candidates pending target A/B. Regenerated and checked the 1,289-row ledger; 9 delta rows remain `NEED_EVIDENCE`.
 - 2026-10-20: Reviewed seven EX-08 content/localization delta rows against their archived source patches and fixed-main feature/resource surface. Marked two BYD-only rows `SKIP_OEM` and five partial locale/release-note rows `REJECT_UNSAFE`; regenerated and checked the 1,289-row ledger. Ten delta rows remain `NEED_EVIDENCE`.

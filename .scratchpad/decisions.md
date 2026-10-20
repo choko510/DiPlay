@@ -397,3 +397,7 @@ Do not import the upstream Bluetooth adapter/diagnostic aggregate because it add
 ## Reject wired and audio changes combined across independent gates
 
 Reject the upstream 10-second USB mode recheck plus navigation PCM attenuation as one aggregate. Keep same-node USB re-enumeration under EX-04 and navigation gain under its audio-quality gate; do not treat rejection of the bundle as evidence against either isolated candidate.
+
+## Do not import settings fixes for an inactive host overlay
+
+Reject hotspot-save patches that target `buildSettingsMenu()` while fixed main's `openSettingsMenu()` launches `DiPlayActivity`. If the same behavior is reproduced in the active screen, implement and test it there rather than reviving the unused overlay.

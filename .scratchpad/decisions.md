@@ -463,3 +463,5 @@ Reject upstream app-locale, launcher-map, and language-resource bundles that cha
 Treat app-preparation layout, compact-layout selection, permission prompts, VPN scope, and side-panel behavior as separate owners. Use `FORK_SUPERIOR` when a cleanup targets duplicate code absent from pinned main; do not import app-level multi-window or launcher overlay work as PR-06 LOCAL.
 
 Keep side-panel recreation, nullable USB-service ownership, and live-picture controls pending until target lifecycle tests pass. Reject settings modularization, custom car-button/overlay, and ambient-theme UI changes when they are not tied to an explicit v3 gate.
+
+Retain settings-lifecycle, side-panel geometry, interface-size, and VPN-consent changes as evidence-gated candidates. Reject locale registration, icon/style polish, custom-picker, and setup-guide refactors when they do not map to a fixed-main STEP4 gate.

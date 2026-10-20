@@ -388,6 +388,8 @@ For the Wi-Fi source batch, reject mixed hotspot/BYD and wireless/USBMUX commits
 
 Reject upstream `origin/main` integration commits independently of their WIFI heuristic label. Review PR-164 BYD ADB/automatic-hotspot integrations as mixed-gate aggregates and evaluate any generic wireless constituent only from an isolated source commit.
 
+Reject wireless diagnostics/recovery aggregates when they combine behavior changes and logging with independent rollback gates. Reject default-on call audio-focus yielding under the v3 default-off policy; leave Same-LAN, Wi-Fi scan pause, Bluetooth suspension/audio, and hotspot repair candidates at `NEED_EVIDENCE` until their network, privacy, permission, and call-path gates close.
+
 Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/bus/usb` node paths are outside the aggregate `WIRED_PATH_V1` schema and are not changed by the source diagnostic redactor.
 
 ## Exclude upstream-only locale and OEM copy from STEP4

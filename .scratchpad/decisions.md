@@ -471,3 +471,7 @@ Reject a global appearance/theme rollout and icon/style polish as out-of-scope U
 The global appearance bundle is not a v3 stage. Keep only the specific reconnect, audio routing, settings-preservation, and system-bar behaviors that map to named gates as `NEED_EVIDENCE`; leave cosmetic variants out.
 
 Keep external HID, Bluetooth service restoration, settings export/restore, call-speakerphone, VPN switching, physical-length, and initial-appearance candidates at `NEED_EVIDENCE`; reject VPN-consent bypass and broad appearance/UI refactors. The policy is to preserve explicit user permission and verify system-service teardown on target.
+
+For AUDIO-EX candidates explicitly listed in v3, keep music buffering/pacing, format-specific buffer settings, Opus fallback, microphone/RTP clock, navigation attenuation, and AEC changes at `NEED_EVIDENCE` until the named target and protocol matrices pass. Reject default-on experimental call processing and bundled review merges; skip Geely/BYD-specific wheel-key integrations from generic STEP4.
+
+Keep PR-04 microphone classification narrow: main audio stream, recognized voice type, explicit `input=false` veto, and a validated numeric `dataPort`. Do not add dynamic stream-key logging when typed diagnostics suffice.

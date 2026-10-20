@@ -356,3 +356,5 @@ Source-repository safety reviews or build docs can contain imperative wording, b
 For wireless source audits, preserve the target model, Android API, permission path, and radio behavior that produced the evidence. A successful test on another head unit or phone does not close a fixed-main TS10/K706 gate.
 
 For a feature that changes transport, focus, routing, or persisted network state, inspect its default value as well as its opt-in control. A visible toggle does not make a default-on behavior a safe opt-in rollout.
+
+For microphone requests, distinguish `audioType` classification from an actual capture request: check the main stream, explicit `input=false`, and a typed valid data port. Unit coverage does not establish voice-message, Siri, call, AEC, or RTP behavior on a supported head unit.

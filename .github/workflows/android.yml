@@ -213,9 +213,13 @@ jobs:
           distribution: temurin
           java-version: '25'
       - uses: android-actions/setup-android@v3
-        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
+        if: needs.changes.outputs.full_host == 'true'
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973
+      - uses: android-actions/setup-android@v3
+        if: needs.changes.outputs.quick == 'true' && needs.changes.outputs.full_host != 'true'
+        with:
+          packages: platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0
       - uses: gradle/actions/setup-gradle@v4
         if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
         with:

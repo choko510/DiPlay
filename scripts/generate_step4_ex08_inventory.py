@@ -1620,6 +1620,65 @@ BASE_REVIEW_OVERRIDES.update({
     },
 })
 
+BASE_REVIEW_OVERRIDES.update({
+    "763ff4615c04921129290a6b58e0ebad0ac9b4e0": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 79-path commit merges upstream origin/main into review/pr182-fixed-new. The v3 source lock prohibits using upstream integration merges as an implementation base, and the aggregate cannot be mapped to one STEP4 gate.",
+        "test": "PASS_STATIC: source commit message identifies an origin/main merge into a review branch; 79 paths changed; no merge is imported into the pinned fork baseline",
+        "related": "Reject upstream bulk merge; evaluate any isolated candidate commits separately against fixed main",
+        "rollback": "Do not merge the upstream tree or its bundled behavior; retain the pinned fork main and existing PR-45 implementation.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_INTEGRATION_MERGE_REJECT",
+    },
+    "f100d821888d85ddc0d0d4bf21977a6b7395191e": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 79-path commit merges upstream origin/main into review/pr225-fixed-new. The v3 source lock prohibits using upstream integration merges as an implementation base, and the aggregate cannot be mapped to one STEP4 gate.",
+        "test": "PASS_STATIC: source commit message identifies an origin/main merge into a review branch; 79 paths changed; no merge is imported into the pinned fork baseline",
+        "related": "Reject upstream bulk merge; evaluate any isolated candidate commits separately against fixed main",
+        "rollback": "Do not merge the upstream tree or its bundled behavior; retain the pinned fork main and existing PR-45 implementation.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_INTEGRATION_MERGE_REJECT",
+    },
+    "379402b5b765946ae76a4608cc8dabe704b10e25": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 30-path commit merges upstream origin/main into review/pr231-fixed-new. The v3 source lock prohibits using upstream integration merges as an implementation base, and the aggregate cannot be mapped to one STEP4 gate.",
+        "test": "PASS_STATIC: source commit message identifies an origin/main merge into a review branch; 30 paths changed; no merge is imported into the pinned fork baseline",
+        "related": "Reject upstream bulk merge; evaluate any isolated candidate commits separately against fixed main",
+        "rollback": "Do not merge the upstream tree or its bundled behavior; retain the pinned fork main and existing PR-45 implementation.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_INTEGRATION_MERGE_REJECT",
+    },
+    "fe6abeca144cbbcb214c372fde6a1a9bbdc5eb15": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 30-path commit merges upstream origin/main into review/pr232-fixed-new. The v3 source lock prohibits using upstream integration merges as an implementation base, and the aggregate cannot be mapped to one STEP4 gate.",
+        "test": "PASS_STATIC: source commit message identifies an origin/main merge into a review branch; 30 paths changed; no merge is imported into the pinned fork baseline",
+        "related": "Reject upstream bulk merge; evaluate any isolated candidate commits separately against fixed main",
+        "rollback": "Do not merge the upstream tree or its bundled behavior; retain the pinned fork main and existing PR-45 implementation.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_INTEGRATION_MERGE_REJECT",
+    },
+    "b56a1b4004163f5bc11e8fce4b6ad169efca4383": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This review integration combines BYD ADB settings and localized cluster UI with car-hotspot setup, permissions, and controller changes. These vendor-output and wireless-startup owners have independent exclusion and target gates.",
+        "test": "PASS_STATIC: source paths include BydAdb settings/tests, CarHotspot setup/tethering, manifest permissions, translations, and CarPlayController; NOT_RUN_TARGET: OEM ADB and hotspot authorization",
+        "related": "Reject the PR-164 aggregate; keep BYD outputs at SKIP_OEM and review generic WIRELESS-EX candidates separately",
+        "rollback": "No BYD settings, ADB grant, automatic hotspot startup, permission, or controller change imported.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_MIXED_BYD_HOTSPOT_REJECTED",
+    },
+    "0833048de5c0fe8412443b36c5091ba0daa6f734": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This PR-164 merge combines BYD ADB settings with automatic car-hotspot startup and related permission/controller behavior. The OEM output and wireless route changes have separate gates and cannot be adopted as one STEP4 unit.",
+        "test": "PASS_STATIC: merge changes 25 paths across BYD ADB/settings, hotspot/tethering, permissions, and controller code; NOT_RUN_TARGET: OEM ADB and hotspot authorization",
+        "related": "Reject the PR-164 aggregate; BYD output remains SKIP_OEM and generic WIRELESS-EX remains independently gated",
+        "rollback": "No BYD setting, ADB shell action, permission, or automatic hotspot behavior imported.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_MIXED_BYD_HOTSPOT_REJECTED",
+    },
+    "06eb531972384bee18821f11bc68cb153fb0558c": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 30-path merge combines upstream origin/main, PR #229, and hotspot ADB fallback behavior. The upstream merge is prohibited by the fixed-baseline rule, and the bundled wireless/ADB changes have separate permission and target gates.",
+        "test": "PASS_STATIC: source commit message identifies an origin/main merge plus hotspot ADB fallback; 30 paths changed; no target authorization is recorded for fixed main",
+        "related": "Reject upstream integration and bundled WIRELESS-EX/local-ADB changes; review isolated source candidates separately",
+        "rollback": "Do not import the upstream merge, hotspot shell fallback, or associated bundled behavior.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_AND_WIRELESS_MERGE_REJECT",
+    },
+})
+
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {
         "disposition": "REJECT_UNSAFE",

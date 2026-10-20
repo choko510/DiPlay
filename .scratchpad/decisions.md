@@ -386,6 +386,8 @@ Keep all remaining STEP4 stages in PR #45 and update related EX-08 decisions, ge
 
 For the Wi-Fi source batch, reject mixed hotspot/BYD and wireless/USBMUX commits at the commit boundary. Keep isolated wireless location, security fallback, diagnostics, local-ADB, address-family, and Android 9 channel candidates at `NEED_EVIDENCE` until their consent, permission, API, and supported-head-unit gates are established; upstream device results are not substitutes for TS10/K706 evidence.
 
+Reject upstream `origin/main` integration commits independently of their WIFI heuristic label. Review PR-164 BYD ADB/automatic-hotspot integrations as mixed-gate aggregates and evaluate any generic wireless constituent only from an isolated source commit.
+
 Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/bus/usb` node paths are outside the aggregate `WIRED_PATH_V1` schema and are not changed by the source diagnostic redactor.
 
 ## Exclude upstream-only locale and OEM copy from STEP4

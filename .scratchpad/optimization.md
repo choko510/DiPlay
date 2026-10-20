@@ -84,3 +84,4 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - 2026-10-21: GitHub Actions run #237 passed on audit-only head `5ccafb3`; public-source and EX-08 checks ran while Android instrumentation, host-baseline, and quick-baseline jobs were skipped.
 - 2026-10-21: GitHub Actions run #238 passed on audit-only head `2c3177b`; public-source and EX-08 checks ran while Android instrumentation, host-baseline, and quick-baseline jobs were skipped.
 - 2026-10-21: GitHub Actions run #239 passed on audit-only head `ad93168`; public-source and EX-08 checks ran while Android instrumentation, host-baseline, and quick-baseline jobs were skipped.
+- 2026-10-21: GitHub Actions run #240 passed on audit-only head `80ad50b`; public-source and EX-08 checks ran while Android instrumentation, host-baseline, and quick-baseline jobs were skipped.

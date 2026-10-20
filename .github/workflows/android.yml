@@ -141,7 +141,7 @@ jobs:
             local native=false
             while IFS= read -r path; do
               case "$path" in
-                docs/*|.scratchpad/*|scripts/generate_step4_ex08_inventory.py|*.md) ;;
+                docs/*|.scratchpad/*|.github/workflows/*|scripts/generate_step4_ex08_inventory.py|*.md) ;;
                 *) runtime=true ;;
               esac
               case "$path" in

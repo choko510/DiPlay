@@ -849,12 +849,12 @@ DELTA_DECISION_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_TARGET_A_B",
     },
     "ab324016a6187b8ec5d1b7ff43a6776279d26ab5": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The commit combines a 10-second USB mode recheck with BYD guidance PCM attenuation. EX-04 remains conditional on same-node device evidence, while the audio change is separately device-specific; the aggregate commit must not be imported.",
-        "test": "PASS_LOCAL: upstream re-enumeration policy fixture only; NOT_RUN_TARGET: same-node USB probe and BYD/generic guidance level",
-        "related": "EX-04 same-node re-enumeration; AUDIO-EX navigation PCM gain (separate scope)",
-        "rollback": "No patch imported; any future EX-04 timer and audio gain work must be separate PR-45 commits with independent rollback.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_TARGET_EVIDENCE",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The patch combines an EX-04 10-second USB mode recheck with an unrelated change from AudioTrack gain to in-place PCM navigation attenuation. The v3 plan gates same-node re-enumeration on device evidence, and the audio path has its own quality/performance gate; reject the aggregate as supplied without disproving either isolated candidate.",
+        "test": "PASS_STATIC: patch changes CarPlayController re-enumeration and AndroidMediaSink/NavigationAudioGain PCM processing; upstream policy tests do not exercise fixed-main ownership or target audio; NOT_RUN_TARGET: same-node USB mode transition and navigation-level A/B",
+        "related": "Reject mixed EX-04 and AUDIO-EX aggregate; keep re-enumeration conditional and navigation PCM gain separately gated",
+        "rollback": "No patch imported; any later EX-04 timer must be generation/permission fenced and independently revertible, and any navigation gain change must have its own media-quality rollback.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_MIXED_GATE_REJECTED",
     },
     "89810087ebaaec49467b8875568451c3edd29f91": {
         "disposition": "SKIP_OEM",

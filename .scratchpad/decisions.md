@@ -393,3 +393,7 @@ Classify content patches from their actual source diff and the pinned main resou
 ## Reject Bluetooth changes bundled with dependency-source changes
 
 Do not import the upstream Bluetooth adapter/diagnostic aggregate because it adds an Aliyun Maven repository to the fixed Google/Maven Central source list. Review later isolated Bluetooth changes only after the target-specific wireless A/B gate passes.
+
+## Reject wired and audio changes combined across independent gates
+
+Reject the upstream 10-second USB mode recheck plus navigation PCM attenuation as one aggregate. Keep same-node USB re-enumeration under EX-04 and navigation gain under its audio-quality gate; do not treat rejection of the bundle as evidence against either isolated candidate.

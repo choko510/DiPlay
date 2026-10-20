@@ -19,6 +19,7 @@ jobs:
       host: ${{ steps.classify.outputs.host }}
       full_host: ${{ steps.classify.outputs.full_host }}
       quick: ${{ steps.classify.outputs.quick }}
+      native: ${{ steps.classify.outputs.native }}
       instrumentation: ${{ steps.classify.outputs.instrumentation }}
       safe: ${{ steps.classify.outputs.safe }}
     steps:
@@ -35,6 +36,7 @@ jobs:
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -47,6 +49,7 @@ jobs:
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -56,6 +59,7 @@ jobs:
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -77,6 +81,7 @@ jobs:
               echo "host=true" >> "$GITHUB_OUTPUT"
               echo "full_host=true" >> "$GITHUB_OUTPUT"
               echo "quick=true" >> "$GITHUB_OUTPUT"
+              echo "native=true" >> "$GITHUB_OUTPUT"
               echo "instrumentation=true" >> "$GITHUB_OUTPUT"
               echo "safe=false" >> "$GITHUB_OUTPUT"
               exit 0
@@ -118,7 +123,7 @@ jobs:
             local baseline_sha="$1"
             local comparison
             if [[ -z "$baseline_sha" ]]; then
-              echo true
+              echo "true true"
               return 0
             fi
             if ! comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${baseline_sha}...${PR_HEAD_SHA}")"; then
@@ -128,44 +133,57 @@ jobs:
             local file_count
             file_count="$(jq '(.files // []) | length' <<< "$comparison")"
             if (( file_count >= 300 )); then
-              echo true
+              echo "true true"
               return 0
             fi
 
             local runtime=false
+            local native=false
             while IFS= read -r path; do
               case "$path" in
                 docs/*|.scratchpad/*|scripts/generate_step4_ex08_inventory.py|*.md) ;;
-                *) runtime=true; break ;;
+                *) runtime=true ;;
+              esac
+              case "$path" in
+                shared/src/main/jni/dsp/*|shared/src/main/jni/third_party/kissfft/*|shared/src/test/native/dsp/*|scripts/test_dsp_native.sh)
+                  runtime=true
+                  native=true ;;
               esac
             done < <(jq -r '.files[]?.filename' <<< "$comparison")
-            echo "$runtime"
+            printf '%s %s\n' "$runtime" "$native"
           }
 
-          if ! host="$(classify_since "$previous_host_sha")"; then
+          if ! host_paths="$(classify_since "$previous_host_sha")"; then
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if ! quick="$(classify_since "$previous_quick_sha")"; then
+          if ! quick_paths="$(classify_since "$previous_quick_sha")"; then
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if ! instrumentation="$(classify_since "$previous_full_sha")"; then
+          if ! instrumentation_paths="$(classify_since "$previous_full_sha")"; then
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          read -r host _ <<< "$host_paths"
+          read -r quick native <<< "$quick_paths"
+          read -r instrumentation _ <<< "$instrumentation_paths"
 
           full_host="$host"
           if [[ "$PR_DRAFT" == "true" ]]; then
@@ -175,6 +193,7 @@ jobs:
           echo "host=$host" >> "$GITHUB_OUTPUT"
           echo "full_host=$full_host" >> "$GITHUB_OUTPUT"
           echo "quick=$quick" >> "$GITHUB_OUTPUT"
+          echo "native=$native" >> "$GITHUB_OUTPUT"
           echo "instrumentation=$instrumentation" >> "$GITHUB_OUTPUT"
           echo "safe=true" >> "$GITHUB_OUTPUT"
 
@@ -202,10 +221,10 @@ jobs:
         with:
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Host native DSP tests
-        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.native == 'true'
         run: bash scripts/test_dsp_native.sh
       - name: Host native DSP tests with ASan and UBSan
-        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.native == 'true'
         run: bash scripts/test_dsp_native.sh --sanitize
       - name: Draft unit tests
         if: needs.changes.outputs.quick == 'true' && needs.changes.outputs.full_host != 'true'

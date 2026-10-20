@@ -1082,6 +1082,46 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No duplicate merge imported; preserve fixed-main USB permission and lifecycle behavior.",
         "review_state": "PRIMARY_AGENT_DUPLICATE_PATCH_REJECTED_UNSAFE",
     },
+    "1004fb9e5542acb6c94a168eff4ff1158c490ec7": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "These release notes bundle a USB-driver detach workaround, an ADB VPN authorization path, Bluetooth RFCOMM handling, and an audio decoder wait, while explicitly leaving in-car acceptance pending. The ADB permission path conflicts with explicit-consent policy, and the other claims have separate gates; the whole release-note bundle is not valid for fixed main.",
+        "test": "PASS_STATIC: patch changes docs/RELEASE-NOTES-NEXT.md only; fixed main has no matching release-note entry; NOT_RUN_TARGET: USB, Bluetooth, audio, and VPN behavior acceptance",
+        "related": "Reject unsupported release claims; PR-00 consent, PR-01/EX-04 USB, WIRELESS-EX Bluetooth, and PR-04/AUDIO gates remain separate",
+        "rollback": "No upstream release text or ADB VPN permission claim imported; document only individually verified fixed-main behavior.",
+        "review_state": "PRIMARY_AGENT_RELEASE_DOCS_FIXED_MAIN_REJECT",
+    },
+    "0ad6773b0425486058b1493857286a50123814c7": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The release-note patch advertises wheel-key restoration, hotspot-name restrictions, experimental USB navigation audio, icon resizing, and BYD call keys; these are mixed upstream changes with independent transport, audio, UI, and OEM gates. Fixed main has no matching next-release notes, so the bundle would overstate fork behavior.",
+        "test": "PASS_STATIC: patch changes docs/RELEASE-NOTES-NEXT.md only; fixed main has no matching release-note entry; BYD call keys are excluded and other features need their own tests",
+        "related": "Reject mixed release claims; WIRELESS-EX, AUDIO-EX, BYD/OEM, and generic UI candidates remain separate",
+        "rollback": "No upstream release text imported; maintain fork-specific documentation and keep each feature behind its own acceptance gate.",
+        "review_state": "PRIMARY_AGENT_RELEASE_DOCS_FIXED_MAIN_REJECT",
+    },
+    "ea06f10f7ccdb19b85f832bfb31c5ca644e48859": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This documentation-only commit links the upstream release-note claims to PR #622, but the referenced changes are not present as a verified fixed-main release. Importing the link would imply that upstream PR behavior is included in this fork.",
+        "test": "PASS_STATIC: patch only changes links in docs/RELEASE-NOTES-NEXT.md; fixed main has no such release-note file or PR #622 feature claim",
+        "related": "EX-08 release-document scope; assess runtime constituents under their own STEP4 gates",
+        "rollback": "No upstream PR links or release claims imported; keep the fork release documentation tied to its verified commits.",
+        "review_state": "PRIMARY_AGENT_RELEASE_DOCS_FIXED_MAIN_REJECT",
+    },
+    "a8249fbd2df8b0c6bdc8d5d6fa40592c978e0fb8": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The release-note bundle claims a wheel-key retry, an accepted USBMUX timeout recovery, and playback-overrun diagnostics. Those paths have separate target/privacy gates, and the text marks the wired fixes as pending in-car acceptance; fixed main has no corresponding release entry.",
+        "test": "PASS_STATIC: patch changes docs/RELEASE-NOTES-NEXT.md only and labels wired acceptance pending; NOT_RUN_TARGET: USBMUX late completion, key-service retry, and A/V drift",
+        "related": "Reject unverified release claims; EX-01/02/03, PR-01, WIRELESS-EX, and DSP A/V gates are independent",
+        "rollback": "No release text imported; retain the fixed-main USBMUX owner and do not state unvalidated recovery or audio guarantees.",
+        "review_state": "PRIMARY_AGENT_RELEASE_DOCS_FIXED_MAIN_REJECT",
+    },
+    "d09ea24fe42344e25fe1fe627ebf1f51641ef171": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This link-only release-note commit points at upstream PR #625 for wheel-key and USBMUX recovery claims that are not validated as fixed-main release behavior. It changes no runtime code and is outside the fork's verified release record.",
+        "test": "PASS_STATIC: patch only links docs/RELEASE-NOTES-NEXT.md to PR #625; no product behavior is tested by the documentation change",
+        "related": "EX-08 release-document scope; leave USBMUX/WIRELESS/AUDIO candidates to their individual gates",
+        "rollback": "No upstream PR link imported; keep the release notes aligned to fixed-main verified behavior.",
+        "review_state": "PRIMARY_AGENT_RELEASE_DOCS_FIXED_MAIN_REJECT",
+    },
 }
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {

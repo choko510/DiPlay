@@ -412,4 +412,6 @@ Treat DiLink 3/4 ADB projection, cluster text/turn guidance, and recovery journa
 
 Reject parked-video documentation when fixed main has no matching player path and PR-07 codec/surface evidence remains `NO_GO`; a guide entry cannot stand in for target playback, seek, and A/V testing.
 
+Reject upstream release-note bundles when they advertise unverified device behavior or permission changes that the fork does not ship. Release documentation is not acceptance evidence and must not imply that a pending gate has passed.
+
 Keep BYD battery status, DiLink AMap ETA, ambient lighting, dashboard-call copy, and car-music-rhythm retries out of generic STEP4; their source clients use BYD properties, ADB workers, or cluster firmware.

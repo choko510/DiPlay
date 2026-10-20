@@ -344,3 +344,5 @@ For DiLink projection changes, identify the vendor command/service, display life
 Documentation and test-only commits can receive a final `SKIP_OEM` decision when they solely describe or test a removed BYD integration; they do not need to remain heuristic-only once the product path and fixed-main exclusion are confirmed.
 
 Classify user-facing video claims against fixed-main entry points and the PR-07 acceptance gate. If only upstream documentation changes, keep the unsupported playback claim out until the decoder/surface path is implemented and tested.
+
+When release-note commits collect several upstream fixes, inspect every claim against fixed-main code and its target gate. A pending acceptance note or an upstream PR link does not establish that the fork implements the behavior.

@@ -370,3 +370,5 @@ For media-performance candidates, separate packet arrival pacing, decoder backlo
 For Wi-Fi candidates, separate mDNS address publication, hotspot readiness, Wi-Fi Direct channel choice, and Bluetooth handoff. A BYD-only scan-pause result or another head unit's hotspot setup does not establish TS10/K706 behavior.
 
 For decoder fallbacks, distinguish codec-list size support from an actual configure/output success. Verify the selected format, Surface handoff, first frame, queue lifetime, and target CPU/A/V behavior before changing codec or thread policy.
+
+For video overlays that retain a last frame or mask corners, test Surface destruction/recreation and bitmap release separately from visible geometry. A screenshot or Robolectric layout does not prove that the target decoder releases frames without stale content or memory growth.

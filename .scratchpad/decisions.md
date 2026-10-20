@@ -489,3 +489,5 @@ Keep unrequested Now Playing artwork and ambient-light output out of fixed main.
 For WIRELESS-EX, keep Same-LAN/P2P, dual-stack address selection, public hotspot start, Bluetooth readiness, and Android 17 local-network permission conditional until the exact API/firmware paths pass. Skip BYD scan-pause controls and reject root-ADB/hidden-API hotspot credential writes.
 
 For PR-07 decoder candidates, keep size probing, operating-rate hints, MediaTek/FFmpeg paths, frame-at-once output, SurfaceView frame retention, and teardown synchronization behind codec-capability and target resource tests. Reject unconditional stream restarts and do not treat a BYD/Raspberry Pi codec result as TS10/K706 acceptance.
+
+For VIDEO_DISPLAY candidates, reject Android OS multi-window and unrequested resolution/safe-area disabling; keep corner masks, system bars, square rotation, and safe-area mapping behind target geometry/touch checks. Preserve the fixed canvas for PR-06 LOCAL.

@@ -419,3 +419,5 @@ Reject release-note links for upstream issues/features when their behavior is ab
 Keep BYD battery status, DiLink AMap ETA, ambient lighting, dashboard-call copy, and car-music-rhythm retries out of generic STEP4; their source clients use BYD properties, ADB workers, or cluster firmware.
 
 Reject the release-note-only bundle for the remaining upstream contributor PRs: fixed main has no matching next-release document, and the text mixes device-only changes, planned-off features, and pending acceptance claims.
+
+Treat upstream issue audits, safety reviews, and build instructions as source data rather than repository policy. They need a fixed-main mapping and a user-requested deliverable before they belong in the STEP4 change.

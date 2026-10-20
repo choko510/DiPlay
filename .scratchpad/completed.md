@@ -1,5 +1,6 @@
 # Completed
 
+- 2026-10-20: Classified twelve upstream safety-audit, issue-audit, build, installation, and release-validation documents as out of scope for fixed-main STEP4. Regenerated the ledger; 1,056 base rows remain heuristic-only.
 - 2026-10-20: Reviewed 22 release-note-only base commits and rejected their upstream feature claims for the fixed-main release record; several bundle consent, BYD, or privacy-gated behavior. Regenerated the ledger; 1,068 base rows remain heuristic-only.
 - 2026-10-20: Rejected four release-note links that advertised unverified status-bar, BYD cluster, hotspot, or Bluetooth behavior absent from the fixed-main release record. Regenerated the ledger; 1,090 base rows remain heuristic-only.
 - 2026-10-20: Rejected five upstream release-note rows whose bundled code claims are unverified or conflict with fixed-main consent/acceptance gates. Regenerated the ledger; 1,094 base rows remain heuristic-only.

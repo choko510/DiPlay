@@ -408,6 +408,8 @@ Treat ambient-light following, DiLink-version detection, BYD call-popup handling
 
 Keep DiLink navigation-channel defaults at `NEED_EVIDENCE` until first-setup behavior preserves current/legacy user choices and target audio routing is tested. Skip BYD cluster music cards, focus-launch behavior, music rhythm, and settings-decoy routing; reject the large reports/main integration and retain diagnostics pending payload privacy review.
 
+Skip BYD battery protocol, vehicle-probe telemetry, dashboard song/turn-card, DiLink focus/zoom, and controller-version paths. Keep home-screen dashboard sync and route-scoped wheel-key behavior pending; reject the review safety aggregate and upstream HUD/main merge.
+
 Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/bus/usb` node paths are outside the aggregate `WIRED_PATH_V1` schema and are not changed by the source diagnostic redactor.
 
 ## Exclude upstream-only locale and OEM copy from STEP4

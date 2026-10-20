@@ -326,3 +326,5 @@ For long STEP4 audits, group related upstream commits by subsystem and update th
 For a multi-area upstream commit, review the actual patch and fixed-main gate separately from its individual component candidates. It can be rejected as an aggregate without treating a useful constituent patch as disproven; keep that constituent's own row `NEED_EVIDENCE` until its target-specific gate passes.
 
 For privacy review, check both the formatter and redactor behavior. A test showing `redact(log) == log` confirms the device identifiers or paths remain in the emitted diagnostic; do not infer that calling the redactor makes those fields safe.
+
+For EX-08 content rows, compare the archived patch with fixed-main locale registration, resource keys, and runtime support. A translation or release note does not prove the described feature; finalize clear scope mismatches while keeping generic device claims pending without target evidence.

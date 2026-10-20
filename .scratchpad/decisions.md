@@ -8,6 +8,10 @@ PR-00 uses Robolectric USB shadows plus pure request-wait, TUN, clock, scheduler
 
 Draft pull-request updates run public-tree, native/sanitizer, and shared/common unit checks; lint, application builds, JNI mapping, and emulator instrumentation run when the PR is ready for review. Main pushes and manual runs remain full. No diff classifier suppresses a code test. Cancel superseded PR runs and use Gradle task caching/parallel execution to reduce iteration time without treating quick checks as the release gate.
 
+## Scope Gradle PR caches to the matching repository and pull request
+
+Allow same-repository PR jobs to write Gradle user-home cache only in their GitHub PR merge-ref scope. Keep fork PRs and non-main manual branch runs read-only; main builds may write. This enables later updates to reuse dependencies/task outputs without sharing cache writes across PRs or forks. See the [Gradle setup-gradle cache scope](https://github.com/gradle/actions/blob/main/docs/setup-gradle.md).
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.

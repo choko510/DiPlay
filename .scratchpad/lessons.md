@@ -340,3 +340,5 @@ When a BYD-only adapter contributes a generic helper, review the actual call cha
 For BYD cluster/HUD source rows, inspect the adapter's actual sink (ADB autoservice, SOME/IP HUD, or BYD instrument device). A generic state parser under a `Byd*` consumer does not establish support for generic CarPlay, MEDIA DSP, microphone, or local Split features.
 
 For DiLink projection changes, identify the vendor command/service, display lifetime, and projection surface from the source patch. ADB success or UI tests do not transfer that OEM-specific display contract to the fork's generic Android pane or iPhone ViewArea path.
+
+Documentation and test-only commits can receive a final `SKIP_OEM` decision when they solely describe or test a removed BYD integration; they do not need to remain heuristic-only once the product path and fixed-main exclusion are confirmed.

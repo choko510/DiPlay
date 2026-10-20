@@ -409,3 +409,5 @@ Classify BYD ADB map, song, battery, and wheel-speed outputs as `SKIP_OEM`. Gene
 Classify BYD instrument-cluster song, HUD route/ambient output, and dashboard call-control changes the same way when their implementation is restricted to `Byd*` output clients or DiLink service calls. Do not map these OEM states to generic MEDIA DSP, PR-04 microphone handling, or local Split.
 
 Treat DiLink 3/4 ADB projection, cluster text/turn guidance, and recovery journals as `SKIP_OEM` when the implementation depends on BYD `AutoContainer`/instrument services. Unit coverage for those adapters does not establish a generic head-unit ViewArea path.
+
+Keep BYD battery status, DiLink AMap ETA, ambient lighting, dashboard-call copy, and car-music-rhythm retries out of generic STEP4; their source clients use BYD properties, ADB workers, or cluster firmware.

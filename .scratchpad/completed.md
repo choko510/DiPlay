@@ -1,5 +1,6 @@
 # Completed
 
+- 2026-10-20: Reviewed eleven more BYD battery, ETA, ambient-light, music-rhythm, documentation, and fixture rows; marked them `SKIP_OEM`. Regenerated the ledger; 1,100 base rows remain heuristic-only.
 - 2026-10-20: Classified six additional DiLink 3/4 projection/recovery commits as `SKIP_OEM` from their BYD ADB/service paths and fixed-main absence. Regenerated the 1,289-row ledger; 1,111 base rows remain heuristic-only.
 - 2026-10-20: Reviewed ten BYD HUD/cluster-song/call/SOME-IP commits from their source diffs and fixed-main exclusions; marked them `SKIP_OEM`. Regenerated the 1,289-row ledger; 1,117 base rows remain heuristic-only.
 - 2026-10-20: Reviewed six base-catalog commits whose source adds only BYD cluster or vehicle-output features; marked them `SKIP_OEM` after source-patch and fixed-main path checks. Regenerated the 1,289-row ledger; 1,127 base rows remain heuristic-only and 6 delta rows remain `NEED_EVIDENCE`.

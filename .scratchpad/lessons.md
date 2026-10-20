@@ -1,5 +1,9 @@
 # Lessons
 
+## Keep hardware test doubles explicit about success
+
+USB, TUN, and protocol test fixtures should require an explicit queue/write/completion outcome. An unset mock result should fail the test instead of silently representing a successful device exchange; emulator and hardware results must remain separate.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

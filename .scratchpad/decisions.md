@@ -1,5 +1,13 @@
 # Decisions
 
+## Keep STEP4 baseline fixtures test-only and fail closed by default
+
+PR-00 uses Robolectric USB shadows plus pure request-wait, TUN, clock, scheduler, PCM, video, and startup fixtures. Queue results, wait completions, and TUN write results must be explicitly supplied; an unconfigured mock cannot imply a successful USB or protocol exchange. This keeps production behavior unchanged and lets later PRs test one owner/state transition at a time.
+
+## Keep draft PR feedback fast while retaining full review gates
+
+Draft pull-request updates run public-tree, native/sanitizer, and shared/common unit checks; lint, application builds, JNI mapping, and emulator instrumentation run when the PR is ready for review. Main pushes and manual runs remain full. No diff classifier suppresses a code test. Cancel superseded PR runs and use Gradle task caching/parallel execution to reduce iteration time without treating quick checks as the release gate.
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.

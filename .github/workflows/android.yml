@@ -3,7 +3,11 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
+concurrency:
+  group: android-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 jobs:
@@ -26,9 +30,14 @@ jobs:
         run: bash scripts/test_dsp_native.sh
       - name: Host native DSP tests with ASan and UBSan
         run: bash scripts/test_dsp_native.sh --sanitize
+      - name: Draft unit tests
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft }}
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest --build-cache --parallel --stacktrace
       - name: Unit tests, lint, debug and optimized builds
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --stacktrace
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --parallel --stacktrace
       - name: Verify JNI names survive R8
+        if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
         run: python3 scripts/check_jni_mapping.py
 
       - name: Test reports
@@ -43,6 +52,7 @@ jobs:
             automotive/build/reports/lint-results-debug.html
 
   android-instrumentation:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

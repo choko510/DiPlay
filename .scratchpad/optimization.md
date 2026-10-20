@@ -13,6 +13,11 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-21 — Reduce draft STEP4 feedback (Actions validation pending)
+
+- Fixed-main CI previously ran the full host and API 35 emulator jobs on every PR update. PR-00 now keeps public-tree, native/sanitizer and shared/common unit checks on draft updates, defers app lint/build/JNI and emulator instrumentation until `ready_for_review`, cancels superseded PR runs, and keeps main pushes/manual runs full. Gradle host/instrumentation invocations use `--build-cache --parallel`.
+- Local `scripts/run_android_instrumentation.sh` passed 16/16 on the API 36.1 emulator in 41s after adding the Gradle flags; the preceding 55s run used a different warmed state, so that is not a controlled speed comparison. Record PR Actions timings after both draft and full paths run; do not claim a CI reduction before then.
+
 ## 2026-10-02 — PR #14 CI wall time
 
 - Moved API 35 emulator boot and `:shared:connectedDebugAndroidTest` into a parallel `android-instrumentation` job, and stopped installing the emulator system image in the host verification job. Kept all 40 DSP cases, three 256-block measurement rounds, and the p99 gate unchanged.

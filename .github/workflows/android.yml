@@ -26,6 +26,8 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || (github.event_name != 'pull_request' && github.ref != 'refs/heads/main') }}
       - name: Host native DSP tests
         run: bash scripts/test_dsp_native.sh
       - name: Host native DSP tests with ASan and UBSan
@@ -65,6 +67,8 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973 system-images;android-35;google_apis;x86_64
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository) || (github.event_name != 'pull_request' && github.ref != 'refs/heads/main') }}
       - name: Install Android Emulator binary
         run: |
           curl --fail --location --retry 3 "https://dl.google.com/android/repository/emulator-linux_x64-16433917.zip" -o "$RUNNER_TEMP/emulator.zip"

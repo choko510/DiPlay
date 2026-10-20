@@ -1462,6 +1462,49 @@ BASE_REVIEW_OVERRIDES.update({
     },
 })
 
+BASE_REVIEW_OVERRIDES.update({
+    "596eeb5e3758c309649723434be0072cb2049c62": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 2,753-line upstream merge combines steering-media keys, BYD cluster map/settings, hotspot and location behavior, video, and related resources. V3 requires these distinct gates to remain separate and forbids using upstream integration merges as an implementation base.",
+        "test": "PASS_STATIC: merge diff spans BYD cluster, wireless/hotspot, media keys, display, and site/docs; no single STEP4 gate covers the aggregate",
+        "related": "Reject broad upstream merge; evaluate isolated WIRELESS-EX, PR-05/06, PR-07, and BYD candidates separately",
+        "rollback": "No merge or bundled feature imported; preserve the fixed-main NCM/session/DSP and BYD-removal paths.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
+    "f75fce6927de81879cf4a040072327a35daaa92c": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "The patch combines wireless vehicle-data ownership with parked-video playback readiness. These change separate network, privacy, decoder, and surface owners; PR-07 video remains conditional and the vehicle-data path has no fixed-main target evidence.",
+        "test": "PASS_STATIC: source diff changes wireless network selection and video URI/player handling in one patch; NOT_RUN_TARGET: same-LAN identity, parked video, decoder/surface, and A/V behavior",
+        "related": "Reject mixed WIRELESS-EX and PR-07 aggregate; keep network and video candidates separately gated",
+        "rollback": "No combined network/video behavior imported; any future fix must be isolated by owner and independently reversible.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_MIXED_GATE_REJECTED",
+    },
+    "279d5fc2514f05f89160fa4ba4d0f80d3d29e333": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This source occurrence has the same patch digest as the wireless vehicle-data and parked-video aggregate. Reject the duplicate source occurrence with the same separate network/video evidence gates.",
+        "test": "PASS_STATIC: duplicate patch digest matches f75fce6927de81879cf4a040072327a35daaa92c; source diff combines network ownership and video playback",
+        "related": "Duplicate aggregate occurrence of f75fce6927de81879cf4a040072327a35daaa92c; WIRELESS-EX and PR-07 remain separate",
+        "rollback": "No duplicate or aggregate implementation imported; keep the independent rollback boundaries.",
+        "review_state": "PRIMARY_AGENT_DUPLICATE_PATCH_REVIEWED_MIXED_GATE_REJECTED",
+    },
+    "a871a6bb979923b87e392105a7cb245982975424": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This feature combines BYD ADB settings and vendor package access with automatic car-hotspot startup and WRITE_SETTINGS permission. BYD behavior is excluded and hotspot route/authorization changes require a separate WIRELESS-EX gate.",
+        "test": "PASS_STATIC: diff adds BYD package/ADB settings and modifies hotspot startup/permissions; NOT_RUN_TARGET: supported hotspot, permission, and route behavior",
+        "related": "Reject mixed BYD/OEM and WIRELESS-EX aggregate; no generic wired PR mapping",
+        "rollback": "No BYD ADB setting, WRITE_SETTINGS flow, or automatic hotspot change imported; preserve explicit permissions and fixed-main routing.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_MIXED_GATE_REJECTED",
+    },
+    "c1f11af81cadd2541d9183d6b3440268d6a8e54f": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This 3,792-line merge combines corrected vehicle-probe publication, BYD vehicle data, hotspot/networking, wireless startup, and safety changes. The source features have independent privacy, consent, and target gates and cannot be imported as one STEP4 unit.",
+        "test": "PASS_STATIC: merge diff spans BYD ADB, hotspot/network interfaces, wireless session, diagnostics, and activity code; no single test covers the aggregate",
+        "related": "Reject multi-owner merge; keep BYD/OEM, WIRELESS-EX, EX-01, and wired PR/EX decisions separate",
+        "rollback": "No aggregate merge imported; retain fixed-main permission, network, session, and diagnostic ownership.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_AGGREGATE_REJECTED",
+    },
+})
+
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {
         "disposition": "REJECT_UNSAFE",

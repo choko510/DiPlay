@@ -1,5 +1,6 @@
 # Completed
 
+- 2026-10-20: Reviewed 22 release-note-only base commits and rejected their upstream feature claims for the fixed-main release record; several bundle consent, BYD, or privacy-gated behavior. Regenerated the ledger; 1,068 base rows remain heuristic-only.
 - 2026-10-20: Rejected four release-note links that advertised unverified status-bar, BYD cluster, hotspot, or Bluetooth behavior absent from the fixed-main release record. Regenerated the ledger; 1,090 base rows remain heuristic-only.
 - 2026-10-20: Rejected five upstream release-note rows whose bundled code claims are unverified or conflict with fixed-main consent/acceptance gates. Regenerated the ledger; 1,094 base rows remain heuristic-only.
 - 2026-10-20: Rejected the parked-video documentation commit because it describes player behavior absent from fixed main while PR-07 remains gated. Regenerated the 1,289-row ledger; 1,099 base rows remain heuristic-only.

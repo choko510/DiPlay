@@ -417,3 +417,5 @@ Reject upstream release-note bundles when they advertise unverified device behav
 Reject release-note links for upstream issues/features when their behavior is absent from the fixed-main release record. Keep BYD cluster claims at `SKIP_OEM`; leave generic Bluetooth, hotspot, and display changes behind their target gates.
 
 Keep BYD battery status, DiLink AMap ETA, ambient lighting, dashboard-call copy, and car-music-rhythm retries out of generic STEP4; their source clients use BYD properties, ADB workers, or cluster firmware.
+
+Reject the release-note-only bundle for the remaining upstream contributor PRs: fixed main has no matching next-release document, and the text mixes device-only changes, planned-off features, and pending acceptance claims.

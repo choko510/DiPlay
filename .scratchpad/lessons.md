@@ -348,3 +348,5 @@ Classify user-facing video claims against fixed-main entry points and the PR-07 
 When release-note commits collect several upstream fixes, inspect every claim against fixed-main code and its target gate. A pending acceptance note or an upstream PR link does not establish that the fork implements the behavior.
 
 Link-only edits to upstream release notes still change user-facing claims. Validate the referenced behavior and release scope before carrying the link into the fork; a source PR URL is not parity evidence.
+
+For upstream release-note bundles, the changed path and linked PR list can cover many unrelated features; inspect the claims, then keep device, consent, and release gates separate rather than treating the notes as an implementation batch.

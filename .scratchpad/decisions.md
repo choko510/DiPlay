@@ -410,6 +410,8 @@ Keep DiLink navigation-channel defaults at `NEED_EVIDENCE` until first-setup beh
 
 Skip BYD battery protocol, vehicle-probe telemetry, dashboard song/turn-card, DiLink focus/zoom, and controller-version paths. Keep home-screen dashboard sync and route-scoped wheel-key behavior pending; reject the review safety aggregate and upstream HUD/main merge.
 
+Skip the BYD dashboard-song and map-zoom paths; keep generic wheel joystick, boot-repair authorization, and side-panel/TPMS behavior out of the implementation until their target and privacy gates are clear. Reject main/review merges that bundle these concerns.
+
 Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/bus/usb` node paths are outside the aggregate `WIRED_PATH_V1` schema and are not changed by the source diagnostic redactor.
 
 ## Exclude upstream-only locale and OEM copy from STEP4

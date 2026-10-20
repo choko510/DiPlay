@@ -485,3 +485,5 @@ Keep iAP2 older-iOS message retry, Android 17 local-network permission, and wire
 Keep diagnostics user-triggered and bounded: redact before queueing, retain only app-owned crash/audio/USB metadata, and do not require public report uploads or expose reports through an unverified phone-page server. Android storage/location permission fallbacks stay target- and API-gated.
 
 Keep unrequested Now Playing artwork and ambient-light output out of fixed main. Automatic playback-rate clock trim is rejected unless a separate implementation is explicitly off by default and passes target pitch, DSP, and A/V measurements; audio focus, frame pacing, and codec-thread candidates remain separately gated.
+
+For WIRELESS-EX, keep Same-LAN/P2P, dual-stack address selection, public hotspot start, Bluetooth readiness, and Android 17 local-network permission conditional until the exact API/firmware paths pass. Skip BYD scan-pause controls and reject root-ADB/hidden-API hotspot credential writes.

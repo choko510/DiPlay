@@ -366,3 +366,5 @@ For startup recovery, distinguish saved ADB authorization rechecks from new gran
 For diagnostics, validate queue bounds and shutdown flush order as well as each field's sensitivity. A local phone-page endpoint or visible Downloads fallback changes who can reach a report, even when payloads and credentials are excluded.
 
 For media-performance candidates, separate packet arrival pacing, decoder backlog, playback-clock trim, and Android audio-focus behavior. Synthetic drift results or another car's measurements do not establish target pitch, DSP, or A/V behavior.
+
+For Wi-Fi candidates, separate mDNS address publication, hotspot readiness, Wi-Fi Direct channel choice, and Bluetooth handoff. A BYD-only scan-pause result or another head unit's hotspot setup does not establish TS10/K706 behavior.

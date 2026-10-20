@@ -1,5 +1,6 @@
 # Completed
 
+- 2026-10-20: Rejected the upstream Bluetooth adapter/diagnostics aggregate because it also adds an unapproved Aliyun Maven source absent from fixed main; left later Bluetooth radio-state/wait candidates pending target A/B. Regenerated and checked the 1,289-row ledger; 9 delta rows remain `NEED_EVIDENCE`.
 - 2026-10-20: Reviewed seven EX-08 content/localization delta rows against their archived source patches and fixed-main feature/resource surface. Marked two BYD-only rows `SKIP_OEM` and five partial locale/release-note rows `REJECT_UNSAFE`; regenerated and checked the 1,289-row ledger. Ten delta rows remain `NEED_EVIDENCE`.
 - 2026-10-20: Added a reusable STEP4 batch implementation prompt and classified the BYD-only cluster preview/settings removal as `SKIP_OEM`; regenerated the 1,289-row EX-08 inventory and synchronized the summary counts. PR runs #184–186 passed the audit-only lane in 48s/43s/56s with runtime setup and tests skipped.
 - 2026-10-20: Batched five USB/NCM integration records: classified the already-adapted PR478 NCM path as `FORK_SUPERIOR` and rejected four mixed USBMUX/queue/diagnostic aggregates; left individual protocol/device gates pending. Regenerated the ledger with 77 final base rows.

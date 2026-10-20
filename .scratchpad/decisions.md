@@ -389,3 +389,7 @@ Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/
 ## Exclude upstream-only locale and OEM copy from STEP4
 
 Classify content patches from their actual source diff and the pinned main resource/feature surface. Keep DiLink/BYD-only key and guide copy at `SKIP_OEM`; reject partial Italian resource batches and release notes that advertise settings or retry behavior absent from fixed main. Treat release text as claims, not runtime evidence, and leave applicable hardware gates `NOT_RUN`.
+
+## Reject Bluetooth changes bundled with dependency-source changes
+
+Do not import the upstream Bluetooth adapter/diagnostic aggregate because it adds an Aliyun Maven repository to the fixed Google/Maven Central source list. Review later isolated Bluetooth changes only after the target-specific wireless A/B gate passes.

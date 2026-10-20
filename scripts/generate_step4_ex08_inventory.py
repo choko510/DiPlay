@@ -813,16 +813,16 @@ BASE_REVIEW_OVERRIDES = {
 }
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {
-        "disposition": "NEED_EVIDENCE",
+        "disposition": "REJECT_UNSAFE",
         "reason": (
-            "The patch combines Bluetooth adapter reacquisition and persistent failure diagnostics with an Aliyun Maven mirror. "
-            "The mirror is absent from fixed main; do not cherry-pick this mixed commit. Wireless benefit and diagnostic privacy "
-            "still need fork-specific review."
+            "The patch combines Bluetooth adapter reacquisition and persistent failure diagnostics with a new Aliyun Maven repository. "
+            "Fixed main uses only Google and Maven Central; changing dependency provenance is not justified by this wireless fix, "
+            "so the aggregate commit is not safe to import. Later isolated Bluetooth patches remain separate evidence candidates."
         ),
-        "test": "PASS_STATIC: fixed main has no Aliyun Maven repository; NOT_RUN_TARGET: Bluetooth adapter/radio A/B",
-        "related": "EX-01 diagnostics; WIRELESS-EX Bluetooth acquisition; build provenance",
-        "rollback": "No patch imported; any future adapter/diagnostic change must be split from repository configuration and reverted independently.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_TARGET_A_B",
+        "test": "PASS_STATIC: patch adds Aliyun to settings.gradle.kts while fixed main uses google() and mavenCentral(); NOT_RUN_TARGET: Bluetooth adapter/radio A/B",
+        "related": "Reject mixed dependency-source and Bluetooth aggregate; WIRELESS-EX Bluetooth acquisition and EX-01 diagnostics remain separate",
+        "rollback": "No repository or Bluetooth change imported; retain fixed-main dependency sources and evaluate any later isolated adapter change against target evidence.",
+        "review_state": "PRIMARY_AGENT_PATCH_REVIEWED_MIXED_REPOSITORY_REJECTED",
     },
     "68a360982ad9da41bdd66ba0d2fd2a16624ce823": {
         "disposition": "FORK_SUPERIOR",

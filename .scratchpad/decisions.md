@@ -406,6 +406,8 @@ Skip DiLink small-window navigation and independent instrument-task routes when 
 
 Treat ambient-light following, DiLink-version detection, BYD call-popup handling, and FCE cluster guidance as OEM outputs. Keep Telecom call routing, VoIP watcher, wheel-key restoration, and track-key call control at `NEED_EVIDENCE` until system permission and call-path evidence are available; reject the 75-path remaining-PR integration.
 
+Keep DiLink navigation-channel defaults at `NEED_EVIDENCE` until first-setup behavior preserves current/legacy user choices and target audio routing is tested. Skip BYD cluster music cards, focus-launch behavior, music rhythm, and settings-decoy routing; reject the large reports/main integration and retain diagnostics pending payload privacy review.
+
 Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/bus/usb` node paths are outside the aggregate `WIRED_PATH_V1` schema and are not changed by the source diagnostic redactor.
 
 ## Exclude upstream-only locale and OEM copy from STEP4

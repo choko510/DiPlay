@@ -468,4 +468,6 @@ Retain settings-lifecycle, side-panel geometry, interface-size, and VPN-consent 
 
 Reject a global appearance/theme rollout and icon/style polish as out-of-scope UI changes. Keep wireless reconnect, navigation wheel-volume, settings discard, gesture, responsive menu, and automatic appearance behavior target-gated; skip the DiLink waiting-screen theme.
 
+The global appearance bundle is not a v3 stage. Keep only the specific reconnect, audio routing, settings-preservation, and system-bar behaviors that map to named gates as `NEED_EVIDENCE`; leave cosmetic variants out.
+
 Keep external HID, Bluetooth service restoration, settings export/restore, call-speakerphone, VPN switching, physical-length, and initial-appearance candidates at `NEED_EVIDENCE`; reject VPN-consent bypass and broad appearance/UI refactors. The policy is to preserve explicit user permission and verify system-service teardown on target.

@@ -14,7 +14,7 @@ Pass `--parallel` only to the full CI Gradle task set. The previous no-flag full
 
 ## Defer emulator instrumentation while a PR is draft
 
-Keep public-tree and EX-08 checks on every PR update. For code-changing draft updates, run host native tests and shared/common unit tests; defer lint, app builds, JNI, and connected instrumentation until `ready_for_review`. A successful draft quick-check marker is separate from the full host baseline, so documentation-only follow-ups can skip it without satisfying the full-review gate. Pushes, manual runs, and review-ready source updates run the full suite; unknown paths and API errors also fall back to full host verification.
+Keep public-tree and EX-08 checks on every PR update. For code-changing draft updates, always run shared/common unit tests; run native DSP and ASan/UBSan only when DSP C, KissFFT, native test files, or their test script changed since the latest successful quick baseline. Defer lint, app builds, JNI, and connected instrumentation until `ready_for_review`. A successful draft quick-check marker is separate from the full host baseline, so documentation-only follow-ups can skip it without satisfying the full-review gate. Pushes, manual runs, and review-ready source updates run the full suite; unknown paths, missing baselines, large diffs, and API errors also fall back to full verification.
 
 ## Validate manual-hotspot settings only for wireless transport
 

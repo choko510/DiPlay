@@ -13,6 +13,11 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-21 — Skip unrelated native suites in draft CI
+
+- Compare changes since the latest successful quick baseline and run host native DSP plus ASan/UBSan only when DSP C, KissFFT, native DSP test files, or `scripts/test_dsp_native.sh` changed. Keep shared/common unit tests on every code-changing draft update; full host, main-push, and manual runs still include all native checks. Missing baselines, API errors, and large diffs fall back to full verification.
+- Run #252 passed on `a130158` in 2m07. Shared/common draft unit tests passed while native DSP and ASan/UBSan were skipped, confirming the non-native path. This run did not reduce elapsed time against run #242's 2m00; the saved work for future Kotlin-only edits is the native test/sanitizer execution, with its wall-time impact unmeasured.
+
 ## 2026-10-20 — Shorten draft PR feedback
 
 - Run #151 logs showed the host check job taking 2m45s (Gradle command 1m04s) and the instrumentation job taking 5m12s. Run #168 then took 9m39s overall, with the Gradle unit/lint/build/JNI command alone at 7m33s, despite the emulator job being skipped.

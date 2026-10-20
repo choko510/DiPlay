@@ -405,3 +405,7 @@ Reject hotspot-save patches that target `buildSettingsMenu()` while fixed main's
 ## Keep BYD cluster and vehicle telemetry out of generic STEP4
 
 Classify BYD ADB map, song, battery, and wheel-speed outputs as `SKIP_OEM`. Generic NMEA or iAP2 helpers inside a BYD-only patch do not create a generic TS10 feature; preserve the fixed-main OEM removal.
+
+Classify BYD instrument-cluster song, HUD route/ambient output, and dashboard call-control changes the same way when their implementation is restricted to `Byd*` output clients or DiLink service calls. Do not map these OEM states to generic MEDIA DSP, PR-04 microphone handling, or local Split.
+
+Treat DiLink 3/4 ADB projection, cluster text/turn guidance, and recovery journals as `SKIP_OEM` when the implementation depends on BYD `AutoContainer`/instrument services. Unit coverage for those adapters does not establish a generic head-unit ViewArea path.

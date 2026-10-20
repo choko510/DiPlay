@@ -336,3 +336,7 @@ For a commit that combines USB re-enumeration and audio PCM processing, classify
 Before porting an upstream UI fix, verify that the modified view builder has a call site in fixed main. An upstream test for an unreachable activity panel is not evidence that the active settings screen needs the same fix.
 
 When a BYD-only adapter contributes a generic helper, review the actual call chain before classifying the helper as independently portable. If the only producer/consumer is an OEM ADB or cluster path that fixed main removed, the aggregate remains `SKIP_OEM`.
+
+For BYD cluster/HUD source rows, inspect the adapter's actual sink (ADB autoservice, SOME/IP HUD, or BYD instrument device). A generic state parser under a `Byd*` consumer does not establish support for generic CarPlay, MEDIA DSP, microphone, or local Split features.
+
+For DiLink projection changes, identify the vendor command/service, display lifetime, and projection surface from the source patch. ADB success or UI tests do not transfer that OEM-specific display contract to the fork's generic Android pane or iPhone ViewArea path.

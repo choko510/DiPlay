@@ -410,4 +410,6 @@ Classify BYD instrument-cluster song, HUD route/ambient output, and dashboard ca
 
 Treat DiLink 3/4 ADB projection, cluster text/turn guidance, and recovery journals as `SKIP_OEM` when the implementation depends on BYD `AutoContainer`/instrument services. Unit coverage for those adapters does not establish a generic head-unit ViewArea path.
 
+Reject parked-video documentation when fixed main has no matching player path and PR-07 codec/surface evidence remains `NO_GO`; a guide entry cannot stand in for target playback, seek, and A/V testing.
+
 Keep BYD battery status, DiLink AMap ETA, ambient lighting, dashboard-call copy, and car-music-rhythm retries out of generic STEP4; their source clients use BYD properties, ADB workers, or cluster firmware.

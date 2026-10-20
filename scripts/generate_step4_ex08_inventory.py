@@ -378,6 +378,14 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No polling behavior imported; if reproduced, use a bounded lifecycle-owned workaround with a test for stop/destroy cancellation.",
         "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_TARGET_EVIDENCE",
     },
+    "c752ed5a6e7263748efc4a8bea286e4a857bed31": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This documentation-only patch claims an upstream parked-video player with seeking and app-video playback. Fixed main has no parked-video entry point or BYD_NAVIGATION guide, and PR-07 remains NO_GO pending codec/surface and target evidence; importing the claim would misstate fork behavior.",
+        "test": "PASS_STATIC: patch changes docs/BYD_NAVIGATION.md only and fixed main has no parked-video player entry point; NOT_RUN_TARGET: parked playback, seek, codec/surface, and A/V sync",
+        "related": "EX-08 unsupported video documentation; PR-07 remains gated on codec/surface and target evidence",
+        "rollback": "No parked-video documentation or product claim imported; keep PR-07 NO_GO until target behavior is demonstrated and accepted.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_AND_PLAN_REVIEW",
+    },
     "da43081925547dc75bde5995bbf55a27c4e26cc5": {
         "disposition": "SKIP_OEM",
         "reason": "This feature sends iAP2 song/play-pause data to a BYD dashboard music card via ADB and BYD vehicle permissions. It is OEM-only output removed from the fixed fork and has no generic CarPlay media-key mapping.",

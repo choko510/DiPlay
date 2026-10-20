@@ -342,3 +342,5 @@ For BYD cluster/HUD source rows, inspect the adapter's actual sink (ADB autoserv
 For DiLink projection changes, identify the vendor command/service, display lifetime, and projection surface from the source patch. ADB success or UI tests do not transfer that OEM-specific display contract to the fork's generic Android pane or iPhone ViewArea path.
 
 Documentation and test-only commits can receive a final `SKIP_OEM` decision when they solely describe or test a removed BYD integration; they do not need to remain heuristic-only once the product path and fixed-main exclusion are confirmed.
+
+Classify user-facing video claims against fixed-main entry points and the PR-07 acceptance gate. If only upstream documentation changes, keep the unsupported playback claim out until the decoder/surface path is implemented and tested.

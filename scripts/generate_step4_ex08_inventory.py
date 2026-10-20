@@ -1154,6 +1154,38 @@ BASE_REVIEW_OVERRIDES = {
         "rollback": "No upstream PR link imported; keep the release notes aligned to fixed-main verified behavior.",
         "review_state": "PRIMARY_AGENT_RELEASE_DOCS_FIXED_MAIN_REJECT",
     },
+    "dde983c0b66672d10a018fbf8f799bbad49f7a": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This link-only release-note patch advertises a status-bar/reversing-camera session-resize fix that is explicitly pending in-car acceptance. Fixed main has no upstream RELEASE-NOTES-NEXT file, and PR-06 LOCAL evidence does not establish this behavior on target head units.",
+        "test": "PASS_STATIC: patch only links an entry in docs/RELEASE-NOTES-NEXT.md; NOT_RUN_TARGET: reversing-camera/status-bar transition and same-session A/V behavior",
+        "related": "EX-08 release-document scope; PR-06 LOCAL layout and device lifecycle gates remain separate",
+        "rollback": "No upstream release link or behavior claim imported; retain fixed-main display documentation until the target lifecycle is verified.",
+        "review_state": "PRIMARY_AGENT_RELEASE_DOCS_FIXED_MAIN_REJECT",
+    },
+    "b3618ae543f94133d767ceb0f51c57b341165b3b": {
+        "disposition": "SKIP_OEM",
+        "reason": "The release-note link documents a DiLink 4 dashboard cluster-map launch fix and marks vehicle acceptance pending. V3 excludes the BYD cluster path; fixed main has no corresponding cluster projection or release-note file.",
+        "test": "PASS_STATIC: patch changes only a docs/RELEASE-NOTES-NEXT.md link for a DiLink 4 cluster-map feature; fixed main has no BYD cluster path",
+        "related": "BYD/OEM cluster-map exclusion; no PR-05 wire or PR-06 LOCAL mapping",
+        "rollback": "No BYD cluster-map release claim imported; preserve the fixed-main local split and generic display behavior.",
+        "review_state": "PRIMARY_AGENT_PLAN_EXCLUSION_VERIFIED",
+    },
+    "5b392c0cd44ab531d6009c81e95c548c0b7b8494": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This release-note link describes ADB-assisted automatic hotspot startup diagnostics on DiLink 3. Fixed main has no matching release-note entry or validated ADB startup behavior, and hotspot routing is outside the wired evidence accepted in STEP4.",
+        "test": "PASS_STATIC: patch only links docs/RELEASE-NOTES-NEXT.md; NOT_RUN_TARGET: DiLink 3 hotspot command inventory, ADB authorization, and route behavior",
+        "related": "EX-08 release-document scope; WIRELESS-EX hotspot/ADB behavior remains target-gated",
+        "rollback": "No upstream hotspot diagnostic claim imported; retain fixed-main permission and hotspot behavior.",
+        "review_state": "PRIMARY_AGENT_RELEASE_DOCS_FIXED_MAIN_REJECT",
+    },
+    "9cf1bc800128e463586afd477133f0daf61b0127": {
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This release-note link claims a Bluetooth permission workaround for Xiaomi/MIUI and says the old permission is requested on every Android version, with acceptance still pending. Fixed main has no matching release-note file; importing the claim would overstate unverified wireless/permission behavior.",
+        "test": "PASS_STATIC: patch only links docs/RELEASE-NOTES-NEXT.md; NOT_RUN_TARGET: Android 12 MIUI permission prompt and Bluetooth/RFCOMM connection",
+        "related": "EX-08 release-document scope; WIRELESS-EX Bluetooth permission compatibility remains target-gated",
+        "rollback": "No permission or compatibility claim imported; preserve fixed-main consent behavior until the supported device path is verified.",
+        "review_state": "PRIMARY_AGENT_RELEASE_DOCS_FIXED_MAIN_REJECT",
+    },
 }
 DELTA_DECISION_OVERRIDES = {
     "4aee9fa705b20c0947a5da1e5c132328a6878f58": {

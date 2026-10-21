@@ -165,7 +165,7 @@ jobs:
             local native=false
             local unscoped_runtime=false
             local test_modules=,
-            local new_test_filters=""
+            local scoped_test_filters=""
             local test_only_changes=true
             while IFS=$'\t' read -r path status; do
               case "$path" in
@@ -175,7 +175,7 @@ jobs:
                   if [[ "$test_modules" != *",shared,"* ]]; then
                     test_modules="${test_modules}shared,"
                   fi
-                  if [[ "$status" == "added" && "${path##*/}" =~ Test(s|Case)?\.(kt|java)$ ]]; then
+                  if [[ ( "$status" == "added" || "$status" == "modified" ) && "${path##*/}" =~ Test(s|Case)?\.(kt|java)$ ]]; then
                     test_root="shared/src/test/java/"
                     if [[ "$path" == shared/src/test/kotlin/* ]]; then
                       test_root="shared/src/test/kotlin/"
@@ -183,7 +183,7 @@ jobs:
                     test_class="${path#"$test_root"}"
                     test_class="${test_class%.*}"
                     test_class="${test_class//\//.}"
-                    new_test_filters="${new_test_filters}shared|${test_class},"
+                    scoped_test_filters="${scoped_test_filters}shared|${test_class},"
                   else
                     test_only_changes=false
                   fi ;;
@@ -198,7 +198,7 @@ jobs:
                   if [[ "$test_modules" != *",common,"* ]]; then
                     test_modules="${test_modules}common,"
                   fi
-                  if [[ "$status" == "added" && "${path##*/}" =~ Test(s|Case)?\.(kt|java)$ ]]; then
+                  if [[ ( "$status" == "added" || "$status" == "modified" ) && "${path##*/}" =~ Test(s|Case)?\.(kt|java)$ ]]; then
                     test_root="common/src/test/java/"
                     if [[ "$path" == common/src/test/kotlin/* ]]; then
                       test_root="common/src/test/kotlin/"
@@ -206,7 +206,7 @@ jobs:
                     test_class="${path#"$test_root"}"
                     test_class="${test_class%.*}"
                     test_class="${test_class//\//.}"
-                    new_test_filters="${new_test_filters}common|${test_class},"
+                    scoped_test_filters="${scoped_test_filters}common|${test_class},"
                   else
                     test_only_changes=false
                   fi ;;
@@ -237,8 +237,8 @@ jobs:
             local test_filters=all
             if [[ "$runtime" != "true" ]]; then
               test_filters=none
-            elif [[ "$test_only_changes" == "true" && -n "$new_test_filters" ]]; then
-              test_filters="${new_test_filters%,}"
+            elif [[ "$test_only_changes" == "true" && -n "$scoped_test_filters" ]]; then
+              test_filters="${scoped_test_filters%,}"
             fi
             printf '%s %s %s %s\n' "$runtime" "$native" "$test_scope" "$test_filters"
           }

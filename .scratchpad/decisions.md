@@ -311,3 +311,5 @@ Require an explicit scripted result for each USB bulk/control transfer, queue, a
 ## Keep draft CI quick while retaining a full review gate
 
 For draft PR updates, always run the changed shared/common JVM suite; add host native DSP and ASan/UBSan when native DSP sources/tests change. Defer app lint/build/JNI and emulator instrumentation until the PR is ready for review. Build configuration, large diffs, unknown paths or classifier failures fall back to the complete checks. Pushes to main, manual runs and ready-for-review PRs keep every existing gate.
+
+For repeated draft updates, compare changed paths from the last successful run for the same PR and base SHA, not from the PR's original base. If workflow-run lookup fails, the base changed, the last successful commit is unavailable or no longer an ancestor, or the diff fails, use the full validation path. This keeps small follow-up edits fast without treating skipped or failed runs as validated commits.

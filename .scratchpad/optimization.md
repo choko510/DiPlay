@@ -13,11 +13,12 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
-## 2026-10-21 — Draft CI feedback-time baseline and fast-lane change (verification pending)
+## 2026-10-21 — Draft CI feedback-time baseline and fast lane
 
-- PR #50 hosted run #277 on the main-based PR-00 branch passed all configured checks. The workflow took 10m35 overall; the host job took 10m35 overall (Gradle command 9m40), and the parallel emulator job took 6m13. The main workflow ran full host and emulator validation on a draft update.
-- A draft lane is being added: always run public-tree checks, run shared/common unit tests for runtime changes, and run native DSP plus ASan/UBSan when native paths change. Defer app lint/build/JNI/emulator to `ready_for_review`; force the full path for unknown, large or build-configuration changes. Pushes to main and manual runs remain full. Run #278 will verify the classifier and measure the new draft path before recording a speedup.
-- Local classifier checks passed for the current PR diff (`quick=true`, scope `both`, native/instrumentation skipped), a ready PR (full path), and a missing-base fallback (full path). The extracted Bash block passes `bash -n`; the full host command with `--build-cache --parallel` completes locally. Hosted run #278 is still pending.
+- PR #50 run #277 passed all configured checks. It took 10m41 overall; the host job took 10m35 (Gradle command 9m40), and the parallel emulator job took 6m13. Draft updates previously ran the full host and emulator path.
+- The first fast-lane version passed in run #278: 5m42 overall, with the host check job taking 5m29 and its two-module Gradle unit command taking 4m24. It skipped native/sanitizer, lint/build/JNI and emulator work because the changed paths did not need them. Compared with #277, this saved 4m59 (47%) of workflow wall time while retaining all full gates for ready-for-review, main and manual runs.
+- The first classifier inspected the cumulative PR diff, so later draft updates would still rerun old tests. The follow-up now queries successful runs for the same PR and base SHA, then classifies only commits since that run. API errors, missing commits, changed base, force-push/non-ancestor history, and diff failures use the full fallback. Hosted run #279 will verify this incremental path.
+- Local checks passed for the classifier's current PR/ready/fallback cases; `bash -n`, `git diff --check`, and the public-tree check passed. `--build-cache --parallel` is enabled for Gradle host tasks. No DSP/application behavior was changed.
 
 ## 2026-10-02 — PR #14 CI wall time
 

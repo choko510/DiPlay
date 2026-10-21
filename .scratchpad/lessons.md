@@ -374,3 +374,5 @@ For decoder fallbacks, distinguish codec-list size support from an actual config
 For video overlays that retain a last frame or mask corners, test Surface destruction/recreation and bitmap release separately from visible geometry. A screenshot or Robolectric layout does not prove that the target decoder releases frames without stale content or memory growth.
 
 Treat artifact signing as a release invariant: if the configured release key is missing, failing the release build is safer than silently substituting a debug signer.
+
+In multi-lane CI, discover only the baselines consumed by the active lane. Draft runs do not use host or emulator baselines, so scanning old commits for those checks adds API latency on every iteration; defer that search until the full lane can consume it.

@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.airplay
 
 import java.io.Closeable
+import java.io.IOException
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -16,6 +17,7 @@ import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -80,6 +82,71 @@ class CarPlayMediaEngineTest {
 
         assertEquals(setOf(110 to false, 111 to false), events.toSet())
         assertTrue(streams.isEmpty())
+    }
+
+    @Test
+    fun replacedScreenStreamCannotDeliverStaleCallbacksOrCloseTheSession() {
+        val codecs = AtomicInteger()
+        val configs = AtomicInteger()
+        val frames = AtomicInteger()
+        val screenStates = CopyOnWriteArrayList<Boolean>()
+        val sink = object : MediaSink {
+            override fun onVideoCodec(type: Int, codec: VideoCodec) {
+                codecs.incrementAndGet()
+            }
+
+            override fun onVideoConfig(type: Int, codecData: ByteArray) {
+                configs.incrementAndGet()
+            }
+
+            override fun onVideoFrame(type: Int, naluBytes: ByteArray) {
+                frames.incrementAndGet()
+            }
+
+            override fun onScreenStreamActive(type: Int, active: Boolean) {
+                screenStates += active
+            }
+        }
+        val engine = CarPlayMediaEngine(sink)
+        val session = audioSession(engine)
+        val streamKey = CarPlayMediaEngine.StreamKey(session, 110)
+
+        try {
+            assertNotNull(engine.onScreen(session, 110, mapOf("streamConnectionID" to 1L)))
+            val oldScreen = screenStreams(engine)[streamKey] as ScreenStream
+            val oldListener = screenListener(oldScreen)
+
+            assertNotNull(engine.onScreen(session, 110, mapOf("streamConnectionID" to 2L)))
+            val currentScreen = screenStreams(engine)[streamKey] as ScreenStream
+            val currentListener = screenListener(currentScreen)
+            assertNotSame(oldScreen, currentScreen)
+
+            oldListener.onCodec(VideoCodec.H264)
+            oldListener.onConfig(byteArrayOf(0x67, 0x42))
+            oldListener.onFrame(byteArrayOf(0, 0, 0, 1, 0x65))
+            oldListener.onClosed(IOException("replaced stream closed"))
+
+            assertEquals(0, codecs.get())
+            assertEquals(0, configs.get())
+            assertEquals(0, frames.get())
+            assertFalse(session.isClosed)
+            assertEquals(listOf(true, true), screenStates.toList())
+
+            currentListener.onCodec(VideoCodec.H265)
+            currentListener.onConfig(byteArrayOf(0x40, 0x01))
+            currentListener.onFrame(byteArrayOf(0, 0, 0, 1, 0x26))
+
+            assertEquals(1, codecs.get())
+            assertEquals(1, configs.get())
+            assertEquals(1, frames.get())
+
+            currentListener.onClosed(null)
+            assertTrue(session.isClosed)
+            assertEquals(listOf(true, true, false), screenStates.toList())
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
     }
 
     @Test
@@ -480,6 +547,15 @@ class CarPlayMediaEngineTest {
         listener = object : AirPlaySessionListener {},
         media = object : AirPlayMediaHandler {},
     )
+
+    @Suppress("UNCHECKED_CAST")
+    private fun screenStreams(engine: CarPlayMediaEngine): Map<CarPlayMediaEngine.StreamKey, Closeable> =
+        CarPlayMediaEngine::class.java.getDeclaredField("streams").apply { isAccessible = true }
+            .get(engine) as Map<CarPlayMediaEngine.StreamKey, Closeable>
+
+    private fun screenListener(screen: ScreenStream): ScreenStream.Listener =
+        ScreenStream::class.java.getDeclaredField("listener").apply { isAccessible = true }
+            .get(screen) as ScreenStream.Listener
 
     private fun audioSession(media: AirPlayMediaHandler, withRemoteAddress: Boolean = false): AirPlaySession {
         val session = AirPlaySession(

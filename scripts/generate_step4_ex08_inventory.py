@@ -9781,7 +9781,7 @@ BASE_REVIEW_OVERRIDES.update({
     "13c137db578379e7476b8bf94951f3677690179a": {
         "disposition": "NEED_EVIDENCE",
         "reason": "The upstream test commit targets Smooth-video adoption and parked MediaCodec handoff, APIs not present in fixed main. Its stale-screen-callback case is relevant and now has a fork-local callback ownership guard; actual socket/decoder handoff and target Surface evidence remain unresolved.",
-        "test": "PASS_LOCAL: CurrentScreenListenerTest verifies replaced codec/config/frame/close callbacks are suppressed; NOT_RUN: full ScreenStream socket/MediaCodec worker handoff and TS10/K706 same-session Surface/frame continuity",
+        "test": "PASS_ROBOLECTRIC: CurrentScreenListenerTest and CarPlayMediaEngineTest.replacedScreenStreamCannotDeliverStaleCallbacksOrCloseTheSession verify replaced codec/config/frame/close callbacks are suppressed at the engine map boundary; NOT_RUN: live ScreenStream payload interleaving, MediaCodec worker handoff, and TS10/K706 Surface/frame continuity",
         "related": "PR-06 LOCAL/PR-07 Surface ownership and EX-02 generation gates",
         "rollback": "Keep the fork-local current-screen identity fence; do not import the upstream Smooth-video parking design without its own decoder/Surface compatibility evidence.",
         "review_state": "PRIMARY_AGENT_STALE_SCREEN_CALLBACK_FENCE_TESTED_SURFACE_TARGET_PENDING",

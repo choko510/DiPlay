@@ -278,3 +278,13 @@ The NCM readiness phase can be advanced by an AirPlay control milestone, so `NCM
 The 2026-10-09 trace recorded both `NETWORK_CONNECTION` connected and disconnected values while successful screen startup also occurred during intervals with no new status packet. Poll/drain the endpoint when present, but do not wait for a connected notification before NCM or AirPlay startup. In the same report, request queue/wait errors coincided with physical USB disconnects; only add request-level recovery if the error reproduces while the device remains present.
 
 When Gecko reports paint-status reset during `setActive(false)`, retain it through profile-resolution timeout and warm reopen. Associate it with a suspension generation instead of clearing a boolean on measurement end; a later suspension must observe its own reset before primary paint is accepted.
+
+## Keep test transports explicit
+
+PR-00 Robolectric USB fixtures require configured queue, wait, and bulk-OUT outcomes; an exhausted script fails instead of inventing success. A timeout leaves the persistent request queued, while null and a mismatched completion remain different failures. Synthetic TUN write outcomes and kernel replies are also explicit.
+
+Wired startup fixture events carry elapsed time and keep MAIN setup/frame separate from ALT setup; StartSession, TCP accept and RTSP Active are not interchangeable milestones.
+
+The close-during-requestWait fixture uses a latch released by the fake connection's close, so it exercises the real bridge cancellation/close order without a sleep-based race.
+
+Instrumentation logcat is a ring buffer and may contain benchmark records from prior test runs. Scope captured performance lines between unique begin/end markers; presence of an old DSP_BENCHMARK line alone is not evidence for the current run.

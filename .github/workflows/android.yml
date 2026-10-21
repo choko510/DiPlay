@@ -3,36 +3,87 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
+concurrency:
+  group: android-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
+  pull-requests: read
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      full_host: ${{ steps.classify.outputs.full_host }}
+      quick: ${{ steps.classify.outputs.quick }}
+      native: ${{ steps.classify.outputs.native }}
+      instrumentation: ${{ steps.classify.outputs.instrumentation }}
+      safe: ${{ steps.classify.outputs.safe }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Classify changed files
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/classify_android_ci.py
+
   check:
+    needs: changes
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Reject credential files in public source
         run: python3 scripts/check_public_tree.py
+      - name: Test Android CI change classifier
+        run: python3 scripts/test_classify_android_ci.py
+      - name: Check shell script syntax
+        run: bash -n scripts/run_android_instrumentation.sh && bash -n scripts/test_dsp_native.sh
       - uses: actions/setup-java@v4
+        if: >-
+          needs.changes.result != 'success' ||
+          needs.changes.outputs.full_host == 'true' ||
+          needs.changes.outputs.quick == 'true'
         with:
           distribution: temurin
           java-version: '25'
       - uses: android-actions/setup-android@v3
+        if: needs.changes.result != 'success' || needs.changes.outputs.full_host == 'true'
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973
+      - uses: android-actions/setup-android@v3
+        if: >-
+          needs.changes.result == 'success' &&
+          needs.changes.outputs.quick == 'true' &&
+          needs.changes.outputs.full_host != 'true'
+        with:
+          packages: platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0
       - uses: gradle/actions/setup-gradle@v4
+        if: >-
+          needs.changes.result != 'success' ||
+          needs.changes.outputs.full_host == 'true' ||
+          needs.changes.outputs.quick == 'true'
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Host native DSP tests
+        if: needs.changes.result != 'success' || needs.changes.outputs.native == 'true'
         run: bash scripts/test_dsp_native.sh
       - name: Host native DSP tests with ASan and UBSan
+        if: needs.changes.result != 'success' || needs.changes.outputs.native == 'true'
         run: bash scripts/test_dsp_native.sh --sanitize
+      - name: Draft unit tests
+        if: needs.changes.result == 'success' && needs.changes.outputs.quick == 'true' && needs.changes.outputs.full_host != 'true'
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest --build-cache --parallel --stacktrace
       - name: Unit tests, lint, debug and optimized builds
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --stacktrace
+        if: needs.changes.result != 'success' || needs.changes.outputs.full_host == 'true'
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --parallel --stacktrace
       - name: Verify JNI names survive R8
+        if: needs.changes.result != 'success' || needs.changes.outputs.full_host == 'true'
         run: python3 scripts/check_jni_mapping.py
-
       - name: Test reports
-        if: always()
+        if: always() && (needs.changes.result != 'success' || needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-${{ github.job }}
@@ -43,6 +94,8 @@ jobs:
             automotive/build/reports/lint-results-debug.html
 
   android-instrumentation:
+    needs: changes
+    if: always() && (needs.changes.result != 'success' || needs.changes.outputs.instrumentation == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -55,6 +108,8 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973 system-images;android-35;google_apis;x86_64
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Install Android Emulator binary
         run: |
           curl --fail --location --retry 3 "https://dl.google.com/android/repository/emulator-linux_x64-16433917.zip" -o "$RUNNER_TEMP/emulator.zip"

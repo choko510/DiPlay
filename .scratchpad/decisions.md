@@ -303,3 +303,11 @@ Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Al
 ## Include both APK signing schemes for mobile debug distribution
 
 Explicitly configure the mobile debug signing config for v1 and v2 so OEM installers that depend on JAR signatures can parse the APK. Verify the resulting artifact with `apksigner`; the manifest minSdk can affect which scheme is reported as applicable.
+
+## Keep STEP4 implementation anchored to fixed main
+
+For the v3 implementation, start from fork main SHA `95ba398f95ee104527812cd2b095977d71c51f98`; ignore all pre-existing PR heads and their test evidence. Keep each PR scoped to one stage in the prescribed dependency order. PR-00 may change tests, documentation, instrumentation reporting, and CI feedback policy but must not change production runtime behavior.
+
+## Use a conservative fast-feedback CI classifier
+
+For PR-00, skip Android/Gradle runtime setup on documentation-only changes, run shared/common unit tests on draft source changes, and retain the full native/host/Android-instrumentation gates for ready-for-review code and non-PR builds. If path comparison is missing, too large, or errors, fall back to full verification. Cancel superseded PR runs; do not turn unknown paths into skipped checks.

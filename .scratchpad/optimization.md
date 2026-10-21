@@ -13,6 +13,11 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-22 — Filter draft runs to newly added standalone test classes
+
+- Draft updates that add only standalone `*Test`, `*Tests`, or `*TestCase` classes in `shared/src/test` or `common/src/test` now pass those class names to Gradle, instead of rerunning the entire test module. Changes to existing test classes, helpers/fixtures, production sources, native code, mixed or unknown paths keep the full applicable test scope. Missing baselines, oversized diffs, API failures, pushes, manual runs, and ready-for-review checks keep their existing full-verification fallback.
+- The existing `:shared:testDebugUnitTest`/`:common:testDebugUnitTest` project tasks still compile the module test sources, while Gradle executes only the selected class for this narrow draft case. The workflow-only update itself skips runtime work, so hosted timing and the class-filter lane still need a subsequent new-test update to measure the savings.
+
 ## 2026-10-21 — Scope draft JVM tests to test-only module changes
 
 - PR run #268's common-only test addition ran both `shared` and `common` unit suites; the Gradle task took 2m05. Draft CI now runs the whole changed JVM test module when only `shared/src/test/java|kotlin` or `common/src/test/java|kotlin` paths changed since its successful quick baseline. Any production, mixed, unknown, native-only, missing-baseline, or large-diff case keeps the prior broad/fallback behavior. `ready_for_review` full host and instrumentation gates are unchanged.

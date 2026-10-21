@@ -9787,12 +9787,12 @@ BASE_REVIEW_OVERRIDES.update({
         "review_state": "PRIMARY_AGENT_STALE_SCREEN_CALLBACK_FENCE_TESTED_SURFACE_TARGET_PENDING",
     },
     "a4c9a98c182df5144e26007dadc6e74b04812fe3": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "This preserves shutdown interrupts around regression-test synchronization. It is test-only, but cancellation semantics must not let a failed assertion strand a worker or mask a shutdown timeout.",
-        "test": "PASS_STATIC: source preserves interrupt status and adds synchronization cleanup; NOT_RUN: fixed-main test execution and worker-leak/timeout behavior",
-        "related": "PR-00/PR-08 test harness reliability and EX-02 shutdown lifecycle",
-        "rollback": "Keep existing tests until the focused harness test demonstrates prompt cancellation without hidden failures.",
-        "review_state": "PRIMARY_AGENT_TEST_HARNESS_SHUTDOWN_NEEDS_EXECUTION_EVIDENCE",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This changes only an upstream-specific fake-codec test helper. Fixed main has no AndroidMediaSinkCodecDetachTest or whenVideoReleased hook, and no fixed-main test failure demonstrates a need for the helper; porting it would not validate the fork's product behavior.",
+        "test": "PASS_STATIC: origin/main contains AndroidMediaSinkStateTest and VideoDecodeQueueTest but no matching codec-detach fixture or release observer; upstream patch changes no production file",
+        "related": "Reject unrelated upstream TEST_BUILD-only helper; keep PR-07 decoder/Surface evidence on fork-specific tests and target gates",
+        "rollback": "No source or test changes imported; reconsider only after a comparable fixed-main test failure is reproduced.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_TEST_FIXTURE_NOT_APPLICABLE_FIXED_MAIN",
     },
     "6be6379f0c38c8be8a4671f3a2d30f8e005eb2eb": {
         "disposition": "NEED_EVIDENCE",

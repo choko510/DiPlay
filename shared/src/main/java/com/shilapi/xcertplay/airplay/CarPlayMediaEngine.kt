@@ -29,6 +29,29 @@ interface MediaSink {
     fun onIapMessage(bytes: ByteArray) {}
 }
 
+internal fun currentScreenListener(
+    type: Int,
+    sink: MediaSink,
+    isCurrent: () -> Boolean,
+    onClosed: (Throwable?) -> Unit,
+): ScreenStream.Listener = object : ScreenStream.Listener {
+    override fun onCodec(codec: VideoCodec) {
+        if (isCurrent()) sink.onVideoCodec(type, codec)
+    }
+
+    override fun onConfig(codecData: ByteArray) {
+        if (isCurrent()) sink.onVideoConfig(type, codecData)
+    }
+
+    override fun onFrame(naluBytes: ByteArray) {
+        if (isCurrent()) sink.onVideoFrame(type, naluBytes)
+    }
+
+    override fun onClosed(cause: Throwable?) {
+        if (isCurrent()) onClosed(cause)
+    }
+}
+
 data class AudioOwnerToken(val type: Int, val generation: Long)
 
 internal class AudioOwnerSlot<S>(private val type: Int) {
@@ -125,18 +148,17 @@ class CarPlayMediaEngine(
             }
         }
         val port = screen.listen(
-            object : ScreenStream.Listener {
-                override fun onCodec(codec: VideoCodec) = sink.onVideoCodec(type, codec)
-                override fun onConfig(codecData: ByteArray) = sink.onVideoConfig(type, codecData)
-                override fun onFrame(naluBytes: ByteArray) = sink.onVideoFrame(type, naluBytes)
-                override fun onClosed(cause: Throwable?) {
-                    Log.w(
-                        TAG,
-                        "screen stream ended type=$type reason=${cause?.message ?: "peer EOF"}",
-                    )
-                    if (streams.remove(streamKey, screen)) {
-                        sink.onScreenStreamActive(type, false)
-                    }
+            currentScreenListener(
+                type = type,
+                sink = sink,
+                isCurrent = { streams[streamKey] === screen },
+            ) { cause ->
+                Log.w(
+                    TAG,
+                    "screen stream ended type=$type reason=${cause?.message ?: "peer EOF"}",
+                )
+                if (streams.remove(streamKey, screen)) {
+                    sink.onScreenStreamActive(type, false)
                     session.close()
                 }
             },

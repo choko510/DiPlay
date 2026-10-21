@@ -9780,11 +9780,11 @@ BASE_REVIEW_OVERRIDES.update({
     },
     "13c137db578379e7476b8bf94951f3677690179a": {
         "disposition": "NEED_EVIDENCE",
-        "reason": "This adds regression tests for surface handoff, stale streams, and session adoption, relevant to PR-06/07 ownership. Source tests must be run against the fixed-main adapters and still do not replace hardware Surface/decoder checks.",
-        "test": "PASS_STATIC: source adds Surface/session lifecycle regression cases; NOT_RUN: local execution, stale-frame/decoder release, and same-session resize on TS10/K706",
+        "reason": "The upstream test commit targets Smooth-video adoption and parked MediaCodec handoff, APIs not present in fixed main. Its stale-screen-callback case is relevant and now has a fork-local callback ownership guard; actual socket/decoder handoff and target Surface evidence remain unresolved.",
+        "test": "PASS_LOCAL: CurrentScreenListenerTest verifies replaced codec/config/frame/close callbacks are suppressed; NOT_RUN: full ScreenStream socket/MediaCodec worker handoff and TS10/K706 same-session Surface/frame continuity",
         "related": "PR-06 LOCAL/PR-07 Surface ownership and EX-02 generation gates",
-        "rollback": "Keep current Surface/session behavior until the focused regression and target lifecycle matrices pass.",
-        "review_state": "PRIMARY_AGENT_SURFACE_SESSION_TESTS_NEEDS_EXECUTION_EVIDENCE",
+        "rollback": "Keep the fork-local current-screen identity fence; do not import the upstream Smooth-video parking design without its own decoder/Surface compatibility evidence.",
+        "review_state": "PRIMARY_AGENT_STALE_SCREEN_CALLBACK_FENCE_TESTED_SURFACE_TARGET_PENDING",
     },
     "a4c9a98c182df5144e26007dadc6e74b04812fe3": {
         "disposition": "NEED_EVIDENCE",

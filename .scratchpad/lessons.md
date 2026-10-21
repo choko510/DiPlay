@@ -371,6 +371,8 @@ For Wi-Fi candidates, separate mDNS address publication, hotspot readiness, Wi-F
 
 For decoder fallbacks, distinguish codec-list size support from an actual configure/output success. Verify the selected format, Surface handoff, first frame, queue lifetime, and target CPU/A/V behavior before changing codec or thread policy.
 
+A screen stream's reader thread can already be processing a message when the stream is replaced. Check ownership for each codec/config/frame/close callback, not only for recovery requests; a stale close must not close the AirPlaySession now owned by its replacement.
+
 For video overlays that retain a last frame or mask corners, test Surface destruction/recreation and bitmap release separately from visible geometry. A screenshot or Robolectric layout does not prove that the target decoder releases frames without stale content or memory growth.
 
 Treat artifact signing as a release invariant: if the configured release key is missing, failing the release build is safer than silently substituting a debug signer.

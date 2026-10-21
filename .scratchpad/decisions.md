@@ -507,3 +507,7 @@ For VIDEO_DISPLAY candidates, reject Android OS multi-window and unrequested res
 For TEST_BUILD, keep the default CI lane limited to supported product modules and reject any release-signing fallback to a debug key. Test-only helpers require a demonstrated flaky/blocked gate before they enter PR-45.
 
 EX-08 is semantically reviewed across all 1,232 base and 57 delta rows. Keep `NEED_EVIDENCE` as explicit pending target/protocol/content proof, not an adoption or parity claim; no candidate becomes product code by appearing in the ledger.
+
+## Keep draft unit feedback proportional to test-only changes
+
+When a draft update changes only JVM unit-test sources in `shared` or `common`, run that module's unit suite. If production, mixed, unknown, or unsafe paths changed, run both existing quick suites; `ready_for_review` still runs full host and emulator gates. This shortens feedback without treating a focused draft run as final verification.

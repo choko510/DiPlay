@@ -19,6 +19,7 @@ jobs:
       host: ${{ steps.classify.outputs.host }}
       full_host: ${{ steps.classify.outputs.full_host }}
       quick: ${{ steps.classify.outputs.quick }}
+      quick_scope: ${{ steps.classify.outputs.quick_scope }}
       native: ${{ steps.classify.outputs.native }}
       instrumentation: ${{ steps.classify.outputs.instrumentation }}
       safe: ${{ steps.classify.outputs.safe }}
@@ -36,6 +37,7 @@ jobs:
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
             echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=true" >> "$GITHUB_OUTPUT"
@@ -49,6 +51,7 @@ jobs:
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
             echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
@@ -59,6 +62,7 @@ jobs:
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
             echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
@@ -81,6 +85,7 @@ jobs:
               echo "host=true" >> "$GITHUB_OUTPUT"
               echo "full_host=true" >> "$GITHUB_OUTPUT"
               echo "quick=true" >> "$GITHUB_OUTPUT"
+              echo "quick_scope=both" >> "$GITHUB_OUTPUT"
               echo "native=true" >> "$GITHUB_OUTPUT"
               echo "instrumentation=true" >> "$GITHUB_OUTPUT"
               echo "safe=false" >> "$GITHUB_OUTPUT"
@@ -123,7 +128,7 @@ jobs:
             local baseline_sha="$1"
             local comparison
             if [[ -z "$baseline_sha" ]]; then
-              echo "true true"
+              echo "true true both"
               return 0
             fi
             if ! comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${baseline_sha}...${PR_HEAD_SHA}")"; then
@@ -133,16 +138,30 @@ jobs:
             local file_count
             file_count="$(jq '(.files // []) | length' <<< "$comparison")"
             if (( file_count >= 300 )); then
-              echo "true true"
+              echo "true true both"
               return 0
             fi
 
             local runtime=false
             local native=false
+            local unscoped_runtime=false
+            local test_modules=,
             while IFS= read -r path; do
               case "$path" in
                 docs/*|.scratchpad/*|.github/workflows/*|scripts/generate_step4_ex08_inventory.py|*.md) ;;
-                *) runtime=true ;;
+                shared/src/test/java/*|shared/src/test/kotlin/*)
+                  runtime=true
+                  if [[ "$test_modules" != *",shared,"* ]]; then
+                    test_modules="${test_modules}shared,"
+                  fi ;;
+                common/src/test/java/*|common/src/test/kotlin/*)
+                  runtime=true
+                  if [[ "$test_modules" != *",common,"* ]]; then
+                    test_modules="${test_modules}common,"
+                  fi ;;
+                *)
+                  runtime=true
+                  unscoped_runtime=true ;;
               esac
               case "$path" in
                 shared/src/main/jni/dsp/*|shared/src/main/jni/third_party/kissfft/*|shared/src/test/native/dsp/*|scripts/test_dsp_native.sh)
@@ -150,13 +169,27 @@ jobs:
                   native=true ;;
               esac
             done < <(jq -r '.files[]?.filename' <<< "$comparison")
-            printf '%s %s\n' "$runtime" "$native"
+            local test_scope=none
+            if [[ "$runtime" == "true" ]]; then
+              if [[ "$unscoped_runtime" == "true" ]]; then
+                test_scope=both
+              else
+                case "$test_modules" in
+                  *,shared,common,*|*,common,shared,*) test_scope=both ;;
+                  *,shared,*) test_scope=shared ;;
+                  *,common,*) test_scope=common ;;
+                  *) test_scope=both ;;
+                esac
+              fi
+            fi
+            printf '%s %s %s\n' "$runtime" "$native" "$test_scope"
           }
 
           if ! host_paths="$(classify_since "$previous_host_sha")"; then
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
             echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
@@ -166,6 +199,7 @@ jobs:
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
             echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
@@ -175,6 +209,7 @@ jobs:
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
             echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
             echo "native=true" >> "$GITHUB_OUTPUT"
             echo "instrumentation=true" >> "$GITHUB_OUTPUT"
             echo "safe=false" >> "$GITHUB_OUTPUT"
@@ -182,7 +217,7 @@ jobs:
           fi
 
           read -r host _ <<< "$host_paths"
-          read -r quick native <<< "$quick_paths"
+          read -r quick native quick_scope <<< "$quick_paths"
           read -r instrumentation _ <<< "$instrumentation_paths"
 
           full_host="$host"
@@ -193,9 +228,11 @@ jobs:
           echo "host=$host" >> "$GITHUB_OUTPUT"
           echo "full_host=$full_host" >> "$GITHUB_OUTPUT"
           echo "quick=$quick" >> "$GITHUB_OUTPUT"
+          echo "quick_scope=$quick_scope" >> "$GITHUB_OUTPUT"
           echo "native=$native" >> "$GITHUB_OUTPUT"
           echo "instrumentation=$instrumentation" >> "$GITHUB_OUTPUT"
           echo "safe=true" >> "$GITHUB_OUTPUT"
+          echo "Android CI lane: host=$host full_host=$full_host quick=$quick quick_scope=$quick_scope native=$native instrumentation=$instrumentation safe=true"
 
   check:
     needs: changes
@@ -230,9 +267,19 @@ jobs:
       - name: Host native DSP tests with ASan and UBSan
         if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.native == 'true'
         run: bash scripts/test_dsp_native.sh --sanitize
-      - name: Draft unit tests
-        if: needs.changes.outputs.quick == 'true' && needs.changes.outputs.full_host != 'true'
+      - name: Draft unit tests (all modules)
+        if: needs.changes.outputs.quick == 'true' && needs.changes.outputs.full_host != 'true' && needs.changes.outputs.quick_scope == 'both'
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest --build-cache --parallel --stacktrace
+      - name: Draft unit tests (changed test module)
+        if: needs.changes.outputs.quick == 'true' && needs.changes.outputs.full_host != 'true' && (needs.changes.outputs.quick_scope == 'shared' || needs.changes.outputs.quick_scope == 'common')
+        env:
+          DRAFT_TEST_SCOPE: ${{ needs.changes.outputs.quick_scope }}
+        run: |
+          case "$DRAFT_TEST_SCOPE" in
+            shared) ./gradlew :shared:testDebugUnitTest --build-cache --parallel --stacktrace ;;
+            common) ./gradlew :common:testDebugUnitTest --build-cache --parallel --stacktrace ;;
+            *) echo "Unexpected draft test scope: $DRAFT_TEST_SCOPE" >&2; exit 1 ;;
+          esac
       - name: Unit tests, lint, debug and optimized builds
         if: needs.changes.outputs.full_host == 'true'
         run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --parallel --stacktrace

@@ -15,7 +15,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | U-07 | NCM send `NotReady`, full `Sent`, and partial failure remain distinct | `NcmUsbBridgeFixtureTest.fakeBulkOutDistinguishesNotReadySentAndPartialFailure` | `PASS_ROBOLECTRIC` |
 | U-08 | Truncated NTH, invalid NDP, NTB32 candidate, >1 MiB garbage | `Step4TestFixturesTest`, existing `Ntb16CodecTest` | `FIXTURE_AND_CODEC_ONLY`; stream resynchronization is PR-01 work |
 | U-09 | IPv4 SYN, IPv6 SYN/SYN-ACK, TUN no-reply, accept-only, RTSP-active-only, MAIN/ALT-only timelines | `Step4TestFixtures` | `FIXTURE_ONLY`; EX-01 adds production-path observations |
-| U-10 | Recovered session followed by a second loss | `Step4VirtualScheduler` | `FIXTURE_ONLY`; EX-02 needs a production retry-policy regression test |
+| U-10 | Recovered session followed by a second loss | `ReconnectAfterLossGateTest`, `CarPlayHostActivityReconnectTest` | `PASS_LOCAL` policy and Activity timer regression; full lifecycle/owner-handoff simulation remains `NOT_RUN` |
 | U-11 | Explicitly denied microphone input, Siri/phone/default voice input | `MicrophoneRequestFixture` | `FIXTURE_ONLY`; PR-04 must test request classification and lifecycle |
 | U-12 | 55% local Split geometry, PCM16 samples, encoded-video timing/crop | `Step4TestFixturesTest` | `FIXTURE_ONLY`; PR-06/07 add production-path checks |
 | U-13 | Legacy DSP OFF, profile migration/future-schema protection, native DSP buffers | Existing DSP unit tests | `PASS_LOCAL` on base SHA; physical audio/A/V remains `NOT_RUN` |
@@ -46,7 +46,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | Evidence ID | Scenario | Main test/evidence | Status |
 |---|---|---|---|
 | EX02-01 | Failed → pending → recovered session cancels the old ticket; a later second loss gets a fresh ticket | `ReconnectAfterLossGateTest` | `PASS_LOCAL` policy test |
-| EX02-02 | Stale restart/connection/owner epochs, live session, shutdown, menu plus pending resize, handshake reset, and controller-owned wired recovery cannot trigger the delayed host retry | `ReconnectAfterLossGateTest`; `CarPlayHostActivityReconnectTest.staleOwnerEpochTicketIsRejectedByTheActivityDelayRunnable` | `PARTIAL`: `PASS_LOCAL` policy matrix and delayed Activity callback owner-epoch wiring; full Activity lifecycle/owner-handoff simulation `NOT_RUN` |
+| EX02-02 | Stale restart/connection/owner epochs, live session, shutdown, menu plus pending resize, handshake reset, controller-owned wired recovery, and replacement-timer deadlines cannot trigger a stale host retry | `ReconnectAfterLossGateTest`; `CarPlayHostActivityReconnectTest.staleOwnerEpochTicketIsRejectedByTheActivityDelayRunnable`; `CarPlayHostActivityReconnectTest.replacementLossTicketDoesNotRunAtTheFirstLossDeadline` | `PARTIAL`: policy matrix and delayed Activity callback/reticket deadline tests `PASS_LOCAL`; full Activity lifecycle/owner-handoff simulation `NOT_RUN` |
 
 ## EX-03 watchdog observation and conditional-stage dispositions
 

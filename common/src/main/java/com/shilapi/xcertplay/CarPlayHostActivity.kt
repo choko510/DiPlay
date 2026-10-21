@@ -4402,12 +4402,14 @@ class CarPlayHostActivity : ComponentActivity() {
             appendLog("Wired controller owns recovery; host retry skipped")
             return
         }
+        val previousTicket = scheduledReconnectTicket
         val ticket = reconnectAfterLossGate.schedule(
             restartGeneration = restartGeneration,
             connectionEpoch = connectionEpoch,
             ownerEpoch = CarPlayBackgroundSession.ownerEpoch(),
             controllerManaged = controllerManaged,
         ) ?: return
+        if (previousTicket != null) mainHandler.removeCallbacks(restartAfterReconnectDelay)
         val delayMillis = if (reason.contains("AirPlay iAP tunnel", ignoreCase = true)) {
             IAP_TUNNEL_RECONNECT_DELAY_MILLIS
         } else {

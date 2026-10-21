@@ -168,6 +168,11 @@ jobs:
                   if [[ "$test_modules" != *",shared,"* ]]; then
                     test_modules="${test_modules}shared,"
                   fi ;;
+                common/src/main/java/*|common/src/main/kotlin/*)
+                  runtime=true
+                  if [[ "$test_modules" != *",common,"* ]]; then
+                    test_modules="${test_modules}common,"
+                  fi ;;
                 common/src/test/java/*|common/src/test/kotlin/*)
                   runtime=true
                   if [[ "$test_modules" != *",common,"* ]]; then

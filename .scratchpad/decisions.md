@@ -310,4 +310,4 @@ For the v3 implementation, start from fork main SHA `95ba398f95ee104527812cd2b09
 
 ## Use a conservative fast-feedback CI classifier
 
-For PR-00, skip Android/Gradle runtime setup on documentation-only changes, run shared/common unit tests on draft source changes, and retain the full native/host/Android-instrumentation gates for ready-for-review code and non-PR builds. If path comparison is missing, too large, or errors, fall back to full verification. Cancel superseded PR runs; do not turn unknown paths into skipped checks.
+For PR-00, skip Android/Gradle runtime setup on documentation-only changes, run shared/common unit tests on draft source changes, and retain the full native/host/Android-instrumentation gates for ready-for-review code and non-PR builds. If path comparison is missing, too large, or errors, fall back to full verification. Cancel superseded runs on the same PR/branch ref; do not turn unknown paths into skipped checks.

@@ -303,3 +303,7 @@ Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Al
 ## Include both APK signing schemes for mobile debug distribution
 
 Explicitly configure the mobile debug signing config for v1 and v2 so OEM installers that depend on JAR signatures can parse the APK. Verify the resulting artifact with `apksigner`; the manifest minSdk can affect which scheme is reported as applicable.
+
+## Keep PR-00 fixtures separate from production behavior
+
+PR-00 uses Robolectric shadows around the main `NcmUsbBridge` constructor and fail-closed synthetic USB/TUN inputs. The fake transfer defaults are NotReady/queue-false/requestWait-timeout; tests must script success explicitly. These fixtures establish deterministic layer inputs, not interface claiming, Android VPN behavior, iPhone protocol acceptance, or hardware success. Production code remains unchanged in this PR.

@@ -303,3 +303,7 @@ Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Al
 ## Include both APK signing schemes for mobile debug distribution
 
 Explicitly configure the mobile debug signing config for v1 and v2 so OEM installers that depend on JAR signatures can parse the APK. Verify the resulting artifact with `apksigner`; the manifest minSdk can affect which scheme is reported as applicable.
+
+## Make Step4 USB fixtures fail closed
+
+Require an explicit scripted result for each USB bulk/control transfer, queue, and requestWait call. A missing outcome throws in the test fake instead of implying success; timeout, null, unexpected completion, partial OUT and close-during-wait stay distinct. Keep this test-only seam independent of NCM production behavior.

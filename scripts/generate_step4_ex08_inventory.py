@@ -5489,12 +5489,12 @@ BASE_REVIEW_OVERRIDES.update({
         "review_state": "PRIMARY_AGENT_SETTINGS_LIFECYCLE_NEEDS_TARGET_EVIDENCE",
     },
     "2a1ff698b82b83aaa31fa0d4f511f874e49404d1": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The patch limits process-exit details to three own-app numeric records and excludes traces, descriptions, and process-state blobs. Exported reports still reveal exit timing, reason, importance, and memory data, so privacy, consent, and retention need review.",
-        "test": "PASS_STATIC: API 30+ own-package query, three-record cap, numeric-only output, and redactor coverage; NOT_RUN: diagnostic export privacy/consent review",
-        "related": "EX-01/PR-08 diagnostic privacy, redaction, and retention gates",
-        "rollback": "Keep process-exit metadata out of shared diagnostic reports until privacy, consent, and retention are approved.",
-        "review_state": "PRIMARY_AGENT_DIAGNOSTIC_METADATA_NEEDS_PRIVACY_REVIEW",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This adds automatic theme/session-state samples and historical process-exit timing/reason/importance/PSS/RSS to the exported report. The v3 EX-01 scope is per-attempt wired-path telemetry and does not call for theme or process-exit reporting; the upstream test confirms these fields survive redaction, so consent/retention remain unproven. Reject the extra report expansion rather than widening STEP4 diagnostics.",
+        "test": "PASS_STATIC: upstream diff adds theme/process-exit report fields and bounded own-app history; tests assert the new fields remain unchanged by DiagnosticRedactor; no fixed-main or v3 requirement needs these fields",
+        "related": "Reject out-of-scope theme/process-exit telemetry; keep EX-01 focused on its fixed WIRED_PATH_V1 per-attempt schema and retain PR-08 privacy gates",
+        "rollback": "No theme/process-exit telemetry imported; fixed-main diagnostic report fields and behavior remain in use.",
+        "review_state": "PRIMARY_AGENT_EXTRA_PROCESS_METADATA_OUT_OF_STEP4_REJECT",
     },
     "f8b8f53a212ae1643fcf4fa7ba3ed744992dff11": {
         "disposition": "NEED_EVIDENCE",

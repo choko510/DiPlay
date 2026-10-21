@@ -53,7 +53,7 @@ Base SHA `95ba398f95ee104527812cd2b095977d71c51f98` ran shared/common 589 unit t
 | `:shared:testDebugUnitTest :common:testDebugUnitTest` after fixture addition | `PASS_LOCAL`: shared 464 + common 136 = 600; 0 failures, 0 errors, 0 skipped | Incremental invocation reran shared tests; unchanged common result was up-to-date from the preceding uncached run. Eleven new shared fixture tests; no production source changes. |
 | `Step4TestFixturesTest` | `PASS_LOCAL`: 5 tests | NTB valid/split/coalesced/pad/malformed inputs; endpoint/startup/mic/Split/PCM/video fixture data; explicit TUN outcomes; virtual scheduler. |
 | `NcmUsbBridgeFixtureTest` | `PASS_LOCAL`: 6 tests | Actual NCM bridge with scripted Robolectric USB: verifies 32 KiB request capacity and READ_QUEUED → FIRST_USB_COMPLETION → FIRST_ETHERNET_RX ordering; timeout retains one request; close wakes the receiver and cancels once; rejection/null/unexpected results remain distinct; NotReady/full/partial OUT results stay typed. |
-| `scripts/test_classify_android_ci.py` | `PASS_LOCAL`: 11 tests | Static, draft, native, ready, unknown, missing-path, static-root/source mix, same-repository, fork-head and API-failure fallback cases. |
+| `scripts/test_classify_android_ci.py` | `PASS_LOCAL`: 10 tests | Static, draft, native, ready, unknown, missing-path, static-root/source mix, PR file-list URL and API-failure fallback cases. |
 | `bash -n scripts/run_android_instrumentation.sh scripts/test_dsp_native.sh` | `PASS_LOCAL` | Both changed/existing test scripts parse under MSYS2 Bash. |
 | `scripts/run_android_instrumentation.sh` after marker-scoped capture | `PASS_EMULATOR`: 16/16, 0 failures/errors/skips; 120 fresh benchmark records | Medium Phone API 36.1 x86_64 emulator. No physical target proof. |
 

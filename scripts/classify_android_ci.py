@@ -7,7 +7,6 @@ import json
 import os
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 
 
@@ -85,26 +84,16 @@ def full_verification(safe: bool) -> dict[str, bool]:
     }
 
 
-def compare_url(repository: str, head_repository: str, base_sha: str, head_sha: str) -> str:
-    base_ref = base_sha
-    head_ref = head_sha
-    if head_repository.lower() != repository.lower():
-        base_owner = repository.split("/", maxsplit=1)[0]
-        head_owner = head_repository.split("/", maxsplit=1)[0]
-        base_ref = f"{base_owner}:{base_sha}"
-        head_ref = f"{head_owner}:{head_sha}"
-    base_head = urllib.parse.quote(f"{base_ref}...{head_ref}", safe=":.")
-    return f"https://api.github.com/repos/{repository}/compare/{base_head}?per_page=100"
+def pull_request_files_url(repository: str, pull_number: int) -> str:
+    return f"https://api.github.com/repos/{repository}/pulls/{pull_number}/files?per_page=100&page=1"
 
 
 def fetch_changed_paths(
     repository: str,
-    head_repository: str,
-    base_sha: str,
-    head_sha: str,
+    pull_number: int,
     token: str,
 ) -> list[str]:
-    url = compare_url(repository, head_repository, base_sha, head_sha)
+    url = pull_request_files_url(repository, pull_number)
     request = urllib.request.Request(
         url,
         headers={
@@ -115,16 +104,15 @@ def fetch_changed_paths(
         },
     )
     with urllib.request.urlopen(request, timeout=20) as response:
-        comparison = json.load(response)
+        files = json.load(response)
 
-    files = comparison.get("files")
     if not isinstance(files, list) or len(files) >= 100:
-        raise ValueError("changed-file list is missing or at the compare API limit")
+        raise ValueError("pull-request file list is missing or at the page limit")
     if any(
         not isinstance(entry, dict) or not isinstance(entry.get("filename"), str)
         for entry in files
     ):
-        raise ValueError("changed-file list contains an invalid entry")
+        raise ValueError("pull-request file list contains an invalid entry")
     return [entry["filename"] for entry in files]
 
 
@@ -136,27 +124,24 @@ def classify_event(event_name: str, event: dict, repository: str, token: str) ->
     if not isinstance(pull_request, dict):
         print("::warning::Android CI classifier has no pull_request event object; running full verification")
         return full_verification(safe=False)
-    base_sha = (pull_request.get("base") or {}).get("sha")
-    head_sha = (pull_request.get("head") or {}).get("sha")
-    head_repository = (pull_request.get("head") or {}).get("repo") or {}
-    head_repository_name = head_repository.get("full_name")
-    if not base_sha or not head_sha or not head_repository_name or not repository or not token:
-        print("::warning::Android CI classifier is missing compare metadata or read token; running full verification")
+    pull_number = pull_request.get("number") or event.get("number")
+    if not isinstance(pull_number, int) or pull_number <= 0 or not repository or not token:
+        print("::warning::Android CI classifier is missing pull number or read token; running full verification")
         return full_verification(safe=False)
 
     try:
-        paths = fetch_changed_paths(repository, head_repository_name, base_sha, head_sha, token)
+        paths = fetch_changed_paths(repository, pull_number, token)
     except (OSError, TimeoutError, ValueError, urllib.error.URLError, json.JSONDecodeError) as error:
         status = f" HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else ""
         print(
-            "::warning::Android CI changed-file comparison failed "
+            "::warning::Android CI pull-request file listing failed "
             f"({type(error).__name__}{status}); running full verification"
         )
         return full_verification(safe=False)
     result = classify_paths(paths, draft=bool(pull_request.get("draft")))
     if not result["safe"]:
         print(
-            "::warning::Android CI changed-file list is empty, too large, or contains an unclassified path; "
+            "::warning::Android CI pull-request file list is empty, too large, or contains an unclassified path; "
             "running full verification"
         )
     return result

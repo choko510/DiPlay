@@ -4,33 +4,15 @@ from io import StringIO
 import unittest
 from unittest.mock import patch
 
-from classify_android_ci import classify_event, classify_paths, compare_url
+from classify_android_ci import classify_event, classify_paths, pull_request_files_url
 
 
 class ClassifyAndroidCiTest(unittest.TestCase):
-    def test_same_repository_compare_uses_base_and_head_shas(self):
-        url = compare_url(
-            "choko510/DiPlay",
-            "choko510/DiPlay",
-            "base-sha",
-            "head-sha",
-        )
+    def test_pull_request_files_url_uses_repository_and_pr_number(self):
+        url = pull_request_files_url("choko510/DiPlay", 49)
 
         self.assertEqual(
-            "https://api.github.com/repos/choko510/DiPlay/compare/base-sha...head-sha?per_page=100",
-            url,
-        )
-
-    def test_fork_compare_qualifies_the_head_owner(self):
-        url = compare_url(
-            "choko510/DiPlay",
-            "contributor/DiPlay",
-            "base-sha",
-            "head-sha",
-        )
-
-        self.assertEqual(
-            "https://api.github.com/repos/choko510/DiPlay/compare/choko510:base-sha...contributor:head-sha?per_page=100",
+            "https://api.github.com/repos/choko510/DiPlay/pulls/49/files?per_page=100&page=1",
             url,
         )
 
@@ -117,10 +99,9 @@ class ClassifyAndroidCiTest(unittest.TestCase):
 
     def test_compare_api_error_falls_back_to_full_verification(self):
         event = {
+            "number": 49,
             "pull_request": {
                 "draft": True,
-                "base": {"sha": "base-sha"},
-                "head": {"sha": "head-sha", "repo": {"full_name": "choko510/DiPlay"}},
             },
         }
         with patch("classify_android_ci.fetch_changed_paths", side_effect=TimeoutError), redirect_stdout(StringIO()):

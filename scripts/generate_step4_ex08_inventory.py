@@ -9648,12 +9648,12 @@ BASE_REVIEW_OVERRIDES.update({
         "review_state": "PRIMARY_AGENT_RELEASE_SIGNING_FALLBACK_REJECT",
     },
     "012d8f365bb6494b5ec2a1a8832d1a16b617ec0f": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "This makes the FakeAdbd test fixture close active sockets and shorten joins so permission/ADB tests do not hang. It changes test synchronization only; verify the fixture still detects a genuinely stuck approval worker rather than masking it.",
-        "test": "PASS_STATIC: source closes the active fake socket and bounds worker waits; NOT_RUN: targeted ADB approval tests and flake/timeout comparison on the current test lane",
-        "related": "PR-00/EX-04 ADB permission and test-fixture lifecycle",
-        "rollback": "Keep the current fixture until the focused ADB test demonstrates no leaks and no hidden worker timeouts.",
-        "review_state": "PRIMARY_AGENT_FAKE_ADBD_FIXTURE_NEEDS_TEST_EVIDENCE",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This changes only the upstream CarHotspotAdbGrantTest FakeAdbd fixture. Fixed main and the fork have no matching test class or helper, no product source changes, and no fork-local test failure demonstrates a worker join hang; importing the fixture cleanup would add unrelated upstream-only test code.",
+        "test": "PASS_STATIC: the upstream patch changes only common/src/test/java/com/shilapi/xcertplay/CarHotspotAdbGrantTest.kt; fixed-main source and tests contain no CarHotspotAdbGrantTest, FakeAdbd, or LocalAdb helper, and no product file changed",
+        "related": "Reject unrelated upstream TEST_BUILD-only fixture; EX-04 remains gated on target ADB permission evidence",
+        "rollback": "No source or test changes imported; reconsider only if a matching fixed-main test is added and a fork-local worker hang is reproduced.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_TEST_FIXTURE_NOT_APPLICABLE_FIXED_MAIN",
     },
     "8513f9c8f0158243690adb5d2c698c9a90ed5570": {
         "disposition": "REJECT_UNSAFE",

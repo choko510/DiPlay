@@ -19,6 +19,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - The existing `:shared:testDebugUnitTest`/`:common:testDebugUnitTest` project tasks still compile the module test sources, while Gradle executes only the selected test classes for this narrow draft case. Workflow-only run #300 skipped runtime work; run #305 was the first hosted exercise and selected only the modified MFi class.
 - A local run of the modified `RemoteMfiAuthenticationClientTest` class passed 5/5 in 8 s. Hosted run #305 passed the class-filtered test step; its Gradle task took 1m20. This is not a controlled comparison with full shared-suite run #297 (Gradle 1m04), so this sample does not demonstrate lower wall time.
 - GitHub Actions run #300 passed on workflow head `a27f4f0`; public-tree and EX-08 checks ran, and Android SDK, Gradle, native, unit-test, and emulator jobs skipped as expected for a workflow-only draft update. This validates the static lane, not the new class filter or its runtime savings.
+- PR run #312 on `77446c7` selected only `shared|com.shilapi.xcertplay.airplay.CarPlayMediaEngineTest` after inspecting eight recent commits and passed the class-filtered lane. The test job's Gradle step took 1m06; local execution passed 14/14 in 8 s. This confirms the narrowed selection, but setup and cleanup dominate enough that no overall wall-time reduction is claimed versus differently scoped runs.
 
 ## 2026-10-21 — Scope draft JVM tests to test-only module changes
 

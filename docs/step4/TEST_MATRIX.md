@@ -71,6 +71,6 @@ Definitions and acceptance criteria are retained from v3 §8.3 and §R-04. This 
 | R4-D-01 | `PURE_JVM_PASS` (limited) | Existing DSP-off PCM normalization test; full legacy PCM golden matrix not run. |
 | R4-D-02–D-06 | `NOT_RUN` | Seat/M-S/Cabin/Harmonic/real-time allocation acceptance. |
 | R4-G-01–G-03 | `NOT_RUN` | Feature rollback, BYD guard and EndSession/revert regression. |
-| R4-G-04 | `BLOCKED` locally / hosted pending | Debug lint/build, Benchmark build and JNI mapping passed; local ASan/UBSan linker is unavailable and CI from this new branch has not run. |
+| R4-G-04 | `BLOCKED` (release-specific) | Configured host/instrumentation CI run #277 passed, including hosted ASan/UBSan; explicit Release APK/signing and hardware rollback/update remain `NOT_RUN`. |
 
 Every `NOT_RUN` remains open for its owning stage. The matrix is not a release sign-off.

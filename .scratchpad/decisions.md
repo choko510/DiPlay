@@ -307,3 +307,7 @@ Explicitly configure the mobile debug signing config for v1 and v2 so OEM instal
 ## Make Step4 USB fixtures fail closed
 
 Require an explicit scripted result for each USB bulk/control transfer, queue, and requestWait call. A missing outcome throws in the test fake instead of implying success; timeout, null, unexpected completion, partial OUT and close-during-wait stay distinct. Keep this test-only seam independent of NCM production behavior.
+
+## Keep draft CI quick while retaining a full review gate
+
+For draft PR updates, always run the changed shared/common JVM suite; add host native DSP and ASan/UBSan when native DSP sources/tests change. Defer app lint/build/JNI and emulator instrumentation until the PR is ready for review. Build configuration, large diffs, unknown paths or classifier failures fall back to the complete checks. Pushes to main, manual runs and ready-for-review PRs keep every existing gate.

@@ -1,5 +1,9 @@
 # Lessons
 
+## Keep measurement diagnostics separate from behavior and evidence
+
+Introduce instrumentation through a shared per-attempt observer with bounded, immutable summaries. Keep packet parsing independent from Android, avoid payload/address retention, and preserve existing transfer and retry owners. Label emulator, hosted CI and hardware evidence separately; a skipped draft job is not new source-test evidence.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

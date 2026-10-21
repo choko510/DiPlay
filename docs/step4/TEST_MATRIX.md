@@ -12,7 +12,8 @@ Definitions and acceptance criteria are retained from v3 §8.3 and §R-04. This 
 | Existing Android instrumentation baseline | `EMULATOR_PASS` — 16 methods, 0 failures/errors/skips | API 36.1 x86_64 emulator only |
 | PFD socket-pair fixture | `EMULATOR_PASS` — 1 test; post-fixture instrumentation 17/17 | Validates Android PFD duplex I/O only, not VPN/TUN/NCM integration. |
 | Existing native DSP C test | `PASS` unsanitized | MSYS2 UCRT GCC 15.2 |
-| Existing host ASan/UBSan command | `BLOCKED` | local linker lacks `libasan`/`libubsan`; hosted CI has not yet run from this branch |
+| Existing host ASan/UBSan command | `BLOCKED_LOCAL`, `PASS_HOSTED` | local linker lacks `libasan`/`libubsan`; PR #50 hosted run #277 passed ASan/UBSan |
+| Draft incremental CI classifier | `PASS` | PR #50 run #279 compared against successful run #278 for the same PR/base. The docs/workflow-only delta skipped Gradle and AndroidTest; this is timing/classifier evidence, not new source-test evidence. |
 | Debug lint / Debug and Benchmark APKs | `PASS` | mobile and automotive; four existing warnings per app recorded in `BASELINE.md` |
 | `check_public_tree.py` / JNI R8 mapping | `PASS` | both Benchmark mappings verified |
 | Physical TS10/K706/iPhone gates | `NOT_RUN` | no physical target connected |

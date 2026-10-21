@@ -9982,12 +9982,12 @@ BASE_REVIEW_OVERRIDES.update({
         "review_state": "PRIMARY_AGENT_RELEASE_AGGREGATE_MERGE_REJECT",
     },
     "b1aa46fe51c9e99225381dd18e17767f896b77ea": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The fixed-main MFi test uses a 50 ms read deadline even for the unretried reset request; the upstream run reported a busy-runner reset timeout. The fork test now gives ordinary requests 750 ms and keeps a 1.5 s first-sign delay so the retry and stable request ID are still exercised; wait for the hosted class-filter run before finalizing this test-only adaptation.",
-        "test": "PASS_LOCAL: RemoteMfiAuthenticationClientTest, 5/5 tests with zero failures/errors/skips using :shared:testDebugUnitTest --tests com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClientTest (Gradle 8 s); NOT_RUN_GITHUB: pending hosted class-filter run; no production MFi code changed",
+        "disposition": "ADAPT",
+        "reason": "The fixed-main MFi test used a 50 ms read deadline even for its unretried reset request; upstream CI recorded a busy-runner SocketTimeoutException at reset. Adapt only the test fixture to use 750 ms for ordinary requests while delaying the first signing response 1.5 s, which still forces the stable-request-ID retry without changing production authentication behavior.",
+        "test": "PASS_LOCAL: RemoteMfiAuthenticationClientTest, 5/5 tests with zero failures/errors/skips using :shared:testDebugUnitTest --tests com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClientTest (Gradle 8 s); PASS_GITHUB: run #305 selected quick_scope=shared and quick_test_filters=shared|com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClientTest, then Draft unit tests succeeded; no production MFi code changed",
         "related": "PR-00 CI/device authentication baseline and PR-01 MFi/iAP2 ownership",
         "rollback": "Revert only the fixture timing values if the focused hosted class fails or stops proving the stable request-ID retry; keep the fixed-main MFi client unchanged.",
-        "review_state": "PRIMARY_AGENT_MFI_TEST_TIMEOUT_LOCAL_PASS_HOSTED_PENDING",
+        "review_state": "PRIMARY_AGENT_MFI_TEST_TIMEOUT_ADAPTED_LOCAL_AND_HOSTED_CLASS_PASS",
     },
     "6d61fa0d68c4a6fe9d477a744b23ec6c5396601d": {
         "disposition": "NEED_EVIDENCE",

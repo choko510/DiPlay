@@ -48,6 +48,7 @@ def classify_paths(paths: list[str], draft: bool) -> dict[str, bool]:
     if any(
         not path.startswith(RUNTIME_PREFIXES)
         and path not in RUNTIME_ROOT_FILES
+        and path not in STATIC_ROOT_FILES
         and not path.lower().endswith(".md")
         for path in normalized
     ):
@@ -133,19 +134,32 @@ def classify_event(event_name: str, event: dict, repository: str, token: str) ->
 
     pull_request = event.get("pull_request")
     if not isinstance(pull_request, dict):
+        print("::warning::Android CI classifier has no pull_request event object; running full verification")
         return full_verification(safe=False)
     base_sha = (pull_request.get("base") or {}).get("sha")
     head_sha = (pull_request.get("head") or {}).get("sha")
     head_repository = (pull_request.get("head") or {}).get("repo") or {}
     head_repository_name = head_repository.get("full_name")
     if not base_sha or not head_sha or not head_repository_name or not repository or not token:
+        print("::warning::Android CI classifier is missing compare metadata or read token; running full verification")
         return full_verification(safe=False)
 
     try:
         paths = fetch_changed_paths(repository, head_repository_name, base_sha, head_sha, token)
-    except (OSError, TimeoutError, ValueError, urllib.error.URLError, json.JSONDecodeError):
+    except (OSError, TimeoutError, ValueError, urllib.error.URLError, json.JSONDecodeError) as error:
+        status = f" HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else ""
+        print(
+            "::warning::Android CI changed-file comparison failed "
+            f"({type(error).__name__}{status}); running full verification"
+        )
         return full_verification(safe=False)
-    return classify_paths(paths, draft=bool(pull_request.get("draft")))
+    result = classify_paths(paths, draft=bool(pull_request.get("draft")))
+    if not result["safe"]:
+        print(
+            "::warning::Android CI changed-file list is empty, too large, or contains an unclassified path; "
+            "running full verification"
+        )
+    return result
 
 
 def main() -> int:
@@ -159,6 +173,7 @@ def main() -> int:
             token=os.environ.get("GH_TOKEN", ""),
         )
     except (KeyError, OSError, json.JSONDecodeError):
+        print("::warning::Android CI event payload is unreadable; running full verification")
         result = full_verification(safe=False)
 
     output = os.environ.get("GITHUB_OUTPUT")

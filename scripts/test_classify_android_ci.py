@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from contextlib import redirect_stdout
+from io import StringIO
 import unittest
 from unittest.mock import patch
 
@@ -62,6 +64,18 @@ class ClassifyAndroidCiTest(unittest.TestCase):
         self.assertFalse(result["native"])
         self.assertFalse(result["instrumentation"])
 
+    def test_static_root_file_mixed_with_source_keeps_the_draft_unit_lane(self):
+        result = classify_paths(
+            [".gitignore", "shared/src/test/java/com/example/TransportTest.kt"],
+            draft=True,
+        )
+
+        self.assertTrue(result["quick"])
+        self.assertFalse(result["full_host"])
+        self.assertFalse(result["native"])
+        self.assertFalse(result["instrumentation"])
+        self.assertTrue(result["safe"])
+
     def test_draft_native_change_adds_native_suite(self):
         result = classify_paths(["shared/src/main/jni/dsp/dsp_engine.c"], draft=True)
 
@@ -109,7 +123,7 @@ class ClassifyAndroidCiTest(unittest.TestCase):
                 "head": {"sha": "head-sha", "repo": {"full_name": "choko510/DiPlay"}},
             },
         }
-        with patch("classify_android_ci.fetch_changed_paths", side_effect=TimeoutError):
+        with patch("classify_android_ci.fetch_changed_paths", side_effect=TimeoutError), redirect_stdout(StringIO()):
             result = classify_event("pull_request", event, "choko510/DiPlay", "example-token")
 
         self.assertTrue(result["full_host"])

@@ -9763,12 +9763,12 @@ BASE_REVIEW_OVERRIDES.update({
         "review_state": "PRIMARY_AGENT_IMAGE_PICKER_TEST_ONLY_OUT_OF_SCOPE_REJECT",
     },
     "9d1176b294b506b25db4968e160e54538b6b5170": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "This checks document-picker filtering against AndroidX's contract, which could support the conditional private diagnostic-export fallback. Verify the provider/filter behavior on supported Android versions before changing report export.",
-        "test": "PASS_STATIC: source adds contract-level picker filtering cases; NOT_RUN: AndroidX chooser behavior on API 28/29/30+ and URI grants on target",
-        "related": "PR-00/EX-01 diagnostic report export; paired with source candidate 205/285",
-        "rollback": "Keep fixed-main export selection until picker and URI-grant behavior is verified on target.",
-        "review_state": "PRIMARY_AGENT_DIAGNOSTIC_PICKER_TEST_NEEDS_EXECUTION_EVIDENCE",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This changes only upstream CarButtonImagePickerTest intent assertions for the existing custom CarPlay icon picker. The v3 plan does not include custom icon picker behavior, fixed main has no matching test file, and the commit changes no STEP4 product path; it is unrelated to diagnostic report export.",
+        "test": "PASS_STATIC: upstream diff changes only common/src/test/java/com/shilapi/xcertplay/CarButtonImagePickerTest.kt; fixed main retains the existing imagePicker.launch(\"image/*\") flow but has no corresponding test, and no STEP4 production path changed",
+        "related": "Reject out-of-scope upstream TEST_BUILD-only custom icon picker assertions; keep diagnostic export/privacy candidates separate",
+        "rollback": "No image-picker test changes imported; preserve fixed-main custom icon behavior and revisit only if the user adds it to STEP4 scope.",
+        "review_state": "PRIMARY_AGENT_TEST_ONLY_IMAGE_PICKER_OUT_OF_STEP4_SCOPE_REJECT",
     },
     "b752fb992850733e4f345a3a8c3ecffe086b3148": {
         "disposition": "REJECT_UNSAFE",

@@ -189,6 +189,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | App lint/build | Both app Debug/Benchmark builds and lints passed | No release signing/update exercise |
 | EX-01 branch verification | 483 shared + 137 common unit tests; both app lints and Debug/Benchmark assemblies passed | Full target-path and performance A/B remain `NOT_RUN` |
 | PR-01 + EX-02 working-tree verification | 495 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Device path and independent second review remain `NOT_RUN` |
+| PR-01 focused current-head verification | `:shared:testDebugUnitTest --tests com.shilapi.xcertplay.transport.NcmUsbBridgeFixtureTest`: 20/20; zero failures/errors/skips; Gradle completed in 8 s | Robolectric fixtures do not establish TS10/K706 USB endpoint behavior; PR01-04 remains `NOT_RUN` |
 | PR-04 working-tree verification | 502 shared + 142 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Physical microphone/Siri/call/voice-message checks remain `NOT_RUN` |
 | PR-06 LOCAL working-tree verification | 502 shared + 147 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Physical 20-cycle same-session validation remains `NOT_RUN` |
 | PR-05 working-tree verification | 507 shared + 147 common tests; zero failures/errors/skips; both app lints and Debug/Benchmark assemblies passed | Multi-area `/info` acceptance and dynamic wire behavior remain `NOT_RUN` |

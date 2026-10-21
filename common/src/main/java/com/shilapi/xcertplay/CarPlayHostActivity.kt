@@ -3812,6 +3812,7 @@ class CarPlayHostActivity : ComponentActivity() {
         videoWidth: Int,
         videoHeight: Int,
         controllerGeneration: Int,
+        controllerConnectionEpoch: Long,
     ): AndroidMediaSink {
         // Capture this session's log: late decoder shutdown must not write into a new session.
         val diagnosticLog = sessionLog
@@ -3830,11 +3831,11 @@ class CarPlayHostActivity : ComponentActivity() {
             transport = if (wirelessEnabled) "wireless" else "wired",
             audioManager = getSystemService(AudioManager::class.java),
             onScreenStreamActiveChanged = { type, active ->
-                onScreenStreamStateChanged(controllerGeneration, type, active)
+                onScreenStreamStateChanged(controllerGeneration, controllerConnectionEpoch, type, active)
             },
             mediaBufferMillis = AirPlayPersistence.loadMediaBufferMillis(this),
             onVideoFrameSubmittedToSurface = { type ->
-                onVideoFrameSubmittedToSurface(controllerGeneration, type)
+                onVideoFrameSubmittedToSurface(controllerGeneration, controllerConnectionEpoch, type)
             },
             onAudioDiagnostic = { message ->
                 diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
@@ -3849,12 +3850,19 @@ class CarPlayHostActivity : ComponentActivity() {
             audioCaptureDirectory = audioCaptureDirectory(),
         )
 
-    private fun createSessionListener(controllerGeneration: Int): AirPlaySessionListener =
+    private fun isCurrentControllerCallback(controllerGeneration: Int, controllerConnectionEpoch: Long): Boolean =
+        controllerGeneration == restartGeneration && controllerConnectionEpoch == connectionEpoch &&
+            CarPlayBackgroundSession.isOwner(this)
+
+    private fun createSessionListener(
+        controllerGeneration: Int,
+        controllerConnectionEpoch: Long,
+    ): AirPlaySessionListener =
         object : AirPlaySessionListener {
             override fun onSessionActive(session: AirPlaySession) {
                 runOnUiThread {
                     if (
-                        controllerGeneration != restartGeneration ||
+                        !isCurrentControllerCallback(controllerGeneration, controllerConnectionEpoch) ||
                         session.isClosed ||
                         controller?.currentAirPlaySession() !== session
                     ) {
@@ -3897,7 +3905,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 runOnUiThread {
                     val currentControllerSession = controller?.currentAirPlaySession()
                     if (
-                        controllerGeneration != restartGeneration ||
+                        !isCurrentControllerCallback(controllerGeneration, controllerConnectionEpoch) ||
                         activeAirPlaySession !== session ||
                         (currentControllerSession != null && currentControllerSession !== session)
                     ) {
@@ -3935,7 +3943,9 @@ class CarPlayHostActivity : ComponentActivity() {
 
             override fun onDeviceInfo(session: AirPlaySession, info: AirPlayDeviceInfo) {
                 runOnUiThread {
-                    if (controllerGeneration != restartGeneration || session.isClosed) return@runOnUiThread
+                    if (!isCurrentControllerCallback(controllerGeneration, controllerConnectionEpoch) || session.isClosed) {
+                        return@runOnUiThread
+                    }
                     if (
                         activeAirPlaySession !== session ||
                         controller?.currentAirPlaySession() !== session
@@ -3950,7 +3960,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
             override fun onTransportError(message: String) {
                 runOnUiThread {
-                    if (menuOpen || controllerGeneration != restartGeneration) {
+                    if (menuOpen || !isCurrentControllerCallback(controllerGeneration, controllerConnectionEpoch)) {
                         return@runOnUiThread
                     }
                     if (controller?.isWiredRecoveryManagedByController() == true) {
@@ -3968,7 +3978,7 @@ class CarPlayHostActivity : ComponentActivity() {
             override fun onHostUiRequested(session: AirPlaySession) {
                 runOnUiThread {
                     if (
-                        controllerGeneration != restartGeneration ||
+                        !isCurrentControllerCallback(controllerGeneration, controllerConnectionEpoch) ||
                         isFinishing ||
                         isDestroyed
                     ) {
@@ -3986,7 +3996,7 @@ class CarPlayHostActivity : ComponentActivity() {
             override fun onDebugLog(message: String) {
                 if (DiagnosticRedactor.redact(message) == null) return
                 runOnUiThread {
-                    if (controllerGeneration != restartGeneration) {
+                    if (!isCurrentControllerCallback(controllerGeneration, controllerConnectionEpoch)) {
                         return@runOnUiThread
                     }
                     DisplayDiagnosticSnapshot.record(this@CarPlayHostActivity, displayDiagnosticAttempt, message)
@@ -4002,8 +4012,9 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun createStatusReporter(
         controllerGeneration: Int,
+        controllerConnectionEpoch: Long,
     ): (CarPlayStatus) -> Unit = { status ->
-        if (!menuOpen && controllerGeneration == restartGeneration) {
+        if (!menuOpen && isCurrentControllerCallback(controllerGeneration, controllerConnectionEpoch)) {
             updateHotspotStatus(status)
             val description = status.describe()
             setConnectionStage(description)
@@ -4049,15 +4060,16 @@ class CarPlayHostActivity : ComponentActivity() {
             CarPlayBackgroundSession.active = true
         }
         val generation = restartGeneration
+        val controllerConnectionEpoch = connectionEpoch
         snapshot.controller.attachUi(
-            createSessionListener(generation),
-            createStatusReporter(generation),
+            createSessionListener(generation, controllerConnectionEpoch),
+            createStatusReporter(generation, controllerConnectionEpoch),
         )
         snapshot.sink.setScreenStreamActiveChangedListener { type, active ->
-            onScreenStreamStateChanged(restartGeneration, type, active)
+            onScreenStreamStateChanged(generation, controllerConnectionEpoch, type, active)
         }
         snapshot.sink.setVideoFrameSubmittedToSurfaceListener { type ->
-            onVideoFrameSubmittedToSurface(generation, type)
+            onVideoFrameSubmittedToSurface(generation, controllerConnectionEpoch, type)
         }
         currentSurface?.let(::attachSurface)
         val serviceReused = snapshot.controller.hasActiveAirPlayAttachment()
@@ -4086,6 +4098,7 @@ class CarPlayHostActivity : ComponentActivity() {
         cancelPendingReconnectAfterLoss()
         connectionEpoch++
         val controllerGeneration = restartGeneration
+        val controllerConnectionEpoch = connectionEpoch
         val config = createRuntimeConfig()
         val airPlayConfig = createAirPlayConfig(size)
         localViewportSize = currentCarPlayViewportSize() ?: size
@@ -4122,6 +4135,7 @@ class CarPlayHostActivity : ComponentActivity() {
             videoWidth = airPlayConfig.main.widthPixels,
             videoHeight = airPlayConfig.main.heightPixels,
             controllerGeneration = controllerGeneration,
+            controllerConnectionEpoch = controllerConnectionEpoch,
         )
         sink = renderer
         currentSurface?.let(::attachSurface)
@@ -4139,9 +4153,9 @@ class CarPlayHostActivity : ComponentActivity() {
             airPlayConfig = airPlayConfig,
             identity = airPlayIdentity,
             pairings = pairings,
-            listener = createSessionListener(controllerGeneration),
+            listener = createSessionListener(controllerGeneration, controllerConnectionEpoch),
             media = media,
-            reportStatus = createStatusReporter(controllerGeneration),
+            reportStatus = createStatusReporter(controllerGeneration, controllerConnectionEpoch),
             loadPairRecord = { AirPlayPersistence.loadLockdownRecord(this) },
             savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(this, record) },
             clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
@@ -4684,9 +4698,16 @@ class CarPlayHostActivity : ComponentActivity() {
         return total / event.pointerCount
     }
 
-    private fun onScreenStreamStateChanged(generation: Int, type: Int, active: Boolean) {
+    private fun onScreenStreamStateChanged(
+        generation: Int,
+        controllerConnectionEpoch: Long,
+        type: Int,
+        active: Boolean,
+    ) {
         runOnUiThread {
-            if (shuttingDown.get() || generation != restartGeneration) return@runOnUiThread
+            if (shuttingDown.get() || !isCurrentControllerCallback(generation, controllerConnectionEpoch)) {
+                return@runOnUiThread
+            }
             if (active) {
                 activeScreenStreamTypes.add(type)
             } else {
@@ -4696,10 +4717,12 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
-    private fun onVideoFrameSubmittedToSurface(generation: Int, type: Int) {
+    private fun onVideoFrameSubmittedToSurface(generation: Int, controllerConnectionEpoch: Long, type: Int) {
         if (type != SCREEN_TYPE_MAIN) return
         runOnUiThread {
-            if (shuttingDown.get() || generation != restartGeneration) return@runOnUiThread
+            if (shuttingDown.get() || !isCurrentControllerCallback(generation, controllerConnectionEpoch)) {
+                return@runOnUiThread
+            }
             finishCarPlayRestartTrace()
         }
     }

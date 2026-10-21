@@ -2,6 +2,8 @@ package com.shilapi.xcertplay
 
 import android.os.Handler
 import android.os.Looper
+import com.shilapi.xcertplay.airplay.AirPlaySessionListener
+import com.shilapi.xcertplay.orchestration.CarPlayStatus
 import com.shilapi.xcertplay.youtube.DisplaySize
 import java.lang.reflect.Field
 import java.util.concurrent.TimeUnit
@@ -108,7 +110,147 @@ class CarPlayHostActivityReconnectTest {
         }
     }
 
+    @Test
+    fun staleConnectionEpochTransportCallbackCannotScheduleAHostRetry() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+        val restartGeneration = field(activity, "restartGeneration").getInt(activity)
+        val connectionEpochField = field(activity, "connectionEpoch")
+        val connectionEpoch = connectionEpochField.getLong(activity)
+        val listener = activity.javaClass.getDeclaredMethod(
+            "createSessionListener",
+            Int::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+            .invoke(activity, restartGeneration, connectionEpoch) as AirPlaySessionListener
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+
+            val callback = Thread { listener.onTransportError("late old connection error") }.apply {
+                isDaemon = true
+                start()
+            }
+            callback.join(1_000)
+            assertFalse(callback.isAlive)
+            connectionEpochField.setLong(activity, connectionEpoch + 1)
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertNull(field(activity, "scheduledReconnectTicket").get(activity))
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            field(activity, "scheduledReconnectTicket").set(activity, null)
+            field(activity, "scheduledReconnectReason").set(activity, null)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
+    @Test
+    fun staleConnectionEpochStatusCallbackCannotScheduleAHostRetry() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+        val restartGeneration = field(activity, "restartGeneration").getInt(activity)
+        val connectionEpochField = field(activity, "connectionEpoch")
+        val connectionEpoch = connectionEpochField.getLong(activity)
+        val reporter = activity.javaClass.getDeclaredMethod(
+            "createStatusReporter",
+            Int::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+            .invoke(activity, restartGeneration, connectionEpoch)
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+            connectionEpochField.setLong(activity, connectionEpoch + 1)
+
+            invokeStatusReporter(reporter, CarPlayStatus.Failed("late old connection status"))
+
+            assertNull(field(activity, "scheduledReconnectTicket").get(activity))
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            field(activity, "scheduledReconnectTicket").set(activity, null)
+            field(activity, "scheduledReconnectReason").set(activity, null)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
+    @Test
+    fun queuedOldOwnerTransportCallbackCannotChangeTheNewHostStage() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+        val restartGeneration = field(activity, "restartGeneration").getInt(activity)
+        val connectionEpoch = field(activity, "connectionEpoch").getLong(activity)
+        val initialStage = field(activity, "latestStage").get(activity)
+        val listener = activity.javaClass.getDeclaredMethod(
+            "createSessionListener",
+            Int::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+            .invoke(activity, restartGeneration, connectionEpoch) as AirPlaySessionListener
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+
+            val callback = Thread { listener.onTransportError("callback queued before owner handoff") }.apply {
+                isDaemon = true
+                start()
+            }
+            callback.join(1_000)
+            assertFalse(callback.isAlive)
+            ownerField.set(CarPlayBackgroundSession, Any())
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 2)
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertEquals(initialStage, field(activity, "latestStage").get(activity))
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            field(activity, "scheduledReconnectTicket").set(activity, null)
+            field(activity, "scheduledReconnectReason").set(activity, null)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
     private fun field(instance: Any, name: String): Field = instance.javaClass.getDeclaredField(name).apply {
         isAccessible = true
+    }
+
+    private fun invokeStatusReporter(reporter: Any?, status: CarPlayStatus) {
+        requireNotNull(reporter).javaClass.getMethod("invoke", Any::class.java).invoke(reporter, status)
     }
 }

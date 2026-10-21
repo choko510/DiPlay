@@ -47,6 +47,12 @@ jobs:
           previous_host_sha=""
           previous_quick_sha=""
           previous_full_sha=""
+          search_host_baselines="true"
+          search_full_baselines="true"
+          if [[ "$PR_DRAFT" == "true" ]]; then
+            search_host_baselines="false"
+            search_full_baselines="false"
+          fi
           if ! commit_history="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${PR_BASE_SHA}...${PR_HEAD_SHA}" --jq '(.commits // []) | reverse | .[:100] | .[].sha')"; then
             echo "host=true" >> "$GITHUB_OUTPUT"
             echo "full_host=true" >> "$GITHUB_OUTPUT"
@@ -95,7 +101,7 @@ jobs:
 
             for candidate_sha in "${batch[@]}"; do
               checks="$(awk -F '\t' -v sha="$candidate_sha" '$1 == sha { print substr($0, index($0, "\t") + 1); exit }' <<< "$batch_checks")"
-              if [[ -z "$previous_host_sha" ]] && has_check "$checks" "host-baseline"; then
+              if [[ "$search_host_baselines" == "true" && -z "$previous_host_sha" ]] && has_check "$checks" "host-baseline"; then
                 previous_host_sha="$candidate_sha"
               fi
               if [[ -z "$previous_quick_sha" ]] && has_check "$checks" "quick-baseline"; then
@@ -104,7 +110,7 @@ jobs:
               if has_check "$checks" "host-baseline" && [[ -z "$previous_quick_sha" ]]; then
                 previous_quick_sha="$candidate_sha"
               fi
-              if [[ -z "$previous_full_sha" ]] && has_check "$checks" "check" && has_check "$checks" "android-instrumentation"; then
+              if [[ "$search_full_baselines" == "true" && -z "$previous_full_sha" ]] && has_check "$checks" "check" && has_check "$checks" "android-instrumentation"; then
                 previous_full_sha="$candidate_sha"
                 if [[ -z "$previous_host_sha" ]]; then
                   previous_host_sha="$candidate_sha"
@@ -113,12 +119,20 @@ jobs:
                   previous_quick_sha="$candidate_sha"
                 fi
               fi
-              if [[ -n "$previous_host_sha" && -n "$previous_quick_sha" && -n "$previous_full_sha" ]]; then
+              if [[ "$PR_DRAFT" == "true" ]]; then
+                if [[ -n "$previous_quick_sha" ]]; then
+                  break
+                fi
+              elif [[ -n "$previous_host_sha" && -n "$previous_quick_sha" && -n "$previous_full_sha" ]]; then
                 break
               fi
             done
 
-            if [[ -n "$previous_host_sha" && -n "$previous_quick_sha" && -n "$previous_full_sha" ]]; then
+            if [[ "$PR_DRAFT" == "true" ]]; then
+              if [[ -n "$previous_quick_sha" ]]; then
+                break
+              fi
+            elif [[ -n "$previous_host_sha" && -n "$previous_quick_sha" && -n "$previous_full_sha" ]]; then
               break
             fi
           done

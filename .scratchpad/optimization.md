@@ -13,10 +13,10 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
-## 2026-10-21 — Scope draft JVM tests to test-only module changes (pending CI)
+## 2026-10-21 — Scope draft JVM tests to test-only module changes
 
 - PR run #268's common-only test addition ran both `shared` and `common` unit suites; the Gradle task took 2m05. Draft CI now runs the whole changed JVM test module when only `shared/src/test/java|kotlin` or `common/src/test/java|kotlin` paths changed since its successful quick baseline. Any production, mixed, unknown, native-only, missing-baseline, or large-diff case keeps the prior broad/fallback behavior. `ready_for_review` full host and instrumentation gates are unchanged.
-- The PR workflow will print its selected lane and module scope for timing evidence. Keep this entry pending until a test-only update exercises the scoped path in hosted Actions; the workflow-edit push itself is workflow-only and cannot validate that path.
+- Run #275 passed on `b99256f`; its workflow-only change selected `quick=false / quick_scope=none`, and the public-tree/EX-08 checks passed while Android jobs skipped. This validates the fast static lane and logged scope. It does not exercise the scoped unit-test path, so the actual time saved remains unmeasured until a test-only update uses it.
 
 ## 2026-10-21 — Skip unrelated native suites in draft CI
 

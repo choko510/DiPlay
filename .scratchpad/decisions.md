@@ -510,7 +510,7 @@ EX-08 is semantically reviewed across all 1,232 base and 57 delta rows. Keep `NE
 
 ## Keep draft unit feedback proportional to test-only changes
 
-When a draft update changes only JVM unit-test sources in `shared` or `common`, run that module's unit suite. If production, mixed, unknown, or unsafe paths changed, run both existing quick suites; `ready_for_review` still runs full host and emulator gates. This shortens feedback without treating a focused draft run as final verification.
+When a draft update changes only JVM unit-test sources in `shared` or `common`, run that module's unit suite. Common Java/Kotlin production-only changes also run only the common suite because `common` depends on `shared`, not the reverse. Shared production, mixed, unknown, or unsafe paths still run both quick suites; `ready_for_review` still runs full host and emulator gates. This shortens feedback without treating a focused draft run as final verification.
 
 ## Defer baseline searches for lanes that do not run
 

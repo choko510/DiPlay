@@ -139,3 +139,4 @@
 - 2026-10-21: Scoped draft CI native DSP and ASan/UBSan checks to native-source/test changes; shared/common unit tests remain on code updates and full verification remains unchanged. Run #252 passed in 2m07 with native checks skipped for the workflow-only change.
 - 2026-10-21: Reduced draft Android SDK packages and added a workflow-only fast path. Run #254 passed with unit tests and 21s SDK setup; run #255 passed in 32s with product runtime checks skipped (1m46 faster than #254).
 - 2026-10-21: Deferred host/instrumentation baseline discovery during draft CI updates; PR run #281 passed in 27s with a 5s classifier. Closed duplicate baseline drafts #49 and #50 after auditing their diffs; all STEP4 work stays in PR #45.
+- 2026-10-21: Added a common-only source path to the draft CI lane in `f7294a7`; the local uncached `:common:testDebugUnitTest` run passed 154/154 in 1m26. Hosted workflow run #283 passed; a common-only hosted timing remains pending.

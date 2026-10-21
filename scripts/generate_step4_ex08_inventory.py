@@ -9990,12 +9990,12 @@ BASE_REVIEW_OVERRIDES.update({
         "review_state": "PRIMARY_AGENT_MFI_TEST_TIMEOUT_ADAPTED_LOCAL_AND_HOSTED_CLASS_PASS",
     },
     "6d61fa0d68c4a6fe9d477a744b23ec6c5396601d": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "This adds a direct public-Downloads write test for diagnostic export. It should confirm OS-version-specific storage behavior without bypassing user consent or leaving reports in an uncontrolled public path.",
-        "test": "PASS_STATIC: source exposes the public Downloads write for a Robolectric test; NOT_RUN: Android 9/API 28 and Android 10+ storage permissions, cleanup, and report redaction",
-        "related": "PR-00/EX-01 diagnostic export and PR-08 privacy/retention tests",
-        "rollback": "Keep fixed-main export paths until public-download and app-private fallback behavior pass on target.",
-        "review_state": "PRIMARY_AGENT_PUBLIC_DOWNLOAD_TEST_NEEDS_EXECUTION_EVIDENCE",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This only changes upstream's private saveToPublicDownloads helper to internal and adds a test for that API28 fallback. Fixed main has neither the helper nor DiagnosticExportFallbackTest; it uses the document picker on API28 and MediaStore saveToDownloads on API29+, already covered by DiagnosticExportStoreTest. This test API change cannot validate the fixed-main export path.",
+        "test": "PASS_STATIC: diff changes only saveToPublicDownloads visibility and adds DiagnosticExportFallbackTest; origin/main has no matching helper/test file and its existing export tests cover the MediaStore path; no fixed-main production source changed",
+        "related": "Reject upstream-only API28 TEST_BUILD seam; keep diagnostic export/privacy source candidates 205/285 separately NEED_EVIDENCE",
+        "rollback": "No test seam changes imported; reconsider only if an API28 fallback source change is separately approved for fixed main.",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_TEST_API_NOT_APPLICABLE_FIXED_MAIN",
     },
     "1b67267ea3e22eab766660011f3c37ef17327746": {
         "disposition": "REJECT_UNSAFE",

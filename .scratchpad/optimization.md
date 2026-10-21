@@ -16,7 +16,8 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 ## 2026-10-22 — Filter draft runs to changed standalone test classes
 
 - Draft updates limited to newly added or modified standalone `*Test`, `*Tests`, or `*TestCase` files in `shared/src/test` or `common/src/test` now pass those class names to Gradle, instead of rerunning the entire test module. Changes to helpers/fixtures, production sources, native code, mixed or unknown paths keep the full applicable test scope. Missing baselines, oversized diffs, API failures, pushes, manual runs, and ready-for-review checks keep their existing full-verification fallback.
-- The existing `:shared:testDebugUnitTest`/`:common:testDebugUnitTest` project tasks still compile the module test sources, while Gradle executes only the selected test classes for this narrow draft case. The workflow-only update itself skips runtime work, so hosted timing and the class-filter lane still need a subsequent matching test-class update to measure the savings.
+- The existing `:shared:testDebugUnitTest`/`:common:testDebugUnitTest` project tasks still compile the module test sources, while Gradle executes only the selected test classes for this narrow draft case. The workflow-only update itself skipped runtime work; the modified MFi test is now the first hosted candidate for measuring the filter path.
+- A local run of the modified `RemoteMfiAuthenticationClientTest` class passed 5/5 in 8 s. This focused local result is not a controlled comparison with hosted full shared-suite run #297 (Gradle 1m04); the hosted class-filter run is pending.
 - GitHub Actions run #300 passed on workflow head `a27f4f0`; public-tree and EX-08 checks ran, and Android SDK, Gradle, native, unit-test, and emulator jobs skipped as expected for a workflow-only draft update. This validates the static lane, not the new class filter or its runtime savings.
 
 ## 2026-10-21 — Scope draft JVM tests to test-only module changes

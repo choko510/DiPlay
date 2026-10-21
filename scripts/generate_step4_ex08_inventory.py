@@ -9983,11 +9983,11 @@ BASE_REVIEW_OVERRIDES.update({
     },
     "b1aa46fe51c9e99225381dd18e17767f896b77ea": {
         "disposition": "NEED_EVIDENCE",
-        "reason": "This makes a remote MFi test tolerate a busy CI runner by separating the delayed signing response from the read timeout and closing sockets cleanly. Verify it does not make authentication tests pass after a genuinely late or missing signature.",
-        "test": "PASS_STATIC: source increases the read deadline and documents the expected retry; NOT_RUN: CI timing comparison, missing/delayed signer cases, socket cleanup, and fixed-main MFi test behavior",
+        "reason": "The fixed-main MFi test uses a 50 ms read deadline even for the unretried reset request; the upstream run reported a busy-runner reset timeout. The fork test now gives ordinary requests 750 ms and keeps a 1.5 s first-sign delay so the retry and stable request ID are still exercised; wait for the hosted class-filter run before finalizing this test-only adaptation.",
+        "test": "PASS_LOCAL: RemoteMfiAuthenticationClientTest, 5/5 tests with zero failures/errors/skips using :shared:testDebugUnitTest --tests com.shilapi.xcertplay.mfi.RemoteMfiAuthenticationClientTest (Gradle 8 s); NOT_RUN_GITHUB: pending hosted class-filter run; no production MFi code changed",
         "related": "PR-00 CI/device authentication baseline and PR-01 MFi/iAP2 ownership",
-        "rollback": "Keep current MFi test timeouts until the busy-runner case and failure detection are measured.",
-        "review_state": "PRIMARY_AGENT_REMOTE_MFI_TEST_TIMEOUT_NEEDS_EXECUTION_EVIDENCE",
+        "rollback": "Revert only the fixture timing values if the focused hosted class fails or stops proving the stable request-ID retry; keep the fixed-main MFi client unchanged.",
+        "review_state": "PRIMARY_AGENT_MFI_TEST_TIMEOUT_LOCAL_PASS_HOSTED_PENDING",
     },
     "6d61fa0d68c4a6fe9d477a744b23ec6c5396601d": {
         "disposition": "NEED_EVIDENCE",

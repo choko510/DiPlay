@@ -380,3 +380,5 @@ Treat artifact signing as a release invariant: if the configured release key is 
 In multi-lane CI, discover only the baselines consumed by the active lane. Draft runs do not use host or emulator baselines, so scanning old commits for those checks adds API latency on every iteration; defer that search until the full lane can consume it.
 
 Use the dependency direction when scoping draft tests: `common` depends on `shared`, so a `common`-only source change needs the common suite while a shared production change can affect both suites. Keep the full cross-module checks on review-ready runs.
+
+For microphone input, verify accepted `audioType` values through the media-engine start callback as well as in the policy unit test; compare the normalized value delivered downstream, not the caller's original casing.

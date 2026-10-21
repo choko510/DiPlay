@@ -339,7 +339,7 @@ class CarPlayMediaEngineTest {
     }
 
     @Test
-    fun defaultAndCompatibilityVoiceInputsReachTheExistingUplink() {
+    fun advertisedVoiceInputsReachTheExistingUplink() {
         val microphoneTypes = CopyOnWriteArrayList<String>()
         val sink = object : MediaSink {
             override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
@@ -351,13 +351,17 @@ class CarPlayMediaEngineTest {
         val session = audioSession(engine, withRemoteAddress = true)
 
         try {
-            listOf("default", "compatibility").forEachIndexed { index, audioType ->
+            val voiceTypes = listOf("default", "compatibility", "telephony", "speechRecognition")
+            voiceTypes.forEachIndexed { index, audioType ->
                 val setup = validMicrophoneAudioSetup(index.toLong() + 1L) + ("audioType" to audioType)
                 assertNotNull(engine.onAudio(session, 100, setup))
                 audioListenerForCurrentState(engine, 100).onStarted(1_234)
             }
 
-            assertEquals(listOf("default", "compatibility"), microphoneTypes.toList())
+            assertEquals(
+                listOf("default", "compatibility", "telephony", "speechrecognition"),
+                microphoneTypes.toList(),
+            )
         } finally {
             engine.onSessionClosed(session)
             session.close()

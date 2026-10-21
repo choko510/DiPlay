@@ -517,3 +517,5 @@ When a draft update changes only JVM unit-test sources in `shared` or `common`, 
 ## Defer baseline searches for lanes that do not run
 
 Draft changes use only the quick-test baseline; host and instrumentation baselines affect review-ready checks, whose events still search for them. Avoiding those searches on every draft update cuts repeated GitHub API calls without weakening the quick lane or its ready-for-review gates.
+
+For PR-04, exercise all four advertised voice-input request types through `CarPlayMediaEngine` to the existing microphone uplink; policy-only acceptance tests do not establish end-to-end routing. Assert the normalized audio type passed to the uplink (`speechRecognition` becomes `speechrecognition`) while keeping device-only Siri/call behavior pending.

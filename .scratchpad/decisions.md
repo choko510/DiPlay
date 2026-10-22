@@ -519,3 +519,6 @@ When a draft update changes only JVM unit-test sources in `shared` or `common`, 
 Draft changes use only the quick-test baseline; host and instrumentation baselines affect review-ready checks, whose events still search for them. Avoiding those searches on every draft update cuts repeated GitHub API calls without weakening the quick lane or its ready-for-review gates.
 
 For PR-04, exercise all four advertised voice-input request types through `CarPlayMediaEngine` to the existing microphone uplink; policy-only acceptance tests do not establish end-to-end routing. Assert the normalized audio type passed to the uplink (`speechRecognition` becomes `speechrecognition`) while keeping device-only Siri/call behavior pending.
+Keep per-event audio queue/rebuffer diagnostics out of the renderer until shared state is synchronized and reports leave the audio worker through a bounded nonblocking handoff. Fixed main already records one queue-full event and aggregates dropped-packet/rebuffer counts every five seconds; any event-level replacement still needs a useful failure-window and audio-timing measurement.
+
+Do not change telephony `AudioRecord` source based on another OEM's phone-audio state or clipping result. Keep the fixed-main `VOICE_COMMUNICATION` route until TS10/K706 call capture, AEC/AGC, echo, speakerphone, and route restoration are measured.

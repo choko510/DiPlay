@@ -396,3 +396,6 @@ For media handoff, test both the engine's ownership gate and the sink's decoder-
 Separate fixed main's generic codec-capability-gated low-latency request from vendor-specific tuning proposals. Preserve the baseline path; require target capability and performance evidence before adding device overrides.
 
 For lifecycle/layout regression tests, use the production view hierarchy when validating parent/child resize invariants. A replacement test frame cannot prove that the TextureView and touch layer actually share the host's fitted content bounds.
+When auditing real-time logging, trace the callback through to its storage destination. A lightweight `report(...)` call can synchronously perform locked file I/O on the audio worker even when the logging site does not show that work.
+
+Treat microphone-source measurements as OEM- and route-specific. A cleaner signal on one head unit does not establish that another unit's AEC, AGC, echo reference, speakerphone, or route restore behaves the same way.

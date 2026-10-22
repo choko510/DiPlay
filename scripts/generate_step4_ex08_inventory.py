@@ -2892,12 +2892,12 @@ BASE_REVIEW_OVERRIDES.update({
         "review_state": "PRIMARY_AGENT_UPSTREAM_MAIN_MERGE_REJECT",
     },
     "5480b36600a815a2df593ed467c2d9a2f16a159c": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "This adjusts BYD voice-key handling for a double-click close path. It changes Siri/voice-key interpretation and should be checked against supported key codes and call/Siri ownership.",
-        "test": "PASS_STATIC: source diff changes the BYD voice-key/double-press filter and tests; NOT_RUN_TARGET: voice-key pair, Siri launch, and call state on TS10/K706",
-        "related": "PR-04 Siri/voice-key and WIRELESS-EX input gates",
-        "rollback": "Keep fixed-main voice-key handling until double-press, Siri, and call routing pass on target.",
-        "review_state": "PRIMARY_AGENT_VOICE_KEY_NEEDS_TARGET_EVIDENCE",
+        "disposition": "SKIP_OEM",
+        "reason": "This follow-up changes the BYD custom CarPlay voice-key double-press handler in WheelKeyService. Fixed main has no WheelKeyService, BYD key-code map, or Siri invocation call site; the source cannot modify a generic fixed-main input path.",
+        "test": "PASS_STATIC: diff changes only BYD custom voice-key filtering/tests; fixed main has no WheelKeyService, CarPlayMediaButton, or call site for AirPlaySession.invokeSiri; NOT_APPLICABLE_TO_GENERIC_FIXED_MAIN_STEP4",
+        "related": "Skip BYD wheel-Siri follow-up; source 1172's configurable Siri double-press remains a separate candidate",
+        "rollback": "Do not add BYD voice-key double-press handling to fixed main.",
+        "review_state": "PRIMARY_AGENT_BYD_VOICE_KEY_FOLLOWUP_SKIPPED_FIXED_MAIN_ABSENT",
     },
     "56959210f2576f113719d261aac4f505c1cf8971": {
         "disposition": "NEED_EVIDENCE",

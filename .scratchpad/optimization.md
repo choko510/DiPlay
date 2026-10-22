@@ -19,6 +19,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - The `both`/`all` branch now invokes `:shared:testDebugUnitTest` and `:common:testDebugUnitTest` together with `--parallel`. Test-only class-filtered changes still use per-module invocations so a module does not receive another module's `--tests` patterns. Local combined runs passed 552 shared + 160 common in 1m11 and 553 shared + 165 common in 1m17; workflow YAML parsing and Git Bash `bash -n` passed.
 - PR run #346 on `c28c484` selected `quick_scope=common` and passed the full common unit module; hosted Gradle reported 2m36. Native, lint/build/JNI, and emulator paths skipped. This validates module-only selection, not a controlled time reduction, and does not exercise the hosted `both`/`all` command.
 - PR run #347 on `5673ac4` selected `quick_scope=both` with `quick_test_filters=all` and passed both Gradle unit tasks in one `--parallel` invocation; Gradle reported `BUILD SUCCESSFUL in 3m`. It exercised the hosted combined branch. Run #340's sequential step was 3m17, but test counts, cache state, and commit differ, so this is not a controlled wall-time comparison.
+- PR run #349 on `0c09b5a` also selected `quick_scope=both` and passed both modules after the Bluetooth identifier-log cleanup; Gradle reported `BUILD SUCCESSFUL in 2m45`. This confirms the combined hosted path after the privacy change; the difference from #347 is not a controlled timing comparison.
 
 ## 2026-10-22 — Batch related EX-08 audio reviews into one PR update
 

@@ -10154,7 +10154,7 @@ DELTA_DECISION_OVERRIDES = {
     "b274c86f0ed1e4faccae9b477f69f5c1e7110bf2": {
         "disposition": "FORK_SUPERIOR",
         "reason": "Fixed main has no BluetoothDiagnosticSnapshot or BluetoothRadioCheck helper to remove or revise; its controller directly checks the adapter state. The active RFCOMM debug/status messages now omit Bluetooth addresses and device names, while SessionLogFile redacts any remaining MACs.",
-        "test": "PASS_STATIC: no persisted Bluetooth failure snapshot or BluetoothRadioCheck call site exists in fixed main; RFCOMM debug labels contain no device identifiers; PASS_LOCAL: shared unit suite 553/553; NOT_RUN_TARGET: adapter turning-off/on transitions on TS10/K706",
+        "test": "PASS_STATIC: no persisted Bluetooth failure snapshot or BluetoothRadioCheck call site exists in fixed main; RFCOMM debug labels contain no device identifiers; PASS_LOCAL: shared suite 553/553; PASS_GITHUB: combined shared/common draft run 349 passed after the log-label change; NOT_RUN_TARGET: adapter turning-off/on transitions on TS10/K706",
         "related": "EX-01 diagnostic privacy and WIRELESS-EX Bluetooth startup; source 4 remains separately evidence-gated",
         "rollback": "Keep fixed-main direct adapter check and identifier-free Bluetooth log labels; do not import the upstream snapshot/helper state.",
         "review_state": "PRIMARY_AGENT_FIXED_MAIN_BLUETOOTH_DIAGNOSTICS_FORK_SUPERIOR",

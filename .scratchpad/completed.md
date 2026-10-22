@@ -171,3 +171,4 @@
 - 2026-10-22: The combined audio audit update was pushed once as `0907ec0`; PR run #336 passed its public-tree and EX-08 lane in 18s with runtime jobs skipped.
 - 2026-10-22: Audited PR-07 codec policy against fixed main: the generic Android R+ low-latency attempt is capability-gated in main and unchanged by STEP4; vendor/device overrides remain conditional on target evidence.
 - 2026-10-22: Reviewed Bluetooth diagnostics delta source 3 against fixed main and changed it to `FORK_SUPERIOR`: main has no persisted Bluetooth failure snapshot/helper, and RFCOMM debug/failure text no longer emits device names or MAC addresses. Source 4 remains evidence-gated for the target Bluetooth-turning-on wait.
+- 2026-10-22: PR run #349 passed the shared/common draft lane after the Bluetooth log privacy change; the classifier selected `quick_scope=both`, the combined Gradle command reported 2m45, and hardware/native/full-host gates remained skipped.

@@ -23,6 +23,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - PR run #316 on `98e4866` selected only `common|com.shilapi.xcertplay.CarPlayHostActivityLocalScaleTest` and passed. Its Gradle step took 58 s; this is confirmation that the common-only class filter works, not a controlled wall-time comparison.
 - PR run #323 on `f52d528` selected only `shared|com.shilapi.xcertplay.airplay.CarPlayMediaEngineTest` and passed after the race-test synchronization was hardened. Its Gradle step took 1m11; this confirms the changed-class filter remains active for standalone shared tests, with no controlled full-suite timing comparison.
 - PR run #328 selected only `shared|com.shilapi.xcertplay.media.AndroidMediaSinkStateTest` and passed the sink reset regression (7 local tests; Gradle step 1m05). This confirms class filtering for another shared test class, not an overall wall-time saving versus the full suite.
+- PR run #333 selected only `shared|com.shilapi.xcertplay.media.MicrophoneUplinkRecorderFailureTest` and passed the six API 28/33 Robolectric cases; the Gradle step took 1m03. This confirms class filtering for the microphone recorder test class, without a controlled full-suite time comparison.
 
 ## 2026-10-21 — Scope draft JVM tests to test-only module changes
 

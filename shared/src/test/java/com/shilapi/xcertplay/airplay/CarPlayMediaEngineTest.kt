@@ -230,6 +230,54 @@ class CarPlayMediaEngineTest {
     }
 
     @Test
+    fun oldSessionScreenCallbacksAndTeardownCannotReachTheCurrentSessionSink() {
+        val frames = AtomicInteger()
+        val screenStates = CopyOnWriteArrayList<Boolean>()
+        val sink = object : MediaSink {
+            override fun onVideoFrame(type: Int, naluBytes: ByteArray) {
+                frames.incrementAndGet()
+            }
+
+            override fun onScreenStreamActive(type: Int, active: Boolean) {
+                screenStates += active
+            }
+        }
+        val engine = CarPlayMediaEngine(sink)
+        val oldSession = audioSession(engine)
+        val currentSession = audioSession(engine)
+        val oldKey = CarPlayMediaEngine.StreamKey(oldSession, 110)
+        val currentKey = CarPlayMediaEngine.StreamKey(currentSession, 110)
+
+        try {
+            assertNotNull(engine.onScreen(oldSession, 110, mapOf("streamConnectionID" to 1L)))
+            val oldScreen = screenStreams(engine)[oldKey] as ScreenStream
+            val oldListener = screenListener(oldScreen)
+
+            assertNotNull(engine.onScreen(currentSession, 110, mapOf("streamConnectionID" to 2L)))
+            val currentScreen = screenStreams(engine)[currentKey] as ScreenStream
+            val currentListener = screenListener(currentScreen)
+            assertNotSame(oldScreen, currentScreen)
+            assertEquals(listOf(true, false, true), screenStates.toList())
+
+            oldListener.onFrame(byteArrayOf(0, 0, 0, 1, 0x65))
+            engine.onSessionClosed(oldSession)
+
+            assertEquals(0, frames.get())
+            assertFalse(currentSession.isClosed)
+            assertEquals(listOf(true, false, true), screenStates.toList())
+
+            currentListener.onFrame(byteArrayOf(0, 0, 0, 1, 0x26))
+            assertEquals(1, frames.get())
+            assertEquals(1, screenStreams(engine).size)
+        } finally {
+            engine.onSessionClosed(oldSession)
+            engine.onSessionClosed(currentSession)
+            oldSession.close()
+            currentSession.close()
+        }
+    }
+
+    @Test
     fun invalidAudioSetupKeepsTheCurrentOwnerAndFeedbackState() {
         val sink = TrackingSink()
         val engine = CarPlayMediaEngine(sink)

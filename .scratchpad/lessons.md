@@ -389,4 +389,6 @@ For explicit encoded ViewAreas, keep every display edge even-aligned through Spl
 
 An identity check followed by a sink callback still has a replacement race between the check and delivery. Serialize the ownership check with callback handoff and stream replacement; use a blocked in-flight callback regression to verify the sink cannot receive old media after the new stream becomes current.
 
+When a downstream media sink is keyed by stream type, per-session ownership alone is insufficient. Track the current session's stream for that sink type so a former session's late teardown cannot clear the replacement decoder.
+
 For lifecycle/layout regression tests, use the production view hierarchy when validating parent/child resize invariants. A replacement test frame cannot prove that the TextureView and touch layer actually share the host's fitted content bounds.

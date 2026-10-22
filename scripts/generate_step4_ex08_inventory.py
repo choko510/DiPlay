@@ -652,11 +652,11 @@ BASE_REVIEW_OVERRIDES = {
     },
     "7d974f42f7b6c13b1f91a3a74e76831f2d247ec1": {
         "disposition": "NEED_EVIDENCE",
-        "reason": "The 100 ms cap is for audio decoder input acquisition after one drain/retry. The upstream report is a DiLink background-screen underrun; shortening the wait can drop audio on this fork and needs route-specific evidence.",
-        "test": "NOT_RUN_FORK: decoder backpressure, background playback, packet loss, and underrun comparison",
+        "reason": "The upstream patch assumes a decoder input wait that can accumulate 500 ms; pinned main's AudioRenderer.feedCodec instead makes one 10 ms dequeue and drops a packet on a miss. The proposed drain-and-retry up to 100 ms changes that drop/backlog tradeoff, and a DiLink background-screen report does not establish the effect on this fork's route.",
+        "test": "PASS_STATIC: pinned-main AudioRenderer.feedCodec uses one 10,000 us dequeue and returns after incrementing inputDropped; the upstream patch adds a drain/retry with a 100 ms total cap. NOT_RUN_FORK: decoder backpressure, background playback, packet loss, underrun, and A/V comparison on this route",
         "related": "PR-04 audio regression; AUDIO-EX decoder backpressure",
         "rollback": "No patch imported; preserve current decoder wait until a bounded fork test demonstrates the 500 ms path causes loss.",
-        "review_state": "PRIMARY_AGENT_CANDIDATE_GATE_REVIEW_PENDING_AUDIO_TESTS",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_10MS_INPUT_DROP_PENDING_BACKPRESSURE_EVIDENCE",
     },
     "31b8dfcd9b11496b02b868b898deb37d0f04c0b0": {
         "disposition": "NEED_EVIDENCE",

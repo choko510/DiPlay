@@ -576,3 +576,5 @@ Use first-order antiderivative anti-aliasing around the existing harmonic oversa
 Validate active PEQ plus Cabin Correction against the shared 15-band limit before UI state, storage, or runtime publication can replace the active DSP graph. Retire DSP maintenance polling once the last retired graph has closed.
 
 Treat CI's selected/static result separately from release verification. Workflow changes require full host and Android instrumentation; `Android.mk` changes require native tests and an Android ABI link, including draft PRs where selected.
+
+Do not relax the API 35 emulator p99 gate based on inconsistent hosted failures or a different API 36.1 local pass. Run #366 failed Convolver64k at 31.173 ms against 21.332 ms; keep it visible as an unresolved hosted benchmark gate and do not record a workflow-sensitive host baseline when instrumentation fails.

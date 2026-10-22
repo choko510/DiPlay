@@ -431,3 +431,5 @@ For media ownership races, exercise the old callback after the new owner is inst
 When a numeric DSP bug is reported, add an adversarial sweep around the actual fold-back frequencies instead of relying on one high-quality/tap configuration. For instrumentation log evidence, clear logcat before the run and assert every required format explicitly; line counts do not prove unique measurements.
 
 When a runtime invariant can be exceeded through multiple UI editing orders, centralize one profile predicate and call it from edit, save/load, and apply paths. Reject before replacing the active pipeline so a bad draft cannot turn off unrelated DSP modules.
+
+API 35 hosted emulator p99 failures can move between DSP benchmark cases across runs; record each case and its threshold, and keep the result separate from source-level correctness and API 36.1 emulator timing. A local pass on another API level does not clear the hosted gate.

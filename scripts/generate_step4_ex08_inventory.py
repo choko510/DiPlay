@@ -7660,11 +7660,11 @@ BASE_REVIEW_OVERRIDES.update({
     },
     "b27906007eceed1928bfb164bacef44b74135895": {
         "disposition": "NEED_EVIDENCE",
-        "reason": "This offers a hotspot-start switch only on Android 8+ rather than Android 7, using the platform's WRITE_SETTINGS-authorized path where available. The supported API 28+ target still needs explicit-consent and tethering-owner validation.",
-        "test": "PASS_STATIC: source gates the switch on the platform capability and adds API 25/33 tests; NOT_RUN_TARGET: WRITE_SETTINGS grant/denial, hotspot start/stop, non-BYD firmware, and concurrent tethering on TS10/K706",
-        "related": "WIRELESS-EX hotspot start/join; preserve user consent and avoid hidden-API ADB fallback",
-        "rollback": "Keep fixed-main hotspot behavior until public-API start and user-consent tests pass on target.",
-        "review_state": "PRIMARY_AGENT_PUBLIC_HOTSPOT_START_NEEDS_TARGET_EVIDENCE",
+        "reason": "This gates the upstream car-hotspot start switch to Android 8.0–10 and relies on its WRITE_SETTINGS-authorized platform tethering path. Fixed main has no PlatformTetheringStart or WRITE_SETTINGS flow: CarHotspotStatus only checks the car AP and DiPlay opens the car's settings; LocalOnlyHotspotManager starts a separate head-unit-owned AP. Supported API 28–29 behavior still needs explicit-consent and tethering-owner validation.",
+        "test": "PASS_STATIC: fixed-main manual car-hotspot flow only checks AP state and opens settings; its LocalOnlyHotspotManager starts a distinct local-only AP; upstream gate is API 26–29 after source correction, while product minSdk is 28; NOT_RUN_TARGET: WRITE_SETTINGS grant/denial, car AP start/stop/owner, non-BYD firmware, and concurrent tethering on TS10/K706",
+        "related": "WIRELESS-EX car-hotspot auto-start/join; keep manual settings and head-unit LocalOnlyHotspot ownership separate",
+        "rollback": "Keep fixed-main manual car-hotspot behavior; do not add platform tethering or WRITE_SETTINGS requests until the target owner/consent matrix passes.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_HOTSPOT_PATH_COMPARISON_PENDING_TARGET_EVIDENCE",
     },
     "ac2f4b214c740ca830a7379d06de7d6ddcb873f2": {
         "disposition": "REJECT_UNSAFE",
@@ -8620,11 +8620,11 @@ BASE_REVIEW_OVERRIDES.update({
     },
     "322c4759ea7252a4804c246969b1354e24a0b1e2": {
         "disposition": "NEED_EVIDENCE",
-        "reason": "This returns to Home and retries hotspot startup after the user grants Android's Modify system settings access on non-BYD units. Verify the access prompt is explicit and that the original failed attempt is restarted only once.",
-        "test": "PASS_STATIC: source retries startup after permission grant and clears the prior permission-required state; NOT_RUN_TARGET: user grant/denial, repeated prompt, hotspot state, and no-duplicate-start on TS10/K706",
-        "related": "WIRELESS-EX public hotspot start and PR-00 permission/connection consent",
-        "rollback": "Keep fixed-main hotspot-permission navigation until grant/denial and retry behavior pass on target.",
-        "review_state": "PRIMARY_AGENT_HOME_HOTSPOT_PERMISSION_RETRY_NEEDS_TARGET_EVIDENCE",
+        "reason": "This adds a Home prompt for Android Modify system settings access and retries the previous car-hotspot start on Activity resume. Fixed main has no such permission or platform start path; its manual car-hotspot flow only opens car settings. The retry changes consent, Activity-resume, and tethering ownership semantics.",
+        "test": "PASS_STATIC: upstream retries only after WRITE_SETTINGS is granted and clears the prior permission-required result; fixed main has no WRITE_SETTINGS prompt/retry path; NOT_RUN_TARGET: grant/denial, repeated prompt, Activity resume, car AP start/stop, and no-duplicate-start on TS10/K706",
+        "related": "WIRELESS-EX car-hotspot auto-start and PR-00 explicit connection consent",
+        "rollback": "Keep the fixed-main manual settings path; do not add Home retry or platform start until consent and one-shot ownership pass on target.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_HOTSPOT_RETRY_REVIEW_PENDING_TARGET_EVIDENCE",
     },
     "e37f0ede27b47707fa649a1fc83971f95ecdf449": {
         "disposition": "REJECT_UNSAFE",

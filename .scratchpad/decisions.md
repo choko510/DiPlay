@@ -526,3 +526,5 @@ Do not change telephony `AudioRecord` source based on another OEM's phone-audio 
 Keep BYD custom wheel-key/Siri behavior out of fixed main when the fork has no corresponding input service or invocation call site. A BYD-specific event-pairing fix does not establish a generic CarPlay key path.
 
 Classify an OEM feature and its integration merge separately: keep the source feature `SKIP_OEM`, and reject a merge that only reintroduces that same feature across the same paths.
+
+Keep the car's own hotspot separate from the head unit's `LocalOnlyHotspot`. The fixed-main manual car-hotspot path only checks state and opens settings; adding WRITE_SETTINGS-driven tethering and resume retries requires explicit target consent and tethering-owner evidence.

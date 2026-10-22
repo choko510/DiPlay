@@ -2,6 +2,7 @@
     <string name="app_name">DiPlay</string>
     <string name="menu_return_carplay">Return to CarPlay</string>
     <string name="menu_carplay_youtube">CarPlay + YouTube</string>
+    <string name="menu_carplay_dsp">CarPlay + DSP</string>
     <string name="menu_vehicle_home">Vehicle Home</string>
     <string name="menu_settings">DiPlay Settings</string>
     <string name="menu_status_connected">Connected</string>
@@ -13,6 +14,7 @@
     <string name="menu_vehicle_home_unavailable">Could not open the vehicle home screen.</string>
     <string name="menu_return_failed">Could not open CarPlay.</string>
     <string name="menu_youtube_split_failed">Could not open CarPlay + YouTube.</string>
+    <string name="menu_dsp_split_failed">Could not open CarPlay + DSP.</string>
     <string name="youtube_waiting_for_iphone_profile">Identifying iPhone…</string>
     <string name="youtube_identity_error">Could not identify the connected iPhone.</string>
     <string name="youtube_loading">Loading YouTube…</string>
@@ -20,6 +22,7 @@
     <string name="youtube_reload">Reload</string>
     <string name="youtube_back">Back</string>
     <string name="youtube_close">Close YouTube</string>
+    <string name="host_split_waiting">Split view will open when CarPlay is ready.</string>
     <string name="ui_car_home">Car home</string>
     <string name="ui_back">Back</string>
     <string name="ui_home_eyebrow">YOUR PHONE. YOUR DRIVE.</string>

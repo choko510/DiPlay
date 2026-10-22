@@ -417,3 +417,9 @@ Treat Android logcat as a separate diagnostic destination from the app's redacte
 For conditional display rotation, validate the square canvas, safe-area transform, HID coordinates, and iPhone screenshot framing as one target scenario. A screenshot note alone does not establish that the control is supported.
 
 When an upstream patch changes only a localized string, confirm that fixed main contains the referenced setting and feature before porting it; otherwise the text can claim behavior the app cannot perform.
+
+Android pointer indices are event-local and can change after `ACTION_POINTER_UP`; HID identity must come from `getPointerId()` and be mapped to a fixed slot at the session boundary. Make this mapping transactional around the HID send so a dropped up cannot free a still-held remote slot.
+
+An accepted socket can outlive the listener attachment that returned it. A deterministic blocked-accept fixture should switch both generation and server identity before unblocking, then verify that the stale socket closes without a new-session callback.
+
+When embedding an existing Compose editor in a persistent View host, keep its `ComposeView` attached and set it `GONE` while another pane is active so scroll and editor state survive mode switches. Give the view a stable resource ID for saved-state restoration, share the application editor session with the standalone Activity, and guard async UI results with both operation generation and draft revision.

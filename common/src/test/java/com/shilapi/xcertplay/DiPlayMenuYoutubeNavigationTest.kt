@@ -33,6 +33,20 @@ class DiPlayMenuYoutubeNavigationTest {
     }
 
     @Test
+    fun dspActionTargetsTheExistingCarPlayHostWithDspSplitAction() {
+        val activity = Robolectric.buildActivity(DiPlayMenuActivity::class.java).setup().get()
+
+        requireNotNull(findButton(activity.window.decorView, activity.getString(R.string.menu_carplay_dsp)))
+            .performClick()
+
+        val started = shadowOf(activity).nextStartedActivity
+        assertNotNull(started)
+        assertEquals(CarPlayHostActivity::class.java.name, started.component?.className)
+        assertEquals(CarPlayHostActions.ENTER_DSP_SPLIT, started.action)
+        assertTrue(activity.isFinishing)
+    }
+
+    @Test
     fun returnToCarPlayRequestsFullCarPlayLayout() {
         val activity = Robolectric.buildActivity(DiPlayMenuActivity::class.java).setup().get()
 

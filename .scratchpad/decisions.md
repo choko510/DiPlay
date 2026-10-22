@@ -76,6 +76,10 @@ Keep `input=false` as a hard microphone veto while allowing the audio downlink t
 
 While the current owner has a Controller, valid Surface, and known remote dimensions, preserve the negotiated AirPlay display size and fit a centered content frame into the current pane. Put the TextureView and touch overlay in the same fitted frame so overlay-local coordinates remain normalized to the rendered content and the letterbox bars receive no CarPlay touches. Keep the existing restart path when the local-session preconditions fail or an explicit settings change requests a new controller.
 
+## Add DSP as a mutually exclusive Host Split mode
+
+Keep Full, YouTube Split, and DSP Split in the existing `CarPlayHostActivity` with one 55% CarPlay pane and one exclusive 45% right pane. DSP layout changes are local viewport causes and must never enter remote resize/restart handling; when an active session cannot be fitted safely, keep the requested mode pending over Full. Share one `DspEditorSession` from the application `DspProfileRuntime` so the Activity and Host ComposeView do not fork draft or runtime ownership.
+
 ## Keep multiple ViewAreas explicit and wire-switching disabled
 
 Preserve the legacy one-area `/info` output when `AirPlayDisplayConfig.viewAreas` is null. A pure validated Full/Split model may serialize two areas under the same main display only when explicitly supplied; each safe rectangle must be contained in its view rectangle, explicit view-area boundaries must align to even pixels, and Split creation rejects a safe rectangle with no overlap. The application leaves the model unset until the target iPhone accepts the declaration. Do not add unknown `updateViewArea`/`requestViewArea` commands without captured acceptance and frame-size evidence.
@@ -554,3 +558,7 @@ Keep the car-owned hotspot configuration read/write boundary closed in STEP4. Th
 Do not put the iPhone's Bluetooth name or either endpoint's Bluetooth MAC in controller debug messages. Keep selection and failure diagnostics to state/counts; the file redactor does not sanitize Android logcat.
 
 Do not add localized rotation copy for a feature that fixed main does not expose. Keep square-canvas rotation gated until screen orientation, safe-area, HID coordinates, and iPhone screenshot framing pass as one supported-target scenario.
+
+For PR #45 multitouch, keep Android pointer IDs in normalized contacts, then map them to the protocol's two fixed HID slots inside each AirPlay session. Advance slot state only after the HID command succeeds; a failed release must be sent before its slot can be reused. This preserves index-independent contacts and the last delivered up coordinate without changing viewport scaling or the three-finger gesture owner.
+
+For AirPlay accepts, require the accepting ServerSocket and captured attachment generation to still be current before using the attachment. Close the accepted socket immediately on a stale listener return. Background session lookup also filters closed sessions so Activity recreation cannot adopt a dead connection.

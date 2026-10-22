@@ -9,6 +9,7 @@ class CarPlayHostActionsTest {
     fun onlyRecognizedHostActionsClearRestartSuppression() {
         assertTrue(CarPlayHostActions.shouldClearRestartSuppression(CarPlayHostActions.OPEN_CARPLAY))
         assertTrue(CarPlayHostActions.shouldClearRestartSuppression(CarPlayHostActions.ENTER_YOUTUBE_SPLIT))
+        assertTrue(CarPlayHostActions.shouldClearRestartSuppression(CarPlayHostActions.ENTER_DSP_SPLIT))
         assertTrue(CarPlayHostActions.shouldClearRestartSuppression(CarPlayHostActions.EXIT_YOUTUBE_SPLIT))
         assertTrue(CarPlayHostActions.shouldClearRestartSuppression("android.hardware.usb.action.USB_DEVICE_ATTACHED"))
 

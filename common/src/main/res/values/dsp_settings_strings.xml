@@ -3,6 +3,13 @@
     <string name="dsp_settings_entry_description">音質プロファイル、イコライザー、ダイナミクスを調整します。</string>
     <string name="dsp_settings_entry_button">DSPオーディオ設定を開く</string>
     <string name="dsp_settings_title">DSPオーディオ</string>
+    <string name="dsp_close_settings">DSP設定を閉じる</string>
+    <string name="dsp_compact_eq_tab">EQ</string>
+    <string name="dsp_operation_in_progress">DSP処理中…</string>
+    <string name="dsp_unapplied_changes">未適用の変更があります</string>
+    <string name="dsp_changes_applied">プロファイルは適用済みです</string>
+    <string name="dsp_selected_profile">選択中のプロファイル: %1$s</string>
+    <string name="dsp_applied_profile">適用済みプロファイル: %1$s</string>
     <string name="dsp_settings_description">一部の設定は再生中に反映されます。Convolver、Compressor、Multiband、Dynamic EQなど、内部状態を持つgraphの再構築は次のオーディオストリームまで保留されます。</string>
     <string name="dsp_enabled">DSPを有効にする</string>
     <string name="dsp_enabled_description">初期設定では無効です。無効時は既存のPCM再生経路を使用します。</string>

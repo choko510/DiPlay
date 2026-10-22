@@ -3,6 +3,13 @@
     <string name="dsp_settings_entry_description">Adjust audio profiles, equalizer, and dynamics.</string>
     <string name="dsp_settings_entry_button">Open DSP audio settings</string>
     <string name="dsp_settings_title">DSP audio</string>
+    <string name="dsp_close_settings">Close DSP settings</string>
+    <string name="dsp_compact_eq_tab">EQ</string>
+    <string name="dsp_operation_in_progress">DSP operation in progress.</string>
+    <string name="dsp_unapplied_changes">Draft changes are not applied.</string>
+    <string name="dsp_changes_applied">Draft matches the applied profile.</string>
+    <string name="dsp_selected_profile">Selected profile: %1$s</string>
+    <string name="dsp_applied_profile">Applied profile: %1$s</string>
     <string name="dsp_settings_description">Some settings apply during playback. Rebuilding a stateful Convolver, Compressor, Multiband, or Dynamic EQ graph is deferred until the next audio stream.</string>
     <string name="dsp_enabled">Enable DSP</string>
     <string name="dsp_enabled_description">Off by default. When disabled, playback uses the existing PCM path.</string>

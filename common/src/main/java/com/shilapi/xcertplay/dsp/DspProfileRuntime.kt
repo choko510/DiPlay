@@ -27,6 +27,13 @@ internal class DspProfileRuntime private constructor(context: Context) {
     private val activeProfile: AtomicReference<DspAudioProfile>
     private val dspEnabled: AtomicBoolean
     private val runtimeConfig = DspRuntimeConfigStore()
+    internal val editorSession: DspEditorSession by lazy {
+        DspEditorSession(
+            initialDraft = selectedProfile(),
+            initialAppliedProfile = selectedProfile(),
+            initialMasterEnabled = isDspEnabled(),
+        )
+    }
     val configProvider: DspConfigProvider = runtimeConfig
 
     init {
@@ -203,6 +210,8 @@ internal class DspProfileRuntime private constructor(context: Context) {
         fun get(context: Context): DspProfileRuntime = instance ?: synchronized(this) {
             instance ?: DspProfileRuntime(context).also { instance = it }
         }
+
+        internal fun peekInstance(): DspProfileRuntime? = instance
 
         internal fun resetForTesting() {
             synchronized(this) { instance = null }

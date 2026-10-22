@@ -23,6 +23,16 @@ class LocalCarPlayScalePolicyTest {
     }
 
     @Test
+    fun fittedContentBoundsExcludeTheRightAndBottomEdges() {
+        val bounds = LocalCarPlayContentBounds(0, 0, 100, 60)
+
+        assertTrue(bounds.contains(0f, 0f))
+        assertTrue(bounds.contains(99.99f, 59.99f))
+        assertFalse(bounds.contains(100f, 20f))
+        assertFalse(bounds.contains(20f, 60f))
+    }
+
+    @Test
     fun portraitAndLandscapeBoundsStayInsideTheirViewport() {
         val portraitViewport = DisplaySize(1080, 1920)
         val portraitBounds = requireNotNull(

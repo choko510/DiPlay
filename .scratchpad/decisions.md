@@ -548,3 +548,5 @@ Do not import an upstream wireless retry-exhaustion model solely to preserve its
 Do not add audio-focus acquisition or retry state when fixed main has no focus owner. Reproduce transient call loss without a gain callback on a supported target and verify focus denial and competing audio before introducing a new owner.
 
 Clear an explicit car-hotspot-off override after a manual hotspot no-interface timeout only when Android still reports the AP off. Preserve the override for unknown state, unrelated configuration failures, and successful starts; this makes the next attempt show the setup warning again.
+
+Keep the car-owned hotspot configuration read/write boundary closed in STEP4. The fixed-main MANUAL path accepts user-provided credentials to join an existing AP; importing or changing the car's stored SSID/password is a separate feature with system and paired-device effects.

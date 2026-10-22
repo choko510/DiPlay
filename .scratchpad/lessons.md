@@ -409,3 +409,5 @@ Treat microphone-source measurements as OEM- and route-specific. A cleaner signa
 When an OEM callback is missing, first establish that fixed main owns that callback path. A proposal that adds a new media-focus manager is a new subsystem and requires target evidence for its lifecycle and interactions.
 
 Treat an explicit “connect anyway” choice as a one-attempt bypass when the requested network never appears. Reset it only for the typed no-interface failure and a still-off platform report; preserve it when platform state is unknown or the failure is unrelated.
+
+Separate credentials for joining a running AP from provisioning the AP itself. Read-only link diagnostics do not authorize importing or changing system-owned SSID/password settings; those are a separate, consented feature and must preserve other connected devices.

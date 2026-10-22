@@ -536,3 +536,5 @@ When the user explicitly taps Connect despite an Android-reported car-hotspot-of
 Do not export the full Android USB device list in an MFi failure report. VID:PID and `/dev/bus/usb` node paths pass the current redactor, reveal an unrelated hardware inventory, and are outside the EX-01 aggregate report schema.
 
 Do not move PHONE audio to the loudspeaker without reproducing an earpiece route on a supported head unit. Fixed main retains its current `USAGE_VOICE_COMMUNICATION` route until call/Siri/navigation and post-call restoration pass on TS10/K706.
+
+Keep sustained RTP-age eviction separate from audio-clock correction. Fixed main drops newest packets only when its bounded queue fills; stale-packet eviction must preserve short Wi-Fi catch-up bursts and must not train a later track's playback rate from temporary decoder backpressure.

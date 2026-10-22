@@ -522,3 +522,7 @@ For PR-04, exercise all four advertised voice-input request types through `CarPl
 Keep per-event audio queue/rebuffer diagnostics out of the renderer until shared state is synchronized and reports leave the audio worker through a bounded nonblocking handoff. Fixed main already records one queue-full event and aggregates dropped-packet/rebuffer counts every five seconds; any event-level replacement still needs a useful failure-window and audio-timing measurement.
 
 Do not change telephony `AudioRecord` source based on another OEM's phone-audio state or clipping result. Keep the fixed-main `VOICE_COMMUNICATION` route until TS10/K706 call capture, AEC/AGC, echo, speakerphone, and route restoration are measured.
+
+Keep BYD custom wheel-key/Siri behavior out of fixed main when the fork has no corresponding input service or invocation call site. A BYD-specific event-pairing fix does not establish a generic CarPlay key path.
+
+Classify an OEM feature and its integration merge separately: keep the source feature `SKIP_OEM`, and reject a merge that only reintroduces that same feature across the same paths.

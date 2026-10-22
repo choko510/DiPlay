@@ -532,3 +532,5 @@ Keep the car's own hotspot separate from the head unit's `LocalOnlyHotspot`. The
 When the user explicitly taps Connect despite an Android-reported car-hotspot-off state, remember that choice for the manual hotspot path and clear it once Android reports the AP on. Apply the same guard in Home and the controller; leave default behavior unchanged.
 
 Do not export the full Android USB device list in an MFi failure report. VID:PID and `/dev/bus/usb` node paths pass the current redactor, reveal an unrelated hardware inventory, and are outside the EX-01 aggregate report schema.
+
+Do not move PHONE audio to the loudspeaker without reproducing an earpiece route on a supported head unit. Fixed main retains its current `USAGE_VOICE_COMMUNICATION` route until call/Siri/navigation and post-call restoration pass on TS10/K706.

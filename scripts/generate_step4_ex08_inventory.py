@@ -8074,12 +8074,12 @@ BASE_REVIEW_OVERRIDES.update({
         "review_state": "PRIMARY_AGENT_MUSIC_CLOCK_DRIFT_DEFAULT_ON_REJECT",
     },
     "42963b5454c86d519ae4b425204c71fa5f854fb2": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "This moves calls routed to a handset earpiece onto the speaker once per call. It is OEM-dependent and changes the call route for both speech and navigation; verify only when the reported earpiece route is reproduced.",
-        "test": "PASS_STATIC: source detects the earpiece route and limits fallback to once per call; AUTHOR_REPORTED: one SM4250/Podofo unit; NOT_RUN_TARGET: TS10/K706 route types, call/Siri/navigation audio, and restore after call",
-        "related": "PR-04 speakerphone/AEC route and DSP-05 call audio preservation",
-        "rollback": "Keep fixed-main call routing until the supported head unit reports the same earpiece route and speaker fallback passes.",
-        "review_state": "PRIMARY_AGENT_CALL_EARPIECE_FALLBACK_NEEDS_TARGET_EVIDENCE",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This PR merge has the exact same two-file patch as source 1166, which conditionally moves a call routed to a handset earpiece onto the speaker. Keep the source candidate separately evidence-gated; the merge adds no distinct behavior to the fixed-main call route.",
+        "test": "PASS_STATIC: GitHub source and merge diffs have identical AndroidMediaSink.kt and CallEarpieceFallbackTest.kt patches; fixed main's phone AudioTrack uses USAGE_VOICE_COMMUNICATION and has no earpiece fallback listener",
+        "related": "Reject duplicate PR-797 integration; keep source 1166 separately `NEED_EVIDENCE` under PR-04 call route/AEC",
+        "rollback": "No PR-797 merge imported; preserve the fixed-main call route.",
+        "review_state": "PRIMARY_AGENT_DUPLICATE_CALL_EARPIECE_MERGE_REJECTED",
     },
     "21d6832b706d0513a7fddabf1ea318031e99292d": {
         "disposition": "NEED_EVIDENCE",

@@ -453,11 +453,14 @@ jobs:
             automotive/build/reports/lint-results-debug.html
 
   host-baseline:
-    needs: [changes, check]
+    needs: [changes, check, android-instrumentation]
     if: >-
       always() &&
       needs.changes.outputs.full_host == 'true' &&
-      needs.check.result == 'success'
+      needs.check.result == 'success' &&
+      (needs.changes.outputs.workflow_sensitive != 'true' ||
+       (needs.changes.outputs.instrumentation == 'true' &&
+        needs['android-instrumentation'].result == 'success'))
     runs-on: ubuntu-latest
     steps:
       - name: Record successful host verification

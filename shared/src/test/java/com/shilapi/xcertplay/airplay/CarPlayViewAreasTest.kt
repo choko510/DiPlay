@@ -77,15 +77,76 @@ class CarPlayViewAreasTest {
             CarPlayViewAreas(listOf(CarPlayViewAreaDefinition(viewArea = AirPlayInsets(left = -1)))),
             CarPlayViewAreas(listOf(CarPlayViewAreaDefinition(viewArea = AirPlayInsets(left = width)))),
             CarPlayViewAreas(listOf(CarPlayViewAreaDefinition(safeArea = AirPlayInsets(bottom = height)))),
+            CarPlayViewAreas(
+                listOf(
+                    CarPlayViewAreaDefinition(
+                        viewArea = AirPlayInsets(top = 100, bottom = 100, left = 100, right = 100),
+                        safeArea = AirPlayInsets(top = 100, bottom = 100, left = 50, right = 100),
+                    ),
+                ),
+            ),
+            CarPlayViewAreas(
+                listOf(
+                    CarPlayViewAreaDefinition(
+                        viewArea = AirPlayInsets(top = 100, bottom = 100, left = 100, right = 100),
+                        safeArea = AirPlayInsets(top = 100, bottom = 100, left = 100, right = 50),
+                    ),
+                ),
+            ),
+            CarPlayViewAreas(
+                listOf(
+                    CarPlayViewAreaDefinition(
+                        viewArea = AirPlayInsets(top = 100, bottom = 100, left = 100, right = 100),
+                        safeArea = AirPlayInsets(top = 50, bottom = 100, left = 100, right = 100),
+                    ),
+                ),
+            ),
+            CarPlayViewAreas(
+                listOf(
+                    CarPlayViewAreaDefinition(
+                        viewArea = AirPlayInsets(top = 100, bottom = 100, left = 100, right = 100),
+                        safeArea = AirPlayInsets(top = 100, bottom = 50, left = 100, right = 100),
+                    ),
+                ),
+            ),
         )
 
         invalidAreas.forEach { assertFalse(it.isValidFor(width, height)) }
         assertTrue(runCatching {
             AirPlayInfoPlist.build(testConfig(testDisplay().copy(viewAreas = invalidAreas.first())))
         }.isFailure)
+        assertTrue(
+            runCatching {
+                AirPlayInfoPlist.build(
+                    testConfig(
+                        testDisplay().copy(
+                            viewArea = AirPlayInsets(left = 100),
+                            safeArea = AirPlayInsets(),
+                        ),
+                    ),
+                )
+            }.isFailure,
+        )
         assertTrue(CarPlayViewAreas.fullAndSplit(testDisplay(), initialIndex = 1).isValidFor(width, height))
         assertTrue(runCatching { CarPlayViewAreas.fullAndSplit(testDisplay(), splitFraction = 0.49) }.isFailure)
         assertTrue(runCatching { CarPlayViewAreas.fullAndSplit(testDisplay(), splitFraction = 0.61) }.isFailure)
+        assertTrue(
+            runCatching {
+                CarPlayViewAreas.fullAndSplit(
+                    testDisplay().copy(safeArea = AirPlayInsets(left = 1_100, right = 100)),
+                )
+            }.isFailure,
+        )
+        assertTrue(
+            runCatching {
+                CarPlayViewAreas.fullAndSplit(
+                    testDisplay().copy(
+                        viewArea = AirPlayInsets(left = 100),
+                        safeArea = AirPlayInsets(left = 50),
+                    ),
+                )
+            }.isFailure,
+        )
     }
 
     @Test

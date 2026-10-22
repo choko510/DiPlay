@@ -382,3 +382,5 @@ In multi-lane CI, discover only the baselines consumed by the active lane. Draft
 Use the dependency direction when scoping draft tests: `common` depends on `shared`, so a `common`-only source change needs the common suite while a shared production change can affect both suites. Keep the full cross-module checks on review-ready runs.
 
 For microphone input, verify accepted `audioType` values through the media-engine start callback as well as in the policy unit test; compare the normalized value delivered downstream, not the caller's original casing.
+
+For AirPlay display geometry, validate relationships between rectangles as well as each rectangle's bounds. Safe-area insets must be at least the corresponding view-area insets on all four edges; a non-overlapping Split safe region cannot be serialized as valid.

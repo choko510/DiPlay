@@ -78,7 +78,7 @@ While the current owner has a Controller, valid Surface, and known remote dimens
 
 ## Keep multiple ViewAreas explicit and wire-switching disabled
 
-Preserve the legacy one-area `/info` output when `AirPlayDisplayConfig.viewAreas` is null. A pure validated Full/Split model may serialize two areas under the same main display only when explicitly supplied; the application leaves it unset until the target iPhone accepts the declaration. Do not add unknown `updateViewArea`/`requestViewArea` commands without captured acceptance and frame-size evidence.
+Preserve the legacy one-area `/info` output when `AirPlayDisplayConfig.viewAreas` is null. A pure validated Full/Split model may serialize two areas under the same main display only when explicitly supplied; each safe rectangle must be contained in its view rectangle, and Split creation rejects a safe rectangle with no overlap. The application leaves the model unset until the target iPhone accepts the declaration. Do not add unknown `updateViewArea`/`requestViewArea` commands without captured acceptance and frame-size evidence.
 
 ## Keep DYNAMIC ViewArea and vendor codec changes gated
 

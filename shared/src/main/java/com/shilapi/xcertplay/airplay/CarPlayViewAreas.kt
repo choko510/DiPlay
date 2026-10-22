@@ -16,12 +16,13 @@ data class CarPlayViewAreas(
         widthPixels > 0 && heightPixels > 0 && areas.isNotEmpty() && initialIndex in areas.indices &&
             areas.all { area ->
                 isValidInsets(area.viewArea, widthPixels, heightPixels) &&
-                    isValidInsets(area.safeArea, widthPixels, heightPixels)
+                    isValidInsets(area.safeArea, widthPixels, heightPixels) &&
+                    isSafeAreaWithinViewArea(area.viewArea, area.safeArea)
             }
 
     fun requireValidFor(widthPixels: Int, heightPixels: Int) {
         require(isValidFor(widthPixels, heightPixels)) {
-            "View areas must have positive geometry within the display and a valid initial index"
+            "View areas must have valid geometry, contained safe areas, and a valid initial index"
         }
     }
 
@@ -83,6 +84,9 @@ data class CarPlayViewAreas(
             val fullSafeArea = display.safeArea ?: AirPlayInsets()
             require(isValidInsets(fullViewArea, width, height)) { "Full view area is outside the display" }
             require(isValidInsets(fullSafeArea, width, height)) { "Full safe area is outside the display" }
+            require(isSafeAreaWithinViewArea(fullViewArea, fullSafeArea)) {
+                "Full safe area is outside the full view area"
+            }
 
             val viewLeft = fullViewArea.left
             val viewRight = width - fullViewArea.right
@@ -109,6 +113,10 @@ private fun isValidInsets(insets: AirPlayInsets, widthPixels: Int, heightPixels:
     insets.left >= 0 && insets.right >= 0 && insets.top >= 0 && insets.bottom >= 0 &&
         insets.left.toLong() + insets.right < widthPixels &&
         insets.top.toLong() + insets.bottom < heightPixels
+
+private fun isSafeAreaWithinViewArea(viewArea: AirPlayInsets, safeArea: AirPlayInsets): Boolean =
+    safeArea.left >= viewArea.left && safeArea.right >= viewArea.right &&
+        safeArea.top >= viewArea.top && safeArea.bottom >= viewArea.bottom
 
 private fun scaleInsets(
     insets: AirPlayInsets,

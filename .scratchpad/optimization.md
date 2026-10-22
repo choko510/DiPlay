@@ -21,6 +21,7 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 - GitHub Actions run #300 passed on workflow head `a27f4f0`; public-tree and EX-08 checks ran, and Android SDK, Gradle, native, unit-test, and emulator jobs skipped as expected for a workflow-only draft update. This validates the static lane, not the new class filter or its runtime savings.
 - PR run #312 on `77446c7` selected only `shared|com.shilapi.xcertplay.airplay.CarPlayMediaEngineTest` after inspecting eight recent commits and passed the class-filtered lane. The test job's Gradle step took 1m06; local execution passed 14/14 in 8 s. This confirms the narrowed selection, but setup and cleanup dominate enough that no overall wall-time reduction is claimed versus differently scoped runs.
 - PR run #316 on `98e4866` selected only `common|com.shilapi.xcertplay.CarPlayHostActivityLocalScaleTest` and passed. Its Gradle step took 58 s; this is confirmation that the common-only class filter works, not a controlled wall-time comparison.
+- PR run #323 on `f52d528` selected only `shared|com.shilapi.xcertplay.airplay.CarPlayMediaEngineTest` and passed after the race-test synchronization was hardened. Its Gradle step took 1m11; this confirms the changed-class filter remains active for standalone shared tests, with no controlled full-suite timing comparison.
 
 ## 2026-10-21 — Scope draft JVM tests to test-only module changes
 

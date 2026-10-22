@@ -133,7 +133,12 @@ jobs:
               if has_check "$checks" "host-baseline" && [[ -z "$previous_quick_sha" ]]; then
                 previous_quick_sha="$candidate_sha"
               fi
-              if [[ "$search_full_baselines" == "true" && -z "$previous_full_sha" ]] && has_check "$checks" "check" && has_check "$checks" "android-instrumentation"; then
+              if [[ "$PR_DRAFT" == "true" && -z "$previous_quick_sha" ]] &&
+                is_ci_full_android_baseline "$checks"; then
+                previous_quick_sha="$candidate_sha"
+              fi
+              if [[ "$search_full_baselines" == "true" && -z "$previous_full_sha" ]] &&
+                is_ci_full_android_baseline "$checks"; then
                 previous_full_sha="$candidate_sha"
                 if [[ -z "$previous_host_sha" ]]; then
                   previous_host_sha="$candidate_sha"
@@ -336,6 +341,7 @@ jobs:
           full_host="$host"
           if [[ "$PR_DRAFT" == "true" && "$workflow_sensitive" != "true" ]]; then
             full_host=false
+            instrumentation=false
           fi
 
           echo "host=$host" >> "$GITHUB_OUTPUT"

@@ -36,3 +36,8 @@ is_ci_android_mk_link_path() {
         *) return 1 ;;
     esac
 }
+
+is_ci_full_android_baseline() {
+    local check_names=",$1,"
+    [[ "$check_names" == *",check,"* && "$check_names" == *",android-instrumentation,"* ]]
+}

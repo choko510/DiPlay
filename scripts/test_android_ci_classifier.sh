@@ -21,4 +21,7 @@ is_ci_native_path "shared/src/main/jni/dsp/dsp_engine.c"
 ! is_ci_android_mk_link_path "shared/src/main/jni/dsp/dsp_engine.c"
 ! is_ci_native_path "shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlaySession.kt"
 
+is_ci_full_android_baseline "check,android-instrumentation,host-baseline"
+! is_ci_full_android_baseline "check,quick-baseline"
+
 printf '%s\n' 'Android CI classifier fixtures passed.'

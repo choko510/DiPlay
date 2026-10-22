@@ -405,3 +405,7 @@ For lifecycle/layout regression tests, use the production view hierarchy when va
 When auditing real-time logging, trace the callback through to its storage destination. A lightweight `report(...)` call can synchronously perform locked file I/O on the audio worker even when the logging site does not show that work.
 
 Treat microphone-source measurements as OEM- and route-specific. A cleaner signal on one head unit does not establish that another unit's AEC, AGC, echo reference, speakerphone, or route restore behaves the same way.
+
+When an OEM callback is missing, first establish that fixed main owns that callback path. A proposal that adds a new media-focus manager is a new subsystem and requires target evidence for its lifecycle and interactions.
+
+Treat an explicit “connect anyway” choice as a one-attempt bypass when the requested network never appears. Reset it only for the typed no-interface failure and a still-off platform report; preserve it when platform state is unknown or the failure is unrelated.

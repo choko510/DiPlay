@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.network
 
 import android.content.Context
+import java.io.IOException
 import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -33,5 +34,35 @@ class CarHotspotStatusOverrideTest {
 
         assertFalse(CarHotspotStatusOverride.isReportedOff(context, true))
         assertTrue(CarHotspotStatusOverride.isReportedOff(context, false))
+    }
+
+    @Test
+    fun failedManualStartRestoresTheOffWarningOnlyForAnExplicitOverrideAndAStillOffReport() {
+        CarHotspotStatusOverride.ignoreOffReport(context)
+        assertTrue(
+            CarHotspotStatusOverride.clearAfterFailedManualStart(
+                context,
+                false,
+                ManualHotspotNotReadyException("local hotspot interface was not found"),
+            ),
+        )
+        assertTrue(CarHotspotStatusOverride.isReportedOff(context, false))
+
+        CarHotspotStatusOverride.ignoreOffReport(context)
+        assertFalse(
+            CarHotspotStatusOverride.clearAfterFailedManualStart(
+                context,
+                null,
+                ManualHotspotNotReadyException("local hotspot interface was not found"),
+            ),
+        )
+        assertFalse(
+            CarHotspotStatusOverride.clearAfterFailedManualStart(
+                context,
+                false,
+                IOException("manual hotspot credentials are invalid"),
+            ),
+        )
+        assertFalse(CarHotspotStatusOverride.isReportedOff(context, false))
     }
 }

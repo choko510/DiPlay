@@ -16,7 +16,8 @@ No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: mea
 ## 2026-10-22 — Run full draft unit modules in one Gradle invocation
 
 - Production/mixed draft changes with `quick_scope=both` and no class filter previously invoked Gradle once for `shared` and then again for `common`. Run #340 on `c0524c3` passed both unit suites, but the check job took 4m13s and its draft unit-test step took 3m17s.
-- The `both`/`all` branch now invokes `:shared:testDebugUnitTest` and `:common:testDebugUnitTest` together with `--parallel`. Test-only class-filtered changes still use per-module invocations so a module does not receive another module's `--tests` patterns. The equivalent local combined command passed 552 shared + 160 common in 1m11; workflow YAML parsing and Git Bash `bash -n` passed. Hosted timing for the combined path is not measured yet.
+- The `both`/`all` branch now invokes `:shared:testDebugUnitTest` and `:common:testDebugUnitTest` together with `--parallel`. Test-only class-filtered changes still use per-module invocations so a module does not receive another module's `--tests` patterns. Local combined runs passed 552 shared + 160 common in 1m11 and 553 shared + 165 common in 1m17; workflow YAML parsing and Git Bash `bash -n` passed.
+- PR run #346 on `c28c484` selected `quick_scope=common` and passed the full common unit module; hosted Gradle reported 2m36. Native, lint/build/JNI, and emulator paths skipped. This validates module-only selection, not a controlled time reduction, and does not exercise the hosted `both`/`all` command.
 
 ## 2026-10-22 — Batch related EX-08 audio reviews into one PR update
 

@@ -544,3 +544,7 @@ Do not add steering-wheel Siri or media remapping as a microphone adaptation. Fi
 After an explicit wireless permission refusal, show guidance from the current missing required permissions, re-check it when the host resumes, and clear it after all requested access is granted. Do not expand the fixed-main request set to an unplanned Android permission merely to reuse upstream wording.
 
 Do not import an upstream wireless retry-exhaustion model solely to preserve its terminal message. First reproduce the overwritten stage in fixed main's existing status/retry path; keep the current retry owner and timings intact meanwhile.
+
+Do not add audio-focus acquisition or retry state when fixed main has no focus owner. Reproduce transient call loss without a gain callback on a supported target and verify focus denial and competing audio before introducing a new owner.
+
+Clear an explicit car-hotspot-off override after a manual hotspot no-interface timeout only when Android still reports the AP off. Preserve the override for unknown state, unrelated configuration failures, and successful starts; this makes the next attempt show the setup warning again.

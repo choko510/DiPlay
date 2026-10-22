@@ -2666,6 +2666,15 @@ class CarPlayController(
             }
             if (closeManager) closeBestEffort(hotspotMode.name) { manager.close() }
             if (isStaleWirelessRun(generation)) throw failure
+            if (hotspotMode == WirelessHotspotMode.MANUAL &&
+                com.shilapi.xcertplay.network.CarHotspotStatusOverride.clearAfterFailedManualStart(
+                    appContext,
+                    com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext),
+                    failure,
+                )
+            ) {
+                debugLog("car hotspot: manual AP did not appear while Android still reported it off; restoring the off warning")
+            }
             throw IOException(
                 "Could not establish ${hotspotMode.name} hotspot: " +
                     (failure.message ?: failure.javaClass.simpleName),

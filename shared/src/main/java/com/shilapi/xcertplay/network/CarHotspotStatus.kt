@@ -36,6 +36,14 @@ object CarHotspotStatusOverride {
             .edit().putBoolean(KEY_IGNORE_OFF_REPORT, true).apply()
     }
 
+    fun clearAfterFailedManualStart(context: Context, state: Boolean?, failure: Throwable): Boolean {
+        if (state != false || failure !is ManualHotspotNotReadyException) return false
+        val preferences = context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
+        if (!preferences.getBoolean(KEY_IGNORE_OFF_REPORT, false)) return false
+        preferences.edit().remove(KEY_IGNORE_OFF_REPORT).apply()
+        return true
+    }
+
     fun isReportedOff(context: Context, state: Boolean?): Boolean {
         if (state == true) {
             context.applicationContext.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)

@@ -384,3 +384,5 @@ Use the dependency direction when scoping draft tests: `common` depends on `shar
 For microphone input, verify accepted `audioType` values through the media-engine start callback as well as in the policy unit test; compare the normalized value delivered downstream, not the caller's original casing.
 
 For AirPlay display geometry, validate relationships between rectangles as well as each rectangle's bounds. Safe-area insets must be at least the corresponding view-area insets on all four edges; a non-overlapping Split safe region cannot be serialized as valid.
+
+For explicit encoded ViewAreas, keep every display edge even-aligned through Split rounding and resolution scaling; clamp the scaled safe rectangle back inside its rounded view rectangle. Keep the legacy implicit one-area `/info` path unchanged, and use wide arithmetic to reject inset overflow.

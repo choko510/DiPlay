@@ -63,8 +63,41 @@ class CarPlayViewAreasTest {
 
         assertTrue(model.isValidFor(display.widthPixels, display.heightPixels))
         assertEquals(AirPlayInsets(top = 6, bottom = 12, left = 18, right = 24), model.areas[0].viewArea)
-        assertEquals(AirPlayInsets(top = 6, bottom = 12, left = 18, right = 869), model.areas[1].viewArea)
-        assertEquals(AirPlayInsets(top = 30, bottom = 60, left = 90, right = 869), model.areas[1].safeArea)
+        assertEquals(AirPlayInsets(top = 6, bottom = 12, left = 18, right = 870), model.areas[1].viewArea)
+        assertEquals(AirPlayInsets(top = 30, bottom = 60, left = 90, right = 870), model.areas[1].safeArea)
+    }
+
+    @Test
+    fun splitBoundariesStayEvenAlignedForTheEncoder() {
+        val display = testDisplay()
+        val model = CarPlayViewAreas.fullAndSplit(display, splitFraction = 0.51)
+        val split = model.areas[1].viewArea
+
+        assertEquals(980, display.widthPixels - split.left - split.right)
+        assertTrue(model.isEncoderAlignedFor(display.widthPixels, display.heightPixels))
+        assertTrue(runCatching { CarPlayViewAreas.fullAndSplit(display.copy(widthPixels = 1_919)) }.isFailure)
+        assertTrue(
+            runCatching {
+                CarPlayViewAreas.fullAndSplit(display.copy(viewArea = AirPlayInsets(left = 1)))
+            }.isFailure,
+        )
+    }
+
+    @Test
+    fun explicitlySuppliedViewAreasRejectOddEncoderBoundaries() {
+        val display = testDisplay()
+        val model = CarPlayViewAreas(
+            areas = listOf(
+                CarPlayViewAreaDefinition(
+                    viewArea = AirPlayInsets(left = 1),
+                    safeArea = AirPlayInsets(left = 1),
+                ),
+            ),
+        )
+
+        assertTrue(model.isValidFor(display.widthPixels, display.heightPixels))
+        assertFalse(model.isEncoderAlignedFor(display.widthPixels, display.heightPixels))
+        assertTrue(runCatching { AirPlayInfoPlist.build(testConfig(display.copy(viewAreas = model))) }.isFailure)
     }
 
     @Test
@@ -77,6 +110,16 @@ class CarPlayViewAreasTest {
             CarPlayViewAreas(listOf(CarPlayViewAreaDefinition(viewArea = AirPlayInsets(left = -1)))),
             CarPlayViewAreas(listOf(CarPlayViewAreaDefinition(viewArea = AirPlayInsets(left = width)))),
             CarPlayViewAreas(listOf(CarPlayViewAreaDefinition(safeArea = AirPlayInsets(bottom = height)))),
+            CarPlayViewAreas(
+                listOf(
+                    CarPlayViewAreaDefinition(viewArea = AirPlayInsets(left = Int.MAX_VALUE, right = 1)),
+                ),
+            ),
+            CarPlayViewAreas(
+                listOf(
+                    CarPlayViewAreaDefinition(safeArea = AirPlayInsets(top = Int.MAX_VALUE, bottom = 1)),
+                ),
+            ),
             CarPlayViewAreas(
                 listOf(
                     CarPlayViewAreaDefinition(
@@ -166,6 +209,20 @@ class CarPlayViewAreasTest {
         assertEquals(1440, enlarged.heightPixels)
         assertEquals(1408, enlarged.widthPixels - enlargedSplit.left - enlargedSplit.right)
         assertTrue(enlarged.viewAreas.isValidFor(enlarged.widthPixels, enlarged.heightPixels))
+
+        val insetDisplay = testDisplay().copy(
+            viewArea = AirPlayInsets(top = 2, bottom = 2, left = 2, right = 2),
+            safeArea = AirPlayInsets(top = 2, bottom = 2, left = 2, right = 2),
+            viewAreas = CarPlayViewAreas.fullAndSplit(
+                testDisplay().copy(
+                    viewArea = AirPlayInsets(top = 2, bottom = 2, left = 2, right = 2),
+                    safeArea = AirPlayInsets(top = 2, bottom = 2, left = 2, right = 2),
+                ),
+            ),
+        )
+        val scaled = insetDisplay.viewAreas!!.scaled(1920, 1080, 960, 540)
+        assertTrue(scaled.isValidFor(960, 540))
+        assertTrue(scaled.isEncoderAlignedFor(960, 540))
     }
 
     private fun testDisplay() = AirPlayDisplayConfig(

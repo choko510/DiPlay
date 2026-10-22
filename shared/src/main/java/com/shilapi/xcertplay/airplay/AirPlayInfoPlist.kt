@@ -170,6 +170,9 @@ object AirPlayInfoPlist {
 
         val viewAreas = display.viewAreas ?: CarPlayViewAreas.single(display)
         viewAreas.requireValidFor(display.widthPixels, display.heightPixels)
+        if (display.viewAreas != null) {
+            viewAreas.requireEncoderAlignedFor(display.widthPixels, display.heightPixels)
+        }
         entry["viewAreas"] = viewAreas.areas.map { area ->
             areaDict(display.widthPixels, display.heightPixels, area)
         }

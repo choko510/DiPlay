@@ -413,3 +413,5 @@ Treat an explicit “connect anyway” choice as a one-attempt bypass when the r
 Separate credentials for joining a running AP from provisioning the AP itself. Read-only link diagnostics do not authorize importing or changing system-owned SSID/password settings; those are a separate, consented feature and must preserve other connected devices.
 
 Treat Android logcat as a separate diagnostic destination from the app's redacted session file. Omit Bluetooth device names and MAC addresses before calling `Log`, since the session redactor cannot protect the platform log buffer.
+
+For conditional display rotation, validate the square canvas, safe-area transform, HID coordinates, and iPhone screenshot framing as one target scenario. A screenshot note alone does not establish that the control is supported.

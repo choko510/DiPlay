@@ -23,6 +23,13 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class CarPlayHostActivityReconnectTest {
     @Test
+    fun altOnlyScreenDoesNotHideTheMainConnectionPanel() {
+        assertFalse(mainScreenStreamIsActive(setOf(111), 110))
+        assertTrue(mainScreenStreamIsActive(setOf(110), 110))
+        assertTrue(mainScreenStreamIsActive(setOf(110, 111), 110))
+    }
+
+    @Test
     fun replacementLossTicketDoesNotRunAtTheFirstLossDeadline() {
         val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         val ownerField = field(CarPlayBackgroundSession, "owner")

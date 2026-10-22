@@ -425,3 +425,9 @@ Android pointer indices are event-local and can change after `ACTION_POINTER_UP`
 An accepted socket can outlive the listener attachment that returned it. A deterministic blocked-accept fixture should switch both generation and server identity before unblocking, then verify that the stale socket closes without a new-session callback.
 
 When embedding an existing Compose editor in a persistent View host, keep its `ComposeView` attached and set it `GONE` while another pane is active so scroll and editor state survive mode switches. Give the view a stable resource ID for saved-state restoration, share the application editor session with the standalone Activity, and guard async UI results with both operation generation and draft revision.
+
+For media ownership races, exercise the old callback after the new owner is installed and assert both the old session and current session receive no stale first-frame notification. For lock-order regressions, hold opposite MAIN/ALT lifecycle locks through a barrier and require both close paths to finish.
+
+When a numeric DSP bug is reported, add an adversarial sweep around the actual fold-back frequencies instead of relying on one high-quality/tap configuration. For instrumentation log evidence, clear logcat before the run and assert every required format explicitly; line counts do not prove unique measurements.
+
+When a runtime invariant can be exceeded through multiple UI editing orders, centralize one profile predicate and call it from edit, save/load, and apply paths. Reject before replacing the active pipeline so a bad draft cannot turn off unrelated DSP modules.

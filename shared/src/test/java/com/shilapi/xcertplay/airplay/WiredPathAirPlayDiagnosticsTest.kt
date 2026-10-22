@@ -3,7 +3,9 @@ package com.shilapi.xcertplay.airplay
 import com.shilapi.xcertplay.transport.WiredPathDiagnostics
 import com.shilapi.xcertplay.transport.WiredPathEvent
 import com.shilapi.xcertplay.transport.WiredPathReportReason
+import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import java.net.Socket
+import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,6 +19,8 @@ class WiredPathAirPlayDiagnosticsTest {
     fun mainAndAltSetupAndMainFirstFrameAreSeparateMilestones() {
         val diagnostics = WiredPathDiagnostics("run-airplay", 1, enabled = true)
         diagnostics.recordAttachGeneration(42)
+        val stages = CopyOnWriteArrayList<ConnectionTraceStage>()
+        val openedTypes = CopyOnWriteArrayList<Int>()
         val session = AirPlaySession(
             socket = Socket(),
             config = AirPlayConfig(
@@ -29,7 +33,15 @@ class WiredPathAirPlayDiagnosticsTest {
             identity = AirPlayIdentity.generate(),
             pairings = PairingStore(),
             mfi = null,
-            listener = object : AirPlaySessionListener {},
+            listener = object : AirPlaySessionListener {
+                override fun onConnectionTrace(stage: ConnectionTraceStage) {
+                    stages += stage
+                }
+
+                override fun onScreenStreamOpened(session: AirPlaySession, streamType: Int) {
+                    openedTypes += streamType
+                }
+            },
             media = object : AirPlayMediaHandler {
                 override fun onScreen(session: AirPlaySession, type: Int, stream: Map<String, Any?>): Int = 7001
             },
@@ -42,11 +54,16 @@ class WiredPathAirPlayDiagnosticsTest {
                 .apply { isAccessible = true }
             handleStreams.invoke(
                 session,
-                listOf(
-                    mapOf("type" to MAIN_SCREEN, "streamConnectionID" to 1L),
-                    mapOf("type" to ALT_SCREEN, "streamConnectionID" to 2L),
-                ),
+                listOf(mapOf("type" to ALT_SCREEN, "streamConnectionID" to 2L)),
             )
+            assertEquals(emptyList<ConnectionTraceStage>(), stages.toList())
+            assertEquals(listOf(ALT_SCREEN), openedTypes.toList())
+            session.videoFrameSubmittedToSurface(ALT_SCREEN)
+            assertEquals(emptyList<ConnectionTraceStage>(), stages.toList())
+
+            handleStreams.invoke(session, listOf(mapOf("type" to MAIN_SCREEN, "streamConnectionID" to 1L)))
+            assertEquals(listOf(ConnectionTraceStage.SCREEN_STREAM_OPENED), stages.toList())
+            assertEquals(listOf(ALT_SCREEN, MAIN_SCREEN), openedTypes.toList())
             session.videoFrameSubmittedToSurface(MAIN_SCREEN)
             session.videoFrameSubmittedToSurface(MAIN_SCREEN)
 

@@ -223,9 +223,14 @@ dsp_status dsp_engine_reset(dsp_engine *engine) {
 int dsp_engine_get_latency_frames(const dsp_engine *engine) {
     return engine_is_prepared(engine)
         ? dsp_convolver_latency_frames(&engine->graph.convolver) +
-            dsp_spatial_latency_frames(&engine->graph.spatial) +
             dsp_harmonic_latency_frames(&engine->graph.harmonic)
         : -1;
+}
+
+double dsp_engine_get_interchannel_relative_delay_frames(const dsp_engine *engine) {
+    return engine_is_prepared(engine)
+        ? dsp_spatial_relative_delay_frames(&engine->graph.spatial)
+        : -1.0;
 }
 
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics) {

@@ -534,6 +534,22 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetLatencyFrames(
     return (jint)latency;
 }
 
+JNIEXPORT jdouble JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetInterchannelRelativeDelayFrames(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) {
+        return -1.0;
+    }
+    const double delay = dsp_engine_get_interchannel_relative_delay_frames(lease.engine);
+    release_engine(&lease);
+    return delay;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetDiagnostics(
     JNIEnv *env,

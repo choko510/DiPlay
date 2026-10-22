@@ -566,3 +566,13 @@ Do not add localized rotation copy for a feature that fixed main does not expose
 For PR #45 multitouch, keep Android pointer IDs in normalized contacts, then map them to the protocol's two fixed HID slots inside each AirPlay session. Advance slot state only after the HID command succeeds; a failed release must be sent before its slot can be reused. This preserves index-independent contacts and the last delivered up coordinate without changing viewport scaling or the three-finger gesture owner.
 
 For AirPlay accepts, require the accepting ServerSocket and captured attachment generation to still be current before using the attachment. Close the accepted socket immediately on a stale listener return. Background session lookup also filters closed sessions so Activity recreation cannot adopt a dead connection.
+
+For plausible incomplete NTH16 recovery, protect every validated NDP/datagram byte range and resync only to a fully validated next block with the contiguous sequence number. Do not scan the payload for sync signatures or accept an incomplete candidate.
+
+Seat Focus adds interchannel-relative timing, not common transport delay. Keep its fractional allpass delay outside PlaybackClock compensation, report it separately, and preserve the same near-channel timing in the latency-preserving bypass.
+
+Use first-order antiderivative anti-aliasing around the existing harmonic oversampler; preserve the quality choices and their latency while measuring the folded tone for every mode, tap count, and supported sample rate.
+
+Validate active PEQ plus Cabin Correction against the shared 15-band limit before UI state, storage, or runtime publication can replace the active DSP graph. Retire DSP maintenance polling once the last retired graph has closed.
+
+Treat CI's selected/static result separately from release verification. Workflow changes require full host and Android instrumentation; `Android.mk` changes require native tests and an Android ABI link, including draft PRs where selected.

@@ -27,6 +27,7 @@ typedef struct {
     float delta_ring[DSP_HARMONIC_RING_FRAMES];
     int upsample_write_index;
     int delta_write_index;
+    float previous_upsampled_sample;
 } dsp_harmonic_oversampler_state;
 
 typedef struct {

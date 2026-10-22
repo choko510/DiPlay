@@ -43,7 +43,7 @@ internal data class DspBiquadCoefficients(
 }
 
 internal object DspEqDesigner {
-    const val MAX_BANDS = 15
+    const val MAX_BANDS = DspRuntimeConfig.MAX_EQ_BANDS
     const val COEFFICIENTS_PER_BAND = 5
     private const val MIN_FREQUENCY_HZ = 20.0
     private const val MAX_FREQUENCY_HZ = 20_000.0
@@ -231,7 +231,9 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     harmonic.validateForSampleRate(format.sampleRate)
     val cabinBands = cabinCorrection.approvedEqBands()
     val enabledBands = (peqBands + cabinBands).filter(DspEqBand::enabled)
-    require(enabledBands.size <= DspEqDesigner.MAX_BANDS)
+    require(enabledBands.size <= DspEqDesigner.MAX_BANDS) {
+        "PEQ_CAPACITY_EXCEEDED: ${enabledBands.size} active bands exceeds ${DspEqDesigner.MAX_BANDS}"
+    }
     val coefficients = DoubleArray(enabledBands.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
     enabledBands.forEachIndexed { index, band ->
         DspEqDesigner.design(format.sampleRate, band)

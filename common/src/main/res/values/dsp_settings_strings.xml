@@ -126,7 +126,7 @@
     <string name="dsp_cabin_measurement_imported">測定を取り込みました。%1$d個の候補は明示的に有効化するまでOFFです。</string>
     <string name="dsp_cabin_unavailable">CALIBRATION_UNAVAILABLE: CSVの周波数範囲、1/6オクターブ間隔、ノイズ余裕、クリッピング情報を確認してください。</string>
     <string name="dsp_cabin_choose_notch">先にカットを有効化するか追加してください。</string>
-    <string name="dsp_cabin_peq_capacity">車室カットを追加するにはPEQバンドをいくつか無効にしてください。</string>
+    <string name="dsp_cabin_peq_capacity">PEQと車室補正の有効帯域数は合計15までです。PEQバンドまたは車室カットを無効にしてください。</string>
     <string name="dsp_harmonic_engine">Harmonic Engine</string>
     <string name="dsp_harmonic_description">2倍FIRオーバーサンプリングでExciterとVirtual Bassの倍音を制御します。品質設定により4/8/16フレームの遅延を報告し、変更は次のトラックから適用します。</string>
     <string name="dsp_harmonic_mode">倍音モード</string>

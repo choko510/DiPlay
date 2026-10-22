@@ -138,7 +138,9 @@ class AirPlaySession(
 
     internal fun videoFrameSubmittedToSurface(streamType: Int?) {
         if (!closed.get()) {
-            if (firstVideoFrameSubmittedToSurface.compareAndSet(false, true)) {
+            if ((streamType == null || streamType == STREAM_TYPE_MAIN_SCREEN) &&
+                firstVideoFrameSubmittedToSurface.compareAndSet(false, true)
+            ) {
                 runCatching { listener.onConnectionTrace(ConnectionTraceStage.FIRST_FRAME_SUBMITTED_TO_SURFACE) }
             }
             if (
@@ -566,7 +568,9 @@ class AirPlaySession(
                             if (type == STREAM_TYPE_MAIN_SCREEN) WiredPathEvent.MAIN_SETUP else WiredPathEvent.ALT_SETUP,
                             attachGeneration,
                         )
-                        runCatching { listener.onConnectionTrace(ConnectionTraceStage.SCREEN_STREAM_OPENED) }
+                        if (type == STREAM_TYPE_MAIN_SCREEN) {
+                            runCatching { listener.onConnectionTrace(ConnectionTraceStage.SCREEN_STREAM_OPENED) }
+                        }
                         runCatching { listener.onScreenStreamOpened(this, type) }
                         activeStreams.add(type)
                         result.add(linkedMapOf("type" to type, "dataPort" to port))

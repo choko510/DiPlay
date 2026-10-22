@@ -75,9 +75,7 @@ class ConnectionTraceStoreTest {
             "trace-wired-path-${System.nanoTime()}",
         )
         val store = ConnectionTraceStore(directory)
-        val report = "WIRED_PATH_V1 schema=1 run=run-fixture attempt=1 attach_generation=7 " +
-            "reason=START sealed=0 counter_overflow=0 checksum=NOT_CHECKED " +
-            "v6_syn_to_airplay=1_first_ms=12"
+        val report = validWiredPathReport()
         try {
             store.appendWiredPathReport(report)
             store.appendWiredPathReport("WIRED_PATH_V1 schema=1 payload=fixture with spaces")
@@ -88,6 +86,79 @@ class ConnectionTraceStoreTest {
         } finally {
             store.closeForTests()
         }
+    }
+
+    @Test fun wiredPathReportRejectsUnknownFieldsAndInvalidCounterValues() {
+        val directory = File(
+            RuntimeEnvironment.getApplication().cacheDir,
+            "trace-wired-path-allowlist-${System.nanoTime()}",
+        )
+        val store = ConnectionTraceStore(directory)
+        val valid = validWiredPathReport()
+        try {
+            store.appendWiredPathReport(valid.replace("checksum=NOT_CHECKED", "checksum=NOT_CHECKED token=example-token"))
+            store.appendWiredPathReport(valid.replace("checksum=NOT_CHECKED", "checksum=NOT_CHECKED ssid=example-ssid"))
+            store.appendWiredPathReport(valid.replace("start=0", "start=-1"))
+            store.appendWiredPathReport(valid)
+
+            val snapshot = store.snapshot()
+            assertTrue(snapshot.contains(valid))
+            assertFalse(snapshot.contains("example-token"))
+            assertFalse(snapshot.contains("example-ssid"))
+        } finally {
+            store.closeForTests()
+        }
+    }
+
+    private fun validWiredPathReport(): String {
+        val eventKeys = listOf(
+            "start",
+            "ncm_usb_queue",
+            "ncm_usb_completion",
+            "ncm_ethernet_complete",
+            "ncm_ethernet_delivered",
+            "v4_syn_to_airplay",
+            "v6_syn_to_airplay",
+            "v6_syn_dest_match",
+            "v6_syn_dest_mismatch",
+            "v6_syn_dest_unverified",
+            "syn_tun_write_success",
+            "syn_tun_write_failure",
+            "tcp_syn_ack_from_tun",
+            "tcp_rst_from_tun",
+            "peer_mac_drop",
+            "syn_ack_ncm_sent",
+            "syn_ack_ncm_not_ready",
+            "syn_ack_ncm_failed",
+            "first_bulk_out_full_sent",
+            "vpn_established",
+            "listener_bound",
+            "listener_accepted",
+            "record_active",
+            "main_setup",
+            "alt_setup",
+            "main_first_frame",
+            "invalid_packet",
+            "unsupported_packet",
+            "unknown_packet",
+            "stale_callback",
+        )
+        val fields = mutableListOf(
+            "run=run-fixture",
+            "attempt=1",
+            "attach_generation=7",
+            "reason=START",
+            "sealed=0",
+            "counter_overflow=0",
+            "checksum=NOT_CHECKED",
+        )
+        for (event in eventKeys) {
+            fields += "$event=0"
+            fields += "${event}_first_ms=none"
+        }
+        fields[7] = "start=1"
+        fields[8] = "start_first_ms=12"
+        return "WIRED_PATH_V1 schema=1 ${fields.joinToString(" ")}"
     }
 
     @Test fun debugPreferenceDefaultsOffAndCanBeReturnedToOff() {

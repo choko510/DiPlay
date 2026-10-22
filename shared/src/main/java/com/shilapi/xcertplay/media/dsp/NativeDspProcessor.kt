@@ -32,6 +32,7 @@ internal interface NativeDspBindings {
     ): Int
     fun reset(handle: Long): Int
     fun latencyFrames(handle: Long): Int
+    fun interchannelRelativeDelayFrames(handle: Long): Double = 0.0
     fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
     fun destroy(handle: Long)
 }
@@ -93,6 +94,7 @@ internal object NativeDspJni : NativeDspBindings {
 
     override fun reset(handle: Long): Int = nativeReset(handle)
     override fun latencyFrames(handle: Long): Int = nativeGetLatencyFrames(handle)
+    override fun interchannelRelativeDelayFrames(handle: Long): Double = nativeGetInterchannelRelativeDelayFrames(handle)
     override fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int =
         nativeGetDiagnostics(handle, values, counters)
     override fun destroy(handle: Long) = nativeDestroy(handle)
@@ -126,6 +128,7 @@ internal object NativeDspJni : NativeDspBindings {
     ): Int
     private external fun nativeReset(handle: Long): Int
     private external fun nativeGetLatencyFrames(handle: Long): Int
+    private external fun nativeGetInterchannelRelativeDelayFrames(handle: Long): Double
     private external fun nativeGetDiagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
     private external fun nativeDestroy(handle: Long)
 }
@@ -160,6 +163,7 @@ internal class NativeDspProcessor internal constructor(
     handle: Long,
     private val bindings: NativeDspBindings,
     override val latencyFrames: Int,
+    override val interchannelRelativeDelayFrames: Double = 0.0,
 ) : DspProcessor {
     @Volatile private var nativeHandle = handle
     private val result = DspProcessResult()
@@ -320,11 +324,14 @@ internal class NativeDspProcessor internal constructor(
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)
-                if (latencyFrames < 0) {
+                val interchannelRelativeDelayFrames = bindings.interchannelRelativeDelayFrames(handle)
+                if (latencyFrames < 0 || !interchannelRelativeDelayFrames.isFinite() ||
+                    interchannelRelativeDelayFrames < 0.0
+                ) {
                     runCatching { bindings.destroy(handle) }
                     return null
                 }
-                NativeDspProcessor(format, handle, bindings, latencyFrames)
+                NativeDspProcessor(format, handle, bindings, latencyFrames, interchannelRelativeDelayFrames)
             } catch (_: SecurityException) {
                 if (handle > 0L) runCatching { bindings.destroy(handle) }
                 null

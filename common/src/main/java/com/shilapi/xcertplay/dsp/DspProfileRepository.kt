@@ -38,6 +38,7 @@ internal sealed interface DspProfileReadResult {
 internal enum class DspProfileSaveResult {
     SAVED,
     INVALID_PROFILE_ID,
+    INVALID_EQ_CAPACITY,
     FUTURE_SCHEMA_PRESERVED,
     WRITE_FAILED,
 }
@@ -62,10 +63,14 @@ internal class DspProfileRepository(
                 DspProfileReadResult.Invalid
             } else {
                 val profile = decode(profileId, json, schemaVersion)
-                DspProfileReadResult.Loaded(
-                    profile = profile,
-                    migratedFromVersion = if (schemaVersion < CURRENT_SCHEMA_VERSION) schemaVersion else null,
-                )
+                if (!profile.hasValidEqCapacity()) {
+                    DspProfileReadResult.Invalid
+                } else {
+                    DspProfileReadResult.Loaded(
+                        profile = profile,
+                        migratedFromVersion = if (schemaVersion < CURRENT_SCHEMA_VERSION) schemaVersion else null,
+                    )
+                }
             }
         } catch (_: Exception) {
             DspProfileReadResult.Invalid
@@ -81,6 +86,7 @@ internal class DspProfileRepository(
         if (file.isFile && schemaVersion(file)?.let { it > CURRENT_SCHEMA_VERSION } == true) {
             return DspProfileSaveResult.FUTURE_SCHEMA_PRESERVED
         }
+        if (!profile.hasValidEqCapacity()) return DspProfileSaveResult.INVALID_EQ_CAPACITY
         if (!profilesDirectory.exists() && !profilesDirectory.mkdirs()) return DspProfileSaveResult.WRITE_FAILED
 
         return try {
@@ -108,7 +114,11 @@ internal class DspProfileRepository(
     internal fun decodeDraftFromSavedState(serialized: String): DspAudioProfile? = try {
         val json = JSONObject(serialized)
         val profileId = json.optString(KEY_ID)
-        if (!isValidProfileId(profileId)) null else decode(profileId, json, CURRENT_SCHEMA_VERSION)
+        if (!isValidProfileId(profileId)) {
+            null
+        } else {
+            decode(profileId, json, CURRENT_SCHEMA_VERSION).takeIf(DspAudioProfile::hasValidEqCapacity)
+        }
     } catch (_: Exception) {
         null
     }

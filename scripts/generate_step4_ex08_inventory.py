@@ -10784,9 +10784,11 @@ def main() -> int:
         if not OUTPUT.is_file():
             print(f"Generated EX-08 ledger is missing: {OUTPUT.relative_to(ROOT)}", file=sys.stderr)
             return 1
-        with OUTPUT.open("r", encoding="utf-8", newline="") as stream:
-            generated_rows = list(csv.DictReader(stream))
-        if generated_rows != rows:
+        expected_stream = io.StringIO(newline="")
+        writer = csv.DictWriter(expected_stream, fieldnames=FIELDNAMES, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+        if OUTPUT.read_bytes() != expected_stream.getvalue().encode("utf-8"):
             print(
                 f"Generated EX-08 ledger is stale: regenerate {OUTPUT.relative_to(ROOT)}",
                 file=sys.stderr,

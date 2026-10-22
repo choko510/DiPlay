@@ -55,9 +55,8 @@ internal fun currentScreenListener(
     }
 
     override fun onClosed(cause: Throwable?) {
-        synchronized(callbackLock) {
-            if (isCurrent()) onClosed(cause)
-        }
+        val current = synchronized(callbackLock) { isCurrent() }
+        if (current) onClosed(cause)
     }
 }
 
@@ -163,11 +162,16 @@ class CarPlayMediaEngine(
                         TAG,
                         "screen stream ended type=$type reason=${cause?.message ?: "peer EOF"}",
                     )
-                    if (screenStreamOwners[type] == streamKey && streams.remove(streamKey, screen)) {
-                        screenStreamOwners.remove(type, streamKey)
-                        sink.onScreenStreamActive(type, false)
-                        session.close()
+                    val shouldCloseSession = synchronized(callbackLock) {
+                        if (screenStreamOwners[type] == streamKey && streams.remove(streamKey, screen)) {
+                            screenStreamOwners.remove(type, streamKey)
+                            sink.onScreenStreamActive(type, false)
+                            true
+                        } else {
+                            false
+                        }
                     }
+                    if (shouldCloseSession) session.close()
                 },
             )
             val previousOwner = screenStreamOwners.put(type, streamKey)
@@ -181,8 +185,10 @@ class CarPlayMediaEngine(
                 sink.onScreenStreamActive(type, false)
             }
             sink.setVideoDiagnosticHandler(type) {
-                if (it == "first frame submitted to surface") session.videoFrameSubmittedToSurface(type)
-                session.logDebug("Video: $it")
+                if (screenStreamOwners[type] == streamKey && streams[streamKey] === screen) {
+                    if (it == "first frame submitted to surface") session.videoFrameSubmittedToSurface(type)
+                    session.logDebug("Video: $it")
+                }
             }
             sink.setVideoRecoveryHandler(type) {
                 if (screenStreamOwners[type] == streamKey && streams[streamKey] === screen) {
@@ -631,7 +637,7 @@ class CarPlayMediaEngine(
         slot: AudioOwnerSlot<AudioState>,
     ): MicrophoneConfig? {
         check(Thread.holdsLock(slot.lock))
-        if (slot.owner !== state || !state.sinkStarted || state.microphoneStarting) {
+        if (slot.owner !== state || !state.sinkStarted || state.microphoneStarting || state.microphoneStarted) {
             return null
         }
         val microphone = state.microphoneConfig ?: return null

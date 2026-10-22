@@ -198,6 +198,66 @@ class NcmUsbBridgeFixtureTest {
     }
 
     @Test
+    fun plausibleOversizedBlockLengthRecoversFollowingCompleteNtb16() {
+        val damagedFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x31)
+        val nextFrame = Step4TestFixtures.ethernetFrame(length = 72, seed = 0x42)
+        val damagedBlock = Ntb16Codec.build(damagedFrame, sequence = 40).copyOf().apply {
+            writeU16(this, 8, 0xffff)
+        }
+        val nextBlock = Ntb16Codec.build(nextFrame, sequence = 41)
+        val (bridge, script) = newBridge()
+        script.enqueueRead(UsbRequestWaitFixture.Completed(Step4TestFixtures.coalesced(damagedBlock, nextBlock)))
+
+        bridge.use {
+            assertArrayEquals(nextFrame, it.recv(100))
+            assertEquals(1L, it.diagnosticSnapshot().ethernetRxFrames)
+        }
+    }
+
+    @Test
+    fun plausibleOversizedBlockLengthDoesNotResyncToNtb16EmbeddedInPayload() {
+        val fakeFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x62)
+        val embeddedNtb = Ntb16Codec.build(fakeFrame, sequence = 51)
+        val damagedFrame = Step4TestFixtures.ethernetFrame(length = 240, seed = 0x31).apply {
+            embeddedNtb.copyInto(this, destinationOffset = 48)
+        }
+        val nextFrame = Step4TestFixtures.ethernetFrame(length = 72, seed = 0x42)
+        val damagedBlock = Ntb16Codec.build(damagedFrame, sequence = 50).copyOf().apply {
+            writeU16(this, 8, 0xffff)
+        }
+        val nextBlock = Ntb16Codec.build(nextFrame, sequence = 51)
+        val (bridge, script) = newBridge()
+        script.enqueueRead(UsbRequestWaitFixture.Completed(Step4TestFixtures.coalesced(damagedBlock, nextBlock)))
+
+        bridge.use {
+            assertArrayEquals(nextFrame, it.recv(100))
+            assertEquals(1L, it.diagnosticSnapshot().ethernetRxFrames)
+        }
+    }
+
+    @Test
+    fun plausibleOversizedBlockLengthWaitsForSplitFollowingNtb16BeforeResync() {
+        val damagedFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x31)
+        val nextFrame = Step4TestFixtures.ethernetFrame(length = 72, seed = 0x42)
+        val damagedBlock = Ntb16Codec.build(damagedFrame, sequence = 60).copyOf().apply {
+            writeU16(this, 8, 0xffff)
+        }
+        val nextBlock = Ntb16Codec.build(nextFrame, sequence = 61)
+        val splitOffset = nextBlock.size / 2
+        val (bridge, script) = newBridge()
+        script.enqueueRead(UsbRequestWaitFixture.Completed(
+            Step4TestFixtures.coalesced(damagedBlock, nextBlock.copyOfRange(0, splitOffset)),
+        ))
+        script.enqueueRead(UsbRequestWaitFixture.Completed(nextBlock.copyOfRange(splitOffset, nextBlock.size)))
+
+        bridge.use {
+            assertArrayEquals(nextFrame, it.recv(100))
+            assertEquals(2L, it.diagnosticSnapshot().readCompletions)
+            assertEquals(1L, it.diagnosticSnapshot().ethernetRxFrames)
+        }
+    }
+
+    @Test
     fun unknownNTH32SignatureAndInvalidHeaderLengthRecoverTheFollowingNTB() {
         val frame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x7a)
         val validBlock = Ntb16Codec.build(frame, sequence = 6)

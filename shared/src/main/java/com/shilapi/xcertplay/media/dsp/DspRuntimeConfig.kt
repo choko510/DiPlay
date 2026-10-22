@@ -48,11 +48,17 @@ class DspRuntimeConfig(
     init {
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)
         require(this.peqBands.size <= DspEqDesigner.MAX_BANDS)
+        val activeEqBandCount = this.peqBands.count(DspEqBand::enabled) +
+            cabinCorrection.approvedEqBands().count(DspEqBand::enabled)
+        require(activeEqBandCount <= MAX_EQ_BANDS) {
+            "PEQ_CAPACITY_EXCEEDED: $activeEqBandCount active bands exceeds $MAX_EQ_BANDS"
+        }
         require(autoHeadroomMarginDb.isFinite() && autoHeadroomMarginDb in 0.0..MAX_HEADROOM_MARGIN_DB)
         require(stereoWidth.isFinite() && stereoWidth in 0.0..MAX_STEREO_WIDTH)
     }
 
     companion object {
+        const val MAX_EQ_BANDS = 15
         fun disabled(): DspRuntimeConfig = DspRuntimeConfig(enabled = false)
 
         private const val MIN_GAIN_DB = -120.0

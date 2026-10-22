@@ -60,6 +60,7 @@ dsp_status dsp_engine_process(
     int channels);
 dsp_status dsp_engine_reset(dsp_engine *engine);
 int dsp_engine_get_latency_frames(const dsp_engine *engine);
+double dsp_engine_get_interchannel_relative_delay_frames(const dsp_engine *engine);
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics);
 void dsp_engine_destroy(dsp_engine *engine);
 

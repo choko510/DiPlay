@@ -48,8 +48,10 @@ object DspCabinMeasurementCsv {
         val metadata = LinkedHashMap<String, String>()
         val pointLines = ArrayList<String>()
         var hasHeader = false
+        var firstLine = true
         for (rawLine in contents.lineSequence()) {
-            val line = rawLine.trim()
+            val line = (if (firstLine) rawLine.removePrefix("\uFEFF") else rawLine).trim()
+            firstLine = false
             if (line.isEmpty()) continue
             if (line.startsWith('#')) {
                 val entry = line.removePrefix("#").trim().split('=', limit = 2)

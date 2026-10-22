@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.airplay
 
+import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import java.io.Closeable
 import java.io.IOException
 import java.net.DatagramSocket
@@ -8,6 +9,7 @@ import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.math.BigInteger
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -239,7 +241,10 @@ class CarPlayMediaEngineTest {
     @Test
     fun oldSessionScreenCallbacksAndTeardownCannotReachTheCurrentSessionSink() {
         val frames = AtomicInteger()
+        val oldMainFrames = AtomicInteger()
+        val currentMainFrames = AtomicInteger()
         val screenStates = CopyOnWriteArrayList<Boolean>()
+        val diagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
         val sink = object : MediaSink {
             override fun onVideoFrame(type: Int, naluBytes: ByteArray) {
                 frames.incrementAndGet()
@@ -248,10 +253,22 @@ class CarPlayMediaEngineTest {
             override fun onScreenStreamActive(type: Int, active: Boolean) {
                 screenStates += active
             }
+
+            override fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {
+                diagnosticHandlers[type] = handler
+            }
         }
         val engine = CarPlayMediaEngine(sink)
-        val oldSession = audioSession(engine)
-        val currentSession = audioSession(engine)
+        val oldSession = audioSession(engine, listener = object : AirPlaySessionListener {
+            override fun onConnectionTrace(stage: ConnectionTraceStage) {
+                if (stage == ConnectionTraceStage.FIRST_FRAME_SUBMITTED_TO_SURFACE) oldMainFrames.incrementAndGet()
+            }
+        })
+        val currentSession = audioSession(engine, listener = object : AirPlaySessionListener {
+            override fun onConnectionTrace(stage: ConnectionTraceStage) {
+                if (stage == ConnectionTraceStage.FIRST_FRAME_SUBMITTED_TO_SURFACE) currentMainFrames.incrementAndGet()
+            }
+        })
         val oldKey = CarPlayMediaEngine.StreamKey(oldSession, 110)
         val currentKey = CarPlayMediaEngine.StreamKey(currentSession, 110)
 
@@ -259,28 +276,84 @@ class CarPlayMediaEngineTest {
             assertNotNull(engine.onScreen(oldSession, 110, mapOf("streamConnectionID" to 1L)))
             val oldScreen = screenStreams(engine)[oldKey] as ScreenStream
             val oldListener = screenListener(oldScreen)
+            val oldDiagnosticHandler = diagnosticHandlers[110]
 
             assertNotNull(engine.onScreen(currentSession, 110, mapOf("streamConnectionID" to 2L)))
             val currentScreen = screenStreams(engine)[currentKey] as ScreenStream
             val currentListener = screenListener(currentScreen)
+            val currentDiagnosticHandler = diagnosticHandlers[110]
             assertNotSame(oldScreen, currentScreen)
             assertEquals(listOf(true, false, true), screenStates.toList())
 
             oldListener.onFrame(byteArrayOf(0, 0, 0, 1, 0x65))
+            oldDiagnosticHandler?.invoke("first frame submitted to surface")
             engine.onSessionClosed(oldSession)
 
             assertEquals(0, frames.get())
+            assertEquals(0, oldMainFrames.get())
+            assertEquals(0, currentMainFrames.get())
             assertFalse(currentSession.isClosed)
             assertEquals(listOf(true, false, true), screenStates.toList())
 
             currentListener.onFrame(byteArrayOf(0, 0, 0, 1, 0x26))
+            currentDiagnosticHandler?.invoke("first frame submitted to surface")
             assertEquals(1, frames.get())
+            assertEquals(1, currentMainFrames.get())
             assertEquals(1, screenStreams(engine).size)
         } finally {
             engine.onSessionClosed(oldSession)
             engine.onSessionClosed(currentSession)
             oldSession.close()
             currentSession.close()
+        }
+    }
+
+    @Test
+    fun concurrentMainAndAltScreenClosureDoesNotDeadlockSessionTeardown() {
+        val closeCallbacks = CountDownLatch(2)
+        val callbackFailure = AtomicReference<Throwable?>()
+        val screenStates = CopyOnWriteArrayList<Pair<Int, Boolean>>()
+        val sink = object : MediaSink {
+            override fun onScreenStreamActive(type: Int, active: Boolean) {
+                screenStates += type to active
+                if (!active) {
+                    closeCallbacks.countDown()
+                    check(closeCallbacks.await(2, TimeUnit.SECONDS))
+                }
+            }
+        }
+        val engine = CarPlayMediaEngine(sink)
+        val altSession = audioSession(engine)
+        val mainSession = audioSession(engine)
+
+        try {
+            assertNotNull(engine.onScreen(altSession, 111, mapOf("streamConnectionID" to 1L)))
+            assertNotNull(engine.onScreen(mainSession, 110, mapOf("streamConnectionID" to 2L)))
+            val altListener = screenListener(screenStreams(engine)[CarPlayMediaEngine.StreamKey(altSession, 111)] as ScreenStream)
+            val mainListener = screenListener(screenStreams(engine)[CarPlayMediaEngine.StreamKey(mainSession, 110)] as ScreenStream)
+            val altCloser = Thread({
+                runCatching { altListener.onClosed(null) }.onFailure(callbackFailure::set)
+            }, "alt-screen-close-test").apply { isDaemon = true }
+            val mainCloser = Thread({
+                runCatching { mainListener.onClosed(null) }.onFailure(callbackFailure::set)
+            }, "main-screen-close-test").apply { isDaemon = true }
+
+            altCloser.start()
+            mainCloser.start()
+            altCloser.join(2_000)
+            mainCloser.join(2_000)
+
+            assertFalse(altCloser.isAlive)
+            assertFalse(mainCloser.isAlive)
+            assertNull(callbackFailure.get())
+            assertTrue(altSession.isClosed)
+            assertTrue(mainSession.isClosed)
+            assertEquals(listOf(111 to true, 110 to true, 111 to false, 110 to false), screenStates.toList())
+        } finally {
+            engine.onSessionClosed(altSession)
+            engine.onSessionClosed(mainSession)
+            altSession.close()
+            mainSession.close()
         }
     }
 
@@ -396,10 +469,7 @@ class CarPlayMediaEngineTest {
         val rtpPackets = AtomicInteger()
         val sink = object : MediaSink {
             override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
-                return when (microphoneAttempts.incrementAndGet()) {
-                    2, 4 -> true
-                    else -> false
-                }
+                return microphoneAttempts.incrementAndGet() == 4
             }
 
             override fun onAudioRtp(token: AudioOwnerToken, format: AudioFormat, rtp: ByteArray, sample: Int) {
@@ -436,7 +506,11 @@ class CarPlayMediaEngineTest {
             now.addAndGet(1_000_000L)
             listener.onRtp(ByteArray(12), 1234)
             assertEquals(4, microphoneAttempts.get())
-            assertEquals(6, rtpPackets.get())
+
+            now.addAndGet(5_000_000_000L)
+            listener.onRtp(ByteArray(12), 1234)
+            assertEquals(4, microphoneAttempts.get())
+            assertEquals(7, rtpPackets.get())
         } finally {
             engine.onSessionClosed(session)
             session.close()
@@ -696,7 +770,11 @@ class CarPlayMediaEngineTest {
         ScreenStream::class.java.getDeclaredField("listener").apply { isAccessible = true }
             .get(screen) as ScreenStream.Listener
 
-    private fun audioSession(media: AirPlayMediaHandler, withRemoteAddress: Boolean = false): AirPlaySession {
+    private fun audioSession(
+        media: AirPlayMediaHandler,
+        withRemoteAddress: Boolean = false,
+        listener: AirPlaySessionListener = object : AirPlaySessionListener {},
+    ): AirPlaySession {
         val session = AirPlaySession(
             socket = if (withRemoteAddress) connectedSocket() else Socket(),
             config = AirPlayConfig(
@@ -709,7 +787,7 @@ class CarPlayMediaEngineTest {
             identity = AirPlayIdentity.generate(),
             pairings = PairingStore(),
             mfi = null,
-            listener = object : AirPlaySessionListener {},
+            listener = listener,
             media = media,
         )
         val pairVerifyField = AirPlaySession::class.java.getDeclaredField("pairVerify").apply {

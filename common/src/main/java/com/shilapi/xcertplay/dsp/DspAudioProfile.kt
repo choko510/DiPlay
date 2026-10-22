@@ -69,8 +69,13 @@ data class DspAudioProfile(
         harmonic = harmonic,
     )
 
+    fun activeEqBandCount(): Int = eqBands.count(DspEqBand::enabled) +
+        cabinCorrection.approvedEqBands().count(DspEqBand::enabled)
+
+    fun hasValidEqCapacity(): Boolean = activeEqBandCount() <= MAX_EQ_BANDS
+
     companion object {
-        const val MAX_EQ_BANDS = 15
+        const val MAX_EQ_BANDS = DspRuntimeConfig.MAX_EQ_BANDS
         private const val MAX_NAME_LENGTH = 48
         private const val MIN_PREAMP_DB = -120.0
         private const val MAX_PREAMP_DB = 24.0

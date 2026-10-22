@@ -94,11 +94,18 @@ int dsp_spatial_prepare(
     spatial->seat_invert_right = config->seat_invert_right;
     spatial->seat_left_gain = (float)pow(10.0, config->seat_left_trim_db / 20.0);
     spatial->seat_right_gain = (float)pow(10.0, config->seat_right_trim_db / 20.0);
-    spatial->seat_latency_frames = 0;
+    spatial->seat_relative_delay_frames = 0.0;
     spatial->seat_left_delay.integer_delay_frames = 0;
     spatial->seat_left_delay.fractional_delay = 0.0f;
+    spatial->seat_left_delay.fractional_allpass_coefficient = 0.0f;
+    spatial->seat_left_delay.fractional_x_previous = 0.0f;
+    spatial->seat_left_delay.fractional_y_previous = 0.0f;
     spatial->seat_right_delay.integer_delay_frames = 0;
     spatial->seat_right_delay.fractional_delay = 0.0f;
+    spatial->seat_right_delay.fractional_allpass_coefficient = 0.0f;
+    spatial->seat_right_delay.fractional_x_previous = 0.0f;
+    spatial->seat_right_delay.fractional_y_previous = 0.0f;
+    spatial->advanced_ms_identity = 0;
     if (spatial->seat_enabled && config->seat_near_speaker != DSP_SPATIAL_NEAR_CENTER &&
         config->seat_distance_difference_cm > 0.0) {
         const double delay_frames = fmin(
@@ -111,9 +118,20 @@ int dsp_spatial_prepare(
             : &spatial->seat_right_delay;
         near_delay->integer_delay_frames = integer_delay_frames;
         near_delay->fractional_delay = fractional_delay;
-        spatial->seat_latency_frames = (int)ceil(delay_frames);
+        near_delay->fractional_allpass_coefficient =
+            (1.0f - fractional_delay) / (1.0f + fractional_delay);
+        spatial->seat_relative_delay_frames = delay_frames;
     }
     if (spatial->advanced_ms_enabled) {
+        spatial->advanced_ms_identity =
+            config->advanced_ms.center_focus_db == 0.0 &&
+            config->advanced_ms.mid_low_gain_db == 0.0 &&
+            config->advanced_ms.mid_high_gain_db == 0.0 &&
+            config->advanced_ms.side_low_gain_db == 0.0 &&
+            config->advanced_ms.side_high_gain_db == 0.0 &&
+            config->advanced_ms.low_band_width == 1.0 &&
+            config->advanced_ms.high_band_width == 1.0 &&
+            config->advanced_ms.side_compressor_enabled == 0;
         double low_pass[5];
         double high_pass[5];
         design_crossover(sample_rate, config->advanced_ms.crossover_hz, 0, low_pass);
@@ -190,6 +208,10 @@ void dsp_spatial_reset(dsp_spatial *spatial) {
     memset(spatial->seat_right_delay.samples, 0, sizeof(spatial->seat_right_delay.samples));
     spatial->seat_left_delay.write_index = 0;
     spatial->seat_right_delay.write_index = 0;
+    spatial->seat_left_delay.fractional_x_previous = 0.0f;
+    spatial->seat_left_delay.fractional_y_previous = 0.0f;
+    spatial->seat_right_delay.fractional_x_previous = 0.0f;
+    spatial->seat_right_delay.fractional_y_previous = 0.0f;
     for (int component = 0; component < 2; component++) {
         dsp_biquad_reset(&spatial->ms_low_pass_first[component]);
         dsp_biquad_reset(&spatial->ms_low_pass_second[component]);
@@ -211,11 +233,15 @@ static float process_seat_delay(dsp_spatial_delay_line *delay, float sample) {
     delay->samples[write_index] = fabsf(sample) < 1e-20f ? 0.0f : sample;
     int first_index = write_index - delay->integer_delay_frames;
     if (first_index < 0) first_index += DSP_SPATIAL_DELAY_LINE_FRAMES;
-    int second_index = first_index - 1;
-    if (second_index < 0) second_index += DSP_SPATIAL_DELAY_LINE_FRAMES;
-    const float fraction = delay->fractional_delay;
-    const float output = delay->samples[first_index] * (1.0f - fraction) +
-        delay->samples[second_index] * fraction;
+    const float integer_delayed = delay->samples[first_index];
+    float output = integer_delayed;
+    if (delay->fractional_delay > 0.0f) {
+        const float coefficient = delay->fractional_allpass_coefficient;
+        output = coefficient * integer_delayed + delay->fractional_x_previous -
+            coefficient * delay->fractional_y_previous;
+        delay->fractional_x_previous = integer_delayed;
+        delay->fractional_y_previous = output;
+    }
     write_index++;
     if (write_index == DSP_SPATIAL_DELAY_LINE_FRAMES) write_index = 0;
     delay->write_index = write_index;
@@ -232,8 +258,8 @@ void dsp_spatial_process_seat(dsp_spatial *spatial, float *left, float *right, i
     *right = process_seat_delay(&spatial->seat_right_delay, right_sample);
 }
 
-int dsp_spatial_latency_frames(const dsp_spatial *spatial) {
-    return spatial != NULL ? spatial->seat_latency_frames : 0;
+double dsp_spatial_relative_delay_frames(const dsp_spatial *spatial) {
+    return spatial != NULL ? spatial->seat_relative_delay_frames : 0.0;
 }
 
 void dsp_spatial_process_stereo(dsp_spatial *spatial, float *left, float *right, int channels) {
@@ -242,6 +268,7 @@ void dsp_spatial_process_stereo(dsp_spatial *spatial, float *left, float *right,
     }
 
     if (spatial->advanced_ms_enabled) {
+        if (spatial->advanced_ms_identity) return;
         const float mid = (*left + *right) * 0.5f;
         const float side = (*left - *right) * 0.5f;
         const float mid_low = dsp_biquad_process_sample(

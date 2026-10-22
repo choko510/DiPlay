@@ -50,6 +50,9 @@ typedef struct {
     int write_index;
     int integer_delay_frames;
     float fractional_delay;
+    float fractional_allpass_coefficient;
+    float fractional_x_previous;
+    float fractional_y_previous;
 } dsp_spatial_delay_line;
 
 typedef struct {
@@ -59,12 +62,13 @@ typedef struct {
     int seat_enabled;
     int seat_invert_left;
     int seat_invert_right;
-    int seat_latency_frames;
+    double seat_relative_delay_frames;
     float seat_left_gain;
     float seat_right_gain;
     dsp_spatial_delay_line seat_left_delay;
     dsp_spatial_delay_line seat_right_delay;
     int advanced_ms_enabled;
+    int advanced_ms_identity;
     float mid_low_gain;
     float mid_high_gain;
     float side_low_gain;
@@ -90,7 +94,7 @@ int dsp_spatial_prepare(
 void dsp_spatial_reset(dsp_spatial *spatial);
 float dsp_spatial_process_bass(dsp_spatial *spatial, float sample, int channel);
 void dsp_spatial_process_seat(dsp_spatial *spatial, float *left, float *right, int channels);
-int dsp_spatial_latency_frames(const dsp_spatial *spatial);
+double dsp_spatial_relative_delay_frames(const dsp_spatial *spatial);
 void dsp_spatial_process_stereo(dsp_spatial *spatial, float *left, float *right, int channels);
 void dsp_spatial_flush_denormals(dsp_spatial *spatial);
 

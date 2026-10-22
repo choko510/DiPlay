@@ -106,6 +106,32 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
+    fun configUpdatesWithoutRetiredPipelinesDoNotStartMaintenancePolling() {
+        val provider = MutableConfigProvider()
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = { prepared.offer(it) },
+            pipelinePreparer = { format, _ -> trackingPipeline(format, 0) { } },
+        )
+
+        try {
+            provider.update(DspRuntimeConfig(enabled = true))
+            val update = prepared.poll(5, TimeUnit.SECONDS)
+
+            assertNotNull(update)
+            assertNull(maintenanceTask(controller))
+            update?.pipeline?.close()
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun rapidUpdatesPrepareOnlyTheLatestGraphAndCloseTheStaleCandidate() {
         val provider = MutableConfigProvider()
         val firstPreparationStarted = CountDownLatch(1)
@@ -269,8 +295,15 @@ class DspLiveUpdateControllerTest {
 
         assertTrue(retiredClosed.await(5, TimeUnit.SECONDS))
         assertEquals("dsp-live-control", closeThread.get())
+        val deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (maintenanceTask(controller) != null && System.nanoTime() < deadlineNs) Thread.yield()
+        assertNull(maintenanceTask(controller))
         controller.close()
     }
+
+    private fun maintenanceTask(controller: DspLiveUpdateController): Any? =
+        DspLiveUpdateController::class.java.getDeclaredField("maintenance").apply { isAccessible = true }
+            .get(controller)
 
     private fun trackingPipeline(
         format: DspAudioFormat,

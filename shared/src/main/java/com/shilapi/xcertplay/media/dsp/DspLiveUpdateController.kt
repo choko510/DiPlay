@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
 import java.io.Closeable
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.ScheduledFuture
@@ -42,8 +43,10 @@ internal class DspLiveUpdateController(
     private val lastHandledGeneration = AtomicLong(initialGeneration)
     private val desired = AtomicReference<DspConfigSnapshot?>(null)
     private val generationLock = Any()
+    private val maintenanceLock = Any()
     private val retiredPipelines = AtomicReferenceArray<DspPcmPipeline?>(MAX_RETIRED_PIPELINES)
     private val overflowRetiredPipeline = AtomicReference<DspPcmPipeline?>(null)
+    private val additionalRetiredPipelines = ConcurrentLinkedQueue<DspPcmPipeline>()
     @Volatile private var maintenance: ScheduledFuture<*>? = null
     private val subscription = provider.addListener(::onConfigChanged)
 
@@ -59,23 +62,24 @@ internal class DspLiveUpdateController(
             true
         }
         if (!accepted) return
-        ensureMaintenance()
         schedulePreparation()
     }
 
-    private fun ensureMaintenance() {
-        if (maintenance != null) return
-        synchronized(this) {
-            if (maintenance == null && !closed.get()) {
-                maintenance = controlExecutor.scheduleWithFixedDelay(
-                    ::closeRetiredPipeline,
-                    MAINTENANCE_INTERVAL_MS,
-                    MAINTENANCE_INTERVAL_MS,
-                    TimeUnit.MILLISECONDS,
-                )
-            }
+    private fun ensureMaintenanceLocked() {
+        if (closed.get() || !hasRetiredPipelines()) return
+        if (maintenance == null || maintenance?.isDone == true) {
+            maintenance = controlExecutor.scheduleWithFixedDelay(
+                ::closeRetiredPipeline,
+                MAINTENANCE_INTERVAL_MS,
+                MAINTENANCE_INTERVAL_MS,
+                TimeUnit.MILLISECONDS,
+            )
         }
     }
+
+    private fun hasRetiredPipelines(): Boolean =
+        overflowRetiredPipeline.get() != null || additionalRetiredPipelines.isNotEmpty() ||
+            (0 until MAX_RETIRED_PIPELINES).any { retiredPipelines.get(it) != null }
 
     private fun schedulePreparation() {
         if (!preparing.compareAndSet(false, true)) return
@@ -122,14 +126,35 @@ internal class DspLiveUpdateController(
     }
 
     fun canAdoptUpdate(): Boolean = !closed.get() && overflowRetiredPipeline.get() == null &&
-        (0 until MAX_RETIRED_PIPELINES).all { retiredPipelines.get(it) == null }
+        additionalRetiredPipelines.isEmpty() && (0 until MAX_RETIRED_PIPELINES).all { retiredPipelines.get(it) == null }
 
     fun retire(pipeline: DspPcmPipeline?) {
         if (pipeline == null) return
-        for (slot in 0 until MAX_RETIRED_PIPELINES) {
-            if (retiredPipelines.compareAndSet(slot, null, pipeline)) return
+        var closeOnReaper = false
+        synchronized(maintenanceLock) {
+            if (closed.get()) {
+                closeOnReaper = true
+            } else {
+                var stored = false
+                for (slot in 0 until MAX_RETIRED_PIPELINES) {
+                    if (retiredPipelines.compareAndSet(slot, null, pipeline)) {
+                        stored = true
+                        break
+                    }
+                }
+                if (!stored) stored = overflowRetiredPipeline.compareAndSet(null, pipeline)
+                if (!stored) additionalRetiredPipelines.add(pipeline)
+                ensureMaintenanceLocked()
+            }
         }
-        overflowRetiredPipeline.compareAndSet(null, pipeline)
+        if (closeOnReaper) {
+            runCatching {
+                Thread({ runCatching { pipeline.close() } }, "dsp-retired-close").apply {
+                    isDaemon = true
+                    start()
+                }
+            }
+        }
     }
 
     private fun closeRetiredPipeline() {
@@ -137,12 +162,25 @@ internal class DspLiveUpdateController(
             runCatching { retiredPipelines.getAndSet(slot, null)?.close() }
         }
         runCatching { overflowRetiredPipeline.getAndSet(null)?.close() }
+        while (true) {
+            val pipeline = additionalRetiredPipelines.poll() ?: break
+            runCatching { pipeline.close() }
+        }
+        synchronized(maintenanceLock) {
+            if (!hasRetiredPipelines()) {
+                maintenance?.cancel(false)
+                maintenance = null
+            }
+        }
     }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         subscription.close()
-        maintenance?.cancel(false)
+        synchronized(maintenanceLock) {
+            maintenance?.cancel(false)
+            maintenance = null
+        }
         closeRetiredPipeline()
         controlExecutor.shutdown()
     }

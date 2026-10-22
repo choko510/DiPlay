@@ -26,6 +26,22 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun seatRelativeDelayIsExposedSeparatelyFromCommonAlgorithmicLatency() {
+        val processor = requireNotNull(
+            NativeDspProcessor.createOrNull(
+                format = DspAudioFormat(48_000, 2),
+                runtimeConfig = DspRuntimeConfig(enabled = true),
+                loadLibrary = { true },
+                bindings = FakeNativeDspBindings(interchannelRelativeDelayFrames = 1.5),
+            ),
+        )
+
+        assertEquals(0, processor.latencyFrames)
+        assertEquals(1.5, processor.interchannelRelativeDelayFrames, 0.0)
+        processor.close()
+    }
+
+    @Test
     fun preparationPassesDoubleCoefficientsAndHeadroomAdjustedPreampToNativeCreate() {
         val bindings = FakeNativeDspBindings()
         val processor = NativeDspProcessor.createOrNull(
@@ -326,6 +342,7 @@ class NativeDspProcessorTest {
     private class FakeNativeDspBindings(
         private val createHandle: Long = 42L,
         private val processStatus: Int = 0,
+        private val interchannelRelativeDelayFrames: Double = 0.0,
     ) : NativeDspBindings {
         var processCalls = 0
         var lastFrames = 0
@@ -397,6 +414,7 @@ class NativeDspProcessorTest {
 
         override fun reset(handle: Long): Int = 0
         override fun latencyFrames(handle: Long): Int = 0
+        override fun interchannelRelativeDelayFrames(handle: Long): Double = interchannelRelativeDelayFrames
         override fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int = 0
         override fun destroy(handle: Long) {
             destroyedHandle = handle

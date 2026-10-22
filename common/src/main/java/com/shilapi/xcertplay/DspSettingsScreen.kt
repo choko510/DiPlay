@@ -231,13 +231,16 @@ internal fun DspSettingsScreen(
             }
         } else {
             val operation = editorSession.beginOperation(DspEditorOperationKind.APPLY)
-            runtime.applyAsync(applied, dspEnabled) {
-                editorSession.finishOperation(
-                    operation,
-                    runtime.selectedProfile(),
-                    runtime.isDspEnabled(),
-                    acceptAppliedDraft = true,
-                )
+            runtime.applyAsync(applied, dspEnabled) { accepted ->
+                if (editorSession.finishOperation(
+                        operation,
+                        runtime.selectedProfile(),
+                        runtime.isDspEnabled(),
+                        acceptAppliedDraft = accepted,
+                    ) && !accepted && screenActive.get()
+                ) {
+                    Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -629,16 +632,16 @@ internal fun DspSettingsScreen(
                                     if (notchIndex == index) candidate.copy(enabled = enabled) else candidate
                                 }
                                 val nextActiveCount = next.count(DspCabinCorrectionNotch::enabled)
-                                val activeEqCount = profile.eqBands.count(DspEqBand::enabled)
-                                if (cabin.enabled && activeEqCount + nextActiveCount > DspAudioProfile.MAX_EQ_BANDS) {
+                                val nextProfile = profile.copy(
+                                    cabinCorrection = cabin.copy(
+                                        enabled = cabin.enabled && nextActiveCount > 0,
+                                        notches = next,
+                                    ),
+                                )
+                                if (!nextProfile.hasValidEqCapacity()) {
                                     Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
                                 } else {
-                                    profile = profile.copy(
-                                        cabinCorrection = cabin.copy(
-                                            enabled = cabin.enabled && nextActiveCount > 0,
-                                            notches = next,
-                                        ),
-                                    )
+                                    profile = nextProfile
                                 }
                             },
                         )
@@ -702,13 +705,13 @@ internal fun DspSettingsScreen(
                         checked = cabin.enabled,
                         onCheckedChange = { enabled ->
                             val activeNotches = cabin.notches.count(DspCabinCorrectionNotch::enabled)
-                            val activeEqBands = profile.eqBands.count(DspEqBand::enabled)
+                            val nextProfile = profile.copy(cabinCorrection = cabin.copy(enabled = enabled))
                             if (enabled && activeNotches == 0) {
                                 Toast.makeText(context, R.string.dsp_cabin_choose_notch, Toast.LENGTH_SHORT).show()
-                            } else if (enabled && activeEqBands + activeNotches > DspAudioProfile.MAX_EQ_BANDS) {
+                            } else if (!nextProfile.hasValidEqCapacity()) {
                                 Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
                             } else {
-                                profile = profile.copy(cabinCorrection = cabin.copy(enabled = enabled))
+                                profile = nextProfile
                             }
                         },
                     )
@@ -798,7 +801,14 @@ internal fun DspSettingsScreen(
                         band = band,
                         onEditType = { bandTypeDialog = index },
                         onChange = { changed ->
-                            profile = profile.copy(eqBands = profile.eqBands.toMutableList().apply { set(index, changed) })
+                            val next = profile.copy(
+                                eqBands = profile.eqBands.toMutableList().apply { set(index, changed) },
+                            )
+                            if (!next.hasValidEqCapacity()) {
+                                Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
+                            } else {
+                                profile = next
+                            }
                         },
                     )
                 }
@@ -1222,6 +1232,7 @@ internal fun dspColorScheme(): ColorScheme = darkColorScheme(
 private fun showProfileSaveResult(context: Context, result: DspProfileSaveResult) {
     val message = when (result) {
         DspProfileSaveResult.SAVED -> R.string.dsp_profile_saved
+        DspProfileSaveResult.INVALID_EQ_CAPACITY -> R.string.dsp_cabin_peq_capacity
         DspProfileSaveResult.FUTURE_SCHEMA_PRESERVED -> R.string.dsp_profile_future_schema
         else -> R.string.dsp_profile_save_failed
     }

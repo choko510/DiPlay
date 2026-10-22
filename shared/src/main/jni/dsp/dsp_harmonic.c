@@ -76,15 +76,20 @@ static float clamp_sample(float sample) {
     return fminf(1.0f, fmaxf(-1.0f, sample));
 }
 
-static float waveshape(float sample, int mode) {
-    const float bounded = clamp_sample(sample);
-    const float even = bounded * bounded;
-    const float odd = even * bounded;
+static float waveshape_antiderivative(float sample, float previous_sample, int mode) {
+    const float current = clamp_sample(sample);
+    const float previous = clamp_sample(previous_sample);
+    const float current_squared = current * current;
+    const float previous_squared = previous * previous;
+    // First-order ADAA divided differences for x^2 and x^3 avoid division at equal adjacent samples.
+    const float even = (current_squared + current * previous + previous_squared) / 3.0f;
+    const float odd = (current_squared * current + current_squared * previous +
+        current * previous_squared + previous_squared * previous) * 0.25f;
     switch (mode) {
         case 0: return even;
         case 1: return odd;
         case 2: return 0.5f * (even + odd);
-        default: return bounded;
+        default: return current;
     }
 }
 
@@ -104,7 +109,11 @@ static float process_upsampled_branch(
             upsampled += coefficients[tap] * state->upsample_ring[read_index];
         }
         upsampled *= 2.0f;
-        const float delta = waveshape(upsampled, mode) - upsampled;
+        const float delta = waveshape_antiderivative(
+            upsampled,
+            state->previous_upsampled_sample,
+            mode) - upsampled;
+        state->previous_upsampled_sample = upsampled;
         state->delta_ring[state->delta_write_index] = fabsf(delta) < 1e-20f ? 0.0f : delta;
         if (phase == 0) {
             for (int tap = 0; tap < taps; tap++) {

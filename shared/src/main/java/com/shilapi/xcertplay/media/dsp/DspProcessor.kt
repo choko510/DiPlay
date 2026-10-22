@@ -54,6 +54,8 @@ internal class DspProcessResult {
 internal interface DspProcessor : Closeable {
     val format: DspAudioFormat
     val latencyFrames: Int
+    val interchannelRelativeDelayFrames: Double
+        get() = 0.0
 
     fun process(
         input: ByteBuffer,

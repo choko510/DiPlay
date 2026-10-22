@@ -17,7 +17,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
-import kotlin.math.ceil
 import kotlin.math.pow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -653,12 +652,7 @@ class DspRendererProductionPathTest {
             initialConfig = initialConfig,
             provider = provider,
             onPrepared = { prepared.offer(Unit) },
-            pipelinePreparer = { audioFormat, config ->
-                val latencyFrames = ceil(
-                    config.seatAlignment.relativeDelayFrames(audioFormat.sampleRate),
-                ).toInt()
-                pipeline(audioFormat, latencyFrames = latencyFrames, gain = 1.0f)
-            },
+            pipelinePreparer = { audioFormat, _ -> pipeline(audioFormat, latencyFrames = 0, gain = 1.0f) },
         )
 
         try {
@@ -672,7 +666,7 @@ class DspRendererProductionPathTest {
                 sourceSample = 10L,
             )
             val activePipeline = renderer.dspPipeline
-            val expectedLatency = ceil(seat.relativeDelayFrames(48_000)).toInt()
+            val expectedLatency = 0
             assertEquals(expectedLatency, renderer.trackLatencyForTesting)
 
             provider.update(DspRuntimeConfig(enabled = true, seatAlignment = seat.copy(leftTrimDb = 1.0)))

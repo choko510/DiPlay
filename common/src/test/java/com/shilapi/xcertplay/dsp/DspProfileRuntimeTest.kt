@@ -2,8 +2,13 @@ package com.shilapi.xcertplay.dsp
 
 import android.content.Context
 import android.app.Application
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionNotch
+import com.shilapi.xcertplay.media.dsp.DspEqBand
+import com.shilapi.xcertplay.media.dsp.DspEqType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -79,6 +84,41 @@ class DspProfileRuntimeTest {
         assertEquals(6.0, runtime.configProvider.snapshot().gainDb, 0.0)
         assertFalse(runtime.selectedProfile().enabled)
         assertTrue(runtime.configProvider.snapshot().enabled)
+        DspProfileRuntime.resetForTesting()
+    }
+
+    @Test
+    fun overCapacityApplyAndSaveLeaveTheActiveRuntimeUntouched() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.get(context)
+        val valid = DspProfilePresets.customProfile("custom1").copy(
+            eqBands = List(12) { index ->
+                DspEqBand(DspEqType.PEAK, 100.0 + index * 100.0, gainDb = -1.0)
+            },
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                notches = List(3) { index ->
+                    DspCabinCorrectionNotch(enabled = true, frequencyHz = 80.0 + index * 40.0)
+                },
+            ),
+        )
+        val invalid = valid.copy(
+            eqBands = valid.eqBands + DspEqBand(DspEqType.PEAK, 1_500.0, gainDb = -1.0),
+        )
+        assertTrue(runtime.apply(valid, enabled = true))
+        val previousConfig = runtime.configProvider.snapshot()
+        val previousProfile = runtime.selectedProfile()
+        var saveResult: DspProfileSaveResult? = null
+
+        assertFalse(runtime.apply(invalid, enabled = false))
+        runtime.saveCustomAsync(invalid, enabled = false) { saveResult = it }
+
+        assertEquals(DspProfileSaveResult.INVALID_EQ_CAPACITY, saveResult)
+        assertSame(previousConfig, runtime.configProvider.snapshot())
+        assertEquals(previousProfile, runtime.selectedProfile())
+        assertTrue(runtime.isDspEnabled())
         DspProfileRuntime.resetForTesting()
     }
 

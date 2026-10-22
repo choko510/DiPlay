@@ -5099,7 +5099,11 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun updateDebugOverlays() {
         statusScrollView?.visibility = View.GONE
-        connectionPanel?.visibility = if (activeScreenStreamTypes.isEmpty()) View.VISIBLE else View.GONE
+        connectionPanel?.visibility = if (mainScreenStreamIsActive(activeScreenStreamTypes, SCREEN_TYPE_MAIN)) {
+            View.GONE
+        } else {
+            View.VISIBLE
+        }
     }
 
     private fun friendlyStage(message: String): String = when {
@@ -5272,6 +5276,9 @@ class CarPlayHostActivity : ComponentActivity() {
         val backend: String? = null,
     )
 }
+
+internal fun mainScreenStreamIsActive(activeScreenStreamTypes: Set<Int>, mainScreenType: Int): Boolean =
+    mainScreenType in activeScreenStreamTypes
 
 /** Process-local hand-off for keeping the CarPlay session alive while no Activity is visible. */
 internal object CarPlayBackgroundSession {

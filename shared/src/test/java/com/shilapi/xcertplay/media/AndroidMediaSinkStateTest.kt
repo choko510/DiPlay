@@ -56,6 +56,31 @@ class AndroidMediaSinkStateTest {
         }
     }
 
+    @Test fun retiredVideoDecoderKeepsItsCapturedDiagnosticHandler() {
+        val sink = AndroidMediaSink()
+        val oldMessages = mutableListOf<String>()
+        val currentMessages = mutableListOf<String>()
+        sink.setVideoDiagnosticHandler(110) { oldMessages += it }
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        val oldDecoder = decoderFactory.invoke(sink, 110)
+        sink.setVideoDiagnosticHandler(110) { currentMessages += it }
+        @Suppress("UNCHECKED_CAST")
+        val report = oldDecoder.javaClass.getDeclaredField("report").apply { isAccessible = true }
+            .get(oldDecoder) as (String) -> Unit
+
+        try {
+            report("first frame submitted to surface")
+
+            assertEquals(listOf("first frame submitted to surface"), oldMessages)
+            assertTrue(currentMessages.isEmpty())
+        } finally {
+            sink.close()
+        }
+    }
+
     @Test fun staleAudioCallbacksCannotReplaceOrRemoveTheCurrentRenderer() {
         val sink = AndroidMediaSink()
         val format = AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 100, "media")

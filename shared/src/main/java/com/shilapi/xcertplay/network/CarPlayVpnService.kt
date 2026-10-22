@@ -299,7 +299,6 @@ class CarPlayVpnService : VpnService() {
                     releaseLocked()
                 }
                 listener.onTransportError(message)
-                stopSelf()
             },
             "airplay-teardown",
         ).apply {

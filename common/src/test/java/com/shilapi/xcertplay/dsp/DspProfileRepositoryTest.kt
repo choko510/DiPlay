@@ -173,6 +173,54 @@ class DspProfileRepositoryTest {
     }
 
     @Test
+    fun activePeqAndCabinCutsShareOneFifteenBandCapacityOnSaveAndLoad() {
+        val repository = repository()
+        val exactlyFifteen = DspProfilePresets.customProfile("custom1").copy(
+            eqBands = List(12) { index ->
+                DspEqBand(DspEqType.PEAK, 100.0 + index * 100.0, gainDb = -1.0)
+            },
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                notches = List(3) { index ->
+                    DspCabinCorrectionNotch(enabled = true, frequencyHz = 80.0 + index * 40.0)
+                },
+            ),
+        )
+        val overCapacity = exactlyFifteen.copy(
+            eqBands = exactlyFifteen.eqBands + DspEqBand(DspEqType.PEAK, 1_500.0, gainDb = -1.0),
+        )
+
+        assertEquals(15, exactlyFifteen.activeEqBandCount())
+        assertTrue(exactlyFifteen.hasValidEqCapacity())
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(exactlyFifteen))
+        assertEquals(exactlyFifteen, (repository.load("custom1") as DspProfileReadResult.Loaded).profile)
+        assertEquals(16, overCapacity.activeEqBandCount())
+        assertFalse(overCapacity.hasValidEqCapacity())
+        assertEquals(DspProfileSaveResult.INVALID_EQ_CAPACITY, repository.save(overCapacity))
+        assertEquals(exactlyFifteen, (repository.load("custom1") as DspProfileReadResult.Loaded).profile)
+        assertTrue(runCatching { overCapacity.toRuntimeConfig(masterEnabled = true) }.isFailure)
+    }
+
+    @Test
+    fun storedOverCapacityProfileIsRejectedOnLoadAndSavedStateRestore() {
+        val repository = repository()
+        val profileFile = requireNotNull(repository.profileFileForTesting("custom1"))
+        assertTrue(profileFile.parentFile!!.mkdirs())
+        val bands = List(13) { index ->
+            """{"type":"PEAK","frequencyHz":${100 + index * 100},"gainDb":-1,"q":1,"enabled":true}"""
+        }.joinToString(",")
+        val notches = List(3) { index ->
+            """{"enabled":true,"frequencyHz":${80 + index * 40},"gainDb":-3,"q":4}"""
+        }.joinToString(",")
+        val storedInvalidProfile =
+            """{"schemaVersion":7,"id":"custom1","name":"Over capacity","peq":[$bands],"cabinCorrection":{"enabled":true,"notches":[$notches]}}"""
+        profileFile.writeText(storedInvalidProfile)
+
+        assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
+        assertEquals(null, repository.decodeDraftFromSavedState(storedInvalidProfile))
+    }
+
+    @Test
     fun rollingBackEachAddedModulePreservesLegacyConfigAndOtherProfiles() {
         val repository = repositoryWithDirectWriterForMigrationTests()
         val profile = DspProfilePresets.customProfile("custom1").copy(

@@ -38,6 +38,7 @@ import com.shilapi.xcertplay.media.dsp.DspPreparedUpdate
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
 import com.shilapi.xcertplay.media.dsp.DspPipelinePreparer
+import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
 import com.shilapi.xcertplay.media.dsp.createNativePipeline
 import java.io.Closeable
 import java.nio.ByteBuffer
@@ -351,13 +352,14 @@ class AndroidMediaSink(
 
     private fun videoDecoder(type: Int): VideoDecoder =
         videoDecoders.computeIfAbsent(type) {
+            val diagnosticHandler = videoDiagnosticHandlers[type]
             VideoDecoder(
                 surfaces[type] ?: defaultSurface,
                 videoWidth,
                 videoHeight,
                 preferSoftwareHevcDecoder,
                 requestKeyFrame = { requestVideoRecovery(type) },
-                report = { videoDiagnosticHandlers[type]?.invoke(it) },
+                report = { diagnosticHandler?.invoke(it) },
                 onFirstFrameSubmittedToSurface = { videoFrameSubmittedToSurface?.invoke(type) },
             )
         }
@@ -2221,8 +2223,15 @@ internal class AudioRenderer(
         trackGenerationLatencyFrames = dspPipeline?.algorithmicLatencyFrames ?: 0
         liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
         runCatching { dspPipeline?.reset() }
-        latencyPreservingBypass = if (trackGenerationLatencyFrames > 0) {
-            DspLatencyPreservingBypass(effectiveFormat, trackGenerationLatencyFrames)
+        val seatAlignment = activeDspGraphConfig.seatAlignment.takeIf { activeDspGraphConfig.enabled }
+            ?: DspSeatAlignmentConfig()
+        val interchannelRelativeDelay = if (effectiveFormat.channels == 2) {
+            seatAlignment.relativeDelayFrames(effectiveFormat.sampleRate)
+        } else {
+            0.0
+        }
+        latencyPreservingBypass = if (trackGenerationLatencyFrames > 0 || interchannelRelativeDelay > 0.0) {
+            DspLatencyPreservingBypass(effectiveFormat, trackGenerationLatencyFrames, seatAlignment)
         } else {
             null
         }

@@ -75,9 +75,8 @@ internal class DspProfileRuntime private constructor(context: Context) {
         return DspProfilePresets.find(profileId)
     }
 
-    fun apply(profile: DspAudioProfile, enabled: Boolean) {
+    fun apply(profile: DspAudioProfile, enabled: Boolean): Boolean =
         applyWithImpulse(profile, enabled, cachedImpulseResponse(profile))
-    }
 
     fun setMasterEnabled(enabled: Boolean) {
         val profile = activeProfile.get()
@@ -99,11 +98,15 @@ internal class DspProfileRuntime private constructor(context: Context) {
     internal fun decodeProfileDraftFromSavedState(serialized: String): DspAudioProfile? =
         repository.decodeDraftFromSavedState(serialized)
 
-    fun applyAsync(profile: DspAudioProfile, enabled: Boolean, onComplete: () -> Unit) {
+    fun applyAsync(profile: DspAudioProfile, enabled: Boolean, onComplete: (Boolean) -> Unit) {
+        if (!profile.hasValidEqCapacity()) {
+            Handler(Looper.getMainLooper()).post { onComplete(false) }
+            return
+        }
         ioExecutor.execute {
             val impulse = impulseResponseFor(profile)
-            applyWithImpulse(profile, enabled, impulse)
-            Handler(Looper.getMainLooper()).post(onComplete)
+            val applied = applyWithImpulse(profile, enabled, impulse)
+            Handler(Looper.getMainLooper()).post { onComplete(applied) }
         }
     }
 
@@ -139,7 +142,8 @@ internal class DspProfileRuntime private constructor(context: Context) {
         }
     }
 
-    private fun applyWithImpulse(profile: DspAudioProfile, enabled: Boolean, impulse: DspImpulseResponse?) {
+    private fun applyWithImpulse(profile: DspAudioProfile, enabled: Boolean, impulse: DspImpulseResponse?): Boolean {
+        if (!profile.hasValidEqCapacity()) return false
         activeProfile.set(profile)
         dspEnabled.set(enabled)
         runtimeConfig.update(profile.toRuntimeConfig(enabled, impulse))
@@ -147,11 +151,16 @@ internal class DspProfileRuntime private constructor(context: Context) {
             .putBoolean(KEY_DSP_ENABLED, enabled)
             .putString(KEY_SELECTED_PROFILE_ID, profile.id)
             .apply()
+        return true
     }
 
     fun saveCustomAsync(profile: DspAudioProfile, enabled: Boolean, onComplete: (DspProfileSaveResult) -> Unit) {
         if (profile.id !in CUSTOM_PROFILE_IDS) {
             onComplete(DspProfileSaveResult.INVALID_PROFILE_ID)
+            return
+        }
+        if (!profile.hasValidEqCapacity()) {
+            onComplete(DspProfileSaveResult.INVALID_EQ_CAPACITY)
             return
         }
         ioExecutor.execute {

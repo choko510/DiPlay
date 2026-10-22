@@ -35,6 +35,17 @@ class DspCabinMeasurementCsvTest {
     }
 
     @Test
+    fun acceptsOnlyOneUtf8BomAtTheStartOfTheFile() {
+        val withLeadingBom = DspCabinMeasurementCsv.parse("\uFEFF${csv()}")
+        assertTrue(withLeadingBom is DspCabinMeasurementParseResult.Available)
+
+        assertUnavailable(
+            csv().replace("# noise_floor_db=", "\uFEFF# noise_floor_db="),
+            DspCabinMeasurementParseResult.CalibrationUnavailable.Reason.INVALID_DATA,
+        )
+    }
+
+    @Test
     fun clippedLowMarginSparseAndNonSixthOctaveMeasurementsAreUnavailable() {
         assertUnavailable(csv(clipped = true), DspCabinMeasurementParseResult.CalibrationUnavailable.Reason.CLIPPING_REPORTED)
         assertUnavailable(

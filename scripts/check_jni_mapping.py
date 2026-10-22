@@ -13,6 +13,7 @@ JNI_CLASSES = {
         "nativeProcess",
         "nativeReset",
         "nativeGetLatencyFrames",
+        "nativeGetInterchannelRelativeDelayFrames",
         "nativeGetDiagnostics",
         "nativeDestroy",
     },

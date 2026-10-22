@@ -126,7 +126,7 @@
     <string name="dsp_cabin_measurement_imported">Measurement accepted. %1$d suggested cuts are off until you enable them.</string>
     <string name="dsp_cabin_unavailable">CALIBRATION_UNAVAILABLE: check CSV coverage, 1/6-octave spacing, noise margin, and clipping metadata.</string>
     <string name="dsp_cabin_choose_notch">Enable or add at least one cut first.</string>
-    <string name="dsp_cabin_peq_capacity">Disable some PEQ bands to make room for the cabin cuts.</string>
+    <string name="dsp_cabin_peq_capacity">PEQ and cabin correction can use at most 15 active bands combined. Disable a PEQ band or cabin cut.</string>
     <string name="dsp_harmonic_engine">Harmonic Engine</string>
     <string name="dsp_harmonic_description">Adds controlled exciter and virtual-bass harmonics with 2× FIR oversampling. Quality adds 4, 8, or 16 frames of reported latency; active changes apply on the next track.</string>
     <string name="dsp_harmonic_mode">Harmonic mode</string>

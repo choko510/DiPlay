@@ -785,18 +785,23 @@ static double measure_sine_gain(dsp_engine *engine, double frequency, int channe
     return measure_sine_gain_with_amplitude(engine, frequency, channels, 0.1);
 }
 
-static double measure_output_tone_component(dsp_engine *engine, double input_frequency, double output_frequency) {
+static double measure_output_tone_component_at_rate(
+    dsp_engine *engine,
+    int sample_rate,
+    double input_frequency,
+    double output_frequency) {
     double sine_sum = 0.0;
     double cosine_sum = 0.0;
     size_t measured = 0;
     size_t frame = 0;
-    while (frame < 48000) {
-        const size_t frames = 48000 - frame < 512 ? 48000 - frame : 512;
+    while (frame < (size_t)sample_rate) {
+        const size_t frames = (size_t)sample_rate - frame < 512 ?
+            (size_t)sample_rate - frame : 512;
         float input[1024];
         float output[1024];
         for (size_t index = 0; index < frames; index++) {
             const float sample = (float)(0.5 * sin(2.0 * 3.14159265358979323846 * input_frequency *
-                (double)(frame + index) / 48000.0));
+                (double)(frame + index) / sample_rate));
             input[index * 2] = sample;
             input[index * 2 + 1] = -sample;
         }
@@ -807,7 +812,7 @@ static double measure_output_tone_component(dsp_engine *engine, double input_fre
             const size_t absolute_frame = frame + index;
             if (absolute_frame < 4096) continue;
             const double phase = 2.0 * 3.14159265358979323846 * output_frequency *
-                (double)absolute_frame / 48000.0;
+                (double)absolute_frame / sample_rate;
             sine_sum += output[index * 2] * sin(phase);
             cosine_sum += output[index * 2] * cos(phase);
             measured++;
@@ -815,6 +820,10 @@ static double measure_output_tone_component(dsp_engine *engine, double input_fre
         frame += frames;
     }
     return measured > 0 ? 2.0 * sqrt(sine_sum * sine_sum + cosine_sum * cosine_sum) / measured : 0.0;
+}
+
+static double measure_output_tone_component(dsp_engine *engine, double input_frequency, double output_frequency) {
+    return measure_output_tone_component_at_rate(engine, 48000, input_frequency, output_frequency);
 }
 
 static void test_spatial_width_and_mono_input_behavior(void) {
@@ -931,7 +940,10 @@ static void test_spatial_seat_alignment_and_latency(void) {
     dsp_engine *integer_delay = create_test_engine_with_spatial(
         48000, 2, 4, &near_left, NULL, 0, NULL, 0);
     assert_true(integer_delay != NULL, "left-speaker seat delay graph creates");
-    assert_true(dsp_engine_get_latency_frames(integer_delay) == 2, "seat delay reports aligned frame latency");
+    assert_true(dsp_engine_get_latency_frames(integer_delay) == 0,
+        "interchannel seat delay is excluded from common transport latency");
+    assert_near(dsp_engine_get_interchannel_relative_delay_frames(integer_delay), 2.0, 0.0,
+        "integer seat delay is reported as interchannel-relative latency");
     const float impulse[] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     float output[8] = {0};
     assert_true(
@@ -953,18 +965,32 @@ static void test_spatial_seat_alignment_and_latency(void) {
     dsp_engine *fractional_delay = create_test_engine_with_spatial(
         48000, 2, 3, &fractional, NULL, 0, NULL, 0);
     assert_true(fractional_delay != NULL, "fractional seat delay graph creates");
-    assert_true(dsp_engine_get_latency_frames(fractional_delay) == 2,
-        "fractional seat delay rounds latency upward for clock safety");
+    assert_true(dsp_engine_get_latency_frames(fractional_delay) == 0,
+        "fractional seat delay is excluded from common transport latency");
+    assert_near(dsp_engine_get_interchannel_relative_delay_frames(fractional_delay), 1.5, 1e-6,
+        "fractional seat delay retains its exact relative value");
     const float stereo_impulse[] = {1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
     float fractional_output[6] = {0};
     assert_true(
         dsp_engine_process(fractional_delay, stereo_impulse, 6, fractional_output, 6, 3, 2) == DSP_STATUS_OK,
         "fractional seat delay processes stereo frames");
     assert_near(fractional_output[0], 0.0, 0.0, "fractional near channel starts with silence");
-    assert_near(fractional_output[2], 0.5, 1e-6, "fractional delay interpolates first adjacent frame");
-    assert_near(fractional_output[4], 0.5, 1e-6, "fractional delay interpolates second adjacent frame");
+    assert_near(fractional_output[2], 1.0 / 3.0, 1e-6, "fractional allpass starts at the expected first tap");
+    assert_near(fractional_output[4], 8.0 / 9.0, 1e-6, "fractional allpass preserves its recursive tail");
     assert_near(fractional_output[1], 1.0, 0.0, "far channel remains undelayed");
     dsp_engine_destroy(fractional_delay);
+
+    dsp_spatial_config fractional_half_frame = near_left;
+    fractional_half_frame.seat_distance_difference_cm = 34300.0 * 0.5 / 48000.0;
+    const double frequencies[] = {1000.0, 5000.0, 10000.0, 18000.0, 20000.0};
+    for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
+        dsp_engine *allpass = create_test_engine_with_spatial(
+            48000, 2, 512, &fractional_half_frame, NULL, 0, NULL, 0);
+        assert_true(allpass != NULL, "fractional allpass response graph creates");
+        assert_near(measure_sine_gain(allpass, frequencies[index], 2), 1.0, 1e-4,
+            "fractional seat delay preserves near-speaker high-frequency magnitude");
+        dsp_engine_destroy(allpass);
+    }
 
     const dsp_spatial_config trims = {
         .width = 1.0,
@@ -991,7 +1017,9 @@ static void test_spatial_seat_alignment_and_latency(void) {
 
     dsp_engine *mono = create_test_engine_with_spatial(48000, 1, 1, &near_left, NULL, 0, NULL, 0);
     assert_true(mono != NULL, "mono stream safely ignores stereo seat alignment");
-    assert_true(dsp_engine_get_latency_frames(mono) == 0, "mono seat alignment adds no latency");
+    assert_true(dsp_engine_get_latency_frames(mono) == 0, "mono seat alignment adds no common latency");
+    assert_near(dsp_engine_get_interchannel_relative_delay_frames(mono), 0.0, 0.0,
+        "mono seat alignment adds no interchannel delay");
     const float mono_sample[] = {0.25f};
     float mono_output[1] = {0};
     assert_true(
@@ -1006,8 +1034,10 @@ static void test_spatial_seat_alignment_and_latency(void) {
         48000, 2, 4, 0.0, NULL, 0, &bypass_dynamics, &bypass_multiband, &bypass_dynamic_eq,
         NULL, 0, NULL, 0, &near_left, &unit_config, &bypass_harmonic);
     assert_true(combined != NULL, "seat delay and convolver graph creates");
-    assert_true(dsp_engine_get_latency_frames(combined) == DSP_CONVOLVER_PARTITION_FRAMES + 2,
-        "seat alignment latency sums with convolver latency");
+    assert_true(dsp_engine_get_latency_frames(combined) == DSP_CONVOLVER_PARTITION_FRAMES,
+        "common transport latency includes the convolver only");
+    assert_near(dsp_engine_get_interchannel_relative_delay_frames(combined), 2.0, 0.0,
+        "relative seat delay remains separate from common convolver latency");
     dsp_engine_destroy(combined);
 
     dsp_spatial_config invalid = near_left;
@@ -1179,6 +1209,35 @@ static void test_harmonic_engine_latency_oversampling_modes_and_alias_rejection(
         "2x FIR oversampling rejects the folded third-harmonic alias");
     dsp_engine_destroy(alias_engine);
 
+    const int sample_rates[] = {44100, 48000};
+    const int alias_taps[] = {9, 17, 33};
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        const double input_frequency = sample_rate == 44100 ? 13500.0 : 15000.0;
+        for (int mode = 0; mode <= 2; mode++) {
+            for (size_t quality_index = 0; quality_index < sizeof(alias_taps) / sizeof(alias_taps[0]); quality_index++) {
+                dsp_harmonic_config alias_sweep = make_harmonic_config();
+                alias_sweep.mode = mode;
+                alias_sweep.taps = alias_taps[quality_index];
+                alias_sweep.exciter_amount = 0.5;
+                alias_sweep.exciter_cutoff_hz = 6000.0;
+                dsp_engine *swept_engine = create_test_engine_with_harmonic(sample_rate, 2, 512, &alias_sweep);
+                assert_true(swept_engine != NULL, "harmonic alias sweep graph creates");
+                const double harmonic_order = mode == 0 ? 2.0 : mode == 1 ? 3.0 : 2.0;
+                const double folded_alias = fabs(sample_rate - harmonic_order * input_frequency);
+                const double swept_alias_level = measure_output_tone_component_at_rate(
+                    swept_engine, sample_rate, input_frequency, folded_alias);
+                const double swept_fundamental_level = measure_output_tone_component_at_rate(
+                    swept_engine, sample_rate, input_frequency, input_frequency);
+                assert_true(swept_fundamental_level > 1e-4,
+                    "harmonic alias sweep retains a measurable fundamental");
+                assert_true(swept_alias_level < swept_fundamental_level * 0.05,
+                    "ADAA harmonic processing keeps folded alias below -26 dBc across modes and FIR qualities");
+                dsp_engine_destroy(swept_engine);
+            }
+        }
+    }
+
     const float unit_ir[] = {1.0f};
     const dsp_convolver_config unit_config = {1, 48000, 1, 1, 1, 1.0f, unit_ir};
     dsp_harmonic_config convolved_config = make_harmonic_config();
@@ -1194,6 +1253,29 @@ static void test_harmonic_engine_latency_oversampling_modes_and_alias_rejection(
 
 static void test_advanced_ms_crossover_mono_side_dynamics_and_limiter(void) {
     dsp_spatial_config neutral = make_advanced_ms_config();
+    dsp_spatial_config legacy_identity = neutral;
+    legacy_identity.advanced_ms.enabled = 0;
+    dsp_engine *identity_engine = create_test_engine_with_spatial(48000, 2, 512, &legacy_identity, NULL, 0, NULL, 0);
+    dsp_engine *neutral_engine = create_test_engine_with_spatial(48000, 2, 512, &neutral, NULL, 0, NULL, 0);
+    assert_true(identity_engine != NULL && neutral_engine != NULL, "neutral M/S identity graphs create");
+    float identity_input[1024];
+    float identity_output[1024] = {0};
+    float neutral_output[1024] = {0};
+    for (size_t frame = 0; frame < 512; frame++) {
+        identity_input[frame * 2] = (float)(0.25 * sin(2.0 * 3.14159265358979323846 * 1300.0 * frame / 48000.0));
+        identity_input[frame * 2 + 1] = (float)(0.2 * cos(2.0 * 3.14159265358979323846 * 4700.0 * frame / 48000.0));
+    }
+    assert_true(dsp_engine_process(identity_engine, identity_input, 1024, identity_output, 1024, 512, 2) == DSP_STATUS_OK,
+        "legacy identity spatial graph processes");
+    assert_true(dsp_engine_process(neutral_engine, identity_input, 1024, neutral_output, 1024, 512, 2) == DSP_STATUS_OK,
+        "neutral M/S identity graph processes");
+    for (size_t index = 0; index < 1024; index++) {
+        assert_near(neutral_output[index], identity_output[index], 0.0,
+            "neutral Advanced M/S is byte-exact to the legacy identity path");
+    }
+    dsp_engine_destroy(identity_engine);
+    dsp_engine_destroy(neutral_engine);
+
     dsp_engine *engine = create_test_engine_with_spatial(48000, 2, 512, &neutral, NULL, 0, NULL, 0);
     assert_true(engine != NULL, "advanced M/S neutral graph creates");
     const double frequencies[] = {30.0, 60.0, 120.0, 250.0, 500.0, 2000.0, 10000.0, 20000.0};

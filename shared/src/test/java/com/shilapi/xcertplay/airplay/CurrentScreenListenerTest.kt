@@ -60,6 +60,23 @@ class CurrentScreenListenerTest {
         assertEquals(1, closeCalls.get())
     }
 
+    @Test
+    fun currentStreamCloseCallbackRunsAfterReleasingTheLifecycleLock() {
+        val callbackLock = Any()
+        val closeHeldLock = AtomicBoolean(true)
+        val listener = currentScreenListener(
+            type = MAIN_SCREEN_TYPE,
+            sink = RecordingSink(),
+            callbackLock = callbackLock,
+            isCurrent = { true },
+            onClosed = { closeHeldLock.set(Thread.holdsLock(callbackLock)) },
+        )
+
+        listener.onClosed(null)
+
+        assertEquals(false, closeHeldLock.get())
+    }
+
     private sealed interface ScreenEvent {
         data class Codec(val type: Int, val codec: VideoCodec) : ScreenEvent
         data class Config(val type: Int, val bytes: List<Byte>) : ScreenEvent

@@ -13,6 +13,11 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-22 — Batch related EX-08 audio reviews into one PR update
+
+- Reviewed rebuffer source/follow-up/merge rows 1133–1135 and telephony source/merge rows 1136–1137 together, regenerated the ledger once, and pushed the combined audit as commit `0907ec0` to PR #45. GitHub Actions run #336 finished successfully in 18 seconds; public-tree and EX-08 checks passed while Gradle, Android SDK, native, unit-test, and emulator work skipped. This validates the audit-only workflow path, not product runtime behavior.
+- Reusable workflow rule: group adjacent source, follow-up, and merge decisions by subsystem, then update overrides, generated CSV, count summaries, and PR metadata in one push. Do not start a separate CI cycle for each ledger row.
+
 ## 2026-10-22 — Filter draft runs to changed standalone test classes
 
 - Draft updates limited to newly added or modified standalone `*Test`, `*Tests`, or `*TestCase` files in `shared/src/test` or `common/src/test` now pass those class names to Gradle, instead of rerunning the entire test module. Changes to helpers/fixtures, production sources, native code, mixed or unknown paths keep the full applicable test scope. Missing baselines, oversized diffs, API failures, pushes, manual runs, and ready-for-review checks keep their existing full-verification fallback.

@@ -540,3 +540,7 @@ Do not move PHONE audio to the loudspeaker without reproducing an earpiece route
 Keep sustained RTP-age eviction separate from audio-clock correction. Fixed main drops newest packets only when its bounded queue fills; stale-packet eviction must preserve short Wi-Fi catch-up bursts and must not train a later track's playback rate from temporary decoder backpressure.
 
 Do not add steering-wheel Siri or media remapping as a microphone adaptation. Fixed main has no `KeyEvent` dispatcher or wheel-key service; require target proof of event delivery, vehicle/TV-remote pass-through, call/session cancellation, and MediaSession routing before adding that new input owner.
+
+After an explicit wireless permission refusal, show guidance from the current missing required permissions, re-check it when the host resumes, and clear it after all requested access is granted. Do not expand the fixed-main request set to an unplanned Android permission merely to reuse upstream wording.
+
+Do not import an upstream wireless retry-exhaustion model solely to preserve its terminal message. First reproduce the overwritten stage in fixed main's existing status/retry path; keep the current retry owner and timings intact meanwhile.

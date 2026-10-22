@@ -47,6 +47,7 @@ import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.StringRes
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsAnimationCompat
@@ -224,6 +225,7 @@ class CarPlayHostActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             awaitingWirelessPermissions = false
             wirelessPermissionsReady = hasRequiredWirelessPermissions()
+            wirelessPermissionsRefused = wirelessEnabled && !wirelessPermissionsReady
             appendLog(
                 if (wirelessPermissionsReady) {
                     "Wireless startup permissions granted"
@@ -232,6 +234,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 },
             )
             updateHotspotStatusBlock()
+            showMissingWirelessPermission()
             maybeStartCarPlay()
         }
     private val microphonePermission =
@@ -391,6 +394,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var remoteMfiServer = ""
     private var remoteMfiToken = ""
     private var wirelessPermissionsReady = false
+    private var wirelessPermissionsRefused = false
     private var wirelessHotspotMode = WirelessHotspotMode.WIFI_P2P
     private var manualHotspotSsid = ""
     private var manualHotspotPassphrase = ""
@@ -769,6 +773,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val permissions = requiredWirelessPermissions()
         if (permissions.all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }) {
             wirelessPermissionsReady = true
+            wirelessPermissionsRefused = false
             updateHotspotStatusBlock()
             maybeStartCarPlay()
             return
@@ -777,6 +782,25 @@ class CarPlayHostActivity : ComponentActivity() {
         updateHotspotStatusBlock()
         awaitingWirelessPermissions = true
         wirelessPermissions.launch(permissions.toTypedArray())
+    }
+
+    private fun showMissingWirelessPermission() {
+        if (!wirelessEnabled || wirelessPermissionsReady) {
+            if (wirelessPermissionsRefused) setConnectionStageResource(R.string.host_stage_ready)
+            wirelessPermissionsRefused = false
+            return
+        }
+        if (!wirelessPermissionsRefused) return
+        val missing = requiredWirelessPermissions().filter {
+            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+        }
+        setConnectionStageResource(WirelessPermissions.refusalMessage(missing))
+    }
+
+    private fun setConnectionStageResource(@StringRes messageRes: Int) {
+        latestStage = getString(messageRes)
+        stageStatusView?.text = latestStage
+        updateDebugOverlays()
     }
 
     private fun hasRequiredWirelessPermissions(): Boolean =
@@ -853,6 +877,7 @@ class CarPlayHostActivity : ComponentActivity() {
             requestLocationPermission()
         }
         wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
+        showMissingWirelessPermission()
         maybeStartCarPlay()
         applyFullscreenMode()
         reconcileImeResizeState()

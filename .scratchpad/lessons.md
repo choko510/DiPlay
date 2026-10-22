@@ -18,6 +18,10 @@ When measuring a CI scheduling change, compare runs with similar task-cache hit 
 
 For optional physical-control patches, verify the fixed-main key-event owner and every call site before assessing only the mapping logic. Unit tests for key codes cannot prove OEM delivery, vehicle pass-through, or coexistence with TV remotes and Android MediaSession.
 
+Permission-refusal text should derive from the exact required-permission set for the active transport and refresh after the user returns from Settings. Test partial grants and the transition back to a neutral stage; do not infer a new runtime permission from copy-only guidance.
+
+An upstream retry-state type is not evidence that fixed main needs the same state machine. Reproduce a terminal-stage overwrite on the active baseline before importing retry flags, budgets, or typed failure owners.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.

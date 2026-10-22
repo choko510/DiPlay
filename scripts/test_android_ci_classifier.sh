@@ -11,6 +11,7 @@ is_ci_workflow_sensitive_path ".github/workflows/android.yml"
 is_ci_workflow_sensitive_path "scripts/run_android_instrumentation.sh"
 is_ci_workflow_sensitive_path "scripts/android_ci_classifier.sh"
 is_ci_workflow_sensitive_path "scripts/check_android_instrumentation_evidence.sh"
+is_ci_workflow_sensitive_path "shared/src/androidTest/java/com/shilapi/xcertplay/media/dsp/DspPipelineBenchmarkInstrumentedTest.kt"
 ! is_ci_workflow_sensitive_path "shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlaySession.kt"
 
 is_ci_native_path "shared/src/main/jni/Android.mk"

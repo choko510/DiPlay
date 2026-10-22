@@ -433,3 +433,7 @@ When a numeric DSP bug is reported, add an adversarial sweep around the actual f
 When a runtime invariant can be exceeded through multiple UI editing orders, centralize one profile predicate and call it from edit, save/load, and apply paths. Reject before replacing the active pipeline so a bad draft cannot turn off unrelated DSP modules.
 
 API 35 hosted emulator p99 failures can move between DSP benchmark cases across runs; record each case and its threshold, and keep the result separate from source-level correctness and API 36.1 emulator timing. A local pass on another API level does not clear the hosted gate.
+
+When a real-time microbenchmark runs on an ordinary instrumentation thread, scheduler preemption can dominate wall-time p99. Compare per-run histograms and match the test thread's priority to the production audio worker before changing DSP math or relaxing its deadline.
+
+When callbacks from two independently closing streams race, assert each stream's required open/close events and the no-deadlock condition without imposing a relative order on their concurrent close callbacks.

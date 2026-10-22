@@ -12,7 +12,8 @@ is_ci_workflow_sensitive_path() {
         .github/workflows/*|scripts/android_ci_classifier.sh|scripts/test_android_ci_classifier.sh|\
         scripts/run_android_instrumentation.sh|scripts/test_dsp_native.sh|scripts/check_jni_mapping.py|\
         scripts/check_public_tree.py|scripts/check_android_instrumentation_evidence.sh|\
-        scripts/test_android_instrumentation_evidence.sh)
+        scripts/test_android_instrumentation_evidence.sh|\
+        shared/src/androidTest/java/com/shilapi/xcertplay/media/dsp/DspPipelineBenchmarkInstrumentedTest.kt)
             return 0
             ;;
         *) return 1 ;;

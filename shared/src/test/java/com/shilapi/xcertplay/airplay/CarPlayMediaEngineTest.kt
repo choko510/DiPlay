@@ -348,7 +348,9 @@ class CarPlayMediaEngineTest {
             assertNull(callbackFailure.get())
             assertTrue(altSession.isClosed)
             assertTrue(mainSession.isClosed)
-            assertEquals(listOf(111 to true, 110 to true, 111 to false, 110 to false), screenStates.toList())
+            assertEquals(4, screenStates.size)
+            assertEquals(listOf(111 to true, 110 to true), screenStates.take(2))
+            assertEquals(setOf(111 to false, 110 to false), screenStates.drop(2).toSet())
         } finally {
             engine.onSessionClosed(altSession)
             engine.onSessionClosed(mainSession)

@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
 import android.os.Debug
+import android.os.Process
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlin.math.PI
@@ -50,6 +51,18 @@ class DspPipelineBenchmarkInstrumentedTest {
     fun benchmarks48000Stereo() = benchmarkMatrix(sampleRate = 48_000, channels = 2)
 
     private fun benchmarkMatrix(sampleRate: Int, channels: Int) {
+        val threadId = Process.myTid()
+        val originalPriority = Process.getThreadPriority(threadId)
+        Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
+        try {
+            assertEquals(Process.THREAD_PRIORITY_AUDIO, Process.getThreadPriority(threadId))
+            benchmarkMatrixAtAudioPriority(sampleRate, channels)
+        } finally {
+            Process.setThreadPriority(originalPriority)
+        }
+    }
+
+    private fun benchmarkMatrixAtAudioPriority(sampleRate: Int, channels: Int) {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val format = DspAudioFormat(sampleRate, channels)
         val source = inputBlock(format)

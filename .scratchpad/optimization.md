@@ -13,6 +13,12 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-23 — Match DSP benchmark priority to the production audio worker
+
+- API 35 run #367's uploaded logcat showed 48 kHz stereo `FullHeavyChain` p50 around 9.5 ms with repeated wall-time p99 tails of 26–69 ms, while 44.1 kHz stereo stayed near 2.9 ms p50 and below 4.1 ms p99. The product code was unchanged from passing run #361; this points to scheduling pressure in the normal-priority instrumentation thread rather than a newly introduced DSP arithmetic regression.
+- The audio renderer now requests Android's audio thread priority, and `DspPipelineBenchmarkInstrumentedTest` measures on that same priority. The 2× processing-block p99 ceiling remains unchanged. Local shared/common suites passed 570/178; API 36.1 instrumentation passed 5/5 with FullHeavyChain 48 kHz stereo p99 <=3.14 ms and Convolver64k <=4.12 ms. Run #368 is required to confirm the improvement on hosted API 35.
+- The benchmark instrumentation file is now classified workflow-sensitive so a draft change runs the benchmark instead of silently deferring it; classifier fixtures pass locally.
+
 ## 2026-10-22 — Run full draft unit modules in one Gradle invocation
 
 - Production/mixed draft changes with `quick_scope=both` and no class filter previously invoked Gradle once for `shared` and then again for `common`. Run #340 on `c0524c3` passed both unit suites, but the check job took 4m13s and its draft unit-test step took 3m17s.

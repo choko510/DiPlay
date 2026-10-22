@@ -76,7 +76,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR04-01 | Explicit `input=false`; MainAudio-only voice types; default/compatibility/telephony/speechRecognition; integer destination port bounds | `MicrophoneRequestPolicyTest` | `PASS_LOCAL` |
 | PR04-02 | Denied input leaves downlink audio active; permitted default/compatibility requests reach the uplink; permission-disabled and non-mono input do not start capture | `CarPlayMediaEngineTest` | `PASS_ROBOLECTRIC` |
 | PR04-03 | Repeated request for the same active audio owner does not replace/start another microphone uplink; inactive same-token uplink remains recoverable | `AndroidMediaSinkStateTest` | `PASS_ROBOLECTRIC` |
-| PR04-04 | Siri, telephone call, voice message, permission-denied, and real AudioRecord/uplink behavior on TS10/K706/iPhone | Physical device run | `NOT_RUN`; no target hardware is connected |
+| PR04-04 | Siri, telephone call, voice message, permission-denied, and real AudioRecord/uplink behavior on TS10/K706/iPhone | Physical device run; local policy/uplink/lifecycle tests | `PARTIAL`: request classification, all four voice types reaching the uplink, explicit denial/downlink preservation, mono/permission gating, and close-before-start pass locally; API 28/33 recorder fallback and real Siri/call/voice-message capture remain `NOT_RUN` |
 
 ## PR-06 LOCAL split scaling without reconnect
 

@@ -10,6 +10,7 @@ import java.net.Socket
 import java.math.BigInteger
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
@@ -130,7 +131,7 @@ class CarPlayMediaEngineTest {
             assertEquals(0, configs.get())
             assertEquals(0, frames.get())
             assertFalse(session.isClosed)
-            assertEquals(listOf(true, true), screenStates.toList())
+            assertEquals(listOf(true, false, true), screenStates.toList())
 
             currentListener.onCodec(VideoCodec.H265)
             currentListener.onConfig(byteArrayOf(0x40, 0x01))
@@ -142,8 +143,87 @@ class CarPlayMediaEngineTest {
 
             currentListener.onClosed(null)
             assertTrue(session.isClosed)
-            assertEquals(listOf(true, true, false), screenStates.toList())
+            assertEquals(listOf(true, false, true, false), screenStates.toList())
         } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
+    @Test
+    fun screenReplacementWaitsForAnInFlightFrameBeforeResettingTheSink() {
+        val frameEnteredSink = CountDownLatch(1)
+        val releaseFrame = CountDownLatch(1)
+        val replacementStarted = CountDownLatch(1)
+        val replacementActive = CountDownLatch(1)
+        val replacementFinished = CountDownLatch(1)
+        val activeStarts = AtomicInteger()
+        val frameObservedReplacement = AtomicBoolean(false)
+        val callbackFailure = AtomicReference<Throwable?>()
+        val replacementFailure = AtomicReference<Throwable?>()
+        val screenStates = CopyOnWriteArrayList<Boolean>()
+        val engineReference = AtomicReference<CarPlayMediaEngine>()
+        val screenReference = AtomicReference<ScreenStream>()
+        lateinit var session: AirPlaySession
+        val sink = object : MediaSink {
+            override fun onVideoFrame(type: Int, naluBytes: ByteArray) {
+                frameEnteredSink.countDown()
+                check(releaseFrame.await(3, TimeUnit.SECONDS))
+                val key = CarPlayMediaEngine.StreamKey(session, type)
+                frameObservedReplacement.set(screenStreams(engineReference.get())[key] !== screenReference.get())
+            }
+
+            override fun onScreenStreamActive(type: Int, active: Boolean) {
+                screenStates += active
+                if (active && activeStarts.incrementAndGet() == 2) replacementActive.countDown()
+            }
+        }
+        val engine = CarPlayMediaEngine(sink)
+        engineReference.set(engine)
+        session = audioSession(engine)
+        val streamKey = CarPlayMediaEngine.StreamKey(session, 110)
+        assertNotNull(engine.onScreen(session, 110, mapOf("streamConnectionID" to 1L)))
+        val oldScreen = screenStreams(engine)[streamKey] as ScreenStream
+        screenReference.set(oldScreen)
+        val oldListener = screenListener(oldScreen)
+        val callbackThread = Thread({
+            try {
+                oldListener.onFrame(byteArrayOf(0, 0, 0, 1, 0x65))
+            } catch (error: Throwable) {
+                callbackFailure.set(error)
+            }
+        }, "screen-frame-callback-test").apply { isDaemon = true }
+
+        try {
+            callbackThread.start()
+            assertTrue(frameEnteredSink.await(2, TimeUnit.SECONDS))
+            val replaceThread = Thread({
+                replacementStarted.countDown()
+                try {
+                    assertNotNull(engine.onScreen(session, 110, mapOf("streamConnectionID" to 2L)))
+                } catch (error: Throwable) {
+                    replacementFailure.set(error)
+                } finally {
+                    replacementFinished.countDown()
+                }
+            }, "screen-stream-replacement-test").apply { isDaemon = true }
+            replaceThread.start()
+
+            assertTrue(replacementStarted.await(2, TimeUnit.SECONDS))
+            assertFalse(replacementActive.await(200, TimeUnit.MILLISECONDS))
+            releaseFrame.countDown()
+            assertTrue(replacementActive.await(2, TimeUnit.SECONDS))
+            assertTrue(replacementFinished.await(2, TimeUnit.SECONDS))
+            callbackThread.join(2_000)
+
+            assertFalse(callbackThread.isAlive)
+            assertNull(callbackFailure.get())
+            assertNull(replacementFailure.get())
+            assertFalse(frameObservedReplacement.get())
+            assertEquals(listOf(true, false, true), screenStates.toList())
+        } finally {
+            releaseFrame.countDown()
+            callbackThread.join(2_000)
             engine.onSessionClosed(session)
             session.close()
         }

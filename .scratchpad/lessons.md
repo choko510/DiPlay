@@ -387,4 +387,6 @@ For AirPlay display geometry, validate relationships between rectangles as well 
 
 For explicit encoded ViewAreas, keep every display edge even-aligned through Split rounding and resolution scaling; clamp the scaled safe rectangle back inside its rounded view rectangle. Keep the legacy implicit one-area `/info` path unchanged, and use wide arithmetic to reject inset overflow.
 
+An identity check followed by a sink callback still has a replacement race between the check and delivery. Serialize the ownership check with callback handoff and stream replacement; use a blocked in-flight callback regression to verify the sink cannot receive old media after the new stream becomes current.
+
 For lifecycle/layout regression tests, use the production view hierarchy when validating parent/child resize invariants. A replacement test frame cannot prove that the TextureView and touch layer actually share the host's fitted content bounds.

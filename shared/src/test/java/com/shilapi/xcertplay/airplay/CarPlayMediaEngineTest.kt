@@ -210,7 +210,14 @@ class CarPlayMediaEngineTest {
             replaceThread.start()
 
             assertTrue(replacementStarted.await(2, TimeUnit.SECONDS))
-            assertFalse(replacementActive.await(200, TimeUnit.MILLISECONDS))
+            val replacementBlockDeadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (
+                replaceThread.isAlive && replaceThread.state != Thread.State.BLOCKED &&
+                System.nanoTime() < replacementBlockDeadlineNs
+            ) {
+                Thread.yield()
+            }
+            assertEquals(Thread.State.BLOCKED, replaceThread.state)
             releaseFrame.countDown()
             assertTrue(replacementActive.await(2, TimeUnit.SECONDS))
             assertTrue(replacementFinished.await(2, TimeUnit.SECONDS))

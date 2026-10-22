@@ -552,3 +552,5 @@ Clear an explicit car-hotspot-off override after a manual hotspot no-interface t
 Keep the car-owned hotspot configuration read/write boundary closed in STEP4. The fixed-main MANUAL path accepts user-provided credentials to join an existing AP; importing or changing the car's stored SSID/password is a separate feature with system and paired-device effects.
 
 Do not put the iPhone's Bluetooth name or either endpoint's Bluetooth MAC in controller debug messages. Keep selection and failure diagnostics to state/counts; the file redactor does not sanitize Android logcat.
+
+Do not add localized rotation copy for a feature that fixed main does not expose. Keep square-canvas rotation gated until screen orientation, safe-area, HID coordinates, and iPhone screenshot framing pass as one supported-target scenario.

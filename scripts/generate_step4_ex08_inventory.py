@@ -10320,12 +10320,12 @@ DELTA_DECISION_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_FIXED_MAIN_SCOPE_REVIEW",
     },
     "e18f20f8030c2ddc899519a9121f2acd1cc9b4ad": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The commit changes localized rotation-setting text to explain that an iPhone screenshot includes the full square frame. It does not alter display behavior, and the fork has no iPhone acceptance evidence for this user-facing claim.",
-        "test": "NOT_RUN_TARGET: rotated output and iPhone screenshot framing; translations are not a runtime test",
-        "related": "EX-08 display documentation; PR-06 LOCAL changes pane sizing only and do not enable rotation",
-        "rollback": "No text imported; preserve existing locale copy until the described behavior is confirmed on the supported path.",
-        "review_state": "PRIMARY_AGENT_CONTENT_REVIEW_PENDING_DISPLAY_EVIDENCE",
+        "disposition": "REJECT_UNSAFE",
+        "reason": "This resource-only patch documents an upstream square-canvas rotation setting that is absent from fixed main at the pinned baseline. Importing the screenshot claim without the rotation control/coordinate path would add misleading UI copy; v3 keeps ROTATION_SQUARE_CANVAS conditional and it remains NO_GO_THIS_RUN.",
+        "test": "PASS_STATIC: the source diff edits only carplay_rotation_description translations; fixed main has no matching resource, setting, or square-canvas rotation call site; NOT_RUN_TARGET: the conditional rotation feature itself",
+        "related": "V3 conditional ROTATION_SQUARE_CANVAS gate; PR-06 LOCAL orientation/IME test is not remote square-canvas rotation",
+        "rollback": "Do not import screenshot copy unless the rotation implementation and target screenshot/geometry/HID matrix are accepted.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_NO_ROTATION_COPY_PATH_REJECTED",
     },
     "28388bbf179d78ae46b35103403c57e1c44aa330": {
         "disposition": "REJECT_UNSAFE",

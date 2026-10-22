@@ -9796,11 +9796,11 @@ BASE_REVIEW_OVERRIDES.update({
     },
     "6be6379f0c38c8be8a4671f3a2d30f8e005eb2eb": {
         "disposition": "NEED_EVIDENCE",
-        "reason": "This upstream test-only commit exercises Siri recorder fallback and cleanup on Android 9 and 13. Fixed main has fork-local request policy, uplink routing, denied/mono gating, and close-before-start tests; no test injects AudioRecord min-buffer, initialization, or start failures on API 28/33, and TS10/K706 Siri/call capture remains unverified.",
-        "test": "PASS_LOCAL: MicrophoneRequestPolicyTest, CarPlayMediaEngineTest.explicitInputFalseKeepsAudioOutputButDoesNotStartMicrophone, advertisedVoiceInputsReachTheExistingUplink, microphoneInputRespectsPermissionAndAdvertisedMonoFormat, AndroidMediaSinkStateTest.sameTokenActiveMicrophoneUplinkIsNotStartedTwice, and MicrophoneUplinkLifecycleTest.closeBeforeStartPreventsAStaleUplinkFromStartingLater. PASS_GITHUB: run #312 focused CarPlayMediaEngineTest and run #319 full shared/common unit modules. NOT_RUN: API 28/33 AudioRecord fallback/cleanup injection and TS10/K706 Siri/call capture",
+        "reason": "This upstream test-only commit exercises Siri recorder fallback and cleanup on Android 9 and 13, but its AudioStreamId and AndroidMediaSink(context=...) test APIs are absent from fixed main. Reusing its VOICE_RECOGNITION-to-VOICE_COMMUNICATION fallback would change route/AEC behavior; fixed-main API 28/33 recorder failures and TS10/K706 Siri/call capture remain unverified.",
+        "test": "PASS_STATIC: upstream patch only adds MicrophoneSourceFallbackTest.kt using AudioStreamId and an AndroidMediaSink constructor absent from fixed main, so it is not directly runnable against this fork. PASS_LOCAL: MicrophoneRequestPolicyTest, CarPlayMediaEngineTest.explicitInputFalseKeepsAudioOutputButDoesNotStartMicrophone, advertisedVoiceInputsReachTheExistingUplink, microphoneInputRespectsPermissionAndAdvertisedMonoFormat, AndroidMediaSinkStateTest.sameTokenActiveMicrophoneUplinkIsNotStartedTwice, and MicrophoneUplinkLifecycleTest.closeBeforeStartPreventsAStaleUplinkFromStartingLater. PASS_GITHUB: run #312 focused CarPlayMediaEngineTest and run #319 full shared/common unit modules. NOT_RUN: API 28/33 AudioRecord fallback/cleanup injection and TS10/K706 Siri/call capture",
         "related": "PR-04 microphone source, cleanup generation, AEC, and Siri gates",
         "rollback": "Keep microphone routing unchanged until the focused API 28/33 tests and device matrix pass.",
-        "review_state": "PRIMARY_AGENT_SIRI_POLICY_AND_UPLINK_TESTED_RECORDER_FALLBACK_PENDING",
+        "review_state": "PRIMARY_AGENT_UPSTREAM_TEST_API_MISMATCH_RECORDER_FALLBACK_PENDING",
     },
     "b5cb86b03ece3ac6e2b98938b04e1859843a93f9": {
         "disposition": "REJECT_UNSAFE",

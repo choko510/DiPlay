@@ -577,6 +577,6 @@ Validate active PEQ plus Cabin Correction against the shared 15-band limit befor
 
 Treat CI's selected/static result separately from release verification. Workflow changes require full host and Android instrumentation; `Android.mk` changes require native tests and an Android ABI link, including draft PRs where selected.
 
-Do not relax the API 35 emulator p99 gate based on inconsistent hosted failures or a different API 36.1 local pass. Run #366 failed Convolver64k at 31.173 ms against 21.332 ms; keep it visible as an unresolved hosted benchmark gate and do not record a workflow-sensitive host baseline when instrumentation fails.
+Do not relax the API 35 emulator p99 gate based on inconsistent hosted failures or a different API 36.1 local pass. Runs #366/#367 failed different 48 kHz stereo cases; after matching the production audio worker and benchmark thread priority, hosted run #368 passed at 3.28 ms FullHeavyChain and 4.92 ms Convolver64k against the unchanged 21.332 ms ceiling.
 
 Run the app's PCM/DSP renderer and its CI microbenchmark at `THREAD_PRIORITY_AUDIO`. Measure the same production block under the audio scheduling priority, preserve the 2× block p99 ceiling, and keep target-device xrun/soak evidence as a separate release gate.

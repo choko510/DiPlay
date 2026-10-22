@@ -225,7 +225,7 @@ class CarPlayVpnService : VpnService() {
                         return
                     }
                     val current = attachment
-                    if (current == null) {
+                    if (current == null || generation != attachGeneration || server !== serverSocket) {
                         socket.close()
                         return
                     }

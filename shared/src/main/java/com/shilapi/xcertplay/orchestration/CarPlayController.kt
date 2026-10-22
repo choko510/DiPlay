@@ -385,7 +385,7 @@ class CarPlayController(
         !closed && vpnService?.isAttached() == true
     }
 
-    fun currentAirPlaySession(): AirPlaySession? = activeSession
+    fun currentAirPlaySession(): AirPlaySession? = activeSession?.takeIf { !closed && !it.isClosed }
 
     fun start() {
         synchronized(this) {

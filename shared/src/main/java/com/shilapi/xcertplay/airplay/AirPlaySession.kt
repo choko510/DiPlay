@@ -105,6 +105,7 @@ class AirPlaySession(
     private val firstVideoFrameSubmittedToSurface = AtomicBoolean(false)
     private val firstMainVideoFrameSubmittedToSurface = AtomicBoolean(false)
     private val touchSendFailureLogged = AtomicBoolean(false)
+    private val touchSlots = AirPlayTouchSlots()
     private val controlEncryptionObserved = AtomicBoolean(false)
     private val ntp = NtpClock()
     private var keepAliveSocket: DatagramSocket? = null
@@ -203,19 +204,23 @@ class AirPlaySession(
         }
     }
 
+    @Synchronized
     fun sendTouch(contacts: List<AirPlayContact>): Boolean {
-        val scaled = contacts.map {
+        if (closed.get()) return false
+        val assignment = touchSlots.prepare(contacts)
+        val scaled = assignment.contacts.map {
             it.copy(x = it.x * config.main.widthPixels, y = it.y * config.main.heightPixels)
         }
         val report = AirPlayHid.touchReport(scaled)
         val sendStartNs = System.nanoTime()
         val sent = sendHidReport(AirPlayHid.TOUCH_HID_UID, report)
+        touchSlots.complete(assignment, sent)
         if (sent) com.shilapi.xcertplay.media.TouchLatencyProbe.onTouchSent(sendStartNs, System.nanoTime() - sendStartNs)
         if (sent && firstTouchSendLogged.compareAndSet(false, true)) {
-            val first = scaled.firstOrNull()
+            val first = scaled.firstOrNull { it.down }
             Log.i(
                 TAG,
-                "airplay touch report sent contacts=${scaled.size} first=" +
+                "airplay touch report sent contacts=${scaled.count { it.down }} first=" +
                     "(${first?.x},${first?.y},down=${first?.down}) report=${report.toHexString()}",
             )
         } else if (!sent && touchSendFailureLogged.compareAndSet(false, true)) {

@@ -76,12 +76,11 @@ class CarPlayHostActivityLocalScaleTest {
         val session = testSession()
         val remote = DisplaySize(1920, 1080)
         val splitViewport = DisplaySize(1056, 1080)
-        val content = FrameLayout(activity).apply {
-            layoutParams = FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            )
-        }
+        val contentRoot = CarPlayHostActivity::class.java.getDeclaredMethod("buildContentView")
+            .apply { isAccessible = true }
+            .invoke(activity) as android.view.View
+        activity.setContentView(contentRoot)
+        val content = field(activity, "carPlayContent").get(activity) as FrameLayout
         val resize = CarPlayHostActivity::class.java.getDeclaredMethod(
             "applyDisplaySizeNow",
             DisplaySize::class.java,
@@ -98,8 +97,17 @@ class CarPlayHostActivityLocalScaleTest {
             setField(activity, "localViewportSize", remote)
             setField(activity, "currentSurface", surface)
             setField(activity, "currentSurfaceTexture", texture)
-            setField(activity, "carPlayContent", content)
             setField(controller, "activeSession", session)
+
+            assertEquals(2, content.childCount)
+            val videoLayer = requireNotNull(content.getChildAt(0))
+            val touchLayer = requireNotNull(content.getChildAt(1))
+            assertSame(content, videoLayer.parent)
+            assertSame(content, touchLayer.parent)
+            assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, videoLayer.layoutParams.width)
+            assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, videoLayer.layoutParams.height)
+            assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, touchLayer.layoutParams.width)
+            assertEquals(ViewGroup.LayoutParams.MATCH_PARENT, touchLayer.layoutParams.height)
 
             assertTrue(surface.isValid)
             assertTrue(CarPlayBackgroundSession.isOwner(activity))

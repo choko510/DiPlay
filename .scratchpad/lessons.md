@@ -386,3 +386,5 @@ For microphone input, verify accepted `audioType` values through the media-engin
 For AirPlay display geometry, validate relationships between rectangles as well as each rectangle's bounds. Safe-area insets must be at least the corresponding view-area insets on all four edges; a non-overlapping Split safe region cannot be serialized as valid.
 
 For explicit encoded ViewAreas, keep every display edge even-aligned through Split rounding and resolution scaling; clamp the scaled safe rectangle back inside its rounded view rectangle. Keep the legacy implicit one-area `/info` path unchanged, and use wide arithmetic to reject inset overflow.
+
+For lifecycle/layout regression tests, use the production view hierarchy when validating parent/child resize invariants. A replacement test frame cannot prove that the TextureView and touch layer actually share the host's fitted content bounds.

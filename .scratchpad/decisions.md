@@ -82,7 +82,7 @@ Preserve the legacy one-area `/info` output when `AirPlayDisplayConfig.viewAreas
 
 ## Keep DYNAMIC ViewArea and vendor codec changes gated
 
-PR-06 DYNAMIC requires a phone-accepted command/acknowledgement and same-session frame-size evidence; without it keep LOCAL as the split path and send no guessed command. PR-07 codec/Surface tuning remains unchanged until a TS10/K706 capability or failure trace identifies a specific issue.
+PR-06 DYNAMIC requires a phone-accepted command/acknowledgement and same-session frame-size evidence; without it keep LOCAL as the split path and send no guessed command. Preserve fixed main's generic Android R+ `KEY_LOW_LATENCY` request when the selected codec reports support; add no PR-07 vendor/device-specific codec or Surface tuning until a TS10/K706 capability or failure trace identifies a tested change.
 
 ## Preserve the DSP-OFF baseline before extending the graph
 

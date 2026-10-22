@@ -391,4 +391,6 @@ An identity check followed by a sink callback still has a replacement race betwe
 
 When a downstream media sink is keyed by stream type, per-session ownership alone is insufficient. Track the current session's stream for that sink type so a former session's late teardown cannot clear the replacement decoder.
 
+Separate fixed main's generic codec-capability-gated low-latency request from vendor-specific tuning proposals. Preserve the baseline path; require target capability and performance evidence before adding device overrides.
+
 For lifecycle/layout regression tests, use the production view hierarchy when validating parent/child resize invariants. A replacement test frame cannot prove that the TextureView and touch layer actually share the host's fitted content bounds.

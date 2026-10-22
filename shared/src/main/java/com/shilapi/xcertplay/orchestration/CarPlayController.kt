@@ -922,10 +922,7 @@ class CarPlayController(
             if (!adapter.isEnabled) throw IOException("Bluetooth is not enabled")
             val device = selectWirelessBluetoothDevice(adapter)
             val hostBluetoothMac = accessoryBluetoothMac(adapter)
-            debugLog(
-                "wireless selected Bluetooth target name=${device.name ?: "unknown"} " +
-                    "address=${device.address} localBt=$hostBluetoothMac",
-            )
+            debugLog("wireless selected Bluetooth target")
             val wirelessAirPlayConfig = airPlayConfig.copy(
                 deviceId = deviceIdentifier,
                 btMac = hostBluetoothMac,
@@ -984,18 +981,15 @@ class CarPlayController(
             }
 
             onStatus(CarPlayStatus.ConnectingBluetooth)
-            debugLog(
-                "wireless RFCOMM connecting address=${device.address} " +
-                    "uuid=$IAP2_IPHONE_UUID",
-            )
+            debugLog("wireless RFCOMM connecting uuid=$IAP2_IPHONE_UUID")
             val socket = device
                 .createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
             if (!publishWirelessResource(generation) { bluetoothSocket = socket }) {
                 closeBestEffort("stale wireless Bluetooth socket") { socket.close() }
                 return
             }
-            connectBluetoothSocket(socket, device.address)
-            debugLog("wireless RFCOMM connected address=${device.address}")
+            connectBluetoothSocket(socket)
+            debugLog("wireless RFCOMM connected")
             if (isStaleWirelessRun(generation)) {
                 closeWirelessStack(expectedGeneration = generation)
                 return
@@ -1131,9 +1125,12 @@ class CarPlayController(
                 wirelessConnectionProof.mode(generation) == WirelessControlMode.TUNNEL_CONTROL &&
                 error !is Error
             ) {
-                debugLog("wireless RFCOMM bootstrap ended after authenticated tunnel control: ${error.message}")
+                debugLog(
+                    "wireless RFCOMM bootstrap ended after authenticated tunnel control " +
+                        "failureClass=${error.javaClass.simpleName}",
+                )
             } else {
-                debugLog("wireless bring-up failed", error)
+                debugLog("wireless bring-up failed failureClass=${error.javaClass.simpleName}")
                 failWirelessGeneration(generation, error)
                 if (error is Error) throw error
             }
@@ -2722,8 +2719,7 @@ class CarPlayController(
         if (connectedIPhones.size == 1) return connectedIPhones.single()
         if (connectedIPhones.size > 1) {
             throw IOException(
-                "Multiple connected iPhones found: " +
-                    connectedIPhones.joinToString { "${it.name ?: "iPhone"} (${it.address})" },
+                "Multiple connected iPhones found (${connectedIPhones.size}); select one in DiPlay settings",
             )
         }
         if (iPhones.size == 1) return iPhones.single()
@@ -2739,7 +2735,7 @@ class CarPlayController(
         )
     }
 
-    private fun connectBluetoothSocket(socket: BluetoothSocket, address: String) {
+    private fun connectBluetoothSocket(socket: BluetoothSocket) {
         val result = AtomicReference<Throwable?>()
         val connected = CountDownLatch(1)
         Thread(
@@ -2761,21 +2757,20 @@ class CarPlayController(
             connected.await(RFCOMM_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
-            throw IOException("Interrupted while connecting RFCOMM to $address", error)
+            throw IOException("Interrupted while connecting RFCOMM to the selected iPhone", error)
         }
         if (!completed) {
             debugLog(
-                "wireless RFCOMM connect timed out after " +
-                    "${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms address=$address",
+                "wireless RFCOMM connect timed out after ${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms",
             )
             throw IOException(
-                "Timed out after ${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms connecting RFCOMM to $address",
+                "Timed out after ${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms connecting RFCOMM to the selected iPhone",
             )
         }
         when (val failure = result.get()) {
             null -> Unit
             is IOException -> throw failure
-            else -> throw IOException("Could not connect RFCOMM to $address", failure)
+            else -> throw IOException("Could not connect RFCOMM to the selected iPhone", failure)
         }
     }
 

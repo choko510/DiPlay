@@ -550,3 +550,5 @@ Do not add audio-focus acquisition or retry state when fixed main has no focus o
 Clear an explicit car-hotspot-off override after a manual hotspot no-interface timeout only when Android still reports the AP off. Preserve the override for unknown state, unrelated configuration failures, and successful starts; this makes the next attempt show the setup warning again.
 
 Keep the car-owned hotspot configuration read/write boundary closed in STEP4. The fixed-main MANUAL path accepts user-provided credentials to join an existing AP; importing or changing the car's stored SSID/password is a separate feature with system and paired-device effects.
+
+Do not put the iPhone's Bluetooth name or either endpoint's Bluetooth MAC in controller debug messages. Keep selection and failure diagnostics to state/counts; the file redactor does not sanitize Android logcat.

@@ -411,3 +411,5 @@ When an OEM callback is missing, first establish that fixed main owns that callb
 Treat an explicit “connect anyway” choice as a one-attempt bypass when the requested network never appears. Reset it only for the typed no-interface failure and a still-off platform report; preserve it when platform state is unknown or the failure is unrelated.
 
 Separate credentials for joining a running AP from provisioning the AP itself. Read-only link diagnostics do not authorize importing or changing system-owned SSID/password settings; those are a separate, consented feature and must preserve other connected devices.
+
+Treat Android logcat as a separate diagnostic destination from the app's redacted session file. Omit Bluetooth device names and MAC addresses before calling `Log`, since the session redactor cannot protect the platform log buffer.

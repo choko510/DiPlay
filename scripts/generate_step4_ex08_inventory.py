@@ -10152,12 +10152,12 @@ DELTA_DECISION_OVERRIDES = {
         "review_state": "PRIMARY_AGENT_FIXED_MAIN_COMPARISON",
     },
     "b274c86f0ed1e4faccae9b477f69f5c1e7110bf2": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "The patch changes Bluetooth radio-state handling and removes persisted failure details; it may improve privacy, but adapter behavior and wireless startup effects have no fork-specific target evidence.",
-        "test": "NOT_RUN_TARGET: API 28+ radio transitions, permission state, and wireless reconnect",
-        "related": "EX-01 diagnostics; WIRELESS-EX Bluetooth state",
-        "rollback": "No patch imported; preserve current Bluetooth startup policy until a targeted test demonstrates a regression and a reversible change.",
-        "review_state": "PRIMARY_AGENT_PATCH_REVIEW_PENDING_TARGET_A_B",
+        "disposition": "FORK_SUPERIOR",
+        "reason": "Fixed main has no BluetoothDiagnosticSnapshot or BluetoothRadioCheck helper to remove or revise; its controller directly checks the adapter state. The active RFCOMM debug/status messages now omit Bluetooth addresses and device names, while SessionLogFile redacts any remaining MACs.",
+        "test": "PASS_STATIC: no persisted Bluetooth failure snapshot or BluetoothRadioCheck call site exists in fixed main; RFCOMM debug labels contain no device identifiers; PASS_LOCAL: shared unit suite 553/553; NOT_RUN_TARGET: adapter turning-off/on transitions on TS10/K706",
+        "related": "EX-01 diagnostic privacy and WIRELESS-EX Bluetooth startup; source 4 remains separately evidence-gated",
+        "rollback": "Keep fixed-main direct adapter check and identifier-free Bluetooth log labels; do not import the upstream snapshot/helper state.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_BLUETOOTH_DIAGNOSTICS_FORK_SUPERIOR",
     },
     "ab15f847596896db7e6dcea832078f86a6a1655d": {
         "disposition": "NEED_EVIDENCE",

@@ -170,3 +170,4 @@
 - 2026-10-22: Hosted PR run #347 exercised the draft `quick_scope=both` branch and passed both unit modules in one `--parallel` Gradle invocation (Gradle reported 3m). The common-only run #346 also passed; no controlled wall-time comparison is claimed.
 - 2026-10-22: The combined audio audit update was pushed once as `0907ec0`; PR run #336 passed its public-tree and EX-08 lane in 18s with runtime jobs skipped.
 - 2026-10-22: Audited PR-07 codec policy against fixed main: the generic Android R+ low-latency attempt is capability-gated in main and unchanged by STEP4; vendor/device overrides remain conditional on target evidence.
+- 2026-10-22: Reviewed Bluetooth diagnostics delta source 3 against fixed main and changed it to `FORK_SUPERIOR`: main has no persisted Bluetooth failure snapshot/helper, and RFCOMM debug/failure text no longer emits device names or MAC addresses. Source 4 remains evidence-gated for the target Bluetooth-turning-on wait.

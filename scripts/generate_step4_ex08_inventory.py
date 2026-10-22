@@ -3,8 +3,8 @@
 
 The generated rows are a tracking inventory. NEED_EVIDENCE rows are not
 semantic sign-offs, and this script never reads or applies source patches.
-On shallow checkouts it fetches the pinned audit branch, then reads only the
-immutable audit commit recorded below.
+On shallow checkouts it fetches the pinned audit commit directly, then reads
+only immutable files from that commit.
 """
 
 from __future__ import annotations
@@ -23,7 +23,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 AUDIT_COMMIT = "a69a4acb6d50116f4855bebbb94b16047c36c466"
-AUDIT_BRANCH = "audit/upstream-57-delta-pass16-20261018"
 BASE_CATALOG = "upstream-audit-1232/commit_reviews_refined.jsonl.gz"
 BASE_CANDIDATES = "upstream-audit-1232/reviewed_candidates_stage2.csv"
 DELTA_BUNDLE = "upstream-audit-1232/incremental-20261018/all_57_patches_and_pass16_evidence.tar.gz"
@@ -10494,19 +10493,19 @@ def git_blob(path: str) -> bytes:
                 stderr=subprocess.DEVNULL,
             )
         except subprocess.CalledProcessError:
-            remote_ref = f"refs/remotes/origin/{AUDIT_BRANCH}"
+            local_ref = f"refs/ex08/audit/{AUDIT_COMMIT}"
             subprocess.check_call(
                 [
                     "git",
                     "fetch",
                     "--no-tags",
                     "origin",
-                    f"refs/heads/{AUDIT_BRANCH}:{remote_ref}",
+                    f"{AUDIT_COMMIT}:{local_ref}",
                 ],
                 cwd=ROOT,
             )
             fetched_sha = subprocess.check_output(
-                ["git", "rev-parse", remote_ref],
+                ["git", "rev-parse", local_ref],
                 cwd=ROOT,
                 text=True,
             ).strip()

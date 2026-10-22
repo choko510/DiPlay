@@ -80,6 +80,10 @@ While the current owner has a Controller, valid Surface, and known remote dimens
 
 Keep Full, YouTube Split, and DSP Split in the existing `CarPlayHostActivity` with one 55% CarPlay pane and one exclusive 45% right pane. DSP layout changes are local viewport causes and must never enter remote resize/restart handling; when an active session cannot be fitted safely, keep the requested mode pending over Full. Share one `DspEditorSession` from the application `DspProfileRuntime` so the Activity and Host ComposeView do not fork draft or runtime ownership.
 
+## Fetch the EX-08 source by immutable commit
+
+The inventory uses the pinned audit tree at `a69a4acb6d50116f4855bebbb94b16047c36c466`; fetch that SHA directly in shallow CI checkouts and verify the fetched SHA. Do not depend on a mutable audit branch name remaining on the remote.
+
 ## Keep multiple ViewAreas explicit and wire-switching disabled
 
 Preserve the legacy one-area `/info` output when `AirPlayDisplayConfig.viewAreas` is null. A pure validated Full/Split model may serialize two areas under the same main display only when explicitly supplied; each safe rectangle must be contained in its view rectangle, explicit view-area boundaries must align to even pixels, and Split creation rejects a safe rectangle with no overlap. The application leaves the model unset until the target iPhone accepts the declaration. Do not add unknown `updateViewArea`/`requestViewArea` commands without captured acceptance and frame-size evidence.

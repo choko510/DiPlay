@@ -418,6 +418,8 @@ For conditional display rotation, validate the square canvas, safe-area transfor
 
 When an upstream patch changes only a localized string, confirm that fixed main contains the referenced setting and feature before porting it; otherwise the text can claim behavior the app cannot perform.
 
+For generated inventories that need historical Git files, pin and fetch the immutable commit SHA rather than a source branch that may later be deleted. Validate the fetch in a fresh shallow repository so a warm local object database cannot mask a broken CI fallback.
+
 Android pointer indices are event-local and can change after `ACTION_POINTER_UP`; HID identity must come from `getPointerId()` and be mapped to a fixed slot at the session boundary. Make this mapping transactional around the HID send so a dropped up cannot free a still-held remote slot.
 
 An accepted socket can outlive the listener attachment that returned it. A deterministic blocked-accept fixture should switch both generation and server identity before unblocking, then verify that the stale socket closes without a new-session callback.

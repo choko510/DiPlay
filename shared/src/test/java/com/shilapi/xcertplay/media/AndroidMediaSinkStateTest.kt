@@ -4,6 +4,7 @@ import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.AudioOwnerToken
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
+import com.shilapi.xcertplay.airplay.VideoCodec
 import java.net.InetAddress
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.*
@@ -26,6 +27,33 @@ class AndroidMediaSinkStateTest {
         val afterClose = mutableListOf<Pair<Int, Boolean>>()
         sink.setScreenStreamActiveChangedListener { type, active -> afterClose.add(type to active) }
         assertTrue(afterClose.isEmpty())
+    }
+
+    @Test fun replacingTheScreenClearsTheOldDecoderAndCodecBeforeTheNextConfig() {
+        val sink = AndroidMediaSink()
+        val type = 110
+
+        try {
+            sink.onVideoCodec(type, VideoCodec.H265)
+            sink.onVideoConfig(type, byteArrayOf())
+            val oldDecoder = videoDecoder(sink, type)
+            assertNotNull(oldDecoder)
+
+            sink.onScreenStreamActive(type, false)
+
+            assertNull(videoDecoder(sink, type))
+            assertNull(pendingVideoCodec(sink, type))
+
+            sink.onScreenStreamActive(type, true)
+            sink.onVideoCodec(type, VideoCodec.H264)
+            sink.onVideoConfig(type, byteArrayOf())
+
+            assertNotNull(videoDecoder(sink, type))
+            assertNotSame(oldDecoder, videoDecoder(sink, type))
+            assertEquals(VideoCodec.H264, pendingVideoCodec(sink, type))
+        } finally {
+            sink.close()
+        }
     }
 
     @Test fun staleAudioCallbacksCannotReplaceOrRemoveTheCurrentRenderer() {
@@ -259,4 +287,13 @@ class AndroidMediaSinkStateTest {
         val token = entry.javaClass.getDeclaredField("token").apply { isAccessible = true }
         return token.get(entry) as AudioOwnerToken
     }
+
+    private fun videoDecoder(sink: AndroidMediaSink, type: Int): Any? =
+        (field(sink, "videoDecoders")[type])
+
+    private fun pendingVideoCodec(sink: AndroidMediaSink, type: Int): VideoCodec? =
+        (field(sink, "pendingVideoCodec")[type]) as? VideoCodec
+
+    private fun field(sink: AndroidMediaSink, name: String): Map<*, *> =
+        sink.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(sink) as Map<*, *>
 }

@@ -2901,11 +2901,11 @@ BASE_REVIEW_OVERRIDES.update({
     },
     "56959210f2576f113719d261aac4f505c1cf8971": {
         "disposition": "NEED_EVIDENCE",
-        "reason": "This adds an opt-in steering-wheel play/pause mapping while coordinating the accessibility wheel-key service and TV remotes. It changes input ownership and media-key dispatch and needs target key/remote testing.",
-        "test": "PASS_STATIC: source diff adds WheelKeyPresses and foreground fallback/input ownership tests; NOT_RUN_TARGET: steering key, service-enabled, and TV-remote behavior on TS10/K706",
-        "related": "WIRELESS-EX steering input plus media-key focus regression gates",
-        "rollback": "Keep fixed-main key dispatch until the service/fallback A/B and TV-remote coexistence pass.",
-        "review_state": "PRIMARY_AGENT_WHEEL_MEDIA_KEYS_NEEDS_TARGET_EVIDENCE",
+        "reason": "Fixed main has no KeyEvent dispatcher, WheelKeyService, or CarPlayMediaButton; this is an optional input-remapping subsystem rather than a change to an existing route. The upstream service/fallback can alter Android remote and steering-control ownership.",
+        "test": "PASS_STATIC: upstream adds foreground fallback and service paths with reserved TV-remote key guards; fixed main has no matching key-event owner; NOT_RUN_TARGET: steering-key delivery, service-enabled ownership, TV-remote pass-through, call/session state, and media-session behavior on TS10/K706",
+        "related": "EX-08 wheel input ownership and media-key focus gates; separate from PR-04 microphone request routing",
+        "rollback": "Do not add wheel media-key dispatch until target key delivery and TV-remote coexistence pass on TS10/K706.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_WHEEL_MEDIA_REMAP_NEEDS_TARGET_EVIDENCE",
     },
     "9690ba65f2f3ed53fd39547f699d90f5c6ea4320": {
         "disposition": "SKIP_OEM",
@@ -6153,11 +6153,11 @@ BASE_REVIEW_OVERRIDES.update({
     },
     "deaf7284305f837d21a61df4d27315fb87f8694d": {
         "disposition": "NEED_EVIDENCE",
-        "reason": "This adds optional double-press Siri activation with a delayed trigger and holds a specific AirPlay session and physical key identity. Timing, forwarding the second press, and cancellation on session change require target tests.",
-        "test": "PASS_STATIC: source tracks key/session identity and configurable double-press timing; NOT_RUN_TARGET: single/double press, delayed trigger, remote passthrough, and session loss on TS10/K706",
-        "related": "PR-04 steering-wheel Siri input and EX-02 session-generation ownership",
-        "rollback": "Keep fixed-main single-press behavior until the target press/session matrix passes.",
-        "review_state": "PRIMARY_AGENT_SIRI_DOUBLE_PRESS_NEEDS_TARGET_EVIDENCE",
+        "reason": "Fixed main has no KeyEvent dispatcher or WheelKeyService, and AirPlaySession.invokeSiri has no caller. This optional delayed double-press behavior would introduce a new input-ownership path, not adapt PR-04's microphone request routing.",
+        "test": "PASS_STATIC: source tracks physical key and AirPlay-session identity and delays Siri until the second release; fixed main has no matching input owner or caller; NOT_RUN_TARGET: single/double press pass-through, trigger delay, call/session cancellation, and key delivery on TS10/K706",
+        "related": "EX-08 wheel-Siri input ownership and EX-02 session-generation gates; PR-04 microphone routing is separate",
+        "rollback": "Do not add delayed double-press Siri handling until target key pass-through, call, and session-loss behavior pass on TS10/K706.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_DOUBLE_SIRI_INPUT_NEEDS_TARGET_EVIDENCE",
     },
     "733acb099baa30556e9c79f6d745d36c14c3913c": {
         "disposition": "REJECT_UNSAFE",

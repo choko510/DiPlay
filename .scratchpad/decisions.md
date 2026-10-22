@@ -538,3 +538,5 @@ Do not export the full Android USB device list in an MFi failure report. VID:PID
 Do not move PHONE audio to the loudspeaker without reproducing an earpiece route on a supported head unit. Fixed main retains its current `USAGE_VOICE_COMMUNICATION` route until call/Siri/navigation and post-call restoration pass on TS10/K706.
 
 Keep sustained RTP-age eviction separate from audio-clock correction. Fixed main drops newest packets only when its bounded queue fills; stale-packet eviction must preserve short Wi-Fi catch-up bursts and must not train a later track's playback rate from temporary decoder backpressure.
+
+Do not add steering-wheel Siri or media remapping as a microphone adaptation. Fixed main has no `KeyEvent` dispatcher or wheel-key service; require target proof of event delivery, vehicle/TV-remote pass-through, call/session cancellation, and MediaSession routing before adding that new input owner.

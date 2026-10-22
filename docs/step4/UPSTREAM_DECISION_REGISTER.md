@@ -28,6 +28,7 @@ This register uses the attached v3 plan and fixed fork `main`. A row-level inven
 | BYD-only code | v3 plan excludes DiLink/HUD/cluster/rhythm behavior; fixed main also has no BYD ambient-light output or steering-wheel Siri service | `SKIP_OEM` / `REJECT` merges | Do not restore ambient-light or BYD custom wheel-key behavior removed by the fork; reject integration merges separately |
 | BYD ambient idle choice | Fixed main has no ambient-light output service; source 1138 and merge 1139 change the same 17 paths | `SKIP_OEM` source 1138; `REJECT_UNSAFE` merge 1139 | Keep the BYD lighting feature excluded and reject its duplicate PR integration |
 | BYD wheel-Siri input | Fixed main has no `WheelKeyService`, `CarPlayMediaButton`, or caller for `AirPlaySession.invokeSiri` | `SKIP_OEM` sources 1140/1141/1173; `REJECT_UNSAFE` merge 1142 | The source commits use BYD custom key pairs 327/328 and 304/312; PR-04 microphone request handling does not create a steering-wheel key path |
+| Generic wheel Siri/media input | Fixed main has no `KeyEvent` dispatcher or `WheelKeyService`, and `AirPlaySession.invokeSiri` has no caller | `NEED_EVIDENCE` sources 1172/1176; `REJECT_UNSAFE` double-press merge 1214 | These optional mappings add a new input owner; keep them separate from PR-04 microphone routing until TS10/K706 key delivery, pass-through, call/session cancellation, TV-remote coexistence, and MediaSession routing are verified |
 
 ## EX-08 completion status
 

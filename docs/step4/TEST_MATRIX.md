@@ -228,3 +228,5 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | Hardware | No TS10/K706/iPhone was attached | `NOT_RUN`; not a pass |
 
 G8 is not passed: the unit/emulator results above apply only to their recorded test levels. U73/U74/U75 and independent Review A/B remain open, and the 353 EX-08 `NEED_EVIDENCE` entries do not convert hardware or release gates into passes. EX-01 has a source-level implementation and fixture coverage but is not device-validated or release-ready.
+
+Hosted review validation: run #361 on source commit `caeef8f` passed full host and Android instrumentation. Documentation/workflow follow-ups #362/#364/#365 passed host/native but their API 35 emulator runs exceeded the p99 gate in different cases (28.6–65.7 ms against 21.3–23.2 ms thresholds). A local API 36.1 run of `DspPipelineBenchmarkInstrumentedTest` passed 5/5 with `FullHeavyChain` median-run p99 at 5.06 ms. The repeated hosted outliers are recorded as `UNSTABLE` emulator evidence, not a source-code pass; run #365 adds the workflow rule that a failed workflow-sensitive instrumentation run cannot establish a host baseline.

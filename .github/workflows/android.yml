@@ -357,8 +357,12 @@ jobs:
           }
           case "$DRAFT_TEST_SCOPE" in
             both)
-              run_unit_tests shared
-              run_unit_tests common ;;
+              if [[ "$DRAFT_TEST_FILTERS" == "all" ]]; then
+                ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest --build-cache --parallel --stacktrace
+              else
+                run_unit_tests shared
+                run_unit_tests common
+              fi ;;
             shared) run_unit_tests shared ;;
             common) run_unit_tests common ;;
             *) echo "Unexpected draft test scope: $DRAFT_TEST_SCOPE" >&2; exit 1 ;;

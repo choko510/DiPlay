@@ -2623,10 +2623,12 @@ class CarPlayController(
         } else {
             config.wirelessHotspotMode
         }
-        if (hotspotMode == WirelessHotspotMode.MANUAL &&
-            com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext) == false
-        ) {
-            throw IOException("The car hotspot is off. Turn it on in the car settings and connect again.")
+        if (hotspotMode == WirelessHotspotMode.MANUAL) {
+            val hotspotState = com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext)
+            if (com.shilapi.xcertplay.network.CarHotspotStatusOverride.isReportedOff(appContext, hotspotState)) {
+                throw IOException("The car hotspot is off. Turn it on in the car settings and connect again.")
+            }
+            if (hotspotState == false) debugLog("car hotspot: Android reports it off; connecting anyway after driver confirmation")
         }
         val manager: WirelessHotspotManager = when (hotspotMode) {
             WirelessHotspotMode.WIFI_P2P -> WifiP2pGroupManager(appContext, ::debugLog)

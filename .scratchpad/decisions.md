@@ -528,3 +528,5 @@ Keep BYD custom wheel-key/Siri behavior out of fixed main when the fork has no c
 Classify an OEM feature and its integration merge separately: keep the source feature `SKIP_OEM`, and reject a merge that only reintroduces that same feature across the same paths.
 
 Keep the car's own hotspot separate from the head unit's `LocalOnlyHotspot`. The fixed-main manual car-hotspot path only checks state and opens settings; adding WRITE_SETTINGS-driven tethering and resume retries requires explicit target consent and tethering-owner evidence.
+
+When the user explicitly taps Connect despite an Android-reported car-hotspot-off state, remember that choice for the manual hotspot path and clear it once Android reports the AP on. Apply the same guard in Home and the controller; leave default behavior unchanged.

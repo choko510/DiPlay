@@ -7031,12 +7031,12 @@ BASE_REVIEW_OVERRIDES.update({
         "review_state": "PRIMARY_AGENT_HIDDEN_API_EXEMPTION_REJECT",
     },
     "ab087735b79439823720bf6bbd48a40fb07e88c7": {
-        "disposition": "NEED_EVIDENCE",
-        "reason": "This lets the driver continue after Android reports the car hotspot off and remembers that the report was overridden. The UI should avoid repeating a stale-status dialog, but must not suppress a real hotspot-off or consent failure.",
-        "test": "PASS_STATIC: source records an explicit user override before reconnecting; NOT_RUN_TARGET: stale off report versus real off state, retry loop, and saved override reset on TS10/K706",
-        "related": "WIRELESS-EX hotspot status and explicit connection-consent gates",
-        "rollback": "Keep the fixed-main hotspot warning until the user override and stale-status cases pass.",
-        "review_state": "PRIMARY_AGENT_HOTSPOT_STATUS_OVERRIDE_NEEDS_TARGET_EVIDENCE",
+        "disposition": "ADAPT",
+        "reason": "Fixed main's neutral Connect button called connect(true), which hit the same reported-off guard and reopened the dialog. Adapted the source's explicit-confirmation override through CarHotspotStatusOverride, consulted by both Home and CarPlayController and cleared when Android later reports the car AP on. This changes only the user's explicit Connect path; it does not start or reconfigure the AP.",
+        "test": "PASS_LOCAL: CarHotspotOffConnectTest verifies the dialog's Connect action opens CarPlayHostActivity rather than reopening itself; CarHotspotStatusOverrideTest verifies only an explicit choice bypasses false/unknown state and a true report clears it; full shared/common suites 552/160 pass with zero failures/errors/skips; NOT_RUN_TARGET: false-off firmware, successful manual Wi-Fi join while Android reports off, and override reset on TS10/K706",
+        "related": "WIRELESS-EX car-hotspot status override; keep auto-start and WRITE_SETTINGS candidates 1143/1145 separate and gated",
+        "rollback": "Revert CarHotspotStatusOverride and restore the fixed-main reported-off guard; the settings reminder and manual hotspot route remain available.",
+        "review_state": "PRIMARY_AGENT_FIXED_MAIN_HOTSPOT_OVERRIDE_ADAPTED_TARGET_ACCEPTANCE_PENDING",
     },
     "0f00e8a4f7c3edde0d78878da2b1717fccdcba24": {
         "disposition": "NEED_EVIDENCE",

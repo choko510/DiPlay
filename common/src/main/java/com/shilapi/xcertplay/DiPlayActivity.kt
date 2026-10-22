@@ -404,13 +404,19 @@ class DiPlayActivity : ComponentActivity() {
     // The car hotspot link needs the hotspot on; DiPlay only checks it (turning it on needs ADB-only permission).
     private fun carHotspotOff(): Boolean =
         AirPlayPersistence.loadWirelessHotspotMode(this) == WirelessHotspotMode.MANUAL &&
-            com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this) == false
+            com.shilapi.xcertplay.network.CarHotspotStatusOverride.isReportedOff(
+                this,
+                com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this),
+            )
 
     private fun carHotspotOffDialog() {
         AlertDialog.Builder(this).setTitle(getString(R.string.ui_car_hotspot_off_title))
             .setMessage(getString(R.string.ui_car_hotspot_off_message, AirPlayPersistence.loadManualHotspotSsid(this)))
             .setPositiveButton(getString(R.string.ui_open_car_settings)) { _, _ -> openCarWifiSettings() }
-            .setNeutralButton(getString(R.string.ui_connect)) { _, _ -> connect(true) }
+            .setNeutralButton(getString(R.string.ui_connect)) { _, _ ->
+                com.shilapi.xcertplay.network.CarHotspotStatusOverride.ignoreOffReport(this)
+                connect(true)
+            }
             .setNegativeButton(getString(R.string.ui_cancel), null).show()
     }
 

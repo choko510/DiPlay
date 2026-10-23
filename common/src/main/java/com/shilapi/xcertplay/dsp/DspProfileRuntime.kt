@@ -51,6 +51,14 @@ internal class DspProfileRuntime private constructor(context: Context) {
 
     fun availableImpulseResponseIds(): List<String> = impulseRepository.ids()
 
+    fun discardImportedImpulseResponse(id: String) {
+        val referencedByActiveProfile = activeProfile.get().convolver.impulseResponseId == id
+        val referencedBySavedProfile = availableProfiles().any { it.convolver.impulseResponseId == id }
+        if (referencedByActiveProfile || referencedBySavedProfile) return
+        impulseCache.remove(id)
+        impulseRepository.delete(id)
+    }
+
     fun availableProfiles(): List<DspAudioProfile> {
         val defaults = DspProfilePresets.all().associateBy(DspAudioProfile::id)
         return defaults.map { (id, defaultProfile) ->

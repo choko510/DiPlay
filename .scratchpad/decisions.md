@@ -580,3 +580,5 @@ Treat CI's selected/static result separately from release verification. Workflow
 Do not relax the API 35 emulator p99 gate based on inconsistent hosted failures or a different API 36.1 local pass. Runs #366/#367 failed different 48 kHz stereo cases; after matching the production audio worker and benchmark thread priority, hosted run #368 passed at 3.28 ms FullHeavyChain and 4.92 ms Convolver64k against the unchanged 21.332 ms ceiling.
 
 Run the app's PCM/DSP renderer and its CI microbenchmark at `THREAD_PRIORITY_AUDIO`. Measure the same production block under the audio scheduling priority, preserve the 2× block p99 ceiling, and keep target-device xrun/soak evidence as a separate release gate.
+
+Serialize `DspEditorSession` async operations rather than letting a later master/save/apply action invalidate an import token. Disable conflicting controls while an operation is pending, and delete an imported IR on completion only when no active or saved profile references it. Treat `OPEN_CARPLAY` as an explicit request to return from any Split mode before attempting startup.

@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.dsp
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,7 +12,7 @@ class DspEditorSessionTest {
     @Test
     fun editsMadeDuringApplyRemainAsAnUnappliedDraft() {
         val session = session()
-        val operation = session.beginOperation(DspEditorOperationKind.APPLY)
+        val operation = requireNotNull(session.beginOperation(DspEditorOperationKind.APPLY))
         val newerDraft = applied.copy(preampDb = 2.0)
         session.draftProfile = newerDraft
 
@@ -29,30 +30,21 @@ class DspEditorSessionTest {
     }
 
     @Test
-    fun onlyTheNewestAsyncOperationMayUpdateEditorState() {
+    fun pendingOperationCannotBeReplacedByAnotherOperation() {
         val session = session()
-        val older = session.beginOperation(DspEditorOperationKind.SAVE)
-        val newest = session.beginOperation(DspEditorOperationKind.APPLY)
+        val import = requireNotNull(session.beginOperation(DspEditorOperationKind.IMPORT))
 
-        assertFalse(
-            session.finishOperation(
-                older,
-                currentAppliedProfile = applied.copy(preampDb = 1.0),
-                currentMasterEnabled = true,
-                acceptAppliedDraft = true,
-            ),
-        )
+        assertNull(session.beginOperation(DspEditorOperationKind.MASTER))
+        assertEquals(DspEditorOperation(import.id, DspEditorOperationKind.IMPORT), session.pendingOperation)
         assertTrue(
             session.finishOperation(
-                newest,
-                currentAppliedProfile = applied.copy(preampDb = 2.0),
-                currentMasterEnabled = true,
-                acceptAppliedDraft = true,
+                import,
+                currentAppliedProfile = applied,
+                currentMasterEnabled = false,
             ),
         )
-        assertEquals(applied.copy(preampDb = 2.0), session.draftProfile)
-        assertEquals(applied.copy(preampDb = 2.0), session.appliedProfile)
-        assertFalse(session.hasUnappliedChanges)
+        val master = requireNotNull(session.beginOperation(DspEditorOperationKind.MASTER))
+        assertTrue(session.isCurrent(master))
     }
 
     @Test

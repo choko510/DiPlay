@@ -911,6 +911,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         if (intent.action == CarPlayHostActions.OPEN_CARPLAY) {
             setIntent(Intent(intent).setAction(null))
+            returnToCarPlay()
             maybeStartCarPlay()
             return
         }

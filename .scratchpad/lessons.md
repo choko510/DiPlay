@@ -437,3 +437,5 @@ API 35 hosted emulator p99 failures can move between DSP benchmark cases across 
 When a real-time microbenchmark runs on an ordinary instrumentation thread, scheduler preemption can dominate wall-time p99. Compare per-run histograms and match the test thread's priority to the production audio worker before changing DSP math or relaxing its deadline.
 
 When callbacks from two independently closing streams race, assert each stream's required open/close events and the no-deadlock condition without imposing a relative order on their concurrent close callbacks.
+
+For imports that persist data before returning to the UI, retain operation ownership until the callback resolves; reject conflicting operations, then delete the imported object if the active screen did not adopt it and no saved profile references it.

@@ -123,6 +123,7 @@ internal fun DspSettingsScreen(
         onBack()
     }
     val editorSession = remember(runtime) { runtime.editorSession }
+    val operationPending = editorSession.pendingOperation != null
     var profiles by remember(runtime) { mutableStateOf(runtime.availableProfiles()) }
     var profile by remember(editorSession) { editorSession.draftProfileState }
     var dspEnabled by remember(editorSession) { editorSession.masterEnabledMutableState }
@@ -133,15 +134,17 @@ internal fun DspSettingsScreen(
     var impulseResponseIds by remember(runtime) { mutableStateOf(runtime.availableImpulseResponseIds()) }
     val openImpulseResponse = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val sourceProfileId = profile.id
             val operation = editorSession.beginOperation(DspEditorOperationKind.IMPORT)
-            val irId = "ir_${UUID.randomUUID().toString().replace("-", "")}"
-            runtime.importImpulseResponseAsync(
-                id = irId,
-                openInput = { context.contentResolver.openInputStream(uri) },
-            ) { result ->
-                if (editorSession.isCurrent(operation)) {
-                    if (screenActive.get() && profile.id == sourceProfileId) {
+            if (operation != null) {
+                val sourceProfileId = profile.id
+                val irId = "ir_${UUID.randomUUID().toString().replace("-", "")}"
+                runtime.importImpulseResponseAsync(
+                    id = irId,
+                    openInput = { context.contentResolver.openInputStream(uri) },
+                ) { result ->
+                    val finished = editorSession.finishOperation(operation, runtime.selectedProfile(), runtime.isDspEnabled())
+                    var adopted = false
+                    if (finished && screenActive.get() && profile.id == sourceProfileId) {
                         when (result) {
                             is DspImpulseImportResult.Imported -> {
                                 impulseResponseIds = runtime.availableImpulseResponseIds()
@@ -152,6 +155,7 @@ internal fun DspSettingsScreen(
                                         impulseResponse = null,
                                     ),
                                 )
+                                adopted = true
                                 Toast.makeText(context, R.string.dsp_ir_imported, Toast.LENGTH_SHORT).show()
                             }
                             DspImpulseImportResult.TooLarge -> Toast.makeText(context, R.string.dsp_ir_too_large, Toast.LENGTH_LONG).show()
@@ -159,20 +163,24 @@ internal fun DspSettingsScreen(
                             else -> Toast.makeText(context, R.string.dsp_ir_invalid, Toast.LENGTH_LONG).show()
                         }
                     }
-                    editorSession.finishOperation(operation, runtime.selectedProfile(), runtime.isDspEnabled())
+                    if (result is DspImpulseImportResult.Imported && !adopted) {
+                        runtime.discardImportedImpulseResponse(result.impulseResponse.id)
+                        if (screenActive.get()) impulseResponseIds = runtime.availableImpulseResponseIds()
+                    }
                 }
             }
         }
     }
     val openCabinMeasurement = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val sourceProfileId = profile.id
             val operation = editorSession.beginOperation(DspEditorOperationKind.IMPORT)
-            runtime.importCabinMeasurementCsvAsync(
-                openInput = { context.contentResolver.openInputStream(uri) },
-            ) { result ->
-                if (editorSession.isCurrent(operation)) {
-                    if (screenActive.get() && profile.id == sourceProfileId) {
+            if (operation != null) {
+                val sourceProfileId = profile.id
+                runtime.importCabinMeasurementCsvAsync(
+                    openInput = { context.contentResolver.openInputStream(uri) },
+                ) { result ->
+                    val finished = editorSession.finishOperation(operation, runtime.selectedProfile(), runtime.isDspEnabled())
+                    if (finished && screenActive.get() && profile.id == sourceProfileId) {
                         when (result) {
                             is DspCabinMeasurementParseResult.Available -> {
                                 profile = profile.copy(cabinCorrection = result.correction)
@@ -187,7 +195,6 @@ internal fun DspSettingsScreen(
                             }
                         }
                     }
-                    editorSession.finishOperation(operation, runtime.selectedProfile(), runtime.isDspEnabled())
                 }
             }
         }
@@ -196,26 +203,8 @@ internal fun DspSettingsScreen(
     val saveCustomProfile: (String, Int) -> Unit = { id, nameResource ->
         val custom = profile.copy(id = id, name = context.getString(nameResource))
         val operation = editorSession.beginOperation(DspEditorOperationKind.SAVE)
-        runtime.saveCustomAsync(custom, dspEnabled) { result ->
-            if (editorSession.finishOperation(
-                    operation,
-                    runtime.selectedProfile(),
-                    runtime.isDspEnabled(),
-                    acceptAppliedDraft = result == DspProfileSaveResult.SAVED,
-                )
-            ) {
-                if (screenActive.get()) {
-                    if (result == DspProfileSaveResult.SAVED) profiles = runtime.availableProfiles()
-                    showProfileSaveResult(context, result)
-                }
-            }
-        }
-    }
-    val applyChanges: () -> Unit = {
-        val applied = profile.copy(convolver = profile.convolver.copy(impulseResponse = null))
-        if (applied.id == CUSTOM_PROFILE_1 || applied.id == CUSTOM_PROFILE_2) {
-            val operation = editorSession.beginOperation(DspEditorOperationKind.SAVE)
-            runtime.saveCustomAsync(applied, dspEnabled) { result ->
+        if (operation != null) {
+            runtime.saveCustomAsync(custom, dspEnabled) { result ->
                 if (editorSession.finishOperation(
                         operation,
                         runtime.selectedProfile(),
@@ -229,17 +218,41 @@ internal fun DspSettingsScreen(
                     }
                 }
             }
+        }
+    }
+    val applyChanges: () -> Unit = {
+        val applied = profile.copy(convolver = profile.convolver.copy(impulseResponse = null))
+        if (applied.id == CUSTOM_PROFILE_1 || applied.id == CUSTOM_PROFILE_2) {
+            val operation = editorSession.beginOperation(DspEditorOperationKind.SAVE)
+            if (operation != null) {
+                runtime.saveCustomAsync(applied, dspEnabled) { result ->
+                    if (editorSession.finishOperation(
+                            operation,
+                            runtime.selectedProfile(),
+                            runtime.isDspEnabled(),
+                            acceptAppliedDraft = result == DspProfileSaveResult.SAVED,
+                        )
+                    ) {
+                        if (screenActive.get()) {
+                            if (result == DspProfileSaveResult.SAVED) profiles = runtime.availableProfiles()
+                            showProfileSaveResult(context, result)
+                        }
+                    }
+                }
+            }
         } else {
             val operation = editorSession.beginOperation(DspEditorOperationKind.APPLY)
-            runtime.applyAsync(applied, dspEnabled) { accepted ->
-                if (editorSession.finishOperation(
-                        operation,
-                        runtime.selectedProfile(),
-                        runtime.isDspEnabled(),
-                        acceptAppliedDraft = accepted,
-                    ) && !accepted && screenActive.get()
-                ) {
-                    Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
+            if (operation != null) {
+                runtime.applyAsync(applied, dspEnabled) { accepted ->
+                    if (editorSession.finishOperation(
+                            operation,
+                            runtime.selectedProfile(),
+                            runtime.isDspEnabled(),
+                            acceptAppliedDraft = accepted,
+                        ) && !accepted && screenActive.get()
+                    ) {
+                        Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }
@@ -320,15 +333,17 @@ internal fun DspSettingsScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Button(onClick = applyChanges, modifier = Modifier.fillMaxWidth()) {
+                    Button(onClick = applyChanges, enabled = !operationPending, modifier = Modifier.fillMaxWidth()) {
                         Text(stringResource(R.string.dsp_apply))
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         OutlinedButton(
+                            enabled = !operationPending,
                             modifier = Modifier.weight(1f),
                             onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
                         ) { Text(stringResource(R.string.dsp_save_custom_1)) }
                         OutlinedButton(
+                            enabled = !operationPending,
                             modifier = Modifier.weight(1f),
                             onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
                         ) { Text(stringResource(R.string.dsp_save_custom_2)) }
@@ -358,15 +373,18 @@ internal fun DspSettingsScreen(
                         title = stringResource(R.string.dsp_enabled),
                         description = stringResource(R.string.dsp_enabled_description),
                         checked = dspEnabled,
+                        enabled = !operationPending,
                         onCheckedChange = { enabled ->
-                            dspEnabled = enabled
                             val operation = editorSession.beginOperation(DspEditorOperationKind.MASTER)
-                            runtime.setMasterEnabledAsync(enabled) {
-                                editorSession.finishOperation(
-                                    operation,
-                                    runtime.selectedProfile(),
-                                    runtime.isDspEnabled(),
-                                )
+                            if (operation != null) {
+                                dspEnabled = enabled
+                                runtime.setMasterEnabledAsync(enabled) {
+                                    editorSession.finishOperation(
+                                        operation,
+                                        runtime.selectedProfile(),
+                                        runtime.isDspEnabled(),
+                                    )
+                                }
                             }
                         },
                     )
@@ -383,6 +401,7 @@ internal fun DspSettingsScreen(
                         label = profileLabel(context, profile),
                         items = profiles,
                         itemLabel = { profileLabel(context, it) },
+                        enabled = !operationPending,
                         onSelect = { selected ->
                             profile = selected
                             profileMenuExpanded = false
@@ -603,12 +622,18 @@ internal fun DspSettingsScreen(
                     val cabin = profile.cabinCorrection
                     Text(stringResource(R.string.dsp_cabin_description))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            openCabinMeasurement.launch(arrayOf("text/csv", "text/plain", "application/csv"))
-                        }) {
+                        OutlinedButton(
+                            enabled = !operationPending,
+                            onClick = {
+                                openCabinMeasurement.launch(arrayOf("text/csv", "text/plain", "application/csv"))
+                            },
+                        ) {
                             Text(stringResource(R.string.dsp_cabin_import))
                         }
-                        TextButton(onClick = { profile = profile.copy(cabinCorrection = DspCabinCorrectionConfig()) }) {
+                        TextButton(
+                            onClick = { profile = profile.copy(cabinCorrection = DspCabinCorrectionConfig()) },
+                            enabled = !operationPending,
+                        ) {
                             Text(stringResource(R.string.dsp_cabin_undo))
                         }
                     }
@@ -919,6 +944,7 @@ internal fun DspSettingsScreen(
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_convolver),
                         checked = profile.convolver.enabled,
+                        enabled = !operationPending,
                         onCheckedChange = { enabled ->
                             if (enabled && profile.convolver.impulseResponseId == null) {
                                 Toast.makeText(context, R.string.dsp_ir_select_first, Toast.LENGTH_SHORT).show()
@@ -931,6 +957,7 @@ internal fun DspSettingsScreen(
                         title = stringResource(R.string.dsp_impulse_response),
                         selected = profile.convolver.impulseResponseId ?: stringResource(R.string.dsp_ir_none),
                         choices = listOf(stringResource(R.string.dsp_ir_none)) + impulseResponseIds,
+                        enabled = !operationPending,
                         onSelect = { selected ->
                             val id = selected.takeUnless { it == context.getString(R.string.dsp_ir_none) }
                             profile = profile.copy(
@@ -944,6 +971,7 @@ internal fun DspSettingsScreen(
                     )
                     OutlinedButton(
                         modifier = Modifier.fillMaxWidth(),
+                        enabled = !operationPending,
                         onClick = { openImpulseResponse.launch(arrayOf("audio/*")) },
                     ) { Text(stringResource(R.string.dsp_ir_import)) }
                     DspValueSlider(
@@ -967,6 +995,7 @@ internal fun DspSettingsScreen(
             if (!compact) {
                 Button(
                     modifier = Modifier.fillMaxWidth(),
+                    enabled = !operationPending,
                     onClick = applyChanges,
                 ) {
                     Text(stringResource(R.string.dsp_apply))
@@ -974,10 +1003,12 @@ internal fun DspSettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
+                        enabled = !operationPending,
                         onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
                     ) { Text(stringResource(R.string.dsp_save_custom_1)) }
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
+                        enabled = !operationPending,
                         onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
                     ) { Text(stringResource(R.string.dsp_save_custom_2)) }
                 }
@@ -1151,13 +1182,14 @@ private fun DspSwitchRow(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     description: String? = null,
+    enabled: Boolean = true,
 ) {
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 
@@ -1172,7 +1204,13 @@ private fun SectionCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun ChoiceField(title: String, selected: String, choices: List<String>, onSelect: (String) -> Unit) {
+private fun ChoiceField(
+    title: String,
+    selected: String,
+    choices: List<String>,
+    enabled: Boolean = true,
+    onSelect: (String) -> Unit,
+) {
     val expanded = remember { mutableStateOf(false) }
     Column {
         Text(title)
@@ -1182,6 +1220,7 @@ private fun ChoiceField(title: String, selected: String, choices: List<String>, 
             label = selected,
             items = choices,
             itemLabel = { it },
+            enabled = enabled,
             onSelect = { onSelect(it); expanded.value = false },
         )
     }
@@ -1194,13 +1233,14 @@ private fun <T> BoxWithDropdown(
     label: String,
     items: List<T>,
     itemLabel: (T) -> String,
+    enabled: Boolean = true,
     onSelect: (T) -> Unit,
 ) {
     Column {
-        OutlinedButton(onClick = { onExpandedChange(true) }, modifier = Modifier.fillMaxWidth()) { Text(label) }
+        OutlinedButton(onClick = { onExpandedChange(true) }, modifier = Modifier.fillMaxWidth(), enabled = enabled) { Text(label) }
         DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
             items.forEach { item ->
-                DropdownMenuItem(text = { Text(itemLabel(item)) }, onClick = { onSelect(item) })
+                DropdownMenuItem(text = { Text(itemLabel(item)) }, enabled = enabled, onClick = { onSelect(item) })
             }
         }
     }

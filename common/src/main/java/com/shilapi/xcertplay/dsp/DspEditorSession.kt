@@ -71,7 +71,8 @@ internal class DspEditorSession(
     val hasUnappliedChanges: Boolean
         get() = draftProfile != appliedProfile
 
-    fun beginOperation(kind: DspEditorOperationKind): DspEditorOperationToken {
+    fun beginOperation(kind: DspEditorOperationKind): DspEditorOperationToken? {
+        if (pendingState.value != null) return null
         nextOperationId += 1
         pendingState.value = DspEditorOperation(nextOperationId, kind)
         return DspEditorOperationToken(nextOperationId, draftRevision)

@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.content.Intent
 import android.graphics.SurfaceTexture
 import android.view.MotionEvent
 import android.view.Surface
@@ -68,6 +69,52 @@ class CarPlayHostActivityLocalScaleTest {
             moveOutside.recycle()
             moveInside.recycle()
             up.recycle()
+        }
+    }
+
+    @Test
+    fun openCarPlayIntentReturnsDspAndYoutubeSplitToFullLayout() {
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val handler = field(activity, "mainHandler").get(activity) as android.os.Handler
+        val contentRoot = CarPlayHostActivity::class.java.getDeclaredMethod("buildContentView")
+            .apply { isAccessible = true }
+            .invoke(activity) as View
+        activity.setContentView(contentRoot)
+        val dspPane = field(activity, "dspPane").get(activity) as FrameLayout
+        val youtubePane = field(activity, "youtubePane").get(activity) as FrameLayout
+        val updateLayout = CarPlayHostActivity::class.java.getDeclaredMethod("updateHostLayoutInternal")
+            .apply { isAccessible = true }
+        val onNewIntent = CarPlayHostActivity::class.java.getDeclaredMethod("onNewIntent", Intent::class.java)
+            .apply { isAccessible = true }
+
+        try {
+            CarPlayBackgroundSession.clear()
+            setField(activity, "activeDisplaySize", null)
+            listOf(HostLayoutState().enterDspSplit(), HostLayoutState().enterYoutubeSplit()).forEach { splitState ->
+                setField(activity, "hostLayoutState", splitState)
+                updateLayout.invoke(activity)
+
+                onNewIntent.invoke(
+                    activity,
+                    Intent(activity, CarPlayHostActivity::class.java).setAction(CarPlayHostActions.OPEN_CARPLAY),
+                )
+
+                val restoredMode = (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode
+                assertEquals(HostLayoutMode.CARPLAY_FULL, restoredMode)
+                assertEquals(View.GONE, dspPane.visibility)
+                assertEquals(View.GONE, youtubePane.visibility)
+            }
+        } finally {
+            handler.removeCallbacksAndMessages(null)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
         }
     }
 

@@ -13,6 +13,7 @@
 
 - The third integrated audit's source-correctable findings are now implemented in the current PR #45 batch: NCM resync preserves incomplete declared blocks and uses allowed alignment plus bounded incremental pair search; Host commands are tokenized behind a non-exported Activity and USB attach checks actual device permission; Split open/pending restoration is coherent; stale first-frame callbacks, per-type recovery gates and hidden DSP polling are fenced; DSP live-OFF targets dry output, fallback conversion is lazy, retirement ownership is per pipeline/controller, renderer status labels last adoption and incompatible Convolver; Harmonic high-band alias guard and expanded native sweep are included.
 - **Latest local validation:** 593 shared + 192 common tests, zero failures/errors/skips; native DSP tests, CI classifier fixtures, EX-08 `--check`, public-tree check, and `git diff --check` pass. Full host/lint/app/JNI/API 35 instrumentation and physical acceptance have not been completed for this batch.
+- **PR run #377** on `eab621b` passed Draft classifier, public-tree, EX-08, host native DSP, host ASan/UBSan, and Draft unit tests. JNI link, full host/lint/app builds, and API 35 instrumentation were skipped by Draft scope; this does not satisfy the release or hardware gates.
 - Source-confirmed 4AI review follow-ups W-01…06, AI2-R03/R09, AI3-01…08, AI4-NEW-01 and AI4-SEC-BASE-01 have been fixed or classified. Notable fixes cover bounded NCM recovery, endpoint-size padding, MAIN/ALT and touch ownership, microphone empty-read backoff, Logcat redaction, Seat/fractional delay/harmonic gain, and deferred DSP graph adoption/reaper-thread close. Includes in-host 55:45 CarPlay/DSP Split editor.
 - **Local test snapshot:** 583 shared + 186 common, zero failures/errors/skips. **PR run #374** passed public-tree/EX-08 checks, native host/sanitizer and draft unit suites. The draft lane **skipped** lint, build, JNI and instrumentation; local MSYS2 ASan/UBSan linking is unavailable. A documentation-only commit does not rerun product tests.
 - Hosted API 35 DSP p99 instrumentation previously failed intermittently (#362/#364/#365/#366); local API 36.1 passing is not a replacement for hosted API 35 or physical TS10/K706 measurements. Thread-priority/benchmark follow-ups require their own applicable full gate.
@@ -25,7 +26,7 @@
 
 ## Next work (ordered)
 
-1. Verify the new draft CI scope/result on PR #45; keep the second independent review `NOT_RUN` and do not mark the PR ready.
+1. Keep PR #45 Draft; the second independent review remains `NOT_RUN` per user direction. Do not mark the PR ready without a changed direction.
 2. Run full host, lint/build/JNI and API 35 instrumentation only at the review-ready gate, including an interpretable p99 result. Do not count skipped jobs as passes.
 3. Keep physical/policy gates open: TS10/K706+iPhone acceptance, USB requestWait/SYN-ACK traces, ALT-only policy, decoder stop ACK/Surface lifetime, shared MAIN/ALT Surface reachability, Seat phase acceptance, JNI same-engine process ownership, CPU/soak and signed update/rollback.
 4. Add API/baseline end-to-end negative fixtures for the CI classifier only in a workflow-sensitive batch; keep AI4-R3-08 patch SHA recomputation scoped to EX-08 candidates selected for adoption.

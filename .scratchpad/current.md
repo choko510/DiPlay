@@ -1,4 +1,4 @@
-# Current Work — DiPlay STEP4 (2026-10-23)
+# Current Work — DiPlay STEP4 (2026-10-24)
 
 > Active status snapshot for [PR #45](https://github.com/choko510/DiPlay/pull/45) (draft), **not release approval**. The original full notes are archived [here](archive/2026-10-23-current-before-consolidation.md). Verify newer PR commits and CI results before relying on this snapshot.
 
@@ -11,6 +11,8 @@
 
 ## Last documented implementation / checks
 
+- Fifth integrated review source fixes are in the current local batch for PR #45: VpnService OS/local Binder separation, generation-safe revoke cleanup, accept callback/socket ownership, any-length NTB pair ambiguity fail-closed handling and a progress-based stuck-block error; acknowledged TextureView surface retirement, nonblocking decoder retirement, bounded/coalesced video control/recovery queues and retired decoder reference cleanup; DSP prepare/publish exception ownership, format-owner publication serialization, failed-close adoption blocking, and a failure-only Seat trim/polarity fallback that leaves DSP OFF dry.
+- **2026-10-24 verification:** all changed shared test classes passed; both mobile and automotive Debug assemblies and lint passed. Common unit tests passed 193/193. The full shared suite ran 618 tests with one host-only `AirPlayIapTunnelStreamTest.ipv6ListenerAcceptsIpv6Loopback` failure (`SocketException: Permission denied: connect`); the focused affected classes passed. The shared VPN service merge output contains the protected system interface, explicit `exported=true`, and always-on opt-out metadata. API 35 instrumentation and target-device gates remain NOT_RUN.
 - The fourth integrated audit's source-correctable items are in the PR #45 batch: NCM protects plausible incomplete blocks and caps NDP size; ambiguous all-ones declared blocks fail closed; post-start microphone worker death retries under the owner/backoff contract; MAIN/ALT keyframe handlers are generation-scoped on two workers; old MediaCodec workers must ACK release before a replacement decoder is created; notification open is reusable; USB attach requires privileged `MANAGE_USB`; DSP preparer exceptions report FAILED once per generation and old controller callbacks are epoch-fenced; Harmonic native coverage includes the maximum 18 kHz cutoff.
 - **Latest local verification:** 601 shared + 193 common tests, zero failures/errors/skips; `scripts/test_dsp_native.sh`, EX-08 `--check`, public-tree check, Android CI classifier fixture, and `git diff --check` passed. `:shared:externalNativeBuildDebug` linked arm64-v8a, armeabi-v7a, and x86_64.
 - **PR run #379** on `51a655c` passed classifier, public-tree/EX-08, native DSP, ASan/UBSan and Draft unit tests. Full host/lint/app builds, JNI/R8 and API 35 instrumentation were skipped by Draft scope.
@@ -36,5 +38,6 @@
 4. Add API/baseline end-to-end negative fixtures for the CI classifier only in a workflow-sensitive batch; keep AI4-R3-08 patch SHA recomputation scoped to EX-08 candidates selected for adoption.
 5. Obtain same-device NCM `AUTO`/`NO_STATUS_POLLING` A/B measurements; do not modify 5→6 or add CDC-NCM control requests on existing data. Keep Stage3 diagnostics timing-only and EX05 second StartSession gated by target timing.
 6. Maintain the versioned 111-commit EX-08 overlay plan while preserving the 1,289-row catalog and 353 `NEED_EVIDENCE` items; review Pass15 rows 4/24/28/44 with their target evidence. `ROTATION_SQUARE_CANVAS` remains `NO_GO_THIS_RUN`.
+7. Fifth integrated review residuals: API 35/JNI/R8 and hosted CI at the updated head; TS10/K706 VPN revoke/USB boundary and close timing; SurfaceTexture destroy/recreate and MediaCodec-release fault injection; 10,000-cycle video queue/backlog and target decoder recovery; DSP close-failure, CPU/THD/A-V and format-change/device acceptance. Keep these `NOT_RUN` until measured.
 
 See [backlog](backlog.md) for acceptance items, [decisions](decisions.md) for rationale, [lessons](lessons.md) for pitfalls, [quirks](quirks.md) for environments and [optimization](optimization.md) for measurements.

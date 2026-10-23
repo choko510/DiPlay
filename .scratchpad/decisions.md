@@ -627,3 +627,15 @@ Keep the foreground notification's open PendingIntent reusable and process-death
 Treat pipeline-preparer exceptions as a terminal FAILED result for that generation rather than rescheduling the same failing candidate. Controller epochs fence callbacks across format replacement even when the audio format later returns to an equal value.
 
 The native DSP engine has mutable graph state and remains a single-writer API: callers serialize `process`/`reset` per processor. Keep same-engine concurrent-process behavior outside the supported contract unless a separate real-time-safe guard is designed.
+
+For a local CarPlay-authenticated mobile build, source `identity.pk8` and `certificate.p7b` through `DIPLAY_AUTH_ASSETS_DIR` outside the worktree. When no release keystore is configured, build the installable Debug variant with Android's debug key; keep this distinct from production signing.
+
+Declare `CarPlayVpnService` as a protected exported VpnService for Android's system action, while returning its local Binder for app-owned binds. Handle revoke cleanup on a generation-checked worker, notify only the revoked attachment, and opt out of always-on VPN.
+
+Treat an apparent consecutive NTH16 pair inside the unprotected tail of any declared block length as ambiguous and fail closed; never resynchronize into that tail. For a complete but incomplete-length NTB, fail the bridge after 30 seconds without new bytes while resetting the timer on progress.
+
+Keep TextureView SurfaceTexture ownership until each MAIN/ALT decoder worker acknowledges its surface transition. Release only after all owners acknowledge; if MediaCodec release fails, retain the old surface and prevent decoder replacement until safe release. Do not wait for a retiring decoder on the screen receive path.
+
+Keep video control/recovery work bounded and coalesce superseded surface/config jobs while carrying every surface-retirement callback forward. Scope one in-flight keyframe recovery request per stream type and bound the executor to two workers plus 16 queued jobs.
+
+Treat one DSP preparation generation as a single ownership scope: getter/publish exceptions close an untransferred candidate and report FAILED once. Serialize renderer-owner checks with pending publication; a failed native close remains a failed retirement and blocks further adoption. Preserve Seat trim/polarity only in the native-failure fallback; the user-selected DSP OFF path remains dry.

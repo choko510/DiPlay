@@ -3,6 +3,8 @@ package com.shilapi.xcertplay.media.dsp
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DspLatencyPreservingBypassTest {
@@ -47,6 +49,38 @@ class DspLatencyPreservingBypassTest {
         assertEquals(1.0f / 3.0f, bypass.outputFloats[3 * 2], 1e-6f)
         assertEquals(8.0f / 9.0f, bypass.outputFloats[4 * 2], 1e-6f)
         assertEquals(0.0f, bypass.outputFloats[4 * 2 + 1], 1e-6f)
+    }
+
+    @Test
+    fun seatTrimAndPolarityAreEnabledOnlyForTheFailureFallback() {
+        val bypass = DspLatencyPreservingBypass(
+            format = DspAudioFormat(48_000, 2),
+            commonLatencyFrames = 0,
+            seatAlignment = DspSeatAlignmentConfig(
+                enabled = true,
+                leftTrimDb = 6.0,
+                rightTrimDb = -6.0,
+                invertLeft = true,
+            ),
+            seed = 1L,
+        )
+        val source = floatPcm(floatArrayOf(-0.25f, 0.5f))
+
+        assertEquals(0, bypass.process(source, 0, source.size, DspPcmEncoding.PCM_FLOAT, encodeOutput = false))
+        assertEquals(-0.25f, bypass.outputFloats[0], 1e-6f)
+        assertEquals(0.5f, bypass.outputFloats[1], 1e-6f)
+        assertTrue(bypass.hasSeatControls)
+        assertFalse(bypass.seatControlsActiveForTest)
+
+        bypass.activateSeatControlsForCurrentOutput()
+
+        assertTrue(bypass.seatControlsActiveForTest)
+        assertEquals(0.25f * Math.pow(10.0, 6.0 / 20.0).toFloat(), bypass.outputFloats[0], 1e-6f)
+        assertEquals(0.5f * Math.pow(10.0, -6.0 / 20.0).toFloat(), bypass.outputFloats[1], 1e-6f)
+
+        bypass.process(source, 0, source.size, DspPcmEncoding.PCM_FLOAT, encodeOutput = false)
+        assertEquals(0.25f * Math.pow(10.0, 6.0 / 20.0).toFloat(), bypass.outputFloats[0], 1e-6f)
+        assertEquals(0.5f * Math.pow(10.0, -6.0 / 20.0).toFloat(), bypass.outputFloats[1], 1e-6f)
     }
 
     private fun floatPcm(samples: FloatArray): ByteArray {

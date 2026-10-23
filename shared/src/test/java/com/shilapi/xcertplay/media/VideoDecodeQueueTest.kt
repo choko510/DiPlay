@@ -45,6 +45,26 @@ class VideoDecodeQueueTest {
         assertNull(queue.poll(0))
     }
 
+    @Test fun surfaceAndConfigChurnKeepsOnlyBoundedControlJobsAndLatestConfig() {
+        val queue = VideoDecodeQueue(maxFrames = 60)
+        repeat(10_000) { index ->
+            queue.offer(VideoJob.Config(VideoCodec.H264, byteArrayOf(index.toByte())))
+            queue.offer(VideoJob.SurfaceChanged(null))
+            queue.offer(VideoJob.Frame(byteArrayOf(index.toByte())))
+        }
+
+        assertTrue(queue.queuedJobsForTest <= 64)
+        val jobs = mutableListOf<VideoJob>()
+        while (true) jobs += queue.poll(0) ?: break
+        val configs = jobs.filterIsInstance<VideoJob.Config>()
+        val surfaces = jobs.filterIsInstance<VideoJob.SurfaceChanged>()
+
+        assertEquals(1, configs.size)
+        assertArrayEquals(byteArrayOf(9_999.toByte()), configs.single().codecData)
+        assertEquals(1, surfaces.size)
+        assertTrue(jobs.filterIsInstance<VideoJob.Frame>().size <= 60)
+    }
+
     @Test fun fullOutputMustBeDrainedWhileRetryingTheSameInput() {
         var heldOutputs = 2
         var dequeues = 0

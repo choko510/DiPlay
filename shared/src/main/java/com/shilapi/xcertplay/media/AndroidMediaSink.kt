@@ -50,7 +50,9 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.Executors
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -58,7 +60,7 @@ import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
 
 private const val VIDEO_RECOVERY_WORKER_COUNT = 2
-private const val VIDEO_DECODER_STOP_WAIT_MILLIS = 250L
+private const val VIDEO_RECOVERY_QUEUE_CAPACITY = 16
 
 internal fun interface AudioTrackWriteAdapterForTest {
     fun write(data: ByteArray, offset: Int, length: Int, writeMode: Int): Int
@@ -111,7 +113,6 @@ class AndroidMediaSink(
         onAudioDiagnostic = onAudioDiagnostic,
     )
     private data class VideoRecoveryHandler(val generation: Long, val callback: () -> Unit)
-    private data class VideoRecoveryKey(val type: Int, val generation: Long)
     private data class PendingVideoConfig(val generation: Long, val codec: VideoCodec, val codecData: ByteArray)
     private data class AudioRendererEntry(val token: AudioOwnerToken, val renderer: AudioRenderer)
     private data class MicrophoneEntry(val token: AudioOwnerToken, val uplink: MicrophoneUplinkController)
@@ -123,6 +124,7 @@ class AndroidMediaSink(
     @Volatile private var screenStreamActiveChanged = onScreenStreamActiveChanged
     @Volatile private var videoFrameSubmittedToSurface = onVideoFrameSubmittedToSurface
     private val surfaces = ConcurrentHashMap<Int, Surface>()
+    private val surfaceUnavailableTypes = ConcurrentHashMap.newKeySet<Int>()
     private val videoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
     private val retiringVideoDecoders = ConcurrentHashMap<Int, VideoDecoder>()
     private val videoDecoderLocks = ConcurrentHashMap<Int, Any>()
@@ -135,22 +137,31 @@ class AndroidMediaSink(
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, VideoRecoveryHandler>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
-    private val recoveryPending = ConcurrentHashMap<VideoRecoveryKey, AtomicBoolean>()
+    private val recoveryPending = ConcurrentHashMap<Int, AtomicBoolean>()
     private val recoveryWorkerIds = AtomicInteger()
-    private val recoveryExecutor = Executors.newFixedThreadPool(VIDEO_RECOVERY_WORKER_COUNT) { task ->
-        Thread(task, "carplay-video-recovery-${recoveryWorkerIds.incrementAndGet()}").apply { isDaemon = true }
-    }
+    private val recoveryQueueDrops = AtomicLong()
+    private val recoveryExecutor = ThreadPoolExecutor(
+        VIDEO_RECOVERY_WORKER_COUNT,
+        VIDEO_RECOVERY_WORKER_COUNT,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(VIDEO_RECOVERY_QUEUE_CAPACITY),
+        { task -> Thread(task, "carplay-video-recovery-${recoveryWorkerIds.incrementAndGet()}").apply { isDaemon = true } },
+    )
     internal var audioRendererThreadFactoryForTest: ((Runnable, String) -> Thread)? = null
     internal var dspPipelinePreparerForTest: DspPipelinePreparer? = null
     internal var audioTrackWriteAdapterForTest: AudioTrackWriteAdapterForTest? = null
     internal var beforeDspUpdatePublishForTest: (() -> Unit)? = null
+    internal var afterDspUpdateOwnerCheckForTest: (() -> Unit)? = null
     internal var onDspUpdatePreparedForTest: (() -> Unit)? = null
     internal var microphoneUplinkFactoryForTest:
         ((MicrophoneConfig, () -> Boolean) -> MicrophoneUplinkController)? = null
     internal var beforeVideoDecoderStopForTest: (() -> Unit)? = null
 
     override fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {
-        videoRecoveryHandlers[type] = VideoRecoveryHandler(videoStreamGenerations.current(type), handler)
+        synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
+            videoRecoveryHandlers[type] = VideoRecoveryHandler(videoStreamGenerations.current(type), handler)
+        }
     }
 
     override fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {
@@ -159,35 +170,65 @@ class AndroidMediaSink(
 
     private fun requestVideoRecovery(type: Int, generation: Long) {
         if (closed.get() || !videoStreamGenerations.isCurrent(type, generation)) return
-        val key = VideoRecoveryKey(type, generation)
-        val pending = recoveryPending.computeIfAbsent(key) { AtomicBoolean() }
+        val pending = recoveryPending.computeIfAbsent(type) { AtomicBoolean() }
         if (!pending.compareAndSet(false, true)) return
         try {
             recoveryExecutor.execute {
                 try {
-                    val handler = videoRecoveryHandlers[type]
-                    if (!closed.get() && videoStreamGenerations.isCurrent(type, generation) &&
-                        handler?.generation == generation
-                    ) {
-                        handler.callback()
+                    val callback = synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
+                        val handler = videoRecoveryHandlers[type]
+                        if (!closed.get() && videoStreamGenerations.isCurrent(type, generation) &&
+                            handler?.generation == generation
+                        ) {
+                            handler.callback
+                        } else null
                     }
+                    callback?.invoke()
                 } catch (error: Exception) {
                     Log.w("xcertplay-usb", "Video keyframe request failed error=${error.javaClass.simpleName}")
                 }
-                finally { recoveryPending.remove(key, pending) }
+                finally { recoveryPending.remove(type, pending) }
             }
-        } catch (_: java.util.concurrent.RejectedExecutionException) { recoveryPending.remove(key, pending) }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            recoveryQueueDrops.incrementAndGet()
+            recoveryPending.remove(type, pending)
+        }
     }
 
     internal fun videoStreamGenerationForTest(type: Int): Long = videoStreamGenerations.current(type)
+    internal fun videoRecoveryQueueDepthForTest(): Int = recoveryExecutor.queue.size
+    internal fun videoRecoveryQueueDropsForTest(): Long = recoveryQueueDrops.get()
 
     fun setSurface(type: Int, surface: Surface) {
-        surfaces[type] = surface
-        videoDecoders[type]?.setSurface(surface)
+        synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
+            surfaceUnavailableTypes.remove(type)
+            surfaces[type] = surface
+            videoDecoders[type]?.setSurface(surface)
+        }
     }
 
-    fun clearSurface(type: Int, surface: Surface) {
-        if (surfaces.remove(type, surface)) videoDecoders[type]?.setSurface(null)
+    fun clearSurface(type: Int, surface: Surface, onDetached: () -> Unit = {}) {
+        val (active, retiring, nextSurface) = synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
+            val currentSurface = surfaces[type]
+            val removed = surfaces.remove(type, surface)
+            val clearedDefault = currentSurface == null && defaultSurface === surface &&
+                type !in surfaceUnavailableTypes
+            if (removed || clearedDefault) surfaceUnavailableTypes.add(type)
+            val nextSurface = surfaces[type] ?: if (type in surfaceUnavailableTypes) null else defaultSurface
+            val active = videoDecoders[type]
+            val retiring = retiringVideoDecoders[type]?.takeIf { it !== active }
+            Triple(active, retiring, nextSurface)
+        }
+
+        val waitingFor = (if (active == null) 0 else 1) + (if (retiring == null) 0 else 1)
+        if (waitingFor == 0) {
+            onDetached()
+            return
+        }
+        val remaining = AtomicInteger(waitingFor)
+        val complete = { if (remaining.decrementAndGet() == 0) onDetached() }
+        active?.setSurface(nextSurface, listOf(VideoSurfaceRetirement(surface, complete)))
+        retiring?.afterStopped { safelyReleased -> if (safelyReleased) complete() }
     }
 
     fun setScreenStreamActiveChangedListener(listener: ((Int, Boolean) -> Unit)?) {
@@ -210,7 +251,7 @@ class AndroidMediaSink(
         val generation = videoStreamGenerations.current(type)
         val savedConfig = PendingVideoConfig(generation, codec, codecData.copyOf())
         pendingVideoConfigs[type] = savedConfig
-        videoDecoder(type)?.configure(codec, savedConfig.codecData)
+        videoDecoder(type, restorePendingConfig = false)?.configure(codec, savedConfig.codecData)
     }
 
     override fun onVideoFrame(type: Int, naluBytes: ByteArray) {
@@ -218,13 +259,13 @@ class AndroidMediaSink(
     }
 
     override fun onScreenStreamActive(type: Int, active: Boolean) {
-        videoStreamGenerations.advance(type)
-        if (!active) {
-            videoRecoveryHandlers.remove(type)
-            videoDiagnosticHandlers.remove(type)
-            pendingVideoConfigs.remove(type)
-            pendingVideoCodec.remove(type)
-            synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
+        synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
+            videoStreamGenerations.advance(type)
+            if (!active) {
+                videoRecoveryHandlers.remove(type)
+                videoDiagnosticHandlers.remove(type)
+                pendingVideoConfigs.remove(type)
+                pendingVideoCodec.remove(type)
                 videoDecoders.remove(type)?.let { decoder ->
                     retiringVideoDecoders[type] = decoder
                     decoder.close()
@@ -406,19 +447,21 @@ class AndroidMediaSink(
         microphones.forEach(MicrophoneUplinkController::close)
     }
 
-    private fun videoDecoder(type: Int): VideoDecoder? = synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
-        if (closed.get()) return@synchronized null
-        videoDecoders[type]?.let { return@synchronized it }
-        retiringVideoDecoders[type]?.let { retiring ->
-            if (!retiring.awaitStopped(VIDEO_DECODER_STOP_WAIT_MILLIS)) return@synchronized null
-            retiringVideoDecoders.remove(type, retiring)
-        }
-        val decoder = run {
+    private fun videoDecoder(type: Int): VideoDecoder? = videoDecoder(type, restorePendingConfig = true)
+
+    private fun videoDecoder(type: Int, restorePendingConfig: Boolean): VideoDecoder? =
+        synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
+            if (closed.get()) return@synchronized null
+            videoDecoders[type]?.let { return@synchronized it }
+            retiringVideoDecoders[type]?.let { retiring ->
+                if (!retiring.isStopped() || !retiring.surfaceReleaseSafe) return@synchronized null
+                retiringVideoDecoders.remove(type, retiring)
+            }
             val generation = videoStreamGenerations.current(type)
             val decoderReference = AtomicReference<VideoDecoder?>()
             val diagnosticHandler = videoDiagnosticHandlers[type]
-            VideoDecoder(
-                surfaces[type] ?: defaultSurface,
+            val decoder = VideoDecoder(
+                surfaces[type] ?: if (type in surfaceUnavailableTypes) null else defaultSurface,
                 videoWidth,
                 videoHeight,
                 preferSoftwareHevcDecoder,
@@ -426,20 +469,26 @@ class AndroidMediaSink(
                 report = { diagnosticHandler?.invoke(it) },
                 beforeStop = { beforeVideoDecoderStopForTest?.invoke() },
                 onFirstFrameSubmittedToSurface = {
-                    val decoder = decoderReference.get()
+                    val currentDecoder = decoderReference.get()
                     if (!closed.get() && videoStreamGenerations.isCurrent(type, generation) &&
-                        decoder != null && videoDecoders[type] === decoder
+                        currentDecoder != null && videoDecoders[type] === currentDecoder
                     ) {
                         videoFrameSubmittedToSurface?.invoke(type)
                     }
                 },
-            ).also(decoderReference::set)
+                onStopped = { safelyReleased ->
+                    if (safelyReleased) decoderReference.get()?.let { retiringVideoDecoders.remove(type, it) }
+                },
+            )
+            decoderReference.set(decoder)
+            videoDecoders[type] = decoder
+            decoder.start()
+            if (restorePendingConfig) {
+                pendingVideoConfigs[type]?.takeIf { it.generation == videoStreamGenerations.current(type) }
+                    ?.let { decoder.configure(it.codec, it.codecData) }
+            }
+            decoder
         }
-        videoDecoders[type] = decoder
-        pendingVideoConfigs[type]?.takeIf { it.generation == videoStreamGenerations.current(type) }
-            ?.let { decoder.configure(it.codec, it.codecData) }
-        decoder
-    }
 
     private fun createAudioRenderer(format: AudioFormat): AudioRenderer {
         val mappingMode = if (advancedAudioChannelMapping) {
@@ -472,6 +521,7 @@ class AndroidMediaSink(
             },
             audioTrackWriteAdapterForTest = audioTrackWriteAdapterForTest,
             beforeDspUpdatePublishForTest = beforeDspUpdatePublishForTest,
+            afterDspUpdateOwnerCheckForTest = afterDspUpdateOwnerCheckForTest,
             onDspUpdatePreparedForTest = onDspUpdatePreparedForTest,
         )
     }
@@ -501,10 +551,17 @@ private class VideoDecoder(
     private val report: (String) -> Unit,
     private val beforeStop: () -> Unit,
     private val onFirstFrameSubmittedToSurface: () -> Unit,
+    private val onStopped: (Boolean) -> Unit,
 ) : Closeable {
     private val queue = VideoDecodeQueue()
     private val stopped = CountDownLatch(1)
+    private val stoppedCallbackLock = Any()
+    private val stoppedCallbacks = mutableListOf<(Boolean) -> Unit>()
+    private val failedDecoderReleases = mutableListOf<MediaCodec>()
+    private val pendingSurfaceRetirements = mutableListOf<VideoSurfaceRetirement>()
     @Volatile private var running = true
+    @Volatile var surfaceReleaseSafe: Boolean = false
+        private set
     @Volatile private var decoder: MediaCodec? = null
     private var outputSurface: Surface? = surface
     private var lastConfig: VideoJob.Config? = null
@@ -514,27 +571,68 @@ private class VideoDecoder(
     private val referenceChain = VideoReferenceChain()
     private var lastKeyFrameRequestNs = 0L
     private val stats = VideoStats()
-    private val thread = Thread(::run, "carplay-video").apply { isDaemon = true; start() }
+    private val thread = Thread(::run, "carplay-video").apply { isDaemon = true }
+
+    fun start() {
+        thread.start()
+    }
 
     fun configure(codec: VideoCodec, codecData: ByteArray) {
-        queue.offer(VideoJob.Config(codec, codecData))
+        synchronized(stoppedCallbackLock) {
+            if (running) queue.offer(VideoJob.Config(codec, codecData))
+        }
     }
 
     fun submit(nalus: ByteArray) {
-        stats.onReceived(nalus.size)
-        queue.offer(VideoJob.Frame(nalus))
+        synchronized(stoppedCallbackLock) {
+            if (!running) return
+            stats.onReceived(nalus.size)
+            queue.offer(VideoJob.Frame(nalus))
+        }
     }
 
-    fun setSurface(surface: Surface?) {
-        queue.offer(VideoJob.SurfaceChanged(surface))
+    fun setSurface(surface: Surface?, retirements: List<VideoSurfaceRetirement> = emptyList()) {
+        val runImmediately = synchronized(stoppedCallbackLock) {
+            when {
+                stopped.count == 0L -> surfaceReleaseSafe
+                !running -> {
+                    if (retirements.isNotEmpty()) {
+                        stoppedCallbacks += { safe -> if (safe) retirements.forEach { it.onApplied() } }
+                    }
+                    false
+                }
+                else -> {
+                    queue.offer(VideoJob.SurfaceChanged(surface, retirements))
+                    false
+                }
+            }
+        }
+        if (runImmediately) retirements.forEach { it.onApplied() }
+    }
+
+    fun afterStopped(callback: (Boolean) -> Unit) {
+        val completion = synchronized(stoppedCallbackLock) {
+            if (stopped.count == 0L) {
+                true to surfaceReleaseSafe
+            } else {
+                stoppedCallbacks += callback
+                false to false
+            }
+        }
+        if (completion.first) callback(completion.second)
     }
 
     override fun close() {
-        running = false
-        thread.interrupt()
+        synchronized(stoppedCallbackLock) {
+            if (!running) return
+            running = false
+            thread.interrupt()
+        }
     }
 
     fun awaitStopped(timeoutMillis: Long): Boolean = stopped.await(timeoutMillis, TimeUnit.MILLISECONDS)
+
+    fun isStopped(): Boolean = stopped.count == 0L
 
     private fun run() {
         try {
@@ -549,7 +647,10 @@ private class VideoDecoder(
                                 recover("video backlog exceeded 250 ms")
                             } else feed(job.nalus)
                         }
-                        is VideoJob.SurfaceChanged -> changeSurface(job.surface)
+                        is VideoJob.SurfaceChanged -> {
+                            pendingSurfaceRetirements += job.retirements
+                            if (changeSurface(job.surface)) completeRetiredSurfaceChanges()
+                        }
                         is VideoJob.Resync -> recover("video queue overflow")
                         null -> Unit
                     }
@@ -563,7 +664,10 @@ private class VideoDecoder(
                             "error=${error.javaClass.simpleName}",
                     )
                     if (running) report("decoder error ${error.javaClass.simpleName}; waiting for keyframe")
-                    releaseDecoder()
+                    if (releaseDecoder()) {
+                        outputSurface = null
+                        completeRetiredSurfaceChanges()
+                    }
                     referenceChain.reset()
                     requestKeyFrameIfDue()
                 }
@@ -575,10 +679,32 @@ private class VideoDecoder(
                 beforeStop()
             } finally {
                 try {
-                    releaseDecoder()
+                    surfaceReleaseSafe = releaseDecoder()
                 } finally {
-                    stopped.countDown()
+                    pendingSurfaceRetirements += queue.drainSurfaceRetirements()
+                    if (surfaceReleaseSafe) {
+                        outputSurface = null
+                        lastConfig = null
+                        completeRetiredSurfaceChanges()
+                    }
+                    val callbacks = synchronized(stoppedCallbackLock) {
+                        stopped.countDown()
+                        stoppedCallbacks.toList().also { stoppedCallbacks.clear() }
+                    }
+                    callbacks.forEach { callback -> runCatching { callback(surfaceReleaseSafe) } }
+                    runCatching { onStopped(surfaceReleaseSafe) }
                 }
+            }
+        }
+    }
+
+    private fun completeRetiredSurfaceChanges() {
+        val iterator = pendingSurfaceRetirements.iterator()
+        while (iterator.hasNext()) {
+            val retirement = iterator.next()
+            if (failedDecoderReleases.isEmpty() && outputSurface !== retirement.surface) {
+                iterator.remove()
+                runCatching(retirement.onApplied)
             }
         }
     }
@@ -598,7 +724,8 @@ private class VideoDecoder(
         }
         lastConfig = config
         duplicateConfigLogged = false
-        releaseDecoder()
+        if (!releaseDecoder()) return
+        completeRetiredSurfaceChanges()
         referenceChain.reset()
         val surface = outputSurface ?: return
         val codec = config.codec
@@ -673,8 +800,8 @@ private class VideoDecoder(
             Log.w(
                 TAG,
                 "video decoder configure failed name=${attempt.codecName ?: "default"} " +
-                    "tuned=${attempt.tuned} mime=$mime size=${width}x$height",
-                error,
+                    "tuned=${attempt.tuned} mime=$mime size=${width}x$height " +
+                    "error=${error.javaClass.simpleName}",
             )
             null
         }
@@ -710,30 +837,34 @@ private class VideoDecoder(
         return MediaCodec.createDecoderByType(mime)
     }
 
-    private fun changeSurface(surface: Surface?) {
-        if (outputSurface === surface) return
-        outputSurface = surface
+    private fun changeSurface(surface: Surface?): Boolean {
+        if (failedDecoderReleases.isNotEmpty() && !releaseDecoder()) return false
+        if (outputSurface === surface) return true
         if (surface == null) {
-            releaseDecoder()
+            outputSurface = null
+            if (!releaseDecoder()) return false
             Log.i(TAG, "video decoder detached from surface")
-            return
+            return true
         }
         val codec = decoder
         if (codec != null) {
             try {
                 codec.setOutputSurface(surface)
+                outputSurface = surface
                 Log.i(TAG, "video decoder output surface updated")
-                return
+                return true
             } catch (error: Exception) {
-                    Log.w(
-                        TAG,
-                        "video decoder output surface update failed; reconfiguring " +
-                            "error=${error.javaClass.simpleName}",
-                    )
+                Log.w(
+                    TAG,
+                    "video decoder output surface update failed; reconfiguring " +
+                        "error=${error.javaClass.simpleName}",
+                )
             }
         }
-        releaseDecoder()
+        outputSurface = surface
+        if (!releaseDecoder()) return false
         lastConfig?.let(::configureDecoder)
+        return true
     }
 
     private fun feed(nalus: ByteArray) {
@@ -751,8 +882,7 @@ private class VideoDecoder(
             submittedFrameLogged = true
             Log.i(
                 TAG,
-                "video decoder first input avcc=${nalus.size} annexB=${annexB.size} " +
-                    "head=${annexB.take(16).joinToString("") { "%02x".format(it.toInt() and 0xff) }}",
+                "video decoder first input avcc=${nalus.size} annexB=${annexB.size}",
             )
         }
         val index = VideoInputPump.acquire(
@@ -835,21 +965,33 @@ private class VideoDecoder(
     }
 
     @Synchronized
-    private fun releaseDecoder() {
+    private fun releaseDecoder(): Boolean {
+        val previouslyFailed = failedDecoderReleases.toList()
+        failedDecoderReleases.clear()
         val codec = decoder
         decoder = null
         if (codec != null) {
             try {
                 codec.stop()
-            } catch (_: Exception) {
-                // Best effort.
+            } catch (error: Exception) {
+                Log.w(TAG, "video decoder stop failed error=${error.javaClass.simpleName}")
             }
             try {
                 codec.release()
-            } catch (_: Exception) {
-                // Best effort.
+            } catch (error: Exception) {
+                failedDecoderReleases.add(codec)
+                Log.w(TAG, "video decoder release failed error=${error.javaClass.simpleName}")
             }
         }
+        previouslyFailed.forEach { failed ->
+            try {
+                failed.release()
+            } catch (error: Exception) {
+                failedDecoderReleases.add(failed)
+                Log.w(TAG, "retired video decoder release retry failed error=${error.javaClass.simpleName}")
+            }
+        }
+        return failedDecoderReleases.isEmpty()
     }
 
     private companion object {
@@ -891,6 +1033,7 @@ internal class AudioRenderer(
     },
     private val audioTrackWriteAdapterForTest: AudioTrackWriteAdapterForTest? = null,
     private val beforeDspUpdatePublishForTest: (() -> Unit)? = null,
+    internal var afterDspUpdateOwnerCheckForTest: (() -> Unit)? = null,
     private val onDspUpdatePreparedForTest: (() -> Unit)? = null,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
@@ -901,6 +1044,12 @@ internal class AudioRenderer(
         val activeStatus: DspRendererApplyStatus,
         val deferredStatus: DspRendererApplyStatus,
         val failedStatus: DspRendererApplyStatus,
+    )
+    private data class LiveUpdateTransition(
+        val epoch: Long,
+        val previousController: DspLiveUpdateController?,
+        val discardedUpdate: PreparedRendererDspUpdate?,
+        val disabled: Boolean,
     )
     private data class DecoderPcmFormat(
         val sampleRate: Int,
@@ -920,6 +1069,7 @@ internal class AudioRenderer(
     private var track: AudioTrack? = null
     @Volatile internal var dspPipeline: DspPcmPipeline? = null
     private val pendingDspUpdate = AtomicReference<PreparedRendererDspUpdate?>(null)
+    private val dspUpdatePublicationLock = Any()
     private var liveUpdateController: DspLiveUpdateController? = null
     private val liveUpdateControllerEpoch = AtomicLong()
     @Volatile private var liveUpdateFormat: DspAudioFormat? = null
@@ -1567,8 +1717,7 @@ internal class AudioRenderer(
                         Log.i(
                             TAG,
                             "audio AAC input mode=${if (aacAdtsFallback) "adts-fallback" else parsed.mode.name.lowercase()} " +
-                                "accessUnits=${parsed.accessUnits.size} bytes=${firstUnit.size} " +
-                                "head=${firstUnit.copyOf(minOf(firstUnit.size, 16)).toHexString()}",
+                                "accessUnits=${parsed.accessUnits.size} bytes=${firstUnit.size}",
                         )
                     }
                     parsed.accessUnits.forEachIndexed { index, accessUnit ->
@@ -1610,8 +1759,7 @@ internal class AudioRenderer(
                             firstOpusShortPacketLogged = true
                             Log.i(
                                 TAG,
-                                "audio Opus skipping short packet bytes=${accessUnit.size} " +
-                                    "head=${accessUnit.toHexString()}",
+                                "audio Opus skipping short packet bytes=${accessUnit.size}",
                             )
                         }
                         return
@@ -1670,8 +1818,7 @@ internal class AudioRenderer(
                 firstInputQueuedLogged = true
                 Log.i(
                     TAG,
-                    "audio decoder first input codec=${format.codec} bytes=${payload.size} " +
-                        "head=${payload.copyOf(minOf(payload.size, 16)).toHexString()}",
+                    "audio decoder first input codec=${format.codec} bytes=${payload.size}",
                 )
             }
         } else {
@@ -1956,7 +2103,11 @@ internal class AudioRenderer(
         } else {
             0.0
         }
-        return if (update.latencyFrames > 0 || relativeDelayFrames > 0.0) {
+        val hasSeatControls = seatAlignment.enabled && (
+            seatAlignment.leftTrimDb != 0.0 || seatAlignment.rightTrimDb != 0.0 ||
+                seatAlignment.invertLeft || seatAlignment.invertRight
+            )
+        return if (update.latencyFrames > 0 || relativeDelayFrames > 0.0 || hasSeatControls) {
             DspLatencyPreservingBypass(update.format, update.latencyFrames, seatAlignment)
         } else {
             null
@@ -1984,29 +2135,37 @@ internal class AudioRenderer(
         )
 
     private fun configureLiveUpdates(format: DspAudioFormat, forcePrepareCurrent: Boolean = false) {
-        if (!DspStreamPolicy.allowsFullDsp(classification.dspRole)) {
-            liveUpdateControllerEpoch.incrementAndGet()
-            liveUpdateController?.close()
+        val enabledForRole = DspStreamPolicy.allowsFullDsp(classification.dspRole)
+        val transition = synchronized(dspUpdatePublicationLock) {
+            if (enabledForRole && liveUpdateFormat == format && liveUpdateController != null) return
+            val previousController = liveUpdateController
+            val discardedUpdate = pendingDspUpdate.getAndSet(null)
             liveUpdateController = null
-            liveUpdateFormat = null
             livePreparationPending = false
             deferredDspGeneration = null
-            pendingDspUpdate.getAndSet(null)?.update?.pipeline?.close()
-            return
+            if (!enabledForRole) {
+                liveUpdateFormat = null
+                LiveUpdateTransition(
+                    epoch = liveUpdateControllerEpoch.incrementAndGet(),
+                    previousController = previousController,
+                    discardedUpdate = discardedUpdate,
+                    disabled = true,
+                )
+            } else {
+                val epoch = liveUpdateControllerEpoch.incrementAndGet()
+                liveUpdateFormat = format
+                requestedDspGeneration = activeDspGeneration
+                LiveUpdateTransition(epoch, previousController, discardedUpdate, disabled = false)
+            }
         }
-        if (liveUpdateFormat == format && liveUpdateController != null) return
-        val controllerEpoch = liveUpdateControllerEpoch.incrementAndGet()
-        liveUpdateController?.close()
-        liveUpdateController = null
-        pendingDspUpdate.getAndSet(null)?.update?.pipeline?.close()
-        livePreparationPending = false
-        deferredDspGeneration = null
+        transition.previousController?.close()
+        transition.discardedUpdate?.update?.pipeline?.let { runCatching { it.close() } }
+        if (transition.disabled) return
+        val controllerEpoch = transition.epoch
         liveCrossfade = DspPcmCrossfade(format.channels, maxOf(1, format.sampleRate / LIVE_CROSSFADE_DIVISOR))
         liveCrossfadeFloats = FloatArray(DspBufferSizing.MAX_DECODER_PCM_FRAMES * format.channels)
         liveCrossfadeSourceFloats = FloatArray(DspBufferSizing.MAX_DECODER_PCM_FRAMES * format.channels)
-        liveUpdateFormat = format
-        requestedDspGeneration = activeDspGeneration
-        liveUpdateController = DspLiveUpdateController(
+        val newController = DspLiveUpdateController(
             format = format,
             role = classification.dspRole,
             provider = dspConfigProvider,
@@ -2053,59 +2212,72 @@ internal class AudioRenderer(
                 }
             },
             canAdoptLatencyChange = { !trackGenerationContentCommitted },
-            onPrepared = { update ->
+            onPrepared = {},
+            onPreparedResult = { update ->
                 runCatching { beforeDspUpdatePublishForTest?.invoke() }
-                if (!isCurrentLiveUpdateController(controllerEpoch, format) ||
-                    update.generation < requestedDspGeneration
-                ) {
-                    runCatching { update.pipeline?.close() }
-                } else {
-                    if (update.generation == requestedDspGeneration) livePreparationPending = false
-                    if (update.config.enabled && update.pipeline == null) {
-                        reportDspApplyStatus(
-                            DspRendererApplyStatus(
-                                update.generation,
-                                DspRendererApplyPhase.FAILED,
-                                activeDspGeneration,
-                            ),
-                        )
+                var previousPipeline: DspPcmPipeline? = null
+                var discardPipeline: DspPcmPipeline? = null
+                var preparedStatus: DspRendererApplyStatus? = null
+                var failedStatus: DspRendererApplyStatus? = null
+                val accepted = synchronized(dspUpdatePublicationLock) {
+                    if (!isCurrentLiveUpdateController(controllerEpoch, format) ||
+                        update.generation < requestedDspGeneration
+                    ) {
+                        false
                     } else {
-                        val warning = convolverApplyWarning(update.format, update.config)
-                        val prepared = PreparedRendererDspUpdate(
-                            update = update,
-                            latencyPreservingBypass = prepareLatencyPreservingBypass(update),
-                            preparedStatus = DspRendererApplyStatus(
-                                update.generation,
-                                DspRendererApplyPhase.PREPARED,
-                                activeDspGeneration,
-                                warning,
-                            ),
-                            activeStatus = DspRendererApplyStatus(
-                                update.generation,
-                                DspRendererApplyPhase.ACTIVE,
-                                update.generation,
-                                warning,
-                            ),
-                            deferredStatus = DspRendererApplyStatus(
-                                update.generation,
-                                DspRendererApplyPhase.DEFERRED,
-                                activeDspGeneration,
-                                warning,
-                            ),
+                        runCatching { afterDspUpdateOwnerCheckForTest?.invoke() }
+                        if (update.generation == requestedDspGeneration) livePreparationPending = false
+                        if (update.config.enabled && update.pipeline == null) {
                             failedStatus = DspRendererApplyStatus(
                                 update.generation,
                                 DspRendererApplyPhase.FAILED,
                                 activeDspGeneration,
-                            ),
-                        )
-                        pendingDspUpdate.getAndSet(prepared)?.update?.pipeline?.let { old -> runCatching { old.close() } }
-                        if (rendererReleased && pendingDspUpdate.compareAndSet(prepared, null)) {
-                            runCatching { update.pipeline?.close() }
+                            )
+                        } else {
+                            val warning = convolverApplyWarning(update.format, update.config)
+                            val prepared = PreparedRendererDspUpdate(
+                                update = update,
+                                latencyPreservingBypass = prepareLatencyPreservingBypass(update),
+                                preparedStatus = DspRendererApplyStatus(
+                                    update.generation,
+                                    DspRendererApplyPhase.PREPARED,
+                                    activeDspGeneration,
+                                    warning,
+                                ),
+                                activeStatus = DspRendererApplyStatus(
+                                    update.generation,
+                                    DspRendererApplyPhase.ACTIVE,
+                                    update.generation,
+                                    warning,
+                                ),
+                                deferredStatus = DspRendererApplyStatus(
+                                    update.generation,
+                                    DspRendererApplyPhase.DEFERRED,
+                                    activeDspGeneration,
+                                    warning,
+                                ),
+                                failedStatus = DspRendererApplyStatus(
+                                    update.generation,
+                                    DspRendererApplyPhase.FAILED,
+                                    activeDspGeneration,
+                                ),
+                            )
+                            previousPipeline = pendingDspUpdate.getAndSet(prepared)?.update?.pipeline
+                            if (rendererReleased && pendingDspUpdate.compareAndSet(prepared, null)) {
+                                discardPipeline = update.pipeline
+                            } else if (pendingDspUpdate.get() === prepared) {
+                                preparedStatus = prepared.preparedStatus
+                            }
                         }
-                        if (pendingDspUpdate.get() === prepared) reportDspApplyStatus(prepared.preparedStatus)
+                        true
                     }
-                    runCatching { onDspUpdatePreparedForTest?.invoke() }
                 }
+                previousPipeline?.let { runCatching { it.close() } }
+                discardPipeline?.let { runCatching { it.close() } }
+                failedStatus?.let { runCatching { reportDspApplyStatus(it) } }
+                preparedStatus?.let { runCatching { reportDspApplyStatus(it) } }
+                if (accepted) runCatching { onDspUpdatePreparedForTest?.invoke() }
+                accepted
             },
             pipelinePreparer = { candidateFormat, config ->
                 val graphConfig = configuredDspGraph(candidateFormat, config)
@@ -2120,11 +2292,27 @@ internal class AudioRenderer(
                 pipeline?.algorithmicLatencyFrames
                     ?: if (trackGenerationContentCommitted) liveUpdateLatencyFrames.get() else 0
             },
+            onRetirementFailed = { error ->
+                reportDsp("DSP unavailable: reason=PIPELINE_RETIRE_FAILED error=${error.javaClass.simpleName}")
+            },
         )
+        val installed = synchronized(dspUpdatePublicationLock) {
+            if (!rendererReleased && liveUpdateControllerEpoch.get() == controllerEpoch &&
+                liveUpdateFormat == format
+            ) {
+                liveUpdateController = newController
+                true
+            } else {
+                false
+            }
+        }
+        if (!installed) newController.close()
     }
 
     private fun isCurrentLiveUpdateController(epoch: Long, format: DspAudioFormat): Boolean =
-        !rendererReleased && liveUpdateControllerEpoch.get() == epoch && liveUpdateFormat == format
+        synchronized(dspUpdatePublicationLock) {
+            !rendererReleased && liveUpdateControllerEpoch.get() == epoch && liveUpdateFormat == format
+        }
 
     private fun writePcmWithLiveUpdates(
         source: ByteArray,
@@ -2359,6 +2547,7 @@ internal class AudioRenderer(
             }.getOrDefault(-1)
             if (outputLength < 0) {
                 if (dspPipeline === pipeline) {
+                    latencyFallback?.activateSeatControlsForCurrentOutput()
                     dspPipeline = null
                     activeDspGraphConfig = DspRuntimeConfig.disabled()
                 }
@@ -2521,19 +2710,26 @@ internal class AudioRenderer(
         trackGenerationLatencyFrames = dspPipeline?.algorithmicLatencyFrames ?: 0
         liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
         runCatching { dspPipeline?.reset() }
-        val seatAlignment = activeDspGraphConfig.seatAlignment.takeIf { activeDspGraphConfig.enabled }
-            ?: DspSeatAlignmentConfig()
+        val seatSource = if (dspPipeline != null) activeDspGraphConfig else activeDspConfig
+        val seatAlignment = seatSource.seatAlignment.takeIf { seatSource.enabled } ?: DspSeatAlignmentConfig()
         val interchannelRelativeDelay = if (effectiveFormat.channels == 2) {
             seatAlignment.relativeDelayFrames(effectiveFormat.sampleRate)
         } else {
             0.0
         }
-        latencyPreservingBypass = if (fallbackWasPrepared) preparedFallback else {
-            if (trackGenerationLatencyFrames > 0 || interchannelRelativeDelay > 0.0) {
-                DspLatencyPreservingBypass(effectiveFormat, trackGenerationLatencyFrames, seatAlignment)
-            } else {
-                null
-            }
+        val hasSeatControls = seatAlignment.enabled && (
+            seatAlignment.leftTrimDb != 0.0 || seatAlignment.rightTrimDb != 0.0 ||
+                seatAlignment.invertLeft || seatAlignment.invertRight
+            )
+        latencyPreservingBypass = if (fallbackWasPrepared) {
+            preparedFallback
+        } else if (trackGenerationLatencyFrames > 0 || interchannelRelativeDelay > 0.0 || hasSeatControls) {
+            DspLatencyPreservingBypass(effectiveFormat, trackGenerationLatencyFrames, seatAlignment)
+        } else {
+            null
+        }
+        if (dspPipeline == null && activeDspConfig.enabled) {
+            latencyPreservingBypass?.activateSeatControlsForCurrentOutput()
         }
     }
 
@@ -2579,6 +2775,7 @@ internal class AudioRenderer(
         }
         if (outputLength < 0) {
             if (dspPipeline === pipeline) {
+                latencyPreservingBypass?.activateSeatControlsForCurrentOutput()
                 dspPipeline = null
                 activeDspGraphConfig = DspRuntimeConfig.disabled()
             }
@@ -2719,11 +2916,9 @@ internal class AudioRenderer(
         if (completeLength <= 0) return
         if (!firstPcmLogged) {
             firstPcmLogged = true
-            val end = minOf(data.size, offset + minOf(completeLength, 16))
             Log.i(
                 TAG,
-                "audio first PCM type=${format.payloadType} bytes=$completeLength " +
-                    "head=${data.copyOfRange(offset, end).toHexString()}",
+                "audio first PCM type=${format.payloadType} bytes=$completeLength",
             )
         }
         if (!fadeApplied) {
@@ -3091,20 +3286,25 @@ internal class AudioRenderer(
     }
 
     private fun release() {
-        rendererReleased = true
-        liveUpdateControllerEpoch.incrementAndGet()
+        val (controller, pendingUpdate) = synchronized(dspUpdatePublicationLock) {
+            rendererReleased = true
+            liveUpdateControllerEpoch.incrementAndGet()
+            val previousController = liveUpdateController
+            liveUpdateController = null
+            val pending = pendingDspUpdate.getAndSet(null)
+            previousController to pending
+        }
         playbackClockSnapshot = null
         queue.clear()
         pendingDecoderPcmFormat = null
         aacStartupCache.clear()
         aacStartupCacheEnabled = false
-        liveUpdateController?.close()
-        liveUpdateController = null
+        controller?.close()
         val pipelines = listOf(
             dspPipeline,
             liveFadeFrom,
             liveFadeTo,
-            pendingDspUpdate.getAndSet(null)?.update?.pipeline,
+            pendingUpdate?.update?.pipeline,
         ).filterNotNull().distinct()
         pipelines.forEach { runCatching { it.close() } }
         dspPipeline = null

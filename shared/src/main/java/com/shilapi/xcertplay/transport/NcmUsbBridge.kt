@@ -37,6 +37,13 @@ private data class Ntb16HeaderValidation(
     val blockLength: Int? = null,
 )
 
+private data class IncompleteNtbProgress(
+    val sequence: Int,
+    val blockLength: Int,
+    var bufferedBytes: Int,
+    var lastProgressAtNanos: Long,
+)
+
 sealed interface NcmSendResult {
     data object Sent : NcmSendResult
     data object NotReady : NcmSendResult
@@ -146,6 +153,7 @@ class NcmUsbBridge internal constructor(
     private val diagnosticsEnabled: Boolean,
     private val onDiagnosticLog: (String) -> Unit,
     private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
+    private val incompleteNtbNoProgressTimeoutMillis: Long = DEFAULT_INCOMPLETE_NTB_NO_PROGRESS_TIMEOUT_MILLIS,
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
     val hostMac: ByteArray? get() = descriptorMac?.copyOf()
@@ -160,6 +168,7 @@ class NcmUsbBridge internal constructor(
     private var queuedBytes = 0
     private var buffered = ByteArray(0)
     private var bufferedSize = 0
+    private var incompleteNtbProgress: IncompleteNtbProgress? = null
     private var resyncBytesSkipped = 0
     private var sequenceResyncSequence: Int? = null
     private var sequenceResyncScanOffset = 1
@@ -170,6 +179,12 @@ class NcmUsbBridge internal constructor(
     private val readBuffer = ByteArray(READ_CHUNK_BYTES)
     private val statusPollingEnabled = diagnosticProfile.shouldPollStatusEndpoint(statusEndpoint != null)
     private val bulkInPacketSize = inEndpoint.maxPacketSize.takeIf { it > 0 } ?: DEFAULT_USB_PACKET_SIZE
+
+    init {
+        require(incompleteNtbNoProgressTimeoutMillis > 0) {
+            "incompleteNtbNoProgressTimeoutMillis must be positive"
+        }
+    }
 
     internal val resyncCandidateChecksForTesting: Long
         get() = resyncCandidateChecks
@@ -439,6 +454,7 @@ class NcmUsbBridge internal constructor(
                 )
                 if (chunkLength == null) {
                     if (readLifecycle.isClosing()) return null
+                    failIfIncompleteNtbStalled()
                     continue
                 }
                 appendBuffered(readBuffer, chunkLength)
@@ -536,6 +552,7 @@ class NcmUsbBridge internal constructor(
             val validation = validateNtb16Header(0)
             when (validation.state) {
                 Ntb16HeaderState.INVALID -> {
+                    incompleteNtbProgress = null
                     if (validation.resyncRequiresConsecutiveBlocks) {
                         if (!recoverFollowingSequencePair(validation)) return
                         continue
@@ -544,10 +561,14 @@ class NcmUsbBridge internal constructor(
                     continue
                 }
                 Ntb16HeaderState.INCOMPLETE -> {
+                    trackIncompleteNtbProgress(validation)
                     rejectAmbiguousFollowingPair(validation)
                     return
                 }
-                Ntb16HeaderState.VALID -> Unit
+                Ntb16HeaderState.VALID -> {
+                    incompleteNtbProgress = null
+                    rejectAmbiguousFollowingPair(validation)
+                }
             }
             val blockLength = readU16(buffered, NTH16_BLOCK_LENGTH_OFFSET)
             val frames = Ntb16Codec.parse(buffered, 0, blockLength)
@@ -687,32 +708,66 @@ class NcmUsbBridge internal constructor(
 
     private fun rejectAmbiguousFollowingPair(header: Ntb16HeaderValidation) {
         if (!header.structureComplete) return
-        // A plausible unfinished block owns its unused bytes; only the all-ones length keeps the
-        // bounded ambiguity check where an early resync could otherwise consume payload as frames.
-        if (header.blockLength != MAX_NTB16_BLOCK_LENGTH) return
+        val blockLength = header.blockLength ?: return
         val sequence = header.sequence ?: return
         val protectedEnd = header.protectedEnd ?: return
-        if (protectedEnd > bufferedSize) return
+        if (protectedEnd > blockLength || blockLength <= protectedEnd) return
 
         val remainingBudget = MAX_RESYNC_BYTES - resyncBytesSkipped
         if (remainingBudget <= 0) {
             throw failSession("NCM_RESYNC_ERROR: bounded NTB16 resynchronization limit exceeded")
         }
         val expectedSequence = (sequence + 1) and 0xffff
-        if (protectedEnd > remainingBudget) {
+        if (protectedEnd > remainingBudget || blockLength > remainingBudget) {
             throw failSession("NCM_RESYNC_ERROR: bounded NTB16 resynchronization limit exceeded")
         }
+        val lastCandidateOffset = minOf(
+            bufferedSize - NTH16_HEADER_BYTES,
+            blockLength - NTH16_HEADER_BYTES,
+            remainingBudget,
+        )
         for (paddingBytes in ALLOWED_NTB16_TAIL_PADDING_BYTES) {
             val candidateOffset = protectedEnd + paddingBytes
-            if (candidateOffset > minOf(bufferedSize - NTH16_HEADER_BYTES, remainingBudget)) continue
+            if (candidateOffset > lastCandidateOffset) continue
             if (!isZeroPadding(protectedEnd, paddingBytes)) continue
             resyncCandidateChecks++
-            if (validateFollowingSequencePairAt(candidateOffset, expectedSequence) == Ntb16PairState.VALID) {
+            if (validateFollowingSequencePairAt(candidateOffset, expectedSequence, blockLength) ==
+                Ntb16PairState.VALID
+            ) {
                 throw failSession(
-                    "NCM_RESYNC_ERROR: ambiguous maximum-length incomplete NTB; refusing early resynchronization",
+                    "NCM_RESYNC_ERROR: ambiguous declared-length NTB; refusing to consume consecutive blocks",
                 )
             }
         }
+    }
+
+    private fun trackIncompleteNtbProgress(header: Ntb16HeaderValidation) {
+        if (!header.structureComplete) return
+        val sequence = header.sequence ?: return
+        val blockLength = header.blockLength ?: return
+        val current = incompleteNtbProgress
+        if (current == null || current.sequence != sequence || current.blockLength != blockLength) {
+            incompleteNtbProgress = IncompleteNtbProgress(
+                sequence = sequence,
+                blockLength = blockLength,
+                bufferedBytes = bufferedSize,
+                lastProgressAtNanos = System.nanoTime(),
+            )
+        } else if (bufferedSize > current.bufferedBytes) {
+            current.bufferedBytes = bufferedSize
+            current.lastProgressAtNanos = System.nanoTime()
+        }
+    }
+
+    private fun failIfIncompleteNtbStalled() {
+        val progress = incompleteNtbProgress ?: return
+        val elapsedNanos = System.nanoTime() - progress.lastProgressAtNanos
+        if (elapsedNanos < incompleteNtbNoProgressTimeoutMillis * NANOS_PER_MILLISECOND) return
+        val elapsedMillis = elapsedNanos / NANOS_PER_MILLISECOND
+        throw failSession(
+            "NCM_INCOMPLETE_ERROR: NTB sequence=${progress.sequence} stalled at " +
+                "${bufferedSize}/${progress.blockLength} bytes for ${elapsedMillis}ms",
+        )
     }
 
     private fun recoverFollowingSequencePair(header: Ntb16HeaderValidation): Boolean {
@@ -770,7 +825,11 @@ class NcmUsbBridge internal constructor(
 
     private var lastPairCandidateRequiredSize = 0
 
-    private fun validateFollowingSequencePairAt(candidateOffset: Int, expectedSequence: Int): Ntb16PairState {
+    private fun validateFollowingSequencePairAt(
+        candidateOffset: Int,
+        expectedSequence: Int,
+        blockEndExclusive: Int? = null,
+    ): Ntb16PairState {
         val firstAvailable = bufferedSize - candidateOffset
         if (firstAvailable < NTH16_HEADER_BYTES) {
             lastPairCandidateRequiredSize = candidateOffset + NTH16_HEADER_BYTES
@@ -790,6 +849,11 @@ class NcmUsbBridge internal constructor(
         val hasOptionalPad = candidateLength % bulkInPacketSize == 0 &&
             bufferedSize > followingOffset && buffered[followingOffset].toInt() == 0
         val actualFollowingOffset = followingOffset + if (hasOptionalPad) 1 else 0
+        if (blockEndExclusive != null &&
+            actualFollowingOffset + NTH16_HEADER_BYTES > blockEndExclusive
+        ) {
+            return Ntb16PairState.INVALID
+        }
         if (actualFollowingOffset + NTH16_HEADER_BYTES > bufferedSize) {
             lastPairCandidateRequiredSize = actualFollowingOffset + NTH16_HEADER_BYTES
             return Ntb16PairState.INCOMPLETE
@@ -803,6 +867,10 @@ class NcmUsbBridge internal constructor(
             val declaredLength = readU16(buffered, actualFollowingOffset + NTH16_BLOCK_LENGTH_OFFSET)
             lastPairCandidateRequiredSize = actualFollowingOffset + maxOf(NTH16_HEADER_BYTES, declaredLength)
             return Ntb16PairState.INCOMPLETE
+        }
+        if (blockEndExclusive != null) {
+            val followingLength = readU16(buffered, actualFollowingOffset + NTH16_BLOCK_LENGTH_OFFSET)
+            if (actualFollowingOffset + followingLength > blockEndExclusive) return Ntb16PairState.INVALID
         }
         return Ntb16PairState.VALID
     }
@@ -868,6 +936,7 @@ class NcmUsbBridge internal constructor(
     private fun discardBuffered(bytes: Int) {
         buffered.copyInto(buffered, 0, bytes, bufferedSize)
         bufferedSize -= bytes
+        incompleteNtbProgress = null
         resetSequenceResyncState()
     }
 
@@ -881,6 +950,12 @@ class NcmUsbBridge internal constructor(
         }
         source.copyInto(buffered, bufferedSize, 0, length)
         bufferedSize += length
+        if (length > 0) {
+            incompleteNtbProgress?.let { progress ->
+                progress.bufferedBytes = bufferedSize
+                progress.lastProgressAtNanos = System.nanoTime()
+            }
+        }
     }
 
     private fun enqueueFrame(frame: ByteArray) {
@@ -1122,6 +1197,7 @@ class NcmUsbBridge internal constructor(
         private const val MAX_NDP_TABLES = 16
         private const val MAX_PENDING_RESYNC_CANDIDATES = 32
         private const val MAX_RESYNC_BYTES = 1 shl 20
+        private const val DEFAULT_INCOMPLETE_NTB_NO_PROGRESS_TIMEOUT_MILLIS = 30_000L
         private val ALLOWED_NTB16_TAIL_PADDING_BYTES = intArrayOf(0, 1, 4, 8, 16)
         private const val STATUS_POLL_TIMEOUT_MILLIS = 20
         private const val STATUS_POLL_INTERVAL_MILLIS = 500L

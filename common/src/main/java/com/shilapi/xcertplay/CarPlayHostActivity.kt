@@ -118,9 +118,12 @@ import com.shilapi.xcertplay.youtube.YoutubePaneLayering
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
+import java.util.Collections
 import java.util.Date
+import java.util.IdentityHashMap
 import java.util.Locale
 import java.util.UUID
+import java.util.WeakHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -421,6 +424,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private var controller: CarPlayController? = null
     private var currentSurface: Surface? = null
     private var currentSurfaceTexture: SurfaceTexture? = null
+    private val surfaceRetirementLock = Any()
+    private val pendingSurfaceRetirements = IdentityHashMap<SurfaceTexture, MutableList<Surface>>()
+    private val releasedSurfaceTextures = Collections.newSetFromMap(WeakHashMap<SurfaceTexture, Boolean>())
     private var activeDisplaySize: DisplaySize? = null
     private var localViewportSize: DisplaySize? = null
     private var pendingDisplaySize: DisplaySize? = null
@@ -635,15 +641,18 @@ class CarPlayHostActivity : ComponentActivity() {
     private val textureListener = object : TextureView.SurfaceTextureListener {
         override fun onSurfaceTextureAvailable(texture: SurfaceTexture, width: Int, height: Int) {
             val existing = currentSurface
+            val existingTexture = currentSurfaceTexture
             val surface = if (
                 existing != null &&
-                currentSurfaceTexture === texture &&
+                existingTexture === texture &&
                 existing.isValid
             ) {
                 existing
             } else {
                 Surface(texture).also {
-                    existing?.release()
+                    existing?.let { oldSurface ->
+                        retireTextureSurface(oldSurface, existingTexture?.takeIf { it !== texture })
+                    }
                     currentSurface = it
                     currentSurfaceTexture = texture
                 }
@@ -667,16 +676,25 @@ class CarPlayHostActivity : ComponentActivity() {
         }
 
         override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
-            if (currentSurfaceTexture !== texture) return true
-            currentSurface?.let { surface ->
-                sink?.clearSurface(SCREEN_TYPE_MAIN, surface)
-                sink?.clearSurface(SCREEN_TYPE_ALT, surface)
-                surface.release()
+            if (currentSurfaceTexture !== texture) {
+                return synchronized(surfaceRetirementLock) {
+                    when {
+                        pendingSurfaceRetirements.containsKey(texture) -> false
+                        releasedSurfaceTextures.remove(texture) -> false
+                        else -> true
+                    }
+                }
             }
+            val surface = currentSurface
             currentSurface = null
             currentSurfaceTexture = null
+            if (surface != null) {
+                retireTextureSurface(surface, texture)
+            } else {
+                texture.release()
+            }
             appendLog("Texture surface destroyed")
-            return true
+            return false
         }
 
         override fun onSurfaceTextureUpdated(texture: SurfaceTexture) = Unit
@@ -1079,11 +1097,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         sink?.setVideoFrameSubmittedToSurfaceListener(null)
         destroyYoutubeBrowser()
-        currentSurface?.let { surface ->
-            sink?.clearSurface(SCREEN_TYPE_MAIN, surface)
-            sink?.clearSurface(SCREEN_TYPE_ALT, surface)
-            surface.release()
-        }
+        currentSurface?.let { surface -> retireTextureSurface(surface, currentSurfaceTexture) }
         currentSurface = null
         currentSurfaceTexture = null
         sessionLog?.append("Activity destroyed")
@@ -5025,6 +5039,48 @@ class CarPlayHostActivity : ComponentActivity() {
             mainHandler.post { completion() }
             if (terminateProcess) Process.killProcess(Process.myPid())
         }
+    }
+
+    private fun retireTextureSurface(surface: Surface, texture: SurfaceTexture?) {
+        if (texture != null) {
+            val shouldSchedule = synchronized(surfaceRetirementLock) {
+                val existing = pendingSurfaceRetirements[texture]
+                if (existing == null) {
+                    pendingSurfaceRetirements[texture] = mutableListOf(surface)
+                    true
+                } else {
+                    if (existing.none { it === surface }) existing += surface
+                    false
+                }
+            }
+            if (!shouldSchedule) return
+        }
+
+        val currentSink = sink
+        if (currentSink == null) {
+            completeTextureSurfaceRetirement(surface, texture)
+            return
+        }
+        val remaining = java.util.concurrent.atomic.AtomicInteger(2)
+        val detached = {
+            if (remaining.decrementAndGet() == 0) completeTextureSurfaceRetirement(surface, texture)
+        }
+        currentSink.clearSurface(SCREEN_TYPE_MAIN, surface, detached)
+        currentSink.clearSurface(SCREEN_TYPE_ALT, surface, detached)
+    }
+
+    private fun completeTextureSurfaceRetirement(surface: Surface, texture: SurfaceTexture?) {
+        val surfacesToRelease = if (texture == null) {
+            listOf(surface)
+        } else {
+            synchronized(surfaceRetirementLock) {
+                pendingSurfaceRetirements.remove(texture)?.also {
+                    releasedSurfaceTextures.add(texture)
+                } ?: return
+            }
+        }
+        surfacesToRelease.forEach { retired -> runCatching { retired.release() } }
+        texture?.let { retired -> runCatching { retired.release() } }
     }
 
     private fun attachSurface(surface: Surface) {

@@ -32,6 +32,8 @@ internal class DspLiveUpdateController(
     private val pipelinePreparer: DspPipelinePreparer =
         { targetFormat, config -> createNativePipeline(role, targetFormat, config) },
     private val preparedLatencyFrames: (DspPcmPipeline?) -> Int = { it?.algorithmicLatencyFrames ?: 0 },
+    private val onPreparedResult: ((DspPreparedUpdate) -> Boolean)? = null,
+    private val onRetirementFailed: (Throwable) -> Unit = {},
 ) : Closeable {
     private val controlExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "dsp-live-control").apply { isDaemon = true }
@@ -42,6 +44,7 @@ internal class DspLiveUpdateController(
     private val desired = AtomicReference<DspConfigSnapshot?>(null)
     private val generationLock = Any()
     private val retiredPipelineCount = AtomicInteger()
+    private val failedRetirementCount = AtomicInteger()
 
     init {
         DspPipelineReaper.start()
@@ -74,36 +77,48 @@ internal class DspLiveUpdateController(
             while (!closed.get()) {
                 val snapshot = desired.get() ?: return
                 if (snapshot.generation <= lastHandledGeneration.get()) return
-                val pipeline = try {
-                    pipelinePreparer(format, snapshot.config)
+                var candidate: DspPcmPipeline? = null
+                try {
+                    candidate = pipelinePreparer(format, snapshot.config)
+                    if (candidate != null && candidate.format != format) {
+                        runCatching { candidate.close() }
+                        candidate = null
+                        lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
+                        runCatching { onDeferred(snapshot.generation) }
+                        continue
+                    }
+                    val latencyFrames = preparedLatencyFrames(candidate).coerceAtLeast(0)
+                    val deferLatencyChange = latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()
+                    if (desired.get()?.generation != snapshot.generation) {
+                        runCatching { candidate?.close() }
+                        candidate = null
+                        continue
+                    }
+                    if (closed.get()) {
+                        runCatching { candidate?.close() }
+                        candidate = null
+                        return
+                    }
+                    lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
+                    val update = DspPreparedUpdate(snapshot.generation, format, snapshot.config, candidate, latencyFrames)
+                    val transferred = onPreparedResult?.invoke(update) ?: run {
+                        onPrepared(update)
+                        true
+                    }
+                    if (transferred) {
+                        candidate = null
+                    } else {
+                        runCatching { candidate?.close() }
+                        candidate = null
+                    }
+                    if (transferred && deferLatencyChange) runCatching { onDeferred(snapshot.generation) }
                 } catch (error: Throwable) {
+                    val failedCandidate = candidate
+                    candidate = null
+                    runCatching { failedCandidate?.close() }
                     lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
                     runCatching { onFailed(snapshot, error) }
                     if (error is VirtualMachineError || error is ThreadDeath) throw error
-                    continue
-                }
-                if (pipeline != null && pipeline.format != format) {
-                    runCatching { pipeline.close() }
-                    lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
-                    runCatching { onDeferred(snapshot.generation) }
-                    continue
-                }
-                val latencyFrames = preparedLatencyFrames(pipeline).coerceAtLeast(0)
-                val deferLatencyChange = latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()
-                if (desired.get()?.generation != snapshot.generation) {
-                    runCatching { pipeline?.close() }
-                    continue
-                }
-                if (closed.get()) {
-                    runCatching { pipeline?.close() }
-                    return
-                }
-                lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
-                val published = runCatching {
-                    onPrepared(DspPreparedUpdate(snapshot.generation, format, snapshot.config, pipeline, latencyFrames))
-                }.onFailure { runCatching { pipeline?.close() } }
-                if (published.isSuccess && deferLatencyChange) {
-                    runCatching { onDeferred(snapshot.generation) }
                 }
             }
         } finally {
@@ -114,10 +129,14 @@ internal class DspLiveUpdateController(
         }
     }
 
-    fun canAdoptUpdate(): Boolean = !closed.get() && retiredPipelineCount.get() == 0
+    fun canAdoptUpdate(): Boolean = !closed.get() && retiredPipelineCount.get() == 0 && failedRetirementCount.get() == 0
 
     fun retire(pipeline: DspPcmPipeline?) {
-        if (pipeline == null || !pipeline.claimRetirement(retiredPipelineCount)) return
+        if (pipeline == null || !pipeline.claimRetirement(retiredPipelineCount) { error ->
+                failedRetirementCount.incrementAndGet()
+                runCatching { onRetirementFailed(error) }
+            }
+        ) return
         retiredPipelineCount.incrementAndGet()
         DspPipelineReaper.enqueue(pipeline)
     }

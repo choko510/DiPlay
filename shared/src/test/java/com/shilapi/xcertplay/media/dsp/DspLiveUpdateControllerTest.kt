@@ -148,6 +148,99 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
+    fun latencyInspectionFailuresCloseCandidateAndAllowTheNextGeneration() {
+        for (failurePoint in listOf("prepared", "active", "adopt")) {
+            val provider = MutableConfigProvider()
+            val shouldThrow = AtomicBoolean(true)
+            val closedCandidates = AtomicInteger()
+            val failed = LinkedBlockingQueue<Long>()
+            val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+            val controller = DspLiveUpdateController(
+                format = DspAudioFormat(48_000, 2),
+                role = DspStreamRole.MEDIA,
+                provider = provider,
+                initialGeneration = 0L,
+                activeLatencyFrames = {
+                    if (failurePoint == "active" && shouldThrow.get()) throw IllegalStateException("active")
+                    0
+                },
+                canAdoptLatencyChange = {
+                    if (failurePoint == "adopt" && shouldThrow.get()) throw IllegalStateException("adopt")
+                    true
+                },
+                onPrepared = { prepared.offer(it) },
+                onFailed = { snapshot, _ -> failed.offer(snapshot.generation) },
+                pipelinePreparer = { format, _ ->
+                    trackingPipeline(format, if (failurePoint == "adopt") 128 else 0) {
+                        closedCandidates.incrementAndGet()
+                    }
+                },
+                preparedLatencyFrames = {
+                    if (failurePoint == "prepared" && shouldThrow.get()) throw IllegalStateException("prepared")
+                    it?.algorithmicLatencyFrames ?: 0
+                },
+            )
+
+            try {
+                provider.update(DspRuntimeConfig(enabled = true))
+                val failureGeneration = failed.poll(5, TimeUnit.SECONDS)
+                    ?: throw AssertionError("No failure reported for getter=$failurePoint")
+                assertEquals(1L, failureGeneration)
+                assertEquals(1, closedCandidates.get())
+                Thread.sleep(50)
+                assertEquals(1, closedCandidates.get())
+
+                shouldThrow.set(false)
+                provider.update(DspRuntimeConfig(enabled = true, gainDb = 1.0))
+                val update = prepared.poll(5, TimeUnit.SECONDS)
+                assertNotNull(update)
+                assertEquals(2L, update?.generation)
+                update?.pipeline?.close()
+            } finally {
+                controller.close()
+            }
+        }
+    }
+
+    @Test
+    fun publisherFailureClosesCandidateReportsFailureAndAllowsTheNextGeneration() {
+        val provider = MutableConfigProvider()
+        val failFirstPublish = AtomicBoolean(true)
+        val closedCandidates = AtomicInteger()
+        val failed = LinkedBlockingQueue<Long>()
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = {
+                if (failFirstPublish.compareAndSet(true, false)) throw IllegalArgumentException("publish")
+                prepared.offer(it)
+            },
+            onFailed = { snapshot, _ -> failed.offer(snapshot.generation) },
+            pipelinePreparer = { format, _ -> trackingPipeline(format, 0) { closedCandidates.incrementAndGet() } },
+        )
+
+        try {
+            provider.update(DspRuntimeConfig(enabled = true))
+            assertEquals(1L, failed.poll(5, TimeUnit.SECONDS))
+            assertEquals(1, closedCandidates.get())
+            Thread.sleep(50)
+            assertEquals(1, closedCandidates.get())
+
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = 1.0))
+            val update = prepared.poll(5, TimeUnit.SECONDS)
+            assertNotNull(update)
+            assertEquals(2L, update?.generation)
+            update?.pipeline?.close()
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
     fun preparedGraphRemainsAdoptableWithoutRetiredPipelines() {
         val provider = MutableConfigProvider()
         val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
@@ -168,6 +261,37 @@ class DspLiveUpdateControllerTest {
             assertNotNull(update)
             assertTrue(controller.canAdoptUpdate())
             update?.pipeline?.close()
+        } finally {
+            controller.close()
+        }
+    }
+
+    @Test
+    fun failedNativeCloseIsReportedAndBlocksFurtherAdoption() {
+        val failureReported = CountDownLatch(1)
+        val failureType = AtomicReference<String?>(null)
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = MutableConfigProvider(),
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = {},
+            onRetirementFailed = { error ->
+                failureType.set(error.javaClass.simpleName)
+                failureReported.countDown()
+            },
+        )
+        val pipeline = trackingPipeline(DspAudioFormat(48_000, 2), 0) {
+            throw IllegalStateException("native close fixture")
+        }
+
+        try {
+            controller.retire(pipeline)
+
+            assertTrue(failureReported.await(5, TimeUnit.SECONDS))
+            assertEquals("IllegalStateException", failureType.get())
+            assertFalse(controller.canAdoptUpdate())
         } finally {
             controller.close()
         }

@@ -3,7 +3,7 @@ package com.shilapi.xcertplay.media.dsp
 internal class DspLatencyPreservingBypass(
     private val format: DspAudioFormat,
     private val commonLatencyFrames: Int,
-    seatAlignment: DspSeatAlignmentConfig = DspSeatAlignmentConfig(),
+    private val seatAlignment: DspSeatAlignmentConfig = DspSeatAlignmentConfig(),
     seed: Long = System.nanoTime(),
 ) {
     private val ring = FloatArray(commonLatencyFrames * format.channels)
@@ -24,6 +24,14 @@ internal class DspLatencyPreservingBypass(
     private val seatFraction = (seatDelayFrames - seatIntegerDelayFrames).toFloat()
     private val seatAllpassCoefficient = (1.0f - seatFraction) / (1.0f + seatFraction)
     private val seatRing = FloatArray(maxOf(1, seatIntegerDelayFrames + 1))
+    private val leftTrimGain = Math.pow(
+        10.0,
+        (if (seatAlignment.enabled) seatAlignment.leftTrimDb else 0.0) / 20.0,
+    ).toFloat()
+    private val rightTrimGain = Math.pow(
+        10.0,
+        (if (seatAlignment.enabled) seatAlignment.rightTrimDb else 0.0) / 20.0,
+    ).toFloat()
     private val dither = DspTpdfDither(seed)
     private val pcm16 = ByteArray(
         DspBufferSizing.pcm16ByteCount(DspBufferSizing.MAX_DECODER_PCM_FRAMES, format.channels),
@@ -32,12 +40,20 @@ internal class DspLatencyPreservingBypass(
     private var seatRingPosition = 0
     private var seatFractionalXPrevious = 0.0f
     private var seatFractionalYPrevious = 0.0f
+    private var seatControlsEnabled = false
     private var processedLength = 0
     private var processedFrames = 0
+    internal val hasSeatControls: Boolean
+        get() = seatAlignment.enabled && (
+            seatAlignment.leftTrimDb != 0.0 || seatAlignment.rightTrimDb != 0.0 ||
+                seatAlignment.invertLeft || seatAlignment.invertRight
+            )
+    internal val seatControlsActiveForTest: Boolean
+        get() = seatControlsEnabled
 
     init {
         require(commonLatencyFrames >= 0)
-        require(commonLatencyFrames > 0 || seatDelayFrames > 0.0)
+        require(commonLatencyFrames > 0 || seatDelayFrames > 0.0 || hasSeatControls)
     }
 
     val output: ByteArray
@@ -51,6 +67,17 @@ internal class DspLatencyPreservingBypass(
 
     val outputFrameCount: Int
         get() = processedFrames
+
+    fun activateSeatControlsForCurrentOutput() {
+        if (seatControlsEnabled) return
+        seatControlsEnabled = true
+        for (frame in 0 until processedFrames) {
+            for (channel in 0 until format.channels) {
+                val index = frame * format.channels + channel
+                delayedFloats[index] = applySeatControl(delayedFloats[index], channel)
+            }
+        }
+    }
 
     fun process(
         source: ByteArray,
@@ -84,10 +111,16 @@ internal class DspLatencyPreservingBypass(
                 }
                 if (commonLatencyFrames > 0) {
                     val ringIndex = ringPosition * format.channels + channel
-                    delayedFloats[sampleIndex] = ring[ringIndex]
+                    var outputSample = ring[ringIndex]
                     ring[ringIndex] = sample
+                    if (seatControlsEnabled) outputSample = applySeatControl(outputSample, channel)
+                    delayedFloats[sampleIndex] = outputSample
                 } else {
-                    delayedFloats[sampleIndex] = sample
+                    delayedFloats[sampleIndex] = if (seatControlsEnabled) {
+                        applySeatControl(sample, channel)
+                    } else {
+                        sample
+                    }
                 }
             }
             if (commonLatencyFrames > 0) {
@@ -133,5 +166,12 @@ internal class DspLatencyPreservingBypass(
         seatFractionalYPrevious = 0.0f
         processedLength = 0
         processedFrames = 0
+    }
+
+    private fun applySeatControl(sample: Float, channel: Int): Float {
+        if (!hasSeatControls) return sample
+        val gain = if (channel == 0) leftTrimGain else rightTrimGain
+        val invert = if (channel == 0) seatAlignment.invertLeft else seatAlignment.invertRight
+        return if (invert) -sample * gain else sample * gain
     }
 }

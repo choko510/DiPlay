@@ -16,6 +16,7 @@ internal class DspPcmPipeline(
 ) : Closeable {
     private val retirementQueued = AtomicBoolean()
     private val retirementCount = AtomicReference<AtomicInteger?>(null)
+    private val retirementFailureHandler = AtomicReference<((Throwable) -> Unit)?>(null)
     private val closed = AtomicBoolean()
     @Volatile internal var reaperNext: DspPcmPipeline? = null
     private val diagnostics = DspDiagnostics()
@@ -71,13 +72,19 @@ internal class DspPcmPipeline(
     val algorithmicLatencyFrames: Int
         get() = processor.latencyFrames + outputDelayFrames
 
-    internal fun claimRetirement(counter: AtomicInteger): Boolean {
+    internal fun claimRetirement(counter: AtomicInteger, onCloseFailure: (Throwable) -> Unit): Boolean {
         if (!retirementQueued.compareAndSet(false, true)) return false
         retirementCount.set(counter)
+        retirementFailureHandler.set(onCloseFailure)
         return true
     }
 
+    internal fun reportRetirementFailure(error: Throwable) {
+        runCatching { retirementFailureHandler.get()?.invoke(error) }
+    }
+
     internal fun decrementRetirementCount() {
+        retirementFailureHandler.set(null)
         retirementCount.getAndSet(null)?.decrementAndGet()
     }
 

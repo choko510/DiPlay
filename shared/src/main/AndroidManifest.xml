@@ -48,6 +48,13 @@
         <service
             android:name="com.shilapi.xcertplay.network.CarPlayVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false" />
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
+                android:value="false" />
+        </service>
     </application>
 </manifest>

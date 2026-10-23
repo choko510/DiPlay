@@ -482,3 +482,11 @@ Test late audio-owner state after a successful microphone start, not only initia
 Test notification actions by reusing the same `PendingIntent`, not by creating a new token for every click. A foreground notification can outlive its process, so its safe open action must not depend on an in-memory token map.
 
 For MediaCodec replacement, fence callbacks and serialize decoder ownership separately: a generation check prevents stale UI/keyframe callbacks, while a stop ACK after codec release prevents a replacement worker from becoming current too early. SurfaceTexture destruction remains a device-level lifetime test.
+
+For local MFi APK packaging, point `DIPLAY_AUTH_ASSETS_DIR` at the parent of `offline-mfi`; build ABI splits with `:mobile:assembleDebug`, then check each APK for only the expected identity/certificate assets and verify Android signing with `apksigner`.
+
+For SurfaceTexture teardown, an asynchronous `SurfaceChanged(null)` enqueue is not a detach acknowledgement. Keep the texture app-owned (`onSurfaceTextureDestroyed` returns false) until both screen decoder owners finish; preserve a blocked lease if native codec release reports failure.
+
+When a native DSP process fails after its fallback state has advanced for the current block, apply only the missing Seat gain/polarity to that already-delayed fallback output, then apply it once per subsequent block. Precompute gains off the audio callback and keep master OFF on a separate dry path.
+
+For lock-free worker retirement failures, decrement only the in-flight count in `finally` and keep a separate failure state; otherwise a failed native close can falsely reopen the pipeline-adoption gate. Test post-inspection getters and callback publication as well as the primary preparer exception.

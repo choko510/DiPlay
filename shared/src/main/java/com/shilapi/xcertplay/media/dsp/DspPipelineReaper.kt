@@ -45,8 +45,13 @@ internal object DspPipelineReaper {
             while (pipeline != null) {
                 val next = pipeline.reaperNext
                 pipeline.reaperNext = null
-                runCatching { pipeline.close() }
-                pipeline.decrementRetirementCount()
+                try {
+                    pipeline.close()
+                } catch (error: Throwable) {
+                    pipeline.reportRetirementFailure(error)
+                } finally {
+                    pipeline.decrementRetirementCount()
+                }
                 pipeline = next
             }
         }

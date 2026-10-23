@@ -117,8 +117,7 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
                         if (outputPackets <= FIRST_PACKET_LOG_COUNT) {
                             Log.i(
                                 TAG,
-                                "Opus microphone packet=$outputPackets bytes=${bytes.size} " +
-                                    "head=${bytes.copyOf(minOf(bytes.size, 16)).toHexString()}",
+                                "Opus microphone packet=$outputPackets bytes=${bytes.size}",
                             )
                         }
                     }

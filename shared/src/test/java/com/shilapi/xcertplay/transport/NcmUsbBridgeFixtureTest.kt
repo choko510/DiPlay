@@ -216,7 +216,7 @@ class NcmUsbBridgeFixtureTest {
         val frames = bridge.diagnosticSnapshot().ethernetRxFrames
         bridge.close()
 
-        assertTrue(error?.message.orEmpty().contains("ambiguous maximum-length incomplete NTB"))
+        assertTrue(error?.message.orEmpty().contains("ambiguous declared-length NTB"))
         assertEquals(0L, frames)
         assertTrue(script.connectionClosed)
     }
@@ -244,7 +244,7 @@ class NcmUsbBridgeFixtureTest {
         val frames = bridge.diagnosticSnapshot().ethernetRxFrames
         bridge.close()
 
-        assertTrue(error?.message.orEmpty().contains("ambiguous maximum-length incomplete NTB"))
+        assertTrue(error?.message.orEmpty().contains("ambiguous declared-length NTB"))
         assertEquals(0L, frames)
         assertTrue(script.connectionClosed)
     }
@@ -270,7 +270,7 @@ class NcmUsbBridgeFixtureTest {
         val snapshot = bridge.diagnosticSnapshot()
         bridge.close()
 
-        assertTrue(error?.message.orEmpty().contains("ambiguous maximum-length incomplete NTB"))
+        assertTrue(error?.message.orEmpty().contains("ambiguous declared-length NTB"))
         assertEquals(2L, snapshot.readCompletions)
         assertEquals(0L, snapshot.ethernetRxFrames)
         assertTrue(script.connectionClosed)
@@ -328,7 +328,7 @@ class NcmUsbBridgeFixtureTest {
     }
 
     @Test
-    fun validIncompleteNtbWithTwoConsecutiveEmbeddedBlocksAtAllowedGapOffsetsNeverResyncs() {
+    fun ambiguousDeclaredLengthNtbWithTwoConsecutiveEmbeddedBlocksFailsClosed() {
         val originalFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x31)
         val fakeFirstFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x42)
         val fakeSecondFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x53)
@@ -353,16 +353,85 @@ class NcmUsbBridgeFixtureTest {
                 incompleteNtb.copyOfRange(0, 264).asList().chunked(chunkSize).forEach { chunk ->
                     script.enqueueRead(UsbRequestWaitFixture.Completed(chunk.toByteArray()))
                 }
-                bridge.use {
-                    assertNull(it.recv(100))
-                    incompleteNtb.copyOfRange(264, declaredLength).asList().chunked(chunkSize).forEach { chunk ->
-                        script.enqueueRead(UsbRequestWaitFixture.Completed(chunk.toByteArray()))
-                    }
-                    assertArrayEquals(originalFrame, it.recv(1_000))
-                    assertNull(it.recv(10))
-                    assertEquals(1L, it.diagnosticSnapshot().ethernetRxFrames)
+                incompleteNtb.copyOfRange(264, declaredLength).asList().chunked(chunkSize).forEach { chunk ->
+                    script.enqueueRead(UsbRequestWaitFixture.Completed(chunk.toByteArray()))
                 }
+                val error = runCatching { bridge.recv(1_000) }.exceptionOrNull()
+                val frames = bridge.diagnosticSnapshot().ethernetRxFrames
+                bridge.close()
+
+                assertTrue(error?.message.orEmpty().contains("ambiguous declared-length NTB"))
+                assertEquals(0L, frames)
+                assertTrue(script.connectionClosed)
             }
+        }
+    }
+
+    @Test
+    fun plausibleLength1000CannotSilentlyConsumeFollowingValidNtb16Blocks() {
+        val damagedBlock = Ntb16Codec.build(
+            Step4TestFixtures.ethernetFrame(length = 60, seed = 0x31),
+            sequence = 70,
+        ).copyOf().apply { writeU16(this, 8, 1_000) }
+        val followingBlocks = (71..82).map { sequence ->
+            Ntb16Codec.build(
+                Step4TestFixtures.ethernetFrame(length = 60, seed = sequence),
+                sequence = sequence,
+            )
+        }
+        val input = Step4TestFixtures.coalesced(damagedBlock, *followingBlocks.toTypedArray())
+        val (bridge, script) = newBridge()
+        script.enqueueRead(UsbRequestWaitFixture.Completed(input))
+
+        val error = runCatching { bridge.recv(100) }.exceptionOrNull()
+        val frames = bridge.diagnosticSnapshot().ethernetRxFrames
+        bridge.close()
+
+        assertTrue(error?.message.orEmpty().contains("ambiguous declared-length NTB"))
+        assertEquals(0L, frames)
+        assertTrue(script.connectionClosed)
+    }
+
+    @Test
+    fun incompleteDeclaredNtbFailsAfterUsbStopsMakingProgress() {
+        val incompleteBlock = Ntb16Codec.build(
+            Step4TestFixtures.ethernetFrame(length = 60, seed = 0x31),
+            sequence = 83,
+        ).copyOf(200).apply { writeU16(this, 8, 300) }
+        val (bridge, script) = newBridge(incompleteNtbNoProgressTimeoutMillis = 20)
+        script.enqueueRead(UsbRequestWaitFixture.Completed(incompleteBlock))
+
+        val error = runCatching { bridge.recv(500) }.exceptionOrNull()
+        bridge.close()
+
+        assertTrue(error?.message.orEmpty().contains("NCM_INCOMPLETE_ERROR"))
+        assertTrue(script.connectionClosed)
+    }
+
+    @Test
+    fun incompleteDeclaredNtbProgressResetsNoProgressDeadline() {
+        val validBlock = Ntb16Codec.build(
+            Step4TestFixtures.ethernetFrame(length = 60, seed = 0x32),
+            sequence = 84,
+        )
+        val declaredBlock = ByteArray(300).apply {
+            validBlock.copyInto(this)
+            writeU16(this, 8, size)
+        }
+        val (bridge, script) = newBridge(incompleteNtbNoProgressTimeoutMillis = 35)
+        script.enqueueRead(UsbRequestWaitFixture.Completed(declaredBlock.copyOfRange(0, 100)))
+        script.enqueueRead(UsbRequestWaitFixture.Timeout)
+
+        bridge.use {
+            assertNull(it.recv(20))
+            Thread.sleep(10)
+            script.enqueueRead(UsbRequestWaitFixture.Completed(declaredBlock.copyOfRange(100, 200)))
+            script.enqueueRead(UsbRequestWaitFixture.Timeout)
+            assertNull(it.recv(20))
+            Thread.sleep(10)
+            script.enqueueRead(UsbRequestWaitFixture.Completed(declaredBlock.copyOfRange(200, 300)))
+
+            assertArrayEquals(Step4TestFixtures.ethernetFrame(length = 60, seed = 0x32), it.recv(100))
         }
     }
 
@@ -417,7 +486,7 @@ class NcmUsbBridgeFixtureTest {
             val frames = bridge.diagnosticSnapshot().ethernetRxFrames
             bridge.close()
 
-            assertTrue(error?.message.orEmpty().contains("ambiguous maximum-length incomplete NTB"))
+            assertTrue(error?.message.orEmpty().contains("ambiguous declared-length NTB"))
             assertEquals(0L, frames)
             assertTrue(script.connectionClosed)
         }
@@ -837,6 +906,7 @@ class NcmUsbBridgeFixtureTest {
         diagnosticProfile: NcmDiagnosticProfile = NcmDiagnosticProfile.AUTO,
         bulkInMaxPacketSize: Int = 512,
         bulkOutMaxPacketSize: Int = 512,
+        incompleteNtbNoProgressTimeoutMillis: Long = 30_000,
     ): Pair<NcmUsbBridge, ScriptedUsbDeviceConnectionShadow> {
         val connection = ReflectionHelpers.callConstructor(UsbDeviceConnection::class.java)
         val script = Shadow.extract<ScriptedUsbDeviceConnectionShadow>(connection)
@@ -855,6 +925,7 @@ class NcmUsbBridgeFixtureTest {
             diagnosticsEnabled = false,
             onDiagnosticLog = {},
             wiredPathDiagnostics = wiredPathDiagnostics,
+            incompleteNtbNoProgressTimeoutMillis = incompleteNtbNoProgressTimeoutMillis,
         )
         return bridge to script
     }

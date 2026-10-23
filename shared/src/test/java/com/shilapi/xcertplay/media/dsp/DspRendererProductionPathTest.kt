@@ -411,6 +411,51 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun nativeFailureFallbackPreservesSeatTrimAndPolarity() {
+        val writes = CopyOnWriteArrayList<ByteArray>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                seatAlignment = DspSeatAlignmentConfig(
+                    enabled = true,
+                    leftTrimDb = 6.0,
+                    rightTrimDb = -6.0,
+                    invertLeft = true,
+                    invertRight = true,
+                ),
+            ),
+            writeAdapter = { bytes, offset, length, _ ->
+                writes += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            pipelinePreparer = { audioFormat, _ ->
+                DspPcmPipeline(
+                    audioFormat,
+                    StateProcessor(audioFormat, latencyFrames = 0, gain = 1.0f, failOnProcess = 1),
+                    forceInitialLatencySilence = false,
+                )
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(intArrayOf(-4_000, 6_000)), sample = 0)
+
+            val output = writes.single()
+            val expectedLeft = 4_000 * Math.pow(10.0, 6.0 / 20.0)
+            val expectedRight = -6_000 * Math.pow(10.0, -6.0 / 20.0)
+            assertTrue(abs(readSample(output, 0) - expectedLeft) <= 3)
+            assertTrue(abs(readSample(output, Short.SIZE_BYTES) - expectedRight) <= 3)
+            assertNull(renderer.dspPipeline)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun fallbackUsesTheAcceptedSeatGenerationAfterLiveCrossfade() {
         val impulseResponse = DspImpulseResponse("seat_fallback_room", 48_000, 1, floatArrayOf(1.0f))
         val initialConfig = DspRuntimeConfig(
@@ -1284,12 +1329,71 @@ class DspRendererProductionPathTest {
         }
     }
 
+    @Test
+    fun preparedPublicationIsLinearizedWithAFormatChangeAfterTheOwnerCheck() {
+        val enteredOwnerCheck = CountDownLatch(1)
+        val releaseOwnerCheck = CountDownLatch(1)
+        val formatChangeFinished = CountDownLatch(1)
+        val oldCandidateClosed = CountDownLatch(1)
+        val oldCandidateCloseCount = AtomicInteger()
+        val mono44100Preparations = AtomicInteger()
+        val provider = MutableConfigProvider(DspRuntimeConfig.disabled())
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.AAC_LC, channels = 1),
+            initialConfig = DspRuntimeConfig.disabled(),
+            provider = provider,
+            afterDspUpdateOwnerCheck = {
+                enteredOwnerCheck.countDown()
+                check(releaseOwnerCheck.await(5, TimeUnit.SECONDS))
+            },
+            pipelinePreparer = { audioFormat, _ ->
+                if (audioFormat.sampleRate == 44_100) {
+                    val processor = StateProcessor(audioFormat, 0, 1.0f, onReset = {})
+                    DspPcmPipeline(audioFormat, processor, forceInitialLatencySilence = false).also {
+                        if (mono44100Preparations.incrementAndGet() == 1) {
+                            processor.onClose = {
+                                oldCandidateCloseCount.incrementAndGet()
+                                oldCandidateClosed.countDown()
+                            }
+                        }
+                    }
+                } else {
+                    pipeline(audioFormat, latencyFrames = 0, gain = 1.0f)
+                }
+            },
+        )
+        val formatChange = Thread {
+            renderer.prepareDecoderPcmFormatForTesting(48_000, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            formatChangeFinished.countDown()
+        }.apply { isDaemon = true }
+
+        try {
+            renderer.prepareDecoderPcmFormatForTesting(44_100, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = 2.0))
+            assertTrue(enteredOwnerCheck.await(5, TimeUnit.SECONDS))
+
+            formatChange.start()
+            assertFalse(formatChangeFinished.await(100, TimeUnit.MILLISECONDS))
+            releaseOwnerCheck.countDown()
+
+            assertTrue(formatChangeFinished.await(5, TimeUnit.SECONDS))
+            assertTrue(oldCandidateClosed.await(5, TimeUnit.SECONDS))
+            assertEquals(1, oldCandidateCloseCount.get())
+            assertFalse(renderer.hasPreparedDspUpdateForTesting)
+        } finally {
+            releaseOwnerCheck.countDown()
+            formatChange.join(1_000)
+            renderer.releaseForTesting()
+        }
+    }
+
     private fun renderer(
         format: AudioFormat,
         initialConfig: DspRuntimeConfig,
         provider: MutableConfigProvider = MutableConfigProvider(initialConfig),
         writeAdapter: AudioTrackWriteAdapterForTest = AudioTrackWriteAdapterForTest { _, _, length, _ -> length },
         beforeDspUpdatePublish: () -> Unit = {},
+        afterDspUpdateOwnerCheck: () -> Unit = {},
         onPrepared: () -> Unit = {},
         pipelinePreparer: DspPipelinePreparer,
     ): AudioRenderer {
@@ -1299,7 +1403,7 @@ class DspRendererProductionPathTest {
             mappingMode = AudioChannelMappingMode.MOBILE_COMPATIBLE,
             navigationRoute = NavigationAudioRoute.FULL_BAND,
         )
-        return AudioRenderer(
+        val renderer = AudioRenderer(
             format = format,
             classification = classification,
             dspRuntimeConfig = initialConfig,
@@ -1315,6 +1419,8 @@ class DspRendererProductionPathTest {
             beforeDspUpdatePublishForTest = beforeDspUpdatePublish,
             onDspUpdatePreparedForTest = onPrepared,
         )
+        renderer.afterDspUpdateOwnerCheckForTest = afterDspUpdateOwnerCheck
+        return renderer
     }
 
     private fun audioFormat(codec: AudioCodecKind, channels: Int, audioType: String = "media"): AudioFormat = AudioFormat(

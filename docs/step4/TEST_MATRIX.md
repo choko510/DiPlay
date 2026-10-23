@@ -196,7 +196,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | DSP04-03 | Harmonic JNI parameters, profile v6→v7 migration, and active update deferral to the next track | `NativeDspProcessorTest`, `DspProfileRepositoryTest`, `DspRendererProductionPathTest` | `PASS_LOCAL` / `PASS_ROBOLECTRIC` |
 | DSP04-04 | HarmonicEngine and FullHeavyChain p99/peak/allocation across 44.1/48 kHz mono/stereo | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (56 configurations) | `PASS_EMULATOR`; HarmonicEngine max median-run p99 1.48 ms; FullHeavyChain-with-all-four max 3.12 ms; zero steady-state Kotlin allocations |
 | DSP04-05 | TS10/K706 THD/alias, peak, listening, A/V sync, and long-run behavior | Physical device run | `NOT_RUN`; no target head unit or listening path is connected |
-| DSP04-06 | Dry fundamental retention at low level across rates/modes/qualities/frequencies; max-level folded harmonic bound at 0.9 peak | `test_harmonic_engine_latency_oversampling_modes_and_alias_rejection` in `test_dsp_engine.c` | `PASS_LOCAL`: fundamental within 5% of dry at low levels; folded second/third harmonics below -26 dBc in the tested grid |
+| DSP04-06 | Dry fundamental retention at low level across rates/modes/qualities/frequencies; max-level folded harmonic bound at 0.9 peak for cutoff settings 6/12/18 kHz | `test_harmonic_engine_latency_oversampling_modes_and_alias_rejection` in `test_dsp_engine.c` | `PASS_LOCAL`: native unsanitized sweep passed for both rates, all modes/qualities, cutoff settings 6/12/18 kHz, and inputs through 20.4 kHz where below Nyquist |
 
 ## DSP-05 Final graph integration and pre-merge audit
 

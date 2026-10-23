@@ -25,6 +25,7 @@ interface MediaSink {
     fun audioPlaybackClock(token: AudioOwnerToken): AudioPlaybackClock? = null
     fun onAudioStopped(token: AudioOwnerToken) {}
     fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean = false
+    fun isMicrophoneActive(token: AudioOwnerToken): Boolean = true
     fun onMicrophoneStopped(token: AudioOwnerToken) {}
     fun onIapMessage(bytes: ByteArray) {}
 }
@@ -184,6 +185,7 @@ class CarPlayMediaEngine(
                 if (previousOwnerStream !== previousForKey) previousOwnerStream?.close()
                 sink.onScreenStreamActive(type, false)
             }
+            sink.onScreenStreamActive(type, true)
             sink.setVideoDiagnosticHandler(type) {
                 if (screenStreamOwners[type] == streamKey && streams[streamKey] === screen) {
                     if (it == "first frame submitted to surface") session.videoFrameSubmittedToSurface(type)
@@ -196,7 +198,6 @@ class CarPlayMediaEngine(
                     session.logDebug("Video recovery: requested keyframe sent=$sent")
                 }
             }
-            sink.onScreenStreamActive(type, true)
             port
         }
     }
@@ -637,8 +638,10 @@ class CarPlayMediaEngine(
         slot: AudioOwnerSlot<AudioState>,
     ): MicrophoneConfig? {
         check(Thread.holdsLock(slot.lock))
-        if (slot.owner !== state || !state.sinkStarted || state.microphoneStarting || state.microphoneStarted) {
-            return null
+        if (slot.owner !== state || !state.sinkStarted || state.microphoneStarting) return null
+        if (state.microphoneStarted) {
+            if (sink.isMicrophoneActive(state.token)) return null
+            state.microphoneStarted = false
         }
         val microphone = state.microphoneConfig ?: return null
         if (monotonicTimeNs() < state.nextMicrophoneAttemptNs) return null

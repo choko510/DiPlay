@@ -26,6 +26,7 @@ internal class DspLiveUpdateController(
     private val activeLatencyFrames: () -> Int,
     private val onPrepared: (DspPreparedUpdate) -> Unit,
     private val onPreparing: (DspConfigSnapshot) -> Unit = { },
+    private val onFailed: (DspConfigSnapshot, Throwable) -> Unit = { _, _ -> },
     private val onDeferred: (Long) -> Unit = { },
     private val canAdoptLatencyChange: () -> Boolean = { false },
     private val pipelinePreparer: DspPipelinePreparer =
@@ -73,7 +74,14 @@ internal class DspLiveUpdateController(
             while (!closed.get()) {
                 val snapshot = desired.get() ?: return
                 if (snapshot.generation <= lastHandledGeneration.get()) return
-                val pipeline = pipelinePreparer(format, snapshot.config)
+                val pipeline = try {
+                    pipelinePreparer(format, snapshot.config)
+                } catch (error: Throwable) {
+                    lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
+                    runCatching { onFailed(snapshot, error) }
+                    if (error is VirtualMachineError || error is ThreadDeath) throw error
+                    continue
+                }
                 if (pipeline != null && pipeline.format != format) {
                     runCatching { pipeline.close() }
                     lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }

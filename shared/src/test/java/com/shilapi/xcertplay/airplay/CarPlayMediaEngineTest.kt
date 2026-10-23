@@ -520,6 +520,49 @@ class CarPlayMediaEngineTest {
     }
 
     @Test
+    fun microphoneWorkerDeathRetriesAfterTheExistingBackoff() {
+        val now = AtomicLong(1_000_000_000L)
+        val microphoneActive = AtomicBoolean(false)
+        val microphoneAttempts = AtomicInteger()
+        val rtpPackets = AtomicInteger()
+        val sink = object : MediaSink {
+            override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
+                microphoneAttempts.incrementAndGet()
+                microphoneActive.set(true)
+                return true
+            }
+
+            override fun isMicrophoneActive(token: AudioOwnerToken): Boolean = microphoneActive.get()
+
+            override fun onAudioRtp(token: AudioOwnerToken, format: AudioFormat, rtp: ByteArray, sample: Int) {
+                rtpPackets.incrementAndGet()
+            }
+        }
+        val engine = CarPlayMediaEngine(sink, microphoneEnabled = true)
+        engine.monotonicTimeForTest = { now.get() }
+        val session = audioSession(engine, withRemoteAddress = true)
+        try {
+            assertNotNull(engine.onAudio(session, 100, validMicrophoneAudioSetup(1L)))
+            val listener = audioListenerForCurrentState(engine, 100)
+            listener.onStarted(1234)
+            assertEquals(1, microphoneAttempts.get())
+
+            microphoneActive.set(false)
+            now.addAndGet(749_000_000L)
+            listener.onRtp(ByteArray(12), 1234)
+            assertEquals(1, microphoneAttempts.get())
+
+            now.addAndGet(1_000_000L)
+            listener.onRtp(ByteArray(12), 1234)
+            assertEquals(2, microphoneAttempts.get())
+            assertEquals(2, rtpPackets.get())
+        } finally {
+            engine.onSessionClosed(session)
+            session.close()
+        }
+    }
+
+    @Test
     fun explicitInputFalseKeepsAudioOutputButDoesNotStartMicrophone() {
         val audioStarts = AtomicInteger()
         val microphoneStarts = AtomicInteger()

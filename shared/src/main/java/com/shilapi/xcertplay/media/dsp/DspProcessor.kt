@@ -51,6 +51,7 @@ internal class DspProcessResult {
     }
 }
 
+/** Each processor owns mutable graph state; callers serialize processing and reset for an instance. */
 internal interface DspProcessor : Closeable {
     val format: DspAudioFormat
     val latencyFrames: Int

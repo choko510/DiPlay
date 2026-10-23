@@ -1234,11 +1234,12 @@ class DspRendererProductionPathTest {
     }
 
     @Test
-    fun staleFormatCandidateIsClosedAndCannotReplaceTheCurrentFormat() {
+    fun staleFormatCandidateIsClosedWhenRendererFormatReturnsToItsPreviousValue() {
         val enteredOldPublish = CountDownLatch(1)
         val releaseOldPublish = CountDownLatch(1)
         val oldCandidateClosed = CountDownLatch(1)
         val oldCandidateCloseCount = AtomicInteger()
+        val mono44100Preparations = AtomicInteger()
         val provider = MutableConfigProvider(DspRuntimeConfig.disabled())
         val renderer = renderer(
             format = audioFormat(AudioCodecKind.AAC_LC, channels = 1),
@@ -1252,9 +1253,11 @@ class DspRendererProductionPathTest {
                 if (audioFormat.sampleRate == 44_100) {
                     val processor = StateProcessor(audioFormat, 0, 1.0f, onReset = {})
                     DspPcmPipeline(audioFormat, processor, forceInitialLatencySilence = false).also {
-                        processor.onClose = {
-                            oldCandidateCloseCount.incrementAndGet()
-                            oldCandidateClosed.countDown()
+                        if (mono44100Preparations.incrementAndGet() == 1) {
+                            processor.onClose = {
+                                oldCandidateCloseCount.incrementAndGet()
+                                oldCandidateClosed.countDown()
+                            }
                         }
                     }
                 } else {
@@ -1268,11 +1271,12 @@ class DspRendererProductionPathTest {
             assertTrue(enteredOldPublish.await(5, TimeUnit.SECONDS))
 
             renderer.prepareDecoderPcmFormatForTesting(48_000, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            renderer.prepareDecoderPcmFormatForTesting(44_100, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
             releaseOldPublish.countDown()
 
             assertTrue(oldCandidateClosed.await(5, TimeUnit.SECONDS))
             assertEquals(1, oldCandidateCloseCount.get())
-            assertEquals(DspAudioFormat(48_000, 1), renderer.dspPipeline?.format)
+            assertEquals(DspAudioFormat(44_100, 1), renderer.dspPipeline?.format)
             assertFalse(renderer.hasPreparedDspUpdateForTesting)
         } finally {
             releaseOldPublish.countDown()

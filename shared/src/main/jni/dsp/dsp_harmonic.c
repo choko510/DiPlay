@@ -166,7 +166,7 @@ int dsp_harmonic_prepare(
         double alias_guard[5];
         double dc_block[5];
         const double alias_guard_hz = fmin(
-            sample_rate * 0.45,
+            sample_rate * 0.40,
             fmax(sample_rate * 0.30, config->exciter_cutoff_hz * 1.25));
         design_high_pass(sample_rate, config->exciter_cutoff_hz, high_pass);
         design_low_pass(sample_rate, alias_guard_hz, alias_guard);

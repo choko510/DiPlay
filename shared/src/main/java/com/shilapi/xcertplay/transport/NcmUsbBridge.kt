@@ -544,7 +544,7 @@ class NcmUsbBridge internal constructor(
                     continue
                 }
                 Ntb16HeaderState.INCOMPLETE -> {
-                    if (recoverFollowingValidNtb16(validation)) continue
+                    rejectAmbiguousFollowingPair(validation)
                     return
                 }
                 Ntb16HeaderState.VALID -> Unit
@@ -605,6 +605,14 @@ class NcmUsbBridge internal constructor(
             ) {
                 return Ntb16HeaderValidation(Ntb16HeaderState.INVALID)
             }
+            if (ndpLength > MAX_NDP16_LENGTH) {
+                return Ntb16HeaderValidation(
+                    state = Ntb16HeaderState.INVALID,
+                    sequence = sequence,
+                    resyncRequiresConsecutiveBlocks = true,
+                    blockLength = blockLength,
+                )
+            }
             if (available < ndpOffset + ndpLength) {
                 return Ntb16HeaderValidation(Ntb16HeaderState.INCOMPLETE, sequence, blockLength = blockLength)
             }
@@ -620,6 +628,14 @@ class NcmUsbBridge internal constructor(
                     break
                 }
                 if (datagramLength > EthernetIpv6Codec.MAX_UNTAGGED_ETHERNET_FRAME_BYTES) {
+                    return Ntb16HeaderValidation(
+                        state = Ntb16HeaderState.INVALID,
+                        sequence = sequence,
+                        resyncRequiresConsecutiveBlocks = true,
+                        blockLength = blockLength,
+                    )
+                }
+                if (datagramCount >= MAX_NTB16_DATAGRAMS) {
                     return Ntb16HeaderValidation(
                         state = Ntb16HeaderState.INVALID,
                         sequence = sequence,
@@ -669,11 +685,14 @@ class NcmUsbBridge internal constructor(
         )
     }
 
-    private fun recoverFollowingValidNtb16(header: Ntb16HeaderValidation): Boolean {
-        if (!header.structureComplete) return false
-        val sequence = header.sequence ?: return false
-        val protectedEnd = header.protectedEnd ?: return false
-        if (protectedEnd > bufferedSize) return false
+    private fun rejectAmbiguousFollowingPair(header: Ntb16HeaderValidation) {
+        if (!header.structureComplete) return
+        // A plausible unfinished block owns its unused bytes; only the all-ones length keeps the
+        // bounded ambiguity check where an early resync could otherwise consume payload as frames.
+        if (header.blockLength != MAX_NTB16_BLOCK_LENGTH) return
+        val sequence = header.sequence ?: return
+        val protectedEnd = header.protectedEnd ?: return
+        if (protectedEnd > bufferedSize) return
 
         val remainingBudget = MAX_RESYNC_BYTES - resyncBytesSkipped
         if (remainingBudget <= 0) {
@@ -689,12 +708,11 @@ class NcmUsbBridge internal constructor(
             if (!isZeroPadding(protectedEnd, paddingBytes)) continue
             resyncCandidateChecks++
             if (validateFollowingSequencePairAt(candidateOffset, expectedSequence) == Ntb16PairState.VALID) {
-                discardBuffered(candidateOffset)
-                resyncBytesSkipped += candidateOffset
-                return true
+                throw failSession(
+                    "NCM_RESYNC_ERROR: ambiguous maximum-length incomplete NTB; refusing early resynchronization",
+                )
             }
         }
-        return false
     }
 
     private fun recoverFollowingSequencePair(header: Ntb16HeaderValidation): Boolean {
@@ -1096,6 +1114,11 @@ class NcmUsbBridge internal constructor(
         private const val NDP16_MINIMUM_LENGTH = 12
         private const val NDP16_SIGNATURE_MASK = 0x00ffffff
         private const val MIN_NTB16_BLOCK_LENGTH = 28
+        private const val MAX_NTB16_BLOCK_LENGTH = 0xffff
+        private const val MAX_QUEUED_FRAMES = 256
+        private const val MAX_NTB16_DATAGRAMS = MAX_QUEUED_FRAMES
+        private const val MAX_NDP16_LENGTH = NDP16_HEADER_BYTES +
+            (MAX_NTB16_DATAGRAMS + 1) * NDP16_ENTRY_BYTES
         private const val MAX_NDP_TABLES = 16
         private const val MAX_PENDING_RESYNC_CANDIDATES = 32
         private const val MAX_RESYNC_BYTES = 1 shl 20
@@ -1106,7 +1129,6 @@ class NcmUsbBridge internal constructor(
         private const val MAX_STATUS_NOTIFICATION_HEX_BYTES = 8
         private const val MAX_STARTUP_TX_LOGS = 8L
         private const val READ_DIAGNOSTIC_LOG_EVERY = 20L
-        private const val MAX_QUEUED_FRAMES = 256
         private const val MAX_QUEUED_BYTES = 1 shl 20
         private const val NANOS_PER_MILLISECOND = 1_000_000L
         private const val USB_CONTROL_DIAGNOSTIC_TIMEOUT_MILLIS = 250

@@ -146,6 +146,7 @@ internal object CarPlayHostActions {
     const val OPEN_CARPLAY = "com.shilapi.xcertplay.action.OPEN_CARPLAY"
     const val USB_DEVICE_ATTACHED = "android.hardware.usb.action.USB_DEVICE_ATTACHED"
     private const val INTERNAL_HOST_ACTION = "com.shilapi.xcertplay.action.INTERNAL_HOST_ACTION"
+    private const val NOTIFICATION_OPEN_ACTION = "com.shilapi.xcertplay.action.NOTIFICATION_OPEN_HOST"
     private const val EXTRA_INTERNAL_ACTION_TOKEN = "com.shilapi.xcertplay.extra.INTERNAL_ACTION_TOKEN"
     private const val MAX_PENDING_ACTIONS = 16
     private val pendingActions = LinkedHashMap<String, String>()
@@ -166,7 +167,11 @@ internal object CarPlayHostActions {
             .putExtra(EXTRA_INTERNAL_ACTION_TOKEN, token)
     }
 
+    fun createNotificationOpenIntent(context: Context): Intent =
+        Intent(context, CarPlayHostActivity::class.java).setAction(NOTIFICATION_OPEN_ACTION)
+
     fun consumeInternalAction(intent: Intent): String? {
+        if (intent.action == NOTIFICATION_OPEN_ACTION) return OPEN_CARPLAY
         if (intent.action != INTERNAL_HOST_ACTION) return null
         val token = intent.getStringExtra(EXTRA_INTERNAL_ACTION_TOKEN) ?: return null
         return synchronized(pendingActions) { pendingActions.remove(token) }

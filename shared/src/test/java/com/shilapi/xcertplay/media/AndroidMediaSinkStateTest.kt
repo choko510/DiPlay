@@ -29,12 +29,15 @@ class AndroidMediaSinkStateTest {
 
     @Test fun recoveryRequestsForMainAndAltDoNotShareAnInFlightGate() {
         val sink = AndroidMediaSink()
+        sink.onScreenStreamActive(110, true)
+        sink.onScreenStreamActive(111, true)
         val mainStarted = CountDownLatch(1)
         val allowMain = CountDownLatch(1)
         val altCompleted = CountDownLatch(1)
         val requestRecovery = AndroidMediaSink::class.java.getDeclaredMethod(
             "requestVideoRecovery",
             Int::class.javaPrimitiveType!!,
+            Long::class.javaPrimitiveType!!,
         ).apply { isAccessible = true }
         sink.setVideoRecoveryHandler(110) {
             mainStarted.countDown()
@@ -43,13 +46,79 @@ class AndroidMediaSinkStateTest {
         sink.setVideoRecoveryHandler(111) { altCompleted.countDown() }
 
         try {
-            requestRecovery.invoke(sink, 110)
+            requestRecovery.invoke(sink, 110, sink.videoStreamGenerationForTest(110))
             assertTrue(mainStarted.await(5, TimeUnit.SECONDS))
-            requestRecovery.invoke(sink, 111)
-            allowMain.countDown()
+            requestRecovery.invoke(sink, 111, sink.videoStreamGenerationForTest(111))
             assertTrue(altCompleted.await(5, TimeUnit.SECONDS))
         } finally {
             allowMain.countDown()
+            sink.close()
+        }
+    }
+
+    @Test fun aRetiredVideoDecoderCannotRequestAKeyframeThroughItsReplacementHandler() {
+        val sink = AndroidMediaSink()
+        val type = 110
+        val staleRequests = AtomicInteger()
+        val currentRequest = CountDownLatch(1)
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        fun recoveryCallback(decoder: Any): () -> Unit {
+            val callback = decoder.javaClass.getDeclaredField("requestKeyFrame").apply { isAccessible = true }
+                .get(decoder) as Function0<*>
+            return { check(callback.invoke() == Unit) }
+        }
+
+        sink.onScreenStreamActive(type, true)
+        sink.setVideoRecoveryHandler(type) { staleRequests.incrementAndGet() }
+        val oldDecoder = checkNotNull(decoderFactory.invoke(sink, type))
+        val oldRecovery = recoveryCallback(oldDecoder)
+
+        try {
+            sink.onScreenStreamActive(type, false)
+            sink.onScreenStreamActive(type, true)
+            sink.setVideoRecoveryHandler(type) { currentRequest.countDown() }
+            oldRecovery()
+
+            assertEquals(0, staleRequests.get())
+            assertFalse(currentRequest.await(50, TimeUnit.MILLISECONDS))
+
+            val newRecovery = recoveryCallback(checkNotNull(decoderFactory.invoke(sink, type)))
+            newRecovery()
+            assertTrue(currentRequest.await(5, TimeUnit.SECONDS))
+        } finally {
+            sink.close()
+        }
+    }
+
+    @Test fun retiredVideoDecoderCannotRequestAKeyframeThroughTheReplacementHandler() {
+        val sink = AndroidMediaSink()
+        val oldRequests = AtomicInteger()
+        val newRequests = CountDownLatch(1)
+        val type = 110
+        sink.onScreenStreamActive(type, true)
+        sink.setVideoRecoveryHandler(type) { oldRequests.incrementAndGet() }
+        val oldGeneration = sink.videoStreamGenerationForTest(type)
+        val requestRecovery = AndroidMediaSink::class.java.getDeclaredMethod(
+            "requestVideoRecovery",
+            Int::class.javaPrimitiveType!!,
+            Long::class.javaPrimitiveType!!,
+        ).apply { isAccessible = true }
+
+        try {
+            sink.onScreenStreamActive(type, false)
+            sink.onScreenStreamActive(type, true)
+            sink.setVideoRecoveryHandler(type) { newRequests.countDown() }
+
+            requestRecovery.invoke(sink, type, oldGeneration)
+            assertEquals(0, oldRequests.get())
+            assertFalse(newRequests.await(50, TimeUnit.MILLISECONDS))
+
+            requestRecovery.invoke(sink, type, sink.videoStreamGenerationForTest(type))
+            assertTrue(newRequests.await(5, TimeUnit.SECONDS))
+        } finally {
             sink.close()
         }
     }
@@ -92,6 +161,40 @@ class AndroidMediaSinkStateTest {
             assertNotSame(oldDecoder, videoDecoder(sink, type))
             assertEquals(VideoCodec.H264, pendingVideoCodec(sink, type))
         } finally {
+            sink.close()
+        }
+    }
+
+    @Test fun replacementWaitsForTheOldVideoDecoderStopAckWithoutBlockingTheStreamOwner() {
+        val sink = AndroidMediaSink()
+        val type = 110
+        val stopEntered = CountDownLatch(1)
+        val releaseStop = CountDownLatch(1)
+        sink.onScreenStreamActive(type, true)
+        sink.onVideoCodec(type, VideoCodec.H264)
+        sink.onVideoConfig(type, byteArrayOf(1))
+        val oldDecoder = videoDecoder(sink, type)
+        sink.beforeVideoDecoderStopForTest = {
+            stopEntered.countDown()
+            check(releaseStop.await(5, TimeUnit.SECONDS))
+        }
+
+        try {
+            sink.onScreenStreamActive(type, false)
+            assertTrue(stopEntered.await(5, TimeUnit.SECONDS))
+
+            sink.onScreenStreamActive(type, true)
+            sink.onVideoCodec(type, VideoCodec.H264)
+            sink.onVideoConfig(type, byteArrayOf(2))
+            assertNull(videoDecoder(sink, type))
+
+            releaseStop.countDown()
+            sink.onVideoConfig(type, byteArrayOf(2))
+            val replacement = videoDecoder(sink, type)
+            assertNotNull(replacement)
+            assertNotSame(oldDecoder, replacement)
+        } finally {
+            releaseStop.countDown()
             sink.close()
         }
     }

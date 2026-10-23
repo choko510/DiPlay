@@ -474,3 +474,11 @@ Keep incremental resync scan position across USB completions and instrument cand
 When an Android Activity must remain externally launchable for system USB attach, move app commands to a non-exported Activity and check both the currently attached device identity and `UsbManager.hasPermission()` before acting on the exported entry point.
 
 For privacy audits, search every app-owned direct `Log.*` sink for Throwable arguments, then verify the replacement retains useful error classes without retaining exception messages, stack traces, or media payload bytes.
+
+When a USB header is structurally incomplete, do not treat two plausible sequence headers in its unused region as a boundary. If the declared maximum length makes the boundary ambiguous, a bounded explicit failure is safer than silently delivering payload bytes as separate Ethernet frames.
+
+Test late audio-owner state after a successful microphone start, not only initial start failure. The `AudioRecord` worker can die independently while downlink RTP continues; retry should inspect the current token's active uplink and honor the same backoff as startup retries.
+
+Test notification actions by reusing the same `PendingIntent`, not by creating a new token for every click. A foreground notification can outlive its process, so its safe open action must not depend on an in-memory token map.
+
+For MediaCodec replacement, fence callbacks and serialize decoder ownership separately: a generation check prevents stale UI/keyframe callbacks, while a stop ACK after codec release prevents a replacement worker from becoming current too early. SurfaceTexture destruction remains a device-level lifetime test.

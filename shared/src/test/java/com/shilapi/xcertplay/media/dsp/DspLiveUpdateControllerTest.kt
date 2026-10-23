@@ -6,10 +6,12 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.fail
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -109,6 +111,40 @@ class DspLiveUpdateControllerTest {
         assertEquals("dsp-live-control", prepareThread.get())
         candidate?.pipeline?.close()
         controller.close()
+    }
+
+    @Test
+    fun preparationExceptionMarksOnlyThatGenerationFailedWithoutRetryLoop() {
+        val provider = MutableConfigProvider()
+        val prepareCalls = AtomicInteger()
+        val failed = LinkedBlockingQueue<Pair<Long, String>>()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = { fail("a throwing preparation cannot publish a candidate") },
+            onFailed = { snapshot, error -> failed.offer(snapshot.generation to error.javaClass.simpleName) },
+            pipelinePreparer = { _, _ ->
+                prepareCalls.incrementAndGet()
+                throw IllegalStateException("fixture failure")
+            },
+        )
+
+        try {
+            provider.update(DspRuntimeConfig(enabled = true))
+            assertEquals(1L to "IllegalStateException", failed.poll(5, TimeUnit.SECONDS))
+            Thread.sleep(50)
+            assertEquals(1, prepareCalls.get())
+            assertNull(failed.poll(50, TimeUnit.MILLISECONDS))
+
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = 1.0))
+            assertEquals(2L to "IllegalStateException", failed.poll(5, TimeUnit.SECONDS))
+            assertEquals(2, prepareCalls.get())
+        } finally {
+            controller.close()
+        }
     }
 
     @Test

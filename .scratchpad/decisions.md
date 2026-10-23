@@ -617,3 +617,13 @@ For live DSP OFF with zero common latency, fade toward dry PCM instead of carryi
 Treat DSP status as the last adopted graph and identify format-incompatible modules such as Convolver separately. Keep the Harmonic upper-band alias guard and adversarial native sweep together; target THD/listening and Seat phase acceptance remain device gates.
 
 Logcat is an independent sink from the app's redacted session trace. Log exception class names at direct `Log` sites instead of Throwable stacks/messages; remove microphone packet and decrypted video previews before logging.
+
+For the fourth PR-45 audit, do not resynchronize a plausible incomplete NTH16 from a two-block sequence pair inside its unused gap. A max-length `0xffff` header with a validated following pair is ambiguous, so fail the NCM session closed instead of delivering possibly misframed packets. Bound NDP tables and per-block datagrams, then recover malformed NDP metadata only from a consecutive valid pair.
+
+After a microphone uplink has started, re-check its owner-scoped active state on downlink RTP; only a current owner may retry a dead capture, and it must use the existing retry backoff. Video recovery requests carry the screen generation and execute on a bounded two-worker pool. A replacement decoder is not created until the prior worker acknowledges codec release; a bounded timeout drops the new config/frame until another input retries.
+
+Keep the foreground notification's open PendingIntent reusable and process-death safe with a dedicated explicit action to the non-exported Host Activity. The exported USB attach trampoline requires Android's privileged `MANAGE_USB` caller permission in addition to validating the actual attached CH341.
+
+Treat pipeline-preparer exceptions as a terminal FAILED result for that generation rather than rescheduling the same failing candidate. Controller epochs fence callbacks across format replacement even when the audio format later returns to an equal value.
+
+The native DSP engine has mutable graph state and remains a single-writer API: callers serialize `process`/`reset` per processor. Keep same-engine concurrent-process behavior outside the supported contract unless a separate real-time-safe guard is designed.

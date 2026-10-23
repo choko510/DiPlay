@@ -1286,7 +1286,10 @@ static void test_harmonic_engine_latency_oversampling_modes_and_alias_rejection(
         }
     }
 
-    const double maximum_level_frequencies[] = {13500.0, 15000.0, 17000.0, 18500.0, 19500.0, 20000.0};
+    const double maximum_level_frequencies[] = {
+        13500.0, 15000.0, 17000.0, 18500.0, 19500.0, 20000.0, 20400.0,
+    };
+    const double exciter_cutoffs[] = {6000.0, 12000.0, 18000.0};
     for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
         const int sample_rate = sample_rates[rate_index];
         for (size_t frequency_index = 0;
@@ -1294,34 +1297,39 @@ static void test_harmonic_engine_latency_oversampling_modes_and_alias_rejection(
             frequency_index++) {
             const double input_frequency = maximum_level_frequencies[frequency_index];
             if (input_frequency >= sample_rate * 0.5) continue;
-            for (int mode = 0; mode <= 2; mode++) {
-                for (size_t quality_index = 0;
-                    quality_index < sizeof(alias_taps) / sizeof(alias_taps[0]);
-                    quality_index++) {
-                    dsp_harmonic_config max_level = make_harmonic_config();
-                    max_level.mode = mode;
-                    max_level.taps = alias_taps[quality_index];
-                    max_level.exciter_amount = 0.5;
-                    max_level.exciter_cutoff_hz = 6000.0;
-                    max_level.level_match_enabled = 0;
-                    dsp_engine *engine = create_test_engine_with_harmonic(sample_rate, 2, 512, &max_level);
-                    assert_true(engine != NULL, "maximum-level harmonic graph creates");
-                    const double fundamental = measure_output_tone_component_at_rate_with_amplitude(
-                        engine, sample_rate, input_frequency, input_frequency, 0.9);
-                    const int first_order = mode == 1 ? 3 : 2;
-                    const int last_order = mode == 2 ? 3 : first_order;
-                    for (int harmonic_order = first_order; harmonic_order <= last_order; harmonic_order++) {
-                        const double alias_frequency = fabs(sample_rate - harmonic_order * input_frequency);
-                        const double alias = measure_output_tone_component_at_rate_with_amplitude(
-                            engine, sample_rate, input_frequency, alias_frequency, 0.9);
-                        char alias_message[256];
-                        snprintf(alias_message, sizeof(alias_message),
-                            "upper-band alias Fs=%d input=%.0fHz mode=%d taps=%d order=%d ratio=%.5f",
-                            sample_rate, input_frequency, mode, alias_taps[quality_index], harmonic_order,
-                            fundamental > 0.0 ? alias / fundamental : INFINITY);
-                        assert_true(alias < fundamental * 0.05, alias_message);
+            for (size_t cutoff_index = 0;
+                cutoff_index < sizeof(exciter_cutoffs) / sizeof(exciter_cutoffs[0]);
+                cutoff_index++) {
+                for (int mode = 0; mode <= 2; mode++) {
+                    for (size_t quality_index = 0;
+                        quality_index < sizeof(alias_taps) / sizeof(alias_taps[0]);
+                        quality_index++) {
+                        dsp_harmonic_config max_level = make_harmonic_config();
+                        max_level.mode = mode;
+                        max_level.taps = alias_taps[quality_index];
+                        max_level.exciter_amount = 0.5;
+                        max_level.exciter_cutoff_hz = exciter_cutoffs[cutoff_index];
+                        max_level.level_match_enabled = 0;
+                        dsp_engine *engine = create_test_engine_with_harmonic(sample_rate, 2, 512, &max_level);
+                        assert_true(engine != NULL, "maximum-level harmonic graph creates");
+                        const double fundamental = measure_output_tone_component_at_rate_with_amplitude(
+                            engine, sample_rate, input_frequency, input_frequency, 0.9);
+                        const int first_order = mode == 1 ? 3 : 2;
+                        const int last_order = mode == 2 ? 3 : first_order;
+                        for (int harmonic_order = first_order; harmonic_order <= last_order; harmonic_order++) {
+                            const double alias_frequency = fabs(sample_rate - harmonic_order * input_frequency);
+                            const double alias = measure_output_tone_component_at_rate_with_amplitude(
+                                engine, sample_rate, input_frequency, alias_frequency, 0.9);
+                            char alias_message[256];
+                            snprintf(alias_message, sizeof(alias_message),
+                                "upper-band alias Fs=%d input=%.0fHz cutoff=%.0fHz mode=%d taps=%d order=%d ratio=%.5f",
+                                sample_rate, input_frequency, exciter_cutoffs[cutoff_index], mode,
+                                alias_taps[quality_index], harmonic_order,
+                                fundamental > 0.0 ? alias / fundamental : INFINITY);
+                            assert_true(alias < fundamental * 0.05, alias_message);
+                        }
+                        dsp_engine_destroy(engine);
                     }
-                    dsp_engine_destroy(engine);
                 }
             }
         }

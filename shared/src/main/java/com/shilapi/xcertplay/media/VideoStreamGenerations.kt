@@ -8,5 +8,7 @@ internal class VideoStreamGenerations {
 
     fun advance(type: Int): Long = current.computeIfAbsent(type) { AtomicLong() }.incrementAndGet()
 
+    fun current(type: Int): Long = current.computeIfAbsent(type) { AtomicLong() }.get()
+
     fun isCurrent(type: Int, generation: Long): Boolean = current[type]?.get() == generation
 }

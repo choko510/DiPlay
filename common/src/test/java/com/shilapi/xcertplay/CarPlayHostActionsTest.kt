@@ -3,8 +3,10 @@ package com.shilapi.xcertplay
 import android.content.Intent
 import android.content.ComponentName
 import android.content.pm.PackageManager
+import android.app.PendingIntent
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,6 +14,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.Shadows.shadowOf
 import com.shilapi.xcertplay.youtube.HostLayoutState
 import com.shilapi.xcertplay.youtube.HostLayoutMode
 
@@ -43,6 +46,24 @@ class CarPlayHostActionsTest {
         )
         assertEquals(CarPlayHostActions.ENTER_DSP_SPLIT, CarPlayHostActions.consumeInternalAction(internal))
         assertNull(CarPlayHostActions.consumeInternalAction(internal))
+    }
+
+    @Test
+    fun theSameNotificationPendingIntentCanOpenCarPlayTwice() {
+        val application = RuntimeEnvironment.getApplication()
+        val pendingIntent = PendingIntent.getActivity(
+            application,
+            0,
+            CarPlayHostActions.createNotificationOpenIntent(application),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        repeat(2) {
+            pendingIntent.send()
+            val launchedIntent = shadowOf(application).nextStartedActivity
+            assertNotNull(launchedIntent)
+            assertEquals(CarPlayHostActions.OPEN_CARPLAY, CarPlayHostActions.consumeInternalAction(launchedIntent))
+        }
     }
 
     @Test
@@ -121,5 +142,6 @@ class CarPlayHostActionsTest {
 
         assertFalse(host.exported)
         assertTrue(usbTrampoline.exported)
+        assertEquals("android.permission.MANAGE_USB", usbTrampoline.permission)
     }
 }

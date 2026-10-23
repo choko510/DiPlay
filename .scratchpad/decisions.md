@@ -398,7 +398,13 @@ Accept only CSV responses with declared noise-floor/clipping metadata, 20–300 
 
 ## Harmonic effects use bounded 2× FIR oversampling and report the dry-matched latency
 
-Share one 2× oversampled waveshaper across the Exciter and Virtual Bass branches, use fixed 9/17/33-tap Blackman FIR presets, and delay dry audio by the matching 4/8/16 frames. Keep the effects off by default, bound each branch to 0.5, include worst-case additive gain in Auto Headroom, retain the final limiter, and defer active filter-state changes until the next track generation.
+Share one 2× oversampled waveshaper across the Exciter and Virtual Bass branches, use fixed 9/17/33-tap Blackman FIR presets, and delay dry audio by the matching 4/8/16 frames. Add the ADAA-shaped component to the dry signal; never subtract the input identity from the shaped branch. Keep the effects off by default and bound each branch to 0.5. Calculate Auto Headroom from the internally level-matched dry gain plus the maximum additive branches so the level-match gain is not budgeted twice. Retain the final limiter and defer active filter-state changes until the next track generation.
+
+For native DSP failure, keep Seat-only fallback active even when track common latency is zero. When a live graph crossfade completes, switch to a control-thread-prepared fallback using the newly accepted Seat configuration and the immutable track-generation common latency. Retire old pipelines through a prestarted lock-free reaper so the audio caller does not take locks or schedule cleanup work.
+
+Distinguish `OFF_INITIAL` from `OFF_LIVE_LATENCY_PRESERVED`: a new track with the DSP master off uses the byte-exact legacy PCM16 path; disabling DSP during a track retains its common latency through a float/dither bypass until the next track generation. This preserves the clock and should not be described as bit-exact live OFF.
+
+Treat `DspAdvancedMsConfig.fromLegacy` as a starting-value migration only. The LR4 crossover response differs from the legacy second-order Mono Bass filter; state that in the enable description and lock the frequency difference in a characterization sweep.
 
 ## Batch remaining STEP4 work in the existing PR
 
@@ -588,3 +594,6 @@ Do not relax the API 35 emulator p99 gate based on inconsistent hosted failures 
 Run the app's PCM/DSP renderer and its CI microbenchmark at `THREAD_PRIORITY_AUDIO`. Measure the same production block under the audio scheduling priority, preserve the 2× block p99 ceiling, and keep target-device xrun/soak evidence as a separate release gate.
 
 Serialize `DspEditorSession` async operations rather than letting a later master/save/apply action invalidate an import token. Disable conflicting controls while an operation is pending, and delete an imported IR on completion only when no active or saved profile references it. Treat `OPEN_CARPLAY` as an explicit request to return from any Split mode before attempting startup.
+DSP editor status reports the MEDIA renderer's requested, preparing, prepared, deferred, active, or failed graph generation separately from the configured profile. Keep a latency-changing candidate prepared through the current track and adopt it before the next generation commits content; do not drop it or move its latency mid-track.
+
+Build the NCM short-packet terminator from the selected bulk-OUT endpoint max-packet size. For microphone `READ_BLOCKING` zero-byte returns, back off only after an empty read, cap delay at 50 ms, reset on positive input, and send no synthetic silence. Apply the existing diagnostic redactor before writing messages or exception details to Logcat.

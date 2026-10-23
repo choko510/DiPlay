@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.orchestration
 
+import com.shilapi.xcertplay.DiagnosticRedactor
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothA2dp
 import android.bluetooth.BluetoothDevice
@@ -3260,22 +3261,31 @@ class CarPlayController(
     }
 
     private fun debugLog(message: String) {
-        Log.i(IphoneCarPlayConfiguration.TAG, message)
+        Log.i(IphoneCarPlayConfiguration.TAG, DiagnosticRedactor.redactForLogcat(message))
         try {
             uiListener?.onDebugLog(message)
         } catch (error: Exception) {
-            Log.w(IphoneCarPlayConfiguration.TAG, "debug log callback failed", error)
+            Log.w(
+                IphoneCarPlayConfiguration.TAG,
+                "debug log callback failed error=${error.javaClass.simpleName}",
+            )
         }
     }
 
     private fun debugLog(message: String, error: Throwable) {
-        Log.w(IphoneCarPlayConfiguration.TAG, message, error)
+        Log.w(
+            IphoneCarPlayConfiguration.TAG,
+            "${DiagnosticRedactor.redactForLogcat(message)} error=${error.javaClass.simpleName}",
+        )
         try {
             uiListener?.onDebugLog(
                 "$message: ${error.message ?: error.javaClass.simpleName}",
             )
         } catch (callbackError: Exception) {
-            Log.w(IphoneCarPlayConfiguration.TAG, "debug log callback failed", callbackError)
+            Log.w(
+                IphoneCarPlayConfiguration.TAG,
+                "debug log callback failed error=${callbackError.javaClass.simpleName}",
+            )
         }
     }
 

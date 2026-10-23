@@ -109,23 +109,23 @@ static float process_upsampled_branch(
             upsampled += coefficients[tap] * state->upsample_ring[read_index];
         }
         upsampled *= 2.0f;
-        const float delta = waveshape_antiderivative(
+        const float shaped = waveshape_antiderivative(
             upsampled,
             state->previous_upsampled_sample,
-            mode) - upsampled;
+            mode);
         state->previous_upsampled_sample = upsampled;
-        state->delta_ring[state->delta_write_index] = fabsf(delta) < 1e-20f ? 0.0f : delta;
+        state->shaped_ring[state->shaped_write_index] = fabsf(shaped) < 1e-20f ? 0.0f : shaped;
         if (phase == 0) {
             for (int tap = 0; tap < taps; tap++) {
-                int read_index = state->delta_write_index - tap;
+                int read_index = state->shaped_write_index - tap;
                 while (read_index < 0) read_index += DSP_HARMONIC_RING_FRAMES;
-                output += coefficients[tap] * state->delta_ring[read_index];
+                output += coefficients[tap] * state->shaped_ring[read_index];
             }
         }
         state->upsample_write_index++;
         if (state->upsample_write_index == DSP_HARMONIC_RING_FRAMES) state->upsample_write_index = 0;
-        state->delta_write_index++;
-        if (state->delta_write_index == DSP_HARMONIC_RING_FRAMES) state->delta_write_index = 0;
+        state->shaped_write_index++;
+        if (state->shaped_write_index == DSP_HARMONIC_RING_FRAMES) state->shaped_write_index = 0;
     }
     return fabsf(output) < 1e-20f ? 0.0f : output;
 }
@@ -215,17 +215,17 @@ void dsp_harmonic_process_frame(dsp_harmonic *harmonic, float *left, float *righ
         output[channel] = harmonic->dry_delay[channel][dry_index] * harmonic->level_match_gain;
         if (harmonic->exciter_enabled) {
             const float band = dsp_biquad_process_sample(&harmonic->exciter_high_pass, input, channel);
-            float delta = process_upsampled_branch(
+            float harmonic_component = process_upsampled_branch(
                 &harmonic->branches[channel][0], harmonic->fir_coefficients, harmonic->taps, band, harmonic->mode);
-            delta = dsp_biquad_process_sample(&harmonic->exciter_dc_block, delta, channel);
-            output[channel] += delta * harmonic->exciter_amount;
+            harmonic_component = dsp_biquad_process_sample(&harmonic->exciter_dc_block, harmonic_component, channel);
+            output[channel] += harmonic_component * harmonic->exciter_amount;
         }
         if (harmonic->virtual_bass_enabled) {
             const float band = dsp_biquad_process_sample(&harmonic->virtual_bass_low_pass, input, channel);
-            float delta = process_upsampled_branch(
+            float harmonic_component = process_upsampled_branch(
                 &harmonic->branches[channel][1], harmonic->fir_coefficients, harmonic->taps, band, harmonic->mode);
-            delta = dsp_biquad_process_sample(&harmonic->virtual_bass_dc_block, delta, channel);
-            output[channel] += delta * harmonic->virtual_bass_amount;
+            harmonic_component = dsp_biquad_process_sample(&harmonic->virtual_bass_dc_block, harmonic_component, channel);
+            output[channel] += harmonic_component * harmonic->virtual_bass_amount;
         }
     }
     harmonic->dry_write_index++;

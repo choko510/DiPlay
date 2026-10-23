@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
 import kotlin.math.log10
+import kotlin.math.pow
 
 enum class DspHarmonicMode(val nativeValue: Int) {
     EVEN(0),
@@ -53,7 +54,12 @@ data class DspHarmonicConfig(
             val additiveAmount =
                 (if (exciterEnabled) exciterAmount else 0.0) +
                     (if (virtualBassEnabled) virtualBassAmount else 0.0)
-            return 20.0 * log10(1.0 + additiveAmount)
+            val levelMatchGain = if (levelMatchEnabled) {
+                10.0.pow(-LEVEL_MATCH_REDUCTION_DB_PER_AMOUNT * additiveAmount / 20.0)
+            } else {
+                1.0
+            }
+            return 20.0 * log10(levelMatchGain + additiveAmount)
         }
 
     fun validateForSampleRate(sampleRate: Int) {
@@ -73,5 +79,6 @@ data class DspHarmonicConfig(
         private const val MIN_SAMPLE_RATE = 8_000
         private const val MAX_SAMPLE_RATE = 192_000
         private const val MAX_NORMALIZED_CUTOFF = 0.45
+        private const val LEVEL_MATCH_REDUCTION_DB_PER_AMOUNT = 1.5
     }
 }

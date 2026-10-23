@@ -41,11 +41,12 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
-    fun initialLatencyCandidateCompletingAfterFirstCommitIsDeferred() {
+    fun initialLatencyCandidateCompletingAfterFirstCommitIsPreparedForNextGeneration() {
         val provider = MutableConfigProvider()
         val preparing = CountDownLatch(1)
         val release = CountDownLatch(1)
         val deferred = LinkedBlockingQueue<Long>()
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
         val committed = AtomicBoolean(false)
         val controller = DspLiveUpdateController(
             format = DspAudioFormat(48_000, 2),
@@ -54,7 +55,7 @@ class DspLiveUpdateControllerTest {
             initialGeneration = 0L,
             activeLatencyFrames = { 0 },
             canAdoptLatencyChange = { !committed.get() },
-            onPrepared = { it.pipeline?.close() },
+            onPrepared = { prepared.offer(it) },
             onDeferred = { deferred.offer(it) },
             pipelinePreparer = { format, _ ->
                 preparing.countDown()
@@ -68,7 +69,11 @@ class DspLiveUpdateControllerTest {
         committed.set(true)
         release.countDown()
 
+        val update = prepared.poll(5, TimeUnit.SECONDS)
+        assertNotNull(update)
+        assertEquals(128, update?.latencyFrames)
         assertEquals(1L, deferred.poll(5, TimeUnit.SECONDS))
+        update?.pipeline?.close()
         controller.close()
     }
 
@@ -106,7 +111,7 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
-    fun configUpdatesWithoutRetiredPipelinesDoNotStartMaintenancePolling() {
+    fun preparedGraphRemainsAdoptableWithoutRetiredPipelines() {
         val provider = MutableConfigProvider()
         val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
         val controller = DspLiveUpdateController(
@@ -124,7 +129,7 @@ class DspLiveUpdateControllerTest {
             val update = prepared.poll(5, TimeUnit.SECONDS)
 
             assertNotNull(update)
-            assertNull(maintenanceTask(controller))
+            assertTrue(controller.canAdoptUpdate())
             update?.pipeline?.close()
         } finally {
             controller.close()
@@ -216,7 +221,7 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
-    fun equalLatencyGraphIsPreparedAndLatencyChangingGraphIsDeferred() {
+    fun equalAndLatencyChangingGraphsArePreparedForRendererSafeAdoption() {
         val initialImpulse = DspImpulseResponse("room_old", 48_000, 1, floatArrayOf(1.0f))
         val replacementImpulse = DspImpulseResponse("room_new", 48_000, 1, floatArrayOf(0.0f, 1.0f))
         val initialConfig = DspRuntimeConfig(
@@ -229,7 +234,7 @@ class DspLiveUpdateControllerTest {
         )
         val provider = MutableConfigProvider(initialConfig)
         val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
-        val deferredPipelineClosed = CountDownLatch(1)
+        val deferred = LinkedBlockingQueue<Long>()
         val controller = DspLiveUpdateController(
             format = DspAudioFormat(48_000, 2),
             role = DspStreamRole.MEDIA,
@@ -237,11 +242,10 @@ class DspLiveUpdateControllerTest {
             initialGeneration = 0L,
             activeLatencyFrames = { 128 },
             onPrepared = { prepared.offer(it) },
+            onDeferred = { deferred.offer(it) },
             pipelinePreparer = { format, config ->
                 val latency = if (config.convolver.enabled) 128 else 0
-                trackingPipeline(format, latency) {
-                    if (latency == 0) deferredPipelineClosed.countDown()
-                }
+                trackingPipeline(format, latency) { }
             },
         )
 
@@ -262,16 +266,22 @@ class DspLiveUpdateControllerTest {
         sameLatency?.pipeline?.close()
 
         provider.update(DspRuntimeConfig(enabled = true, gainDb = 2.0))
-        assertTrue(deferredPipelineClosed.await(5, TimeUnit.SECONDS))
-        assertNull(prepared.poll(100, TimeUnit.MILLISECONDS))
+        val latencyChange = prepared.poll(5, TimeUnit.SECONDS)
+        assertNotNull(latencyChange)
+        assertEquals(0, latencyChange?.latencyFrames)
+        assertEquals(2L, deferred.poll(5, TimeUnit.SECONDS))
+        latencyChange?.pipeline?.close()
         controller.close()
     }
 
     @Test
-    fun retiredGraphClosesOnTheControlThreadAfterItIsNoLongerActive() {
+    fun retiredGraphClosesOnDedicatedReaperWithoutBlockingTheCaller() {
         val provider = MutableConfigProvider()
         val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val retiredCloseStarted = CountDownLatch(1)
+        val allowClose = CountDownLatch(1)
         val retiredClosed = CountDownLatch(1)
+        val retireReturned = CountDownLatch(1)
         val closeThread = AtomicReference<String?>(null)
         val controller = DspLiveUpdateController(
             format = DspAudioFormat(48_000, 1),
@@ -283,6 +293,8 @@ class DspLiveUpdateControllerTest {
             pipelinePreparer = { format, _ ->
                 trackingPipeline(format, 0) {
                     closeThread.set(Thread.currentThread().name)
+                    retiredCloseStarted.countDown()
+                    check(allowClose.await(5, TimeUnit.SECONDS))
                     retiredClosed.countDown()
                 }
             },
@@ -291,19 +303,28 @@ class DspLiveUpdateControllerTest {
         provider.update(DspRuntimeConfig(enabled = true, gainDb = 3.0))
         val update = prepared.poll(5, TimeUnit.SECONDS)
         assertNotNull(update?.pipeline)
-        controller.retire(update?.pipeline)
+        val audioThread = Thread({
+            controller.retire(update?.pipeline)
+            retireReturned.countDown()
+        }, "audio-render-test")
+        audioThread.start()
 
-        assertTrue(retiredClosed.await(5, TimeUnit.SECONDS))
-        assertEquals("dsp-live-control", closeThread.get())
-        val deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
-        while (maintenanceTask(controller) != null && System.nanoTime() < deadlineNs) Thread.yield()
-        assertNull(maintenanceTask(controller))
-        controller.close()
+        try {
+            assertTrue(retireReturned.await(1, TimeUnit.SECONDS))
+            assertTrue(retiredCloseStarted.await(5, TimeUnit.SECONDS))
+            assertEquals("dsp-pipeline-reaper", closeThread.get())
+            assertTrue("retired storage prevents another adoption", !controller.canAdoptUpdate())
+            allowClose.countDown()
+            assertTrue(retiredClosed.await(5, TimeUnit.SECONDS))
+            val deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (!controller.canAdoptUpdate() && System.nanoTime() < deadlineNs) Thread.yield()
+            assertTrue(controller.canAdoptUpdate())
+        } finally {
+            allowClose.countDown()
+            audioThread.join(1_000)
+            controller.close()
+        }
     }
-
-    private fun maintenanceTask(controller: DspLiveUpdateController): Any? =
-        DspLiveUpdateController::class.java.getDeclaredField("maintenance").apply { isAccessible = true }
-            .get(controller)
 
     private fun trackingPipeline(
         format: DspAudioFormat,

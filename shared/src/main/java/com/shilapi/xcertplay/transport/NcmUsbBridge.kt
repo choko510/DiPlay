@@ -252,7 +252,11 @@ class NcmUsbBridge internal constructor(
             return@synchronized finish(NcmSendResult.Failed(error))
         }
         val block = try {
-            Ntb16Codec.build(frame, sequence)
+            Ntb16Codec.build(
+                frame,
+                sequence,
+                outEndpoint.maxPacketSize.takeIf { it > 0 } ?: DEFAULT_USB_PACKET_SIZE,
+            )
         } catch (error: Exception) {
             return@synchronized finish(NcmSendResult.Failed(error))
         }

@@ -538,6 +538,21 @@ class NcmUsbBridgeFixtureTest {
     }
 
     @Test
+    fun bulkOutShortPacketPaddingUsesTheEndpointPacketSize() {
+        val frame = Step4TestFixtures.ethernetFrame(length = 100)
+        val (bridge, script) = newBridge(bulkOutMaxPacketSize = 64)
+
+        bridge.use {
+            assertEquals(NcmSendResult.Sent, it.send(frame, timeoutMillis = 100))
+        }
+
+        val written = script.outgoingBlocks.single()
+        assertEquals(129, written.size)
+        assertEquals(128, (written[8].toInt() and 0xff) or ((written[9].toInt() and 0xff) shl 8))
+        assertArrayEquals(frame, Ntb16Codec.parse(written).single())
+    }
+
+    @Test
     fun wiredPathDiagnosticsDoNotChangeBulkOutResults() {
         val frame = Step4TestFixtures.ethernetFrame(length = 60)
         val disabled = WiredPathDiagnostics("disabled", 1, enabled = false)
@@ -571,11 +586,12 @@ class NcmUsbBridgeFixtureTest {
         wiredPathDiagnostics: WiredPathDiagnostics? = null,
         diagnosticProfile: NcmDiagnosticProfile = NcmDiagnosticProfile.AUTO,
         bulkInMaxPacketSize: Int = 512,
+        bulkOutMaxPacketSize: Int = 512,
     ): Pair<NcmUsbBridge, ScriptedUsbDeviceConnectionShadow> {
         val connection = ReflectionHelpers.callConstructor(UsbDeviceConnection::class.java)
         val script = Shadow.extract<ScriptedUsbDeviceConnectionShadow>(connection)
         val input = endpoint(address = 0x81, maxPacketSize = bulkInMaxPacketSize, direction = 0x80)
-        val output = endpoint(address = 0x02, maxPacketSize = 512, direction = 0x00)
+        val output = endpoint(address = 0x02, maxPacketSize = bulkOutMaxPacketSize, direction = 0x00)
         val bridge = NcmUsbBridge(
             connection = connection,
             outEndpoint = output,

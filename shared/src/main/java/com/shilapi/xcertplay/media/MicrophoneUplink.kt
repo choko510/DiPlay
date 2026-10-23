@@ -25,6 +25,9 @@ internal interface MicrophoneUplinkController : Closeable {
     fun activate()
 }
 
+internal fun microphoneZeroReadBackoffMs(consecutiveEmptyReads: Int): Long =
+    consecutiveEmptyReads.coerceIn(1, 10) * 5L
+
 /**
  * Captures one PCM microphone stream and sends it back to the phone as sealed CarPlay RTP.
  *
@@ -164,6 +167,7 @@ internal class MicrophoneUplink(
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
         val counters = MicrophoneCounters()
         var filled = 0
+        var consecutiveEmptyReads = 0
         try {
             activation.await()
             while (running.get() && isCurrentOwner()) {
@@ -173,8 +177,11 @@ internal class MicrophoneUplink(
                     return
                 }
                 if (count == 0) {
+                    consecutiveEmptyReads = (consecutiveEmptyReads + 1).coerceAtMost(10)
+                    Thread.sleep(microphoneZeroReadBackoffMs(consecutiveEmptyReads))
                     continue
                 }
+                consecutiveEmptyReads = 0
                 var offset = 0
                 while (offset < count && running.get()) {
                     val copied = minOf(frame.size - filled, count - offset)

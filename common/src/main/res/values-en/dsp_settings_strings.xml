@@ -9,7 +9,7 @@
     <string name="dsp_unapplied_changes">Draft changes are not applied.</string>
     <string name="dsp_changes_applied">Draft matches the applied profile.</string>
     <string name="dsp_selected_profile">Selected profile: %1$s</string>
-    <string name="dsp_applied_profile">Applied profile: %1$s</string>
+    <string name="dsp_applied_profile">Configured profile: %1$s</string>
     <string name="dsp_settings_description">Some settings apply during playback. Rebuilding a stateful Convolver, Compressor, Multiband, or Dynamic EQ graph is deferred until the next audio stream.</string>
     <string name="dsp_enabled">Enable DSP</string>
     <string name="dsp_enabled_description">Off by default. When disabled, playback uses the existing PCM path.</string>
@@ -86,7 +86,16 @@
     <string name="dsp_wet">Wet</string>
     <string name="dsp_diagnostics">Diagnostics</string>
     <string name="dsp_current_profile">Current profile: %1$s</string>
-    <string name="dsp_dsp_state">DSP state: %1$s</string>
+    <string name="dsp_dsp_state">Configured DSP state: %1$s</string>
+    <string name="dsp_renderer_apply_status">Playback renderer apply status</string>
+    <string name="dsp_renderer_apply_waiting">Waiting for a MEDIA playback renderer</string>
+    <string name="dsp_renderer_apply_requested">Waiting for MEDIA renderer (generation %1$d)</string>
+    <string name="dsp_renderer_apply_preparing">Preparing graph (generation %1$d)</string>
+    <string name="dsp_renderer_apply_prepared">Graph prepared; waiting for a safe switch (generation %1$d)</string>
+    <string name="dsp_renderer_apply_active">Active in playback renderer (generation %1$d)</string>
+    <string name="dsp_renderer_apply_deferred">Pending until the next audio track (requested generation %1$d, current generation %2$s)</string>
+    <string name="dsp_renderer_apply_failed">Could not prepare generation %1$d; current output is retained.</string>
+    <string name="dsp_renderer_apply_no_active">none</string>
     <string name="dsp_done">Done</string>
     <string name="dsp_preset_flat">Flat</string>
     <string name="dsp_preset_daily">Daily</string>
@@ -97,7 +106,7 @@
     <string name="dsp_preset_custom_1">Custom 1</string>
     <string name="dsp_preset_custom_2">Custom 2</string>
     <string name="dsp_ms_advanced">Advanced Mid/Side</string>
-    <string name="dsp_ms_description">Mid includes all center-panned content, not only vocals. Legacy width and mono-bass controls are folded into these band controls when enabled.</string>
+    <string name="dsp_ms_description">Mid includes all center-panned content, not only vocals. On first enable, legacy width and mono-bass values seed these band controls; the crossover response differs, so this is not an exact sound-profile conversion.</string>
     <string name="dsp_ms_crossover">Low/high crossover</string>
     <string name="dsp_ms_center_focus">Center focus</string>
     <string name="dsp_ms_mid_low">Low-band Mid tone</string>

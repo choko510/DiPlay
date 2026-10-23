@@ -9,7 +9,7 @@
     <string name="dsp_unapplied_changes">未適用の変更があります</string>
     <string name="dsp_changes_applied">プロファイルは適用済みです</string>
     <string name="dsp_selected_profile">選択中のプロファイル: %1$s</string>
-    <string name="dsp_applied_profile">適用済みプロファイル: %1$s</string>
+    <string name="dsp_applied_profile">設定済みプロファイル: %1$s</string>
     <string name="dsp_settings_description">一部の設定は再生中に反映されます。Convolver、Compressor、Multiband、Dynamic EQなど、内部状態を持つgraphの再構築は次のオーディオストリームまで保留されます。</string>
     <string name="dsp_enabled">DSPを有効にする</string>
     <string name="dsp_enabled_description">初期設定では無効です。無効時は既存のPCM再生経路を使用します。</string>
@@ -86,7 +86,16 @@
     <string name="dsp_wet">Wet</string>
     <string name="dsp_diagnostics">Diagnostics</string>
     <string name="dsp_current_profile">Current profile: %1$s</string>
-    <string name="dsp_dsp_state">DSP state: %1$s</string>
+    <string name="dsp_dsp_state">設定上のDSP状態: %1$s</string>
+    <string name="dsp_renderer_apply_status">再生レンダラーの適用状態</string>
+    <string name="dsp_renderer_apply_waiting">MEDIA再生レンダラーの応答待ち</string>
+    <string name="dsp_renderer_apply_requested">MEDIA再生レンダラーへの適用待ち（世代 %1$d）</string>
+    <string name="dsp_renderer_apply_preparing">グラフを準備中（世代 %1$d）</string>
+    <string name="dsp_renderer_apply_prepared">グラフ準備済み。安全に切り替えられる時点を待機中（世代 %1$d）</string>
+    <string name="dsp_renderer_apply_active">再生レンダラーで適用中（世代 %1$d）</string>
+    <string name="dsp_renderer_apply_deferred">次の音声トラックまで保留（要求世代 %1$d、現在の世代 %2$s）</string>
+    <string name="dsp_renderer_apply_failed">世代 %1$d の準備に失敗。現在の出力を維持します。</string>
+    <string name="dsp_renderer_apply_no_active">なし</string>
     <string name="dsp_done">完了</string>
     <string name="dsp_preset_flat">Flat</string>
     <string name="dsp_preset_daily">Daily</string>
@@ -97,7 +106,7 @@
     <string name="dsp_preset_custom_1">Custom 1</string>
     <string name="dsp_preset_custom_2">Custom 2</string>
     <string name="dsp_ms_advanced">Advanced Mid/Side</string>
-    <string name="dsp_ms_description">Midにはボーカルだけでなく、中央定位のすべての音が含まれます。有効化すると従来の幅・低域モノ設定を各帯域設定へ引き継ぎます。</string>
+    <string name="dsp_ms_description">Midにはボーカルだけでなく中央定位のすべての音が含まれます。初回有効化時に従来の幅・低域モノ設定を各帯域設定の初期値へ反映しますが、クロスオーバー特性が異なるため音響応答は完全には一致しません。</string>
     <string name="dsp_ms_crossover">低域／高域のクロスオーバー</string>
     <string name="dsp_ms_center_focus">センター強調</string>
     <string name="dsp_ms_mid_low">低域Midトーン</string>

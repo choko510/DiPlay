@@ -13,6 +13,11 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-23 — Move retired DSP pipeline cleanup off the render worker
+
+- Replaced the audio-caller's synchronized retire queue and timer scheduling with a prestarted single reaper thread and an intrusive lock-free pipeline stack. Retirement uses existing pipeline objects, and the renderer waits for the retire count to drain before adopting another graph.
+- `DspLiveUpdateControllerTest.retiredGraphClosesOnDedicatedReaperWithoutBlockingTheCaller` blocks native close, verifies the retire caller returns immediately, and confirms adoption stays gated until close completes. This is a real-time path correction; TS10/K706 underrun and p99 impact remain unmeasured.
+
 ## 2026-10-23 — Bound incomplete NCM block recovery work
 
 - Replaced the per-completion bytewise scan through a plausible incomplete NTB with checks at the validated data end and the one allowed endpoint-boundary short-pad position. This preserves a valid partial block and removes the quadratic recovery scan identified in W-04.

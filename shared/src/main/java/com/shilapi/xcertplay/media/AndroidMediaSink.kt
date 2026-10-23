@@ -36,7 +36,10 @@ import com.shilapi.xcertplay.media.dsp.DspPcmConverter
 import com.shilapi.xcertplay.media.dsp.DspPcmPipeline
 import com.shilapi.xcertplay.media.dsp.DspTpdfDither
 import com.shilapi.xcertplay.media.dsp.DspPreparedUpdate
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import com.shilapi.xcertplay.media.dsp.DspStreamRole
 import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
 import com.shilapi.xcertplay.media.dsp.DspPipelinePreparer
 import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
@@ -794,6 +797,14 @@ internal class AudioRenderer(
     private val onDspUpdatePreparedForTest: (() -> Unit)? = null,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
+    private data class PreparedRendererDspUpdate(
+        val update: DspPreparedUpdate,
+        val latencyPreservingBypass: DspLatencyPreservingBypass?,
+        val preparedStatus: DspRendererApplyStatus,
+        val activeStatus: DspRendererApplyStatus,
+        val deferredStatus: DspRendererApplyStatus,
+        val failedStatus: DspRendererApplyStatus,
+    )
     private data class DecoderPcmFormat(
         val sampleRate: Int,
         val channels: Int,
@@ -811,13 +822,16 @@ internal class AudioRenderer(
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
     @Volatile internal var dspPipeline: DspPcmPipeline? = null
-    private val pendingDspUpdate = AtomicReference<DspPreparedUpdate?>(null)
+    private val pendingDspUpdate = AtomicReference<PreparedRendererDspUpdate?>(null)
     private var liveUpdateController: DspLiveUpdateController? = null
     @Volatile private var liveUpdateFormat: DspAudioFormat? = null
     private var liveUpdateLatencyFrames = AtomicInteger(0)
     private var trackGenerationLatencyFrames = 0
     @Volatile private var trackGenerationContentCommitted = false
     private var latencyPreservingBypass: DspLatencyPreservingBypass? = null
+    private var liveFadeLatencyPreservingBypass: DspLatencyPreservingBypass? = null
+    private var liveFadeApplyStatus: DspRendererApplyStatus? = null
+    private var liveFadeFailureStatus: DspRendererApplyStatus? = null
     private var liveFadeFrom: DspPcmPipeline? = null
     private var liveFadeTo: DspPcmPipeline? = null
     private var liveFadeGeneration = dspConfigGeneration
@@ -834,13 +848,14 @@ internal class AudioRenderer(
         DspBufferSizing.MAX_DECODER_PCM_FRAMES * format.channels.coerceIn(1, 2),
     )
     private val liveCrossfadeDither = DspTpdfDither(System.nanoTime())
-    private var activeDspGeneration = dspConfigGeneration
+    @Volatile private var activeDspGeneration = dspConfigGeneration
     @Volatile private var activeDspConfig = dspRuntimeConfig
     @Volatile private var activeDspGraphConfig = DspRuntimeConfig.disabled()
     @Volatile private var rendererReleased = false
     @Volatile private var livePreparationPending = false
     @Volatile private var deferredDspGeneration: Long? = null
     @Volatile private var requestedDspGeneration = dspConfigGeneration
+    private val reportsDspApplyStatus = classification.dspRole == DspStreamRole.MEDIA
     private var pcm = ByteArray(DspBufferSizing.MAX_DECODER_PCM_BYTES)
     private var normalizedPcm = ByteArray(64 * 1024)
     private var activeDecoderPcmFormat: DecoderPcmFormat? = null
@@ -1425,7 +1440,7 @@ internal class AudioRenderer(
                             sourceSample = sourceSample,
                         )
                     ) {
-                        if (trackGenerationLatencyFrames > 0) {
+                        if (latencyPreservingBypass != null) {
                             reportLatencyFallbackFailure()
                         } else {
                             writePcm(pcmBytes, sourceSample = sourceSample)
@@ -1724,6 +1739,7 @@ internal class AudioRenderer(
             dspPipeline = null
             activeDspGraphConfig = DspRuntimeConfig.disabled()
             reportDsp("DSP unavailable: reason=UNSUPPORTED_PCM_ENCODING fallback=LEGACY_PCM")
+            reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
             return
         }
         if (nextFormat == null) {
@@ -1731,6 +1747,7 @@ internal class AudioRenderer(
             dspPipeline = null
             activeDspGraphConfig = DspRuntimeConfig.disabled()
             reportDsp("DSP unavailable: reason=UNSUPPORTED_AUDIO_FORMAT fallback=LEGACY_PCM")
+            reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
             return
         }
         if (liveUpdateFormat == nextFormat && liveUpdateController != null) {
@@ -1743,6 +1760,7 @@ internal class AudioRenderer(
         }
         val latestSnapshot = runCatching { dspConfigProvider.versionedSnapshot() }.getOrElse {
             reportDsp("DSP unavailable: reason=CONFIG_SNAPSHOT_FAILED fallback=LEGACY_PCM")
+            reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
             DspConfigSnapshot(activeDspGeneration, activeDspConfig)
         }
         activeDspConfig = latestSnapshot.config
@@ -1752,6 +1770,9 @@ internal class AudioRenderer(
         if (!DspStreamPolicy.shouldProcess(activeDspConfig.enabled, classification.dspRole)) {
             activeDspGraphConfig = DspRuntimeConfig.disabled()
             configureLiveUpdates(nextFormat)
+            reportDspApplyStatus(
+                DspRendererApplyStatus(activeDspGeneration, DspRendererApplyPhase.ACTIVE, activeDspGeneration),
+            )
             return
         }
         val graphConfig = configuredDspGraph(nextFormat, activeDspConfig)
@@ -1778,6 +1799,9 @@ internal class AudioRenderer(
         activeDspGraphConfig = effectiveDspGraphConfig(nextFormat, activeDspConfig, preparedPipeline)
         liveUpdateLatencyFrames.set(preparedPipeline.algorithmicLatencyFrames)
         configureLiveUpdates(nextFormat)
+        reportDspApplyStatus(
+            DspRendererApplyStatus(activeDspGeneration, DspRendererApplyPhase.ACTIVE, activeDspGeneration),
+        )
     }
 
     private fun effectiveDspGraphConfig(
@@ -1786,6 +1810,32 @@ internal class AudioRenderer(
         pipeline: DspPcmPipeline?,
     ): DspRuntimeConfig = if (pipeline == null) DspRuntimeConfig.disabled()
     else configuredDspGraph(format, config)
+
+    private fun reportCurrentDspApplyStatus(phase: DspRendererApplyPhase) {
+        if (!reportsDspApplyStatus) return
+        val generation = runCatching { dspConfigProvider.versionedSnapshot().generation }
+            .getOrDefault(activeDspGeneration)
+        reportDspApplyStatus(DspRendererApplyStatus(generation, phase, activeDspGeneration))
+    }
+
+    private fun reportDspApplyStatus(status: DspRendererApplyStatus) {
+        if (reportsDspApplyStatus) dspConfigProvider.reportRendererApplyStatus(status)
+    }
+
+    private fun prepareLatencyPreservingBypass(update: DspPreparedUpdate): DspLatencyPreservingBypass? {
+        val graphConfig = effectiveDspGraphConfig(update.format, update.config, update.pipeline)
+        val seatAlignment = graphConfig.seatAlignment
+        val relativeDelayFrames = if (update.format.channels == 2) {
+            seatAlignment.relativeDelayFrames(update.format.sampleRate)
+        } else {
+            0.0
+        }
+        return if (update.latencyFrames > 0 || relativeDelayFrames > 0.0) {
+            DspLatencyPreservingBypass(update.format, update.latencyFrames, seatAlignment)
+        } else {
+            null
+        }
+    }
 
     private fun configuredDspGraph(format: DspAudioFormat, config: DspRuntimeConfig): DspRuntimeConfig {
         if (!config.enabled) return DspRuntimeConfig.disabled()
@@ -1814,13 +1864,13 @@ internal class AudioRenderer(
             liveUpdateFormat = null
             livePreparationPending = false
             deferredDspGeneration = null
-            pendingDspUpdate.getAndSet(null)?.pipeline?.close()
+            pendingDspUpdate.getAndSet(null)?.update?.pipeline?.close()
             return
         }
         if (liveUpdateFormat == format && liveUpdateController != null) return
         liveUpdateController?.close()
         liveUpdateController = null
-        pendingDspUpdate.getAndSet(null)?.pipeline?.close()
+        pendingDspUpdate.getAndSet(null)?.update?.pipeline?.close()
         livePreparationPending = false
         deferredDspGeneration = null
         liveCrossfade = DspPcmCrossfade(format.channels, maxOf(1, format.sampleRate / LIVE_CROSSFADE_DIVISOR))
@@ -1838,11 +1888,21 @@ internal class AudioRenderer(
                 requestedDspGeneration = snapshot.generation
                 livePreparationPending = true
                 deferredDspGeneration = null
+                reportDspApplyStatus(
+                    DspRendererApplyStatus(
+                        snapshot.generation,
+                        DspRendererApplyPhase.PREPARING,
+                        activeDspGeneration,
+                    ),
+                )
             },
             onDeferred = { generation ->
                 if (requestedDspGeneration == generation) {
                     livePreparationPending = false
                     deferredDspGeneration = generation
+                    reportDspApplyStatus(
+                        DspRendererApplyStatus(generation, DspRendererApplyPhase.DEFERRED, activeDspGeneration),
+                    )
                 }
             },
             canAdoptLatencyChange = { !trackGenerationContentCommitted },
@@ -1852,9 +1912,44 @@ internal class AudioRenderer(
                     runCatching { update.pipeline?.close() }
                 } else {
                     if (update.generation == requestedDspGeneration) livePreparationPending = false
-                    pendingDspUpdate.getAndSet(update)?.pipeline?.let { old -> runCatching { old.close() } }
-                    if (rendererReleased && pendingDspUpdate.compareAndSet(update, null)) {
-                        runCatching { update.pipeline?.close() }
+                    if (update.config.enabled && update.pipeline == null) {
+                        reportDspApplyStatus(
+                            DspRendererApplyStatus(
+                                update.generation,
+                                DspRendererApplyPhase.FAILED,
+                                activeDspGeneration,
+                            ),
+                        )
+                    } else {
+                        val prepared = PreparedRendererDspUpdate(
+                            update = update,
+                            latencyPreservingBypass = prepareLatencyPreservingBypass(update),
+                            preparedStatus = DspRendererApplyStatus(
+                                update.generation,
+                                DspRendererApplyPhase.PREPARED,
+                                activeDspGeneration,
+                            ),
+                            activeStatus = DspRendererApplyStatus(
+                                update.generation,
+                                DspRendererApplyPhase.ACTIVE,
+                                update.generation,
+                            ),
+                            deferredStatus = DspRendererApplyStatus(
+                                update.generation,
+                                DspRendererApplyPhase.DEFERRED,
+                                activeDspGeneration,
+                            ),
+                            failedStatus = DspRendererApplyStatus(
+                                update.generation,
+                                DspRendererApplyPhase.FAILED,
+                                activeDspGeneration,
+                            ),
+                        )
+                        pendingDspUpdate.getAndSet(prepared)?.update?.pipeline?.let { old -> runCatching { old.close() } }
+                        if (rendererReleased && pendingDspUpdate.compareAndSet(prepared, null)) {
+                            runCatching { update.pipeline?.close() }
+                        }
+                        if (pendingDspUpdate.get() === prepared) reportDspApplyStatus(prepared.preparedStatus)
                     }
                     runCatching { onDspUpdatePreparedForTest?.invoke() }
                 }
@@ -1873,6 +1968,7 @@ internal class AudioRenderer(
                     ?: if (trackGenerationContentCommitted) liveUpdateLatencyFrames.get() else 0
             },
         )
+        liveUpdateController?.registerPipeline(dspPipeline)
     }
 
     private fun writePcmWithLiveUpdates(
@@ -1883,7 +1979,7 @@ internal class AudioRenderer(
         sourceSample: Long?,
     ): Boolean {
         adoptPreparedDspUpdate()
-        val latencyFallback = if (trackGenerationLatencyFrames > 0) {
+        val latencyFallback = if (latencyPreservingBypass != null) {
             val bypass = latencyPreservingBypass
             val outputLength = bypass?.process(source, offset, length, dspEncoding) ?: -1
             if (outputLength > 0) {
@@ -1900,6 +1996,8 @@ internal class AudioRenderer(
         } else {
             null
         }
+        val targetLatencyFallback = liveFadeLatencyPreservingBypass
+        val targetFallbackLength = targetLatencyFallback?.process(source, offset, length, dspEncoding) ?: -1
         if (!liveFadeInProgress) {
             val pipeline = dspPipeline
             if (pipeline == null) {
@@ -1916,7 +2014,15 @@ internal class AudioRenderer(
             }
             return handled
         }
-        return writeLiveCrossfade(source, offset, length, dspEncoding, sourceSample, latencyFallback)
+        return writeLiveCrossfade(
+            source,
+            offset,
+            length,
+            dspEncoding,
+            sourceSample,
+            latencyFallback,
+            targetLatencyFallback?.takeIf { targetFallbackLength > 0 },
+        )
     }
 
     private fun writeDecodedPcm(
@@ -1949,7 +2055,7 @@ internal class AudioRenderer(
                             sourceSample = chunkSourceSample,
                         )
                     ) {
-                        if (trackGenerationLatencyFrames > 0) {
+                        if (latencyPreservingBypass != null) {
                             reportLatencyFallbackFailure()
                             return
                         }
@@ -1971,7 +2077,7 @@ internal class AudioRenderer(
                 return
             }
         }
-        if (trackGenerationLatencyFrames > 0) {
+        if (latencyPreservingBypass != null) {
             reportLatencyFallbackFailure()
             return
         }
@@ -1987,7 +2093,8 @@ internal class AudioRenderer(
 
     private fun adoptPreparedDspUpdate() {
         if (liveFadeInProgress) return
-        val update = pendingDspUpdate.get() ?: return
+        val prepared = pendingDspUpdate.get() ?: return
+        val update = prepared.update
         val controller = liveUpdateController ?: return
         if (!controller.canAdoptUpdate()) return
         val decoderFormat = pendingDecoderPcmFormat ?: activeDecoderPcmFormat
@@ -1997,13 +2104,13 @@ internal class AudioRenderer(
         if (update.format != liveUpdateFormat || update.format != effectiveFormat ||
             update.pipeline?.format?.let { it != update.format } == true
         ) {
-            if (pendingDspUpdate.compareAndSet(update, null)) controller.retire(update.pipeline)
+            if (pendingDspUpdate.compareAndSet(prepared, null)) controller.retire(update.pipeline)
             return
         }
         val latestGeneration = runCatching { dspConfigProvider.versionedSnapshot().generation }
             .getOrDefault(update.generation)
         if (update.generation < latestGeneration) {
-            if (pendingDspUpdate.compareAndSet(update, null)) controller.retire(update.pipeline)
+            if (pendingDspUpdate.compareAndSet(prepared, null)) controller.retire(update.pipeline)
             return
         }
         if (trackGenerationContentCommitted && deferredDspGeneration == update.generation) return
@@ -2017,39 +2124,50 @@ internal class AudioRenderer(
             if (deferredDspGeneration != update.generation) {
                 deferredDspGeneration = update.generation
                 reportDsp("DSP update deferred until next AudioTrack generation: stateful graph needs fresh history")
+                reportDspApplyStatus(prepared.deferredStatus)
             }
             return
         }
         if (!trackGenerationContentCommitted) {
-            if (!pendingDspUpdate.compareAndSet(update, null)) return
+            if (!pendingDspUpdate.compareAndSet(prepared, null)) return
             val oldPipeline = dspPipeline
             dspPipeline = update.pipeline
             activeDspConfig = update.config
             activeDspGraphConfig = graphConfig
             activeDspGeneration = update.generation
-            beginTrackGeneration(update.format)
+            beginTrackGeneration(
+                trackFormat = update.format,
+                preparedFallback = prepared.latencyPreservingBypass,
+                fallbackWasPrepared = true,
+            )
             controller.retire(oldPipeline?.takeIf { it !== dspPipeline })
+            reportDspApplyStatus(prepared.activeStatus)
             return
         }
         if (candidateLatencyFrames != trackGenerationLatencyFrames) {
-            if (pendingDspUpdate.compareAndSet(update, null)) {
+            if (pendingDspUpdate.get() === prepared) {
                 deferredDspGeneration = update.generation
-                controller.retire(update.pipeline)
+                reportDspApplyStatus(prepared.deferredStatus)
             }
             return
         }
-        if (!pendingDspUpdate.compareAndSet(update, null)) return
+        if (!pendingDspUpdate.compareAndSet(prepared, null)) return
         if (update.pipeline === dspPipeline || (update.pipeline == null && dspPipeline == null)) {
             activeDspConfig = update.config
             activeDspGraphConfig = graphConfig
             activeDspGeneration = update.generation
             liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
+            latencyPreservingBypass = prepared.latencyPreservingBypass
+            reportDspApplyStatus(prepared.activeStatus)
             return
         }
         liveFadeFrom = dspPipeline
         liveFadeTo = update.pipeline
         liveFadeGeneration = update.generation
         liveFadeConfig = update.config
+        liveFadeLatencyPreservingBypass = prepared.latencyPreservingBypass
+        liveFadeApplyStatus = prepared.activeStatus
+        liveFadeFailureStatus = prepared.failedStatus
         liveCrossfade.begin()
         liveFadeInProgress = true
     }
@@ -2061,6 +2179,7 @@ internal class AudioRenderer(
         encoding: DspPcmEncoding,
         sourceSample: Long?,
         latencyFallback: PcmChunk?,
+        targetLatencyFallback: DspLatencyPreservingBypass?,
     ): Boolean {
         val fromPipeline = liveFadeFrom
         val toPipeline = liveFadeTo
@@ -2076,6 +2195,7 @@ internal class AudioRenderer(
         val frameCount = length / frameBytes
         if (frameCount <= 0 || frameCount > DspBufferSizing.MAX_DECODER_PCM_FRAMES) return false
         val fallbackFloats = latencyFallback?.takeIf { it.outputFrameCount == frameCount }?.outputFloats
+        val targetFallbackFloats = targetLatencyFallback?.takeIf { it.outputFrameCount == frameCount }?.outputFloats
         val fromFloats = fromPipeline?.let { pipeline ->
             val outputLength = runCatching {
                 pipeline.process(source, offset, length, encoding, encodeOutput = false)
@@ -2109,8 +2229,13 @@ internal class AudioRenderer(
                 liveUpdateController?.retire(pipeline)
                 liveFadeFrom = null
                 liveFadeTo = null
+                liveFadeLatencyPreservingBypass = null
+                liveFadeApplyStatus = null
                 liveFadeInProgress = false
                 liveCrossfade.cancel()
+                val failedStatus = liveFadeFailureStatus
+                if (failedStatus != null) reportDspApplyStatus(failedStatus)
+                liveFadeFailureStatus = null
                 if (fromPipeline != null) {
                     dspPipeline = fromPipeline
                     val fromLength = DspBufferSizing.pcm16ByteCount(fromPipeline.outputFrameCount, crossfadeFormat.channels)
@@ -2134,7 +2259,7 @@ internal class AudioRenderer(
             }
             if (outputLength == 0 || pipeline.outputFrameCount != frameCount) return false
             pipeline.outputFloats
-        } ?: fallbackFloats ?: liveCrossfadeSourceFloats.also { destination ->
+        } ?: targetFallbackFloats ?: fallbackFloats ?: liveCrossfadeSourceFloats.also { destination ->
             if (DspPcmConverter.pcmToFloatArray(source, offset, length, encoding, crossfadeFormat, destination) != frameCount) {
                 abandonLiveFade()
                 return false
@@ -2184,8 +2309,14 @@ internal class AudioRenderer(
             activeDspConfig,
             dspPipeline,
         )
+        latencyPreservingBypass = liveFadeLatencyPreservingBypass
+        liveFadeLatencyPreservingBypass = null
         liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
         liveUpdateController?.retire(oldPipeline?.takeIf { it !== dspPipeline })
+        val activeStatus = liveFadeApplyStatus
+        if (activeStatus != null) reportDspApplyStatus(activeStatus)
+        liveFadeApplyStatus = null
+        liveFadeFailureStatus = null
     }
 
     private fun completeLiveCrossfadeForTrackGeneration(trackFormat: DspAudioFormat? = null) {
@@ -2201,6 +2332,11 @@ internal class AudioRenderer(
         dspPipeline = liveFadeTo
         liveFadeFrom = null
         liveFadeTo = null
+        liveFadeLatencyPreservingBypass = null
+        val activeStatus = liveFadeApplyStatus
+        if (activeStatus != null) reportDspApplyStatus(activeStatus)
+        liveFadeApplyStatus = null
+        liveFadeFailureStatus = null
         liveFadeInProgress = false
         activeDspConfig = liveFadeConfig
         activeDspGeneration = liveFadeGeneration
@@ -2213,7 +2349,11 @@ internal class AudioRenderer(
         liveUpdateController?.retire(oldPipeline?.takeIf { it !== dspPipeline })
     }
 
-    private fun beginTrackGeneration(trackFormat: DspAudioFormat? = null) {
+    private fun beginTrackGeneration(
+        trackFormat: DspAudioFormat? = null,
+        preparedFallback: DspLatencyPreservingBypass? = null,
+        fallbackWasPrepared: Boolean = false,
+    ) {
         val effectiveFormat = trackFormat ?: DspAudioFormat(
             activeDecoderPcmFormat?.sampleRate ?: format.sampleRate,
             activeDecoderPcmFormat?.channels ?: format.channels.coerceIn(1, 2),
@@ -2236,10 +2376,12 @@ internal class AudioRenderer(
         } else {
             0.0
         }
-        latencyPreservingBypass = if (trackGenerationLatencyFrames > 0 || interchannelRelativeDelay > 0.0) {
-            DspLatencyPreservingBypass(effectiveFormat, trackGenerationLatencyFrames, seatAlignment)
-        } else {
-            null
+        latencyPreservingBypass = if (fallbackWasPrepared) preparedFallback else {
+            if (trackGenerationLatencyFrames > 0 || interchannelRelativeDelay > 0.0) {
+                DspLatencyPreservingBypass(effectiveFormat, trackGenerationLatencyFrames, seatAlignment)
+            } else {
+                null
+            }
         }
     }
 
@@ -2248,6 +2390,11 @@ internal class AudioRenderer(
         liveUpdateController?.retire(liveFadeTo?.takeIf { it !== dspPipeline })
         liveFadeFrom = null
         liveFadeTo = null
+        liveFadeLatencyPreservingBypass = null
+        val failedStatus = liveFadeFailureStatus
+        if (failedStatus != null) reportDspApplyStatus(failedStatus)
+        liveFadeApplyStatus = null
+        liveFadeFailureStatus = null
         liveFadeInProgress = false
         liveCrossfade.cancel()
     }
@@ -2285,6 +2432,9 @@ internal class AudioRenderer(
             }
             liveUpdateController?.retire(pipeline)
             reportDsp("DSP unavailable: reason=PROCESS_FAILED fallback=LEGACY_PCM")
+            reportDspApplyStatus(
+                DspRendererApplyStatus(activeDspGeneration, DspRendererApplyPhase.FAILED, activeDspGeneration),
+            )
             return false
         }
         if (outputLength > 0) writePcm(pipeline.output, 0, outputLength, sourceSample)
@@ -2801,7 +2951,7 @@ internal class AudioRenderer(
             dspPipeline,
             liveFadeFrom,
             liveFadeTo,
-            pendingDspUpdate.getAndSet(null)?.pipeline,
+            pendingDspUpdate.getAndSet(null)?.update?.pipeline,
         ).filterNotNull().distinct()
         pipelines.forEach { runCatching { it.close() } }
         dspPipeline = null

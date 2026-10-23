@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.airplay
 
 import android.util.Log
+import com.shilapi.xcertplay.DiagnosticRedactor
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
 import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
@@ -486,12 +487,12 @@ class AirPlaySession(
     }
 
     private fun debugLog(message: String, uiVisible: Boolean = true) {
-        Log.i(TAG, message)
+        Log.i(TAG, DiagnosticRedactor.redactForLogcat(message))
         if (!uiVisible) return
         try {
             listener.onDebugLog(message)
         } catch (error: Exception) {
-            Log.w(TAG, "debug log callback failed", error)
+            Log.w(TAG, "debug log callback failed error=${error.javaClass.simpleName}")
         }
     }
 

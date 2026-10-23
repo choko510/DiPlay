@@ -785,11 +785,12 @@ static double measure_sine_gain(dsp_engine *engine, double frequency, int channe
     return measure_sine_gain_with_amplitude(engine, frequency, channels, 0.1);
 }
 
-static double measure_output_tone_component_at_rate(
+static double measure_output_tone_component_at_rate_with_amplitude(
     dsp_engine *engine,
     int sample_rate,
     double input_frequency,
-    double output_frequency) {
+    double output_frequency,
+    double input_amplitude) {
     double sine_sum = 0.0;
     double cosine_sum = 0.0;
     size_t measured = 0;
@@ -800,7 +801,7 @@ static double measure_output_tone_component_at_rate(
         float input[1024];
         float output[1024];
         for (size_t index = 0; index < frames; index++) {
-            const float sample = (float)(0.5 * sin(2.0 * 3.14159265358979323846 * input_frequency *
+            const float sample = (float)(input_amplitude * sin(2.0 * 3.14159265358979323846 * input_frequency *
                 (double)(frame + index) / sample_rate));
             input[index * 2] = sample;
             input[index * 2 + 1] = -sample;
@@ -820,6 +821,15 @@ static double measure_output_tone_component_at_rate(
         frame += frames;
     }
     return measured > 0 ? 2.0 * sqrt(sine_sum * sine_sum + cosine_sum * cosine_sum) / measured : 0.0;
+}
+
+static double measure_output_tone_component_at_rate(
+    dsp_engine *engine,
+    int sample_rate,
+    double input_frequency,
+    double output_frequency) {
+    return measure_output_tone_component_at_rate_with_amplitude(
+        engine, sample_rate, input_frequency, output_frequency, 0.5);
 }
 
 static double measure_output_tone_component(dsp_engine *engine, double input_frequency, double output_frequency) {
@@ -1238,6 +1248,73 @@ static void test_harmonic_engine_latency_oversampling_modes_and_alias_rejection(
         }
     }
 
+    const double exciter_frequencies[] = {1000.0, 8000.0, 12000.0, 15000.0};
+    const double fundamental_amplitudes[] = {0.001, 0.05, 0.45, 0.9};
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        for (int mode = 0; mode <= 2; mode++) {
+            for (size_t quality_index = 0; quality_index < sizeof(alias_taps) / sizeof(alias_taps[0]); quality_index++) {
+                dsp_harmonic_config exciter = make_harmonic_config();
+                exciter.mode = mode;
+                exciter.taps = alias_taps[quality_index];
+                exciter.exciter_amount = 0.5;
+                exciter.exciter_cutoff_hz = 2000.0;
+                exciter.level_match_enabled = 0;
+                dsp_engine *engine = create_test_engine_with_harmonic(sample_rate, 2, 512, &exciter);
+                assert_true(engine != NULL, "harmonic exciter gain-sweep graph creates");
+                for (size_t amplitude_index = 0;
+                    amplitude_index < sizeof(fundamental_amplitudes) / sizeof(fundamental_amplitudes[0]);
+                    amplitude_index++) {
+                    const double amplitude = fundamental_amplitudes[amplitude_index];
+                    for (size_t frequency_index = 0;
+                        frequency_index < sizeof(exciter_frequencies) / sizeof(exciter_frequencies[0]);
+                        frequency_index++) {
+                        const double frequency = exciter_frequencies[frequency_index];
+                        const double fundamental = measure_output_tone_component_at_rate_with_amplitude(
+                            engine, sample_rate, frequency, frequency, amplitude);
+                        if (amplitude <= 0.05) {
+                            assert_near(fundamental, amplitude, amplitude * 0.05,
+                                "low-level harmonic exciter preserves the original fundamental");
+                        } else {
+                            assert_true(fundamental >= amplitude * 0.95,
+                                "high-level harmonic exciter does not attenuate the original fundamental");
+                        }
+                    }
+                }
+                dsp_engine_destroy(engine);
+            }
+        }
+    }
+
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        const double input_frequency = sample_rate == 44100 ? 13500.0 : 15000.0;
+        for (int mode = 0; mode <= 2; mode++) {
+            for (size_t quality_index = 0; quality_index < sizeof(alias_taps) / sizeof(alias_taps[0]); quality_index++) {
+                dsp_harmonic_config max_level = make_harmonic_config();
+                max_level.mode = mode;
+                max_level.taps = alias_taps[quality_index];
+                max_level.exciter_amount = 0.5;
+                max_level.exciter_cutoff_hz = 6000.0;
+                max_level.level_match_enabled = 0;
+                dsp_engine *engine = create_test_engine_with_harmonic(sample_rate, 2, 512, &max_level);
+                assert_true(engine != NULL, "maximum-level harmonic graph creates");
+                const double fundamental = measure_output_tone_component_at_rate_with_amplitude(
+                    engine, sample_rate, input_frequency, input_frequency, 0.9);
+                const int first_order = mode == 1 ? 3 : 2;
+                const int last_order = mode == 2 ? 3 : first_order;
+                for (int harmonic_order = first_order; harmonic_order <= last_order; harmonic_order++) {
+                    const double alias_frequency = fabs(sample_rate - harmonic_order * input_frequency);
+                    const double alias = measure_output_tone_component_at_rate_with_amplitude(
+                        engine, sample_rate, input_frequency, alias_frequency, 0.9);
+                    assert_true(alias < fundamental * 0.05,
+                        "maximum-level harmonic aliases remain below -26 dBc across modes and FIR qualities");
+                }
+                dsp_engine_destroy(engine);
+            }
+        }
+    }
+
     const float unit_ir[] = {1.0f};
     const dsp_convolver_config unit_config = {1, 48000, 1, 1, 1, 1.0f, unit_ir};
     dsp_harmonic_config convolved_config = make_harmonic_config();
@@ -1362,6 +1439,39 @@ static void test_advanced_ms_crossover_mono_side_dynamics_and_limiter(void) {
     invalid.advanced_ms.crossover_hz = 1001.0;
     assert_true(create_test_engine_with_spatial(48000, 2, 8, &invalid, NULL, 0, NULL, 0) == NULL,
         "M/S crossover outside the configured range is rejected");
+}
+
+static void test_advanced_ms_legacy_migration_is_a_starting_point(void) {
+    double mono_bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_high_pass(48000.0, 120.0, 0.7071067811865476, mono_bass_coefficients);
+    const dsp_spatial_config legacy = {
+        .width = 1.5,
+        .mono_bass_enabled = 1,
+        .mono_bass_cutoff_hz = 120,
+    };
+    dsp_spatial_config migrated = make_advanced_ms_config();
+    migrated.width = 0.0;
+    migrated.advanced_ms.crossover_hz = 120.0;
+    migrated.advanced_ms.low_band_width = 0.0;
+    migrated.advanced_ms.high_band_width = 1.5;
+    dsp_engine *legacy_engine = create_test_engine_with_spatial(
+        48000, 2, 512, &legacy, NULL, 0, mono_bass_coefficients, 1);
+    dsp_engine *migrated_engine = create_test_engine_with_spatial(
+        48000, 2, 512, &migrated, NULL, 0, NULL, 0);
+    assert_true(legacy_engine != NULL && migrated_engine != NULL, "legacy and migrated M/S graphs create");
+
+    const double legacy_at_crossover = measure_sine_gain_with_amplitude(legacy_engine, 120.0, 2, 0.1);
+    const double migrated_at_crossover = measure_sine_gain_with_amplitude(migrated_engine, 120.0, 2, 0.1);
+    assert_true(legacy_at_crossover > migrated_at_crossover * 1.25,
+        "legacy Mono Bass and migrated LR4 response differ at the crossover as documented");
+    assert_true(dsp_engine_reset(legacy_engine) == DSP_STATUS_OK, "legacy Mono Bass resets before high-band tone");
+    assert_true(dsp_engine_reset(migrated_engine) == DSP_STATUS_OK, "migrated M/S resets before high-band tone");
+    const double legacy_at_500 = measure_sine_gain_with_amplitude(legacy_engine, 500.0, 2, 0.1);
+    const double migrated_at_500 = measure_sine_gain_with_amplitude(migrated_engine, 500.0, 2, 0.1);
+    assert_near(migrated_at_500, legacy_at_500, 0.08,
+        "legacy-seeded high-band width remains close above the crossover");
+    dsp_engine_destroy(legacy_engine);
+    dsp_engine_destroy(migrated_engine);
 }
 
 static void test_multiband_unity_reconstruction_and_phase(void) {
@@ -2101,6 +2211,7 @@ int main(void) {
     test_spatial_seat_alignment_and_latency();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
     test_advanced_ms_crossover_mono_side_dynamics_and_limiter();
+    test_advanced_ms_legacy_migration_is_a_starting_point();
     test_harmonic_engine_latency_oversampling_modes_and_alias_rejection();
     test_multiband_unity_reconstruction_and_phase();
     test_multiband_compression_is_band_selective();

@@ -30,6 +30,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -70,9 +71,12 @@ import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
 import com.shilapi.xcertplay.media.dsp.DspSeatNearSpeaker
 import com.shilapi.xcertplay.media.dsp.DspSeatPreset
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.delay
 
 internal enum class EqBandEditorControl {
     FREQUENCY,
@@ -97,10 +101,27 @@ internal enum class DspPresentationMode {
     COMPACT_SPLIT,
 }
 
+private const val RENDERER_APPLY_STATUS_POLL_INTERVAL_MS = 500L
+
 private enum class DspCompactSection {
     BASIC,
     EQ,
     ADVANCED,
+}
+
+@Composable
+private fun rendererApplyStatusText(status: DspRendererApplyStatus?): String = when (status?.phase) {
+    null -> stringResource(R.string.dsp_renderer_apply_waiting)
+    DspRendererApplyPhase.REQUESTED -> stringResource(R.string.dsp_renderer_apply_requested, status.generation)
+    DspRendererApplyPhase.PREPARING -> stringResource(R.string.dsp_renderer_apply_preparing, status.generation)
+    DspRendererApplyPhase.PREPARED -> stringResource(R.string.dsp_renderer_apply_prepared, status.generation)
+    DspRendererApplyPhase.ACTIVE -> stringResource(R.string.dsp_renderer_apply_active, status.generation)
+    DspRendererApplyPhase.DEFERRED -> stringResource(
+        R.string.dsp_renderer_apply_deferred,
+        status.generation,
+        status.activeGeneration?.toString() ?: stringResource(R.string.dsp_renderer_apply_no_active),
+    )
+    DspRendererApplyPhase.FAILED -> stringResource(R.string.dsp_renderer_apply_failed, status.generation)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -132,6 +153,13 @@ internal fun DspSettingsScreen(
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var bandTypeDialog by remember { mutableStateOf<Int?>(null) }
     var impulseResponseIds by remember(runtime) { mutableStateOf(runtime.availableImpulseResponseIds()) }
+    var rendererApplyStatus by remember(runtime) { mutableStateOf(runtime.configProvider.rendererApplyStatus()) }
+    LaunchedEffect(runtime) {
+        while (true) {
+            rendererApplyStatus = runtime.configProvider.rendererApplyStatus()
+            delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
+        }
+    }
     val openImpulseResponse = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             val operation = editorSession.beginOperation(DspEditorOperationKind.IMPORT)
@@ -989,6 +1017,8 @@ internal fun DspSettingsScreen(
                     Text(stringResource(R.string.dsp_selected_profile, profileLabel(context, profile)))
                     Text(stringResource(R.string.dsp_applied_profile, profileLabel(context, editorSession.appliedProfile)))
                     Text(stringResource(R.string.dsp_dsp_state, if (dspEnabled) "ON" else "OFF"))
+                    Text(stringResource(R.string.dsp_renderer_apply_status))
+                    Text(rendererApplyStatusText(rendererApplyStatus))
                 }
             }
 

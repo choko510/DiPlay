@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media.dsp
 
+import kotlin.math.pow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -39,10 +40,13 @@ class DspHarmonicConfigTest {
             virtualBassEnabled = true,
             virtualBassAmount = 0.5,
         )
+        val levelMatchGain = 10.0.pow(-1.5 / 20.0)
+        val expectedBoostDb = 20.0 * kotlin.math.log10(levelMatchGain + 1.0)
 
-        assertEquals(20.0 * kotlin.math.log10(2.0), config.worstCaseBoostDb, 0.001)
+        assertEquals(expectedBoostDb, config.worstCaseBoostDb, 0.001)
+        assertEquals(20.0 * kotlin.math.log10(2.0), config.copy(levelMatchEnabled = false).worstCaseBoostDb, 0.001)
         val prepared = DspRuntimeConfig(enabled = true, harmonic = config)
             .prepare(DspAudioFormat(48_000, 1))
-        assertEquals(20.0 * kotlin.math.log10(2.0) + 1.0, prepared.headroom.reductionDb, 0.02)
+        assertEquals(expectedBoostDb + 1.0, prepared.headroom.reductionDb, 0.02)
     }
 }

@@ -7,7 +7,7 @@ import org.junit.Test
 
 class DspAdvancedMsConfigTest {
     @Test
-    fun defaultsOffAndFirstEnableFoldsLegacyWidthAndMonoBassIntoBands() {
+    fun defaultsOffAndFirstEnableSeedsLegacyWidthAndMonoBassIntoBands() {
         val config = DspAdvancedMsConfig()
         assertFalse(config.enabled)
         assertEquals(0.0, config.worstCaseBoostDb, 0.0)

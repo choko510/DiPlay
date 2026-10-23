@@ -3,6 +3,9 @@ package com.shilapi.xcertplay.media.dsp
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 internal class DspPcmPipeline(
     val format: DspAudioFormat,
@@ -11,6 +14,10 @@ internal class DspPcmPipeline(
     seed: Long = System.nanoTime(),
     private val forceInitialLatencySilence: Boolean = true,
 ) : Closeable {
+    private val retirementQueued = AtomicBoolean()
+    private val retirementCount = AtomicReference<AtomicInteger?>(null)
+    private val closed = AtomicBoolean()
+    @Volatile internal var reaperNext: DspPcmPipeline? = null
     private val diagnostics = DspDiagnostics()
     private val pipelineProcessTiming = DspFixedHistogram()
     private val dither = DspTpdfDither(seed)
@@ -63,6 +70,16 @@ internal class DspPcmPipeline(
 
     val algorithmicLatencyFrames: Int
         get() = processor.latencyFrames + outputDelayFrames
+
+    internal fun registerRetirementCounter(counter: AtomicInteger) {
+        retirementCount.compareAndSet(null, counter)
+    }
+
+    internal fun claimRetirement(): Boolean = retirementQueued.compareAndSet(false, true)
+
+    internal fun decrementRetirementCount() {
+        retirementCount.get()?.decrementAndGet()
+    }
 
     internal fun preserveLatencyWithDelay(frames: Int) {
         require(frames >= 0)
@@ -217,7 +234,7 @@ internal class DspPcmPipeline(
     }
 
     override fun close() {
-        processor.close()
+        if (closed.compareAndSet(false, true)) processor.close()
     }
 
     private fun fail(): Int {

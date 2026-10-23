@@ -44,7 +44,8 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR01-05 | A valid incomplete NTB with a valid-looking next-sequence NTH16 inside its unused gap is retained until the declared block completes | `NcmUsbBridgeFixtureTest.validIncompleteNtbDoesNotResyncIntoUnusedGap` | `PASS_ROBOLECTRIC`; tested with 1/2/64/512/32,768-byte read completions |
 | PR01-06 | An over-MTU NDP datagram length cannot hide following valid NTBs; recovery requires two complete contiguous sequence blocks and works across read completions | `NcmUsbBridgeFixtureTest.oversizedDatagramLengthDoesNotHideFollowingValidNtb`; `oversizedDatagramLengthWaitsForTheFollowingSequencePairAcrossReads` | `PASS_ROBOLECTRIC`; the 1,514-byte untagged Ethernet ceiling matches the 1,500-byte VPN MTU; physical NCM packet behavior remains `NOT_RUN` |
 | PR01-07 | Recovery from a valid incomplete block does not rescan every buffered byte on each USB completion | `NcmUsbBridge.recoverFollowingValidNtb16` source path; PR01-05 fragmentation test | `PASS_STATIC` for constant-position recovery; target CPU impact remains `NOT_RUN` |
-| W-06 / W-07 / W-08 / W-09 | OUT short-packet behavior, SYN-ACK `NotReady`, close while `requestWait` is blocked, and repeated `0x4300` behavior | TS10/K706/iPhone capture and close/cancel traces | `NEED_DEVICE`; no retry or OUT-format change is adopted without the corresponding packet/timing evidence |
+| W-06 | OUT short-packet pad follows the selected bulk-OUT endpoint size (64B and 512B) | `Ntb16CodecTest.shortPacketPadUsesTheSelectedBulkOutPacketSize`; `NcmUsbBridgeFixtureTest.bulkOutShortPacketPaddingUsesTheEndpointPacketSize` | `PASS_LOCAL`; target peer's short-packet handling remains `NOT_RUN` |
+| W-07 / W-08 / W-09 | SYN-ACK `NotReady`, close while `requestWait` is blocked, and repeated `0x4300` behavior | TS10/K706/iPhone packet/timing and close/cancel traces | `NEED_DEVICE`; retry and close policy remain unchanged until target evidence exists |
 
 ## EX-02 host retry fencing
 
@@ -97,6 +98,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR04-02 | Denied input leaves downlink audio active; permitted default/compatibility requests reach the uplink; permission-disabled and non-mono input do not start capture | `CarPlayMediaEngineTest` | `PASS_ROBOLECTRIC` |
 | PR04-03 | Repeated request for the same active audio owner does not replace/start another microphone uplink; inactive same-token uplink remains recoverable | `AndroidMediaSinkStateTest` | `PASS_ROBOLECTRIC` |
 | PR04-04 | Siri, telephone call, voice message, permission-denied, and real AudioRecord/uplink behavior on TS10/K706/iPhone | Fixed-main policy/uplink/lifecycle tests; API 28/33 Robolectric failure injection; physical device run | `PARTIAL`: request policy/uplink, denial/downlink, mono/permission, close-before-start, and fail-closed AudioRecord creation/initialization refusal pass locally; PR run #333 passed the filtered API 28/33 recorder class. No fallback to VOICE_COMMUNICATION is enabled. Real Siri/call/voice-message capture and device routing/AEC remain `NOT_RUN` |
+| PR04-05 | Repeated `AudioRecord.read(READ_BLOCKING) == 0` uses a delay capped at 50 ms; zero reads do not produce synthetic silence | `MicrophoneUplinkLifecycleTest.emptyReadDelayIsLinearAndCappedAtFiftyMilliseconds` | `PASS_LOCAL` policy helper; actual target AudioRecord behavior and CPU impact remain `NOT_RUN` |
 
 ## PR-06 LOCAL split scaling without reconnect
 
@@ -147,10 +149,11 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | Evidence ID | Scenario | Main test/evidence | Status |
 |---|---|---|---|
 | DSP00-01 | Profile schema v3, schema 0/1/2 migration, validation, and future-schema preservation | `DspProfileRepositoryTest` | `PASS_LOCAL` |
-| DSP00-02 | Global master defaults off, MEDIA-only full DSP policy, and DSP-OFF PCM16 byte passthrough with zero track-generation latency and no pipeline preparation | `DspProfileRuntimeTest`, `DspStreamPolicyTest`, `DspRendererProductionPathTest.dspOffLpcmProductionPathWritesTheOriginalPcm16Samples` | `PASS_ROBOLECTRIC` |
+| DSP00-02 | Global master defaults off, MEDIA-only full DSP policy, and initial OFF PCM16 byte passthrough with zero track-generation latency and no pipeline preparation | `DspProfileRuntimeTest`, `DspStreamPolicyTest`, `DspRendererProductionPathTest.dspOffLpcmProductionPathWritesTheOriginalPcm16Samples` | `PASS_ROBOLECTRIC` |
 | DSP00-03 | Existing mono/stereo Float32 pipeline chunking, reusable output, latency, reset, and failure behavior | `DspPcmPipelineTest`, `NativeDspProcessorTest` | `PASS_LOCAL` |
 | DSP00-04 | Existing native graph C regression | `scripts/test_dsp_native.sh` with MSYS2 UCRT GCC | `PASS_LOCAL` unsanitized; `--sanitize` is blocked because this host lacks `libasan`/`libubsan` |
 | DSP00-05 | Existing 40-case API 36.1 emulator performance baseline from the optimization ledger | `.scratchpad/optimization.md` | Prior baseline: worst light p99 1.10 ms, heavy p99 2.92 ms, zero steady-state Kotlin allocations; not rerun on a target head unit |
+| DSP00-06 | Live master-OFF preserves current track common latency and uses a latency-preserving bypass; next track generation returns to exact PCM16 | `DspRendererProductionPathTest.liveDspOffPreservesTrackLatencyAndNextTrackReturnsToExactPcm` | `PASS_ROBOLECTRIC`; live-OFF is intentionally distinct from initial bit-exact OFF |
 
 ## DSP-01 Seat Focus and L/R time alignment
 
@@ -161,6 +164,8 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | DSP01-03 | SeatAlignment and FullHeavyChain-with-seat p99 plus steady-state allocation gate | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (44 configurations, 3×256-block rounds) | `PASS_EMULATOR` 16/16; seat stereo production p99 max 1.50 ms, FullHeavyChain-with-seat max 2.76 ms, zero steady-state Kotlin allocations |
 | DSP01-04 | TS10/K706 listening, measured speaker distances, A/V sync, and head-unit memory/CPU impact | Physical device run | `NOT_RUN`; no target head unit or listening path is connected |
 | DSP01-05 | Native ASan/UBSan on this Windows host | `scripts/test_dsp_native.sh --sanitize` | `BLOCKED_ENV`; MSYS2 GCC lacks `libasan`/`libubsan`; unsanitized C suite passes |
+| DSP01-06 | Seat-only fallback applies relative delay when native common latency is zero and the DSP processor fails | `DspRendererProductionPathTest.seatOnlyFallbackPreservesRelativeDelayWhenCommonLatencyIsZero` | `PASS_ROBOLECTRIC`; the renderer path verifies near-channel delay and unchanged far-channel timing |
+| DSP01-07 | After a Seat + Convolver live crossfade completes, failure fallback uses the accepted Seat generation while retaining track-generation latency | `DspRendererProductionPathTest.fallbackUsesTheAcceptedSeatGenerationAfterLiveCrossfade` | `PASS_ROBOLECTRIC`; target-speaker acoustic/latency validation remains `NOT_RUN` |
 
 ## DSP-02 Advanced Mid/Side
 
@@ -171,6 +176,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | DSP02-03 | Mid/Side native parameters and DSP stateful-update deferral are wired through JNI and renderer lifecycle | `NativeDspProcessorTest`, `DspRendererProductionPathTest` | `PASS_LOCAL` / `PASS_ROBOLECTRIC` |
 | DSP02-04 | Advanced M/S and full-chain p99 plus allocation gate across 44.1/48 kHz mono/stereo | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (56 configurations after adding the four new DSP cases) | `PASS_EMULATOR`; AdvancedMS max median-run p99 0.80 ms, FullHeavyChain-with-all-four max 3.12 ms, zero steady-state Kotlin allocations |
 | DSP02-05 | TS10/K706 listening, phase/group-delay assessment, mono/anti-phase car playback, and long-run validation | Physical device run | `NOT_RUN`; no target head unit or listening path is connected |
+| DSP02-06 | Legacy Mono Bass to Advanced M/S first-enable response at crossover and above; conversion is a seed, not a transfer-function match | `test_advanced_ms_legacy_migration_is_a_starting_point` in `test_dsp_engine.c`; `dsp_ms_description` | `PASS_LOCAL` characterization; UI documents that crossover response differs |
 
 ## DSP-03 Measured cabin correction
 
@@ -185,11 +191,12 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 
 | Evidence ID | Scenario | Main test/evidence | Status |
 |---|---|---|---|
-| DSP04-01 | EVEN/ODD/MIXED shaping, 9/17/33-tap 2× FIR, matched dry latency of 4/8/16 frames, amount/cutoff bounds, and Auto Headroom | `DspHarmonicConfigTest`, `DspAutoHeadroomTest` | `PASS_LOCAL` |
+| DSP04-01 | EVEN/ODD/MIXED shaping, 9/17/33-tap 2× FIR, matched dry latency of 4/8/16 frames, amount/cutoff bounds, and Auto Headroom that includes internal level matching once | `DspHarmonicConfigTest`, `DspAutoHeadroomTest` | `PASS_LOCAL` |
 | DSP04-02 | Disabled-path parity, block invariance, mode-specific harmonic generation, 14 kHz→6 kHz alias rejection, and latency sum with Convolver | `test_dsp_engine.c` | `PASS_LOCAL` unsanitized |
 | DSP04-03 | Harmonic JNI parameters, profile v6→v7 migration, and active update deferral to the next track | `NativeDspProcessorTest`, `DspProfileRepositoryTest`, `DspRendererProductionPathTest` | `PASS_LOCAL` / `PASS_ROBOLECTRIC` |
 | DSP04-04 | HarmonicEngine and FullHeavyChain p99/peak/allocation across 44.1/48 kHz mono/stereo | API 36.1 x86_64 `DspPipelineBenchmarkInstrumentedTest` (56 configurations) | `PASS_EMULATOR`; HarmonicEngine max median-run p99 1.48 ms; FullHeavyChain-with-all-four max 3.12 ms; zero steady-state Kotlin allocations |
 | DSP04-05 | TS10/K706 THD/alias, peak, listening, A/V sync, and long-run behavior | Physical device run | `NOT_RUN`; no target head unit or listening path is connected |
+| DSP04-06 | Dry fundamental retention at low level across rates/modes/qualities/frequencies; max-level folded harmonic bound at 0.9 peak | `test_harmonic_engine_latency_oversampling_modes_and_alias_rejection` in `test_dsp_engine.c` | `PASS_LOCAL`: fundamental within 5% of dry at low levels; folded second/third harmonics below -26 dBc in the tested grid |
 
 ## DSP-05 Final graph integration and pre-merge audit
 
@@ -197,9 +204,12 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 |---|---|---|---|
 | DSP05-01 | All 16 on/off combinations of four new modules, each at 44.1/48 kHz mono/stereo; 1,024 PCM16 frames match between one block and variable block boundaries | API 36.1 x86_64 `DspFinalIntegrationInstrumentedTest` | `PASS_EMULATOR`; 64 format/combination runs compare byte-for-byte |
 | DSP05-02 | Harmonic alias rejection across both sample rates/channels, malformed Harmonic JNI rejection, exact half-LSB PCM16 rounding, profile v0–v7 migration/future schema | `DspFinalIntegrationInstrumentedTest`, `NativeDspBridgeInstrumentedTest`, `DspPcmConverterTest`, `DspProfileRepositoryTest` | `PASS_LOCAL` and `PASS_EMULATOR`; measured folded alias was at most 4.1×10⁻⁵ of the fundamental across all four formats |
-| DSP05-03 | Retained Float32 graph order and latency sum: Seat + Harmonic FIR + Convolver; disabled path remains byte-exact and zero latency | `DSP_FINAL_INTEGRATION.md`, `dsp_engine_get_latency_frames`, production-path tests | `PASS_STATIC` / `PASS_LOCAL` |
+| DSP05-03 | Retained Float32 graph order; common latency sums Harmonic FIR + Convolver, while Seat-relative delay remains separately tracked; initial disabled path is byte-exact | `DSP_FINAL_INTEGRATION.md`, `dsp_engine_get_latency_frames`, production-path tests | `PASS_STATIC` / `PASS_LOCAL` |
 | DSP05-04 | `FullHeavyChain` p99, peak, and steady-state allocation; both apps' lint and Debug/Benchmark builds; JNI/public-tree/license checks | API 36.1 x86_64 matrix, Gradle, scripts | `PASS_EMULATOR` for 56 cases, `PASS_LOCAL` for 532 shared + 152 common unit tests, both app lint/Debug/Benchmark builds and unsanitized native C. Hosted ASan/UBSan passed in run #130; local MSYS2 sanitizer linking is `BLOCKED_ENV`. |
 | DSP05-05 | TS10/K706/iPhone A/V, THD/alias/listening, CPU/memory, soak, rollback/update/signature | Physical device/release run | `NOT_RUN`; target hardware and release exercise are unavailable |
+| DSP05-06 | Seat-only failure fallback, fallback Seat generation after live crossfade, and native pipeline retirement off the audio caller | `DspRendererProductionPathTest.seatOnlyFallbackPreservesRelativeDelayWhenCommonLatencyIsZero`; `fallbackUsesTheAcceptedSeatGenerationAfterLiveCrossfade`; `DspLiveUpdateControllerTest.retiredGraphClosesOnDedicatedReaperWithoutBlockingTheCaller` | `PASS_ROBOLECTRIC` / `PASS_LOCAL`; target audio-thread underrun/p99 impact remains `NOT_RUN` |
+| DSP05-07 | Live master-OFF retains the established track latency; the next track generation returns to exact PCM16 passthrough | `DspRendererProductionPathTest.liveDspOffPreservesTrackLatencyAndNextTrackReturnsToExactPcm` | `PASS_ROBOLECTRIC`; target audio/A-V measurement remains `NOT_RUN` |
+| DSP05-08 | Editor status follows the MEDIA renderer's requested/preparing/prepared/deferred/active/failed graph generation; a latency-changing graph stays pending and activates on the next track | `DspRuntimeConfigStoreTest`; `DspRendererProductionPathTest.latencyChangingGraphStaysPendingAndBecomesActiveOnTheNextTrack`, `failedLiveGraphPreparationIsReportedWithoutClaimingTheNewGenerationIsActive`, and `nonMediaRendererDoesNotReportDspApplicationStatus` | `PASS_LOCAL` / `PASS_ROBOLECTRIC`; real playback adoption and audio/A-V validation remain `NOT_RUN` |
 
 ## PR-08 integrated regression, rollback, and staged release
 
@@ -232,6 +242,7 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | DSP-01 working-tree verification | 514 shared + 149 common tests; both app lints and Debug/Benchmark assemblies passed; API 36.1 instrumented 16/16 | SeatAlignment emulator p99/zero-allocation evidence passed; physical acoustic/A/V validation remains `NOT_RUN` |
 | DSP-05 final working-tree verification | 532 shared + 152 common tests; API 36.1 x86_64 instrumentation 19/19; both app Debug/Benchmark builds and lints passed; native C unsanitized passed | 56 benchmark cases across 44.1/48 kHz mono/stereo; maximum median-run FullHeavyChain production p99 3.12 ms; hardware acoustic/A/V and soak gates remain `NOT_RUN` |
 | PR-45 4AI integrated review fixes | Source fixes for AI1-01/02/03, AI2-01/02/03/05/06/07/09, AI3-001/002/003/004/005/008/009, AI4-CI-01/02/03, AI4-TEST-01, AI4-SEC-01, and AI4-EX08-02. Full shared/common suites passed 570/178 with zero failures/errors/skips; native C alias/seat tests, CI classifier/evidence negative fixtures, EX-08 byte check, JNI mapping check, `:shared:assembleDebug`, and both app Debug/Benchmark assemblies passed | `PASS_LOCAL` at recorded test levels. AI1-04/05/06, AI2-04/08, AI3-006/007, AI4-SYS-01, and AI4-EX08-01 remain protocol/device/hypothesis/policy gates; TS10/K706 USB, MediaCodec worker handoff, DSP acoustics/THD/A-V, soak, signed update, and independent Review A/B remain `NOT_RUN`; branch-protection requirements remain `UNKNOWN`. SH M20+iPhone 17 Pro Max/iOS 27.0.1 reconnect and two Split attempts remain `PARTIAL` U75 evidence |
+| PR-45 4AI re-audit follow-up | DSP apply status flows from the MEDIA renderer to the editor; latency-changing graphs remain prepared until the next AudioTrack generation. NCM short-packet padding follows bulk OUT max-packet size; repeated empty microphone reads use a capped backoff; diagnostic text is redacted before Logcat. Full shared/common suites passed 583/186 with zero failures/errors/skips | `PASS_LOCAL`; TS10/K706 endpoint, real AudioRecord CPU, renderer adoption during playback, and independent Logcat/device review remain `NOT_RUN`; host ASan/UBSan remains `BLOCKED_ENV` because MSYS2 lacks its runtimes |
 | Target hardware | User reports successful compatibility testing on SH M20 + iPhone 17 Pro Max, iOS 27.0.1; see EX01-06/U75 | `PARTIAL`: connection, reconnect, display/audio, and two Split attempts passed by user report; TS10/K706 target acceptance remains `NOT_RUN`, so this is not v3 `HARDWARE_PASS` |
 
 G8 is not passed: the unit/emulator results above apply only to their recorded test levels. U73/U74/U75 and independent Review A/B remain open, and the 353 EX-08 `NEED_EVIDENCE` entries do not convert hardware or release gates into passes. EX-01 has a source-level implementation and fixture coverage but is not device-validated or release-ready.

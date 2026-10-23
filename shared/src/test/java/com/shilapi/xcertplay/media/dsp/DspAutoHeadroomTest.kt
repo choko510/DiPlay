@@ -177,7 +177,7 @@ class DspAutoHeadroomTest {
         )
 
         val prepared = config.prepare(DspAudioFormat(48_000, 2))
-        val expectedBoostDb = 20.0 * kotlin.math.log10(1.75)
+        val expectedBoostDb = config.harmonic.worstCaseBoostDb
         assertEquals(expectedBoostDb + 1.0, prepared.headroom.reductionDb, 0.02)
         assertEquals(-expectedBoostDb - 1.0, prepared.appliedPreampDb, 0.02)
     }

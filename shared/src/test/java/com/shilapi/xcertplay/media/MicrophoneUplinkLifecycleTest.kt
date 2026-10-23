@@ -4,9 +4,18 @@ import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import java.net.InetAddress
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class MicrophoneUplinkLifecycleTest {
+    @Test
+    fun emptyReadDelayIsLinearAndCappedAtFiftyMilliseconds() {
+        assertEquals(5L, microphoneZeroReadBackoffMs(1))
+        assertEquals(25L, microphoneZeroReadBackoffMs(5))
+        assertEquals(50L, microphoneZeroReadBackoffMs(10))
+        assertEquals(50L, microphoneZeroReadBackoffMs(100))
+    }
+
     @Test
     fun closeBeforeStartPreventsAStaleUplinkFromStartingLater() {
         val uplink = MicrophoneUplink(

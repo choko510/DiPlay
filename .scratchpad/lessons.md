@@ -445,3 +445,13 @@ For NCM stream recovery, a valid next-sequence header inside an incomplete NTB's
 Wired-path counters and first-event timestamps are separate atomics, so an unsealed snapshot can observe the count before its timestamp. Preserve that partial report with `first_ms=none`; a sealed snapshot can still enforce complete timestamps after waiting for writers.
 
 Split `TextureView` measurements are local pane geometry. Configuration changes during Split should retain that local cause while the Surface is absent; only Full-mode physical resizes should read the host root and participate in remote display renegotiation.
+
+An additive harmonic exciter should add the band-limited nonlinear component to a latency-matched dry signal. Subtracting the input identity inside the nonlinear branch silently turns the amount control into a dry/wet crossfade and removes high-frequency fundamentals. Include the DSP's internal level-match multiplier in the Auto Headroom peak bound.
+
+Latency-preserving DSP fallback has two independent settings: track-generation common latency and the accepted graph's relative Seat delay. Prepare fallback state off the render worker, feed it during crossfade, and swap only when that graph generation becomes active. Send retired pipelines to a prestarted lock-free reaper instead of scheduling or locking on the audio worker.
+
+DSP master OFF has two valid contracts: a fresh disabled track is byte-exact PCM16, while live OFF retains the old common latency for that track to protect A/V alignment. Compare it with the exact path only after the next track generation.
+
+When converting a legacy DSP preset into a new filter topology, label it as a seeded starting configuration unless a frequency sweep proves transfer-function equivalence.
+
+Configuration acceptance and renderer adoption are separate events: preserve the prepared graph and expose its generation until the output path activates it. A USB transfer terminator must use the negotiated endpoint packet size, not a bus-speed assumption; zero-length blocking audio reads need bounded backoff without inventing samples. Redact data at the Logcat sink itself because later UI/report filtering cannot retract system logs.

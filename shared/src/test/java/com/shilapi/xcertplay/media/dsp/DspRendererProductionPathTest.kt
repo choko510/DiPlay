@@ -371,6 +371,171 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun seatOnlyFallbackPreservesRelativeDelayWhenCommonLatencyIsZero() {
+        val writes = CopyOnWriteArrayList<ByteArray>()
+        val seat = DspSeatAlignmentConfig(
+            enabled = true,
+            nearSpeaker = DspSeatNearSpeaker.LEFT,
+            distanceDifferenceCm = 34_300.0 * 1.5 / 48_000.0,
+        )
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, seatAlignment = seat),
+            writeAdapter = { bytes, offset, length, _ ->
+                writes += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            pipelinePreparer = { audioFormat, _ ->
+                DspPcmPipeline(
+                    audioFormat,
+                    StateProcessor(audioFormat, latencyFrames = 0, gain = 1.0f, failOnProcess = 1),
+                    forceInitialLatencySilence = false,
+                )
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            assertEquals(0, renderer.trackLatencyForTesting)
+
+            renderer.handleRtpForTesting(lpcmRtp(intArrayOf(12_000, 0, 0, 0, 0, 0, 0, 0)), sample = 0)
+
+            assertEquals(1, writes.size)
+            val output = writes.single()
+            assertTrue(abs(readSample(output, 0)) <= 2)
+            assertTrue(abs(readSample(output, 2 * Short.SIZE_BYTES)) > 500)
+            assertTrue(abs(readSample(output, Short.SIZE_BYTES)) <= 2)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun fallbackUsesTheAcceptedSeatGenerationAfterLiveCrossfade() {
+        val impulseResponse = DspImpulseResponse("seat_fallback_room", 48_000, 1, floatArrayOf(1.0f))
+        val initialConfig = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            convolver = DspConvolverConfig(
+                enabled = true,
+                impulseResponseId = impulseResponse.id,
+                impulseResponse = impulseResponse,
+            ),
+            seatAlignment = DspSeatAlignmentConfig(
+                enabled = true,
+                nearSpeaker = DspSeatNearSpeaker.LEFT,
+                distanceDifferenceCm = 34_300.0 * 1.5 / 48_000.0,
+            ),
+        )
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val writes = CopyOnWriteArrayList<ByteArray>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = initialConfig,
+            provider = provider,
+            writeAdapter = { bytes, offset, length, _ ->
+                writes += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                if (!config.enabled) {
+                    null
+                } else {
+                    DspPcmPipeline(
+                        audioFormat,
+                        StateProcessor(audioFormat, latencyFrames = 128, gain = 1.0f),
+                        forceInitialLatencySilence = false,
+                    )
+                }
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(128)), sample = 0)
+
+            provider.update(DspRuntimeConfig(enabled = false, autoHeadroomEnabled = false))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            repeat(40) { block ->
+                renderer.handleRtpForTesting(lpcmRtp(IntArray(128)), sample = 64 + block * 64)
+            }
+
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertNull(renderer.dspPipeline)
+            assertEquals(128, renderer.trackLatencyForTesting)
+
+            renderer.handleRtpForTesting(lpcmRtp(intArrayOf(12_000, 0) + IntArray(510)), sample = 3_000)
+
+            val output = writes.last()
+            val firstAfterCommonDelay = readSample(output, 128 * 2 * Short.SIZE_BYTES)
+            assertTrue(
+                "fallback must use the current graph's zero-relative-delay configuration",
+                firstAfterCommonDelay > 10_000,
+            )
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun liveDspOffPreservesTrackLatencyAndNextTrackReturnsToExactPcm() {
+        val provider = MutableConfigProvider(DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false))
+        val prepared = LinkedBlockingQueue<Unit>()
+        val writes = CopyOnWriteArrayList<ByteArray>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = provider.versionedSnapshot().config,
+            provider = provider,
+            writeAdapter = { bytes, offset, length, _ ->
+                writes += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                if (!config.enabled) {
+                    null
+                } else {
+                    DspPcmPipeline(
+                        audioFormat,
+                        StateProcessor(audioFormat, latencyFrames = 128, gain = 1.0f),
+                        forceInitialLatencySilence = false,
+                    )
+                }
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(128) { 1_000 }), sample = 0)
+
+            provider.update(DspRuntimeConfig(enabled = false, autoHeadroomEnabled = false))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            repeat(40) { block ->
+                renderer.handleRtpForTesting(lpcmRtp(IntArray(128)), sample = 64 + block * 64)
+            }
+
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertNull(renderer.dspPipeline)
+            assertEquals(128, renderer.trackLatencyForTesting)
+            renderer.handleRtpForTesting(lpcmRtp(intArrayOf(12_000, 12_000) + IntArray(126)), sample = 3_000)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(128)), sample = 3_064)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(128)), sample = 3_128)
+            assertTrue(abs(readSample(writes[writes.lastIndex], 0) - 12_000) <= 2)
+
+            renderer.beginTrackGenerationForTesting()
+            assertEquals(0, renderer.trackLatencyForTesting)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(128) { 600 }), sample = 4_000)
+            assertTrue(writes.last().contentEquals(pcm16(64, 2, 600)))
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun recoveryCrossfadeUsesDelayedDryFloatsAsItsOldSignal() {
         val writes = CopyOnWriteArrayList<ByteArray>()
         val provider = MutableConfigProvider(DspRuntimeConfig(enabled = true))
@@ -834,6 +999,132 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun latencyChangingGraphStaysPendingAndBecomesActiveOnTheNextTrack() {
+        val ir = DspImpulseResponse("room_next_track", 48_000, 1, floatArrayOf(1.0f))
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                pipeline(audioFormat, latencyFrames = if (config.convolver.enabled) 128 else 0, gain = 1.0f)
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            val activePipeline = renderer.dspPipeline
+            assertEquals(DspRendererApplyPhase.ACTIVE, provider.rendererApplyStatus()?.phase)
+
+            provider.update(convolverConfig(ir))
+            assertEquals(DspRendererApplyPhase.PREPARING, provider.rendererApplyStatus()?.phase)
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+
+            assertTrue(renderer.dspPipeline === activePipeline)
+            assertEquals(0, renderer.trackLatencyForTesting)
+            assertEquals(0L, renderer.dspGenerationForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+            assertEquals(DspRendererApplyPhase.DEFERRED, provider.rendererApplyStatus()?.phase)
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 30L,
+            )
+
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertEquals(128, renderer.trackLatencyForTesting)
+            assertTrue(renderer.effectiveConvolverEnabledForTesting)
+            assertNull(renderer.deferredDspGenerationForTesting)
+            assertEquals(
+                DspRendererApplyStatus(1L, DspRendererApplyPhase.ACTIVE, activeGeneration = 1L),
+                provider.rendererApplyStatus(),
+            )
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun nonMediaRendererDoesNotReportDspApplicationStatus() {
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1, audioType = "telephony"),
+            initialConfig = initialConfig,
+            provider = provider,
+            pipelinePreparer = { _, _ -> error("non-MEDIA streams must not create a full DSP graph") },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            assertNull(renderer.dspPipeline)
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = 3.0))
+
+            assertEquals(
+                DspRendererApplyStatus(1L, DspRendererApplyPhase.REQUESTED),
+                provider.rendererApplyStatus(),
+            )
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun failedLiveGraphPreparationIsReportedWithoutClaimingTheNewGenerationIsActive() {
+        val ir = DspImpulseResponse("room_failed", 48_000, 1, floatArrayOf(1.0f))
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                if (config.convolver.enabled) null else pipeline(audioFormat, latencyFrames = 0, gain = 1.0f)
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            provider.update(convolverConfig(ir))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            awaitApplyStatus(provider, DspRendererApplyPhase.FAILED, generation = 1L)
+
+            assertEquals(0L, renderer.dspGenerationForTesting)
+            assertEquals(
+                DspRendererApplyStatus(1L, DspRendererApplyPhase.FAILED, activeGeneration = 0L),
+                provider.rendererApplyStatus(),
+            )
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun decoderFormatChangeCancelsAnInFlightFadeAndRetiresItsOldFormatGraph() {
         val oldCandidateClosed = CountDownLatch(1)
         val prepared = LinkedBlockingQueue<Unit>()
@@ -959,12 +1250,12 @@ class DspRendererProductionPathTest {
         )
     }
 
-    private fun audioFormat(codec: AudioCodecKind, channels: Int): AudioFormat = AudioFormat(
+    private fun audioFormat(codec: AudioCodecKind, channels: Int, audioType: String = "media"): AudioFormat = AudioFormat(
         codec = codec,
         sampleRate = 48_000,
         channels = channels,
         payloadType = if (codec == AudioCodecKind.LPCM) 100 else 96,
-        audioType = "media",
+        audioType = audioType,
     )
 
     private fun convolverConfig(ir: DspImpulseResponse, gainDb: Double = 0.0): DspRuntimeConfig = DspRuntimeConfig(
@@ -1007,6 +1298,20 @@ class DspRendererProductionPathTest {
 
     private fun readLastSample(bytes: ByteArray): Int = readSample(bytes, bytes.size - Short.SIZE_BYTES)
 
+    private fun awaitApplyStatus(
+        provider: MutableConfigProvider,
+        phase: DspRendererApplyPhase,
+        generation: Long,
+    ) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (System.nanoTime() < deadline) {
+            val status = provider.rendererApplyStatus()
+            if (status?.generation == generation && status.phase == phase) return
+            Thread.sleep(5)
+        }
+        assertEquals(phase, provider.rendererApplyStatus()?.phase)
+    }
+
     private class StateProcessor(
         override val format: DspAudioFormat,
         override val latencyFrames: Int,
@@ -1047,11 +1352,23 @@ class DspRendererProductionPathTest {
 
     private class MutableConfigProvider(initial: DspRuntimeConfig) : DspConfigProvider {
         private val current = AtomicReference(DspConfigSnapshot(0L, initial))
+        private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
         private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
 
         override fun snapshot(): DspRuntimeConfig = current.get().config
 
         override fun versionedSnapshot(): DspConfigSnapshot = current.get()
+
+        override fun rendererApplyStatus(): DspRendererApplyStatus? = applyStatus.get()
+
+        override fun reportRendererApplyStatus(status: DspRendererApplyStatus) {
+            if (current.get().generation != status.generation) return
+            while (true) {
+                val previous = applyStatus.get()
+                if (previous?.generation == status.generation && !canAdvance(previous.phase, status.phase)) return
+                if (applyStatus.compareAndSet(previous, status)) return
+            }
+        }
 
         override fun addListener(listener: (DspConfigSnapshot) -> Unit): Closeable {
             listeners.add(listener)
@@ -1061,7 +1378,24 @@ class DspRendererProductionPathTest {
 
         fun update(config: DspRuntimeConfig) {
             val next = current.updateAndGet { DspConfigSnapshot(it.generation + 1L, config) }
+            val previous = applyStatus.get()
+            val activeGeneration = previous?.activeGeneration ?: previous?.generation?.takeIf {
+                previous.phase == DspRendererApplyPhase.ACTIVE
+            }
+            applyStatus.set(DspRendererApplyStatus(next.generation, DspRendererApplyPhase.REQUESTED, activeGeneration))
             listeners.forEach { it(next) }
+        }
+
+        private fun canAdvance(previous: DspRendererApplyPhase, next: DspRendererApplyPhase): Boolean = when (previous) {
+            DspRendererApplyPhase.REQUESTED -> true
+            DspRendererApplyPhase.PREPARING -> next == DspRendererApplyPhase.PREPARED ||
+                next == DspRendererApplyPhase.DEFERRED || next == DspRendererApplyPhase.ACTIVE ||
+                next == DspRendererApplyPhase.FAILED
+            DspRendererApplyPhase.PREPARED -> next == DspRendererApplyPhase.DEFERRED ||
+                next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
+            DspRendererApplyPhase.DEFERRED -> next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
+            DspRendererApplyPhase.ACTIVE -> next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
+            DspRendererApplyPhase.FAILED -> next == DspRendererApplyPhase.ACTIVE
         }
     }
 }

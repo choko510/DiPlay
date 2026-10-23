@@ -1,5 +1,15 @@
 # Decisions
 
+## Topic guide
+
+The decisions below are retained with their full rationale; earlier choices may require validation against a newer PR head.
+
+- **Scope / EX-08:** [pinned baseline](#freeze-main-behavior-before-step4-corrections), [provenance](#keep-ex-08-provenance-separate-from-current-decisions), [PR #45 batching](#batch-remaining-step4-work-in-the-existing-pr).
+- **Wired NCM / USBMUX:** [persistent NCM IN](#keep-ncm-bulk-in-persistent-and-drain-an-available-status-endpoint), [USBMUX recovery](#keep-one-usbmux-in-request-and-use-bounded-recovery), [teardown](#fence-and-serialize-wired-teardown).
+- **AirPlay / host split:** [LOCAL Split](#keep-local-split-resizing-inside-android), [ViewAreas](#keep-multiple-viewareas-explicit-and-wire-switching-disabled), [DSP Split](#add-dsp-as-a-mutually-exclusive-host-split-mode).
+- **DSP:** [OFF baseline](#preserve-the-dsp-off-baseline-before-extending-the-graph), [Seat](#align-seat-timing-by-explicit-near-speaker-and-preserve-graph-history), [Cabin](#cabin-correction-requires-external-measurements-and-explicit-approval), [Harmonic](#harmonic-effects-use-bounded-2-fir-oversampling-and-report-the-dry-matched-latency).
+- **CI / security:** [draft gates](#defer-emulator-instrumentation-while-a-pr-is-draft), [privacy](#keep-connection-traces-opt-in-and-app-owned), [MFi local identity](#keep-local-mfi-identity-outside-tracked-source).
+
 ## Keep EX-08 provenance separate from current decisions
 
 Preserve the upstream catalog original source_review_state as provenance. Treat generated current_review_state and disposition as the present decision layer; NEED_EVIDENCE means a documented requirement remains unresolved, not semantic proof or parity. Report current totals from the generated ledger, never from stale catalog-state counts.

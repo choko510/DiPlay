@@ -1,5 +1,16 @@
 # Lessons
 
+## Topic guide
+
+These cumulative lessons include general rules followed by individual incident findings. Check applicability to the current code.
+
+- **USB / NCM:** [readiness proof](#require-bidirectional-proof-before-ncm-readiness), [request timeout](#treat-usb-request-wait-timeouts-as-pending-operations), [NDP](#separate-ndp-accounting-from-startup-retries).
+- **DSP / audio:** [DSP eligibility](#do-not-infer-dsp-eligibility-from-android-usage), [buffer validation](#validate-audio-buffers-with-frames-channels-and-encoding-together), [live DSP](#exercise-live-dsp-through-the-production-renderer-boundary).
+- **AirPlay / Split:** [IME resize](#keep-ime-resize-separate-from-negotiated-carplay-size), [phone identity](#revalidate-profile-identity-across-a-carplay-controller-restart).
+- **CI / release security:** [JNI symbol retention](#verify-jni-symbol-retention-from-the-optimized-mapping), [MFi identity](#bundle-local-mfi-identity-only-through-an-explicit-input), [APK signature](#verify-the-apk-signature-schemes-explicitly).
+
+## General CI / review lessons
+
 For faster pull request feedback, keep public-tree and generated-ledger checks on every update, run a small native/unit-test lane on draft code, and compare it against a dedicated quick baseline. Keep lint, package builds, JNI verification, and emulator instrumentation in the full review-ready lane. Separate quick, host, and instrumentation baselines so skipped work never counts as a full pass; default unknown paths, missing baselines, and non-PR events to full verification.
 
 For long-lived draft PRs, run unit tests and host native checks on each code update, then defer the expensive lint/build/JNI/emulator matrix until `ready_for_review`. Explicitly include that pull-request activity type when restricting event types, and cancel superseded runs so stale commits do not hold the latest feedback behind them.

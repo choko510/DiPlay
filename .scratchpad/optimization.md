@@ -1,4 +1,8 @@
-# PR-DSP-12 — DSP pipeline profiling and performance gate
+# Performance and Optimization
+
+> **2026-10-23 status:** Earlier local API 36.1 benchmarks are historical; they do not override unstable hosted API 35 p99 observations. Later changes aligned render/benchmark thread priority and removed retire-time work from the audio caller. Physical TS10/K706 CPU, underrun, latency and A/V gates are NOT_RUN. Consult [current](current.md) before claiming performance acceptance.
+
+## PR-DSP-12 — DSP pipeline profiling and performance gate (historical API 36.1)
 
 Measured 10 configurations (Gain, PEQ15, PEQ+Compressor+Limiter, Bass+Stereo+Mono Bass, 3-band dynamics, Dynamic EQ, Convolver 4k/16k/64k, and the full heavy chain) at 44.1/48 kHz, Mono/Stereo: 40 cases total. Each case used 64 warmup blocks, 64 allocation-check blocks, and 256 measured 512-frame blocks on the Medium Phone API 36.1 x86_64 emulator. Fixed 20 µs histograms report native processing separately from PCM conversion + JNI + native + PCM16 conversion.
 

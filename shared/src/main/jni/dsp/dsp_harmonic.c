@@ -163,10 +163,16 @@ int dsp_harmonic_prepare(
     design_anti_alias_fir(harmonic->taps, harmonic->fir_coefficients);
     if (harmonic->exciter_enabled) {
         double high_pass[5];
+        double alias_guard[5];
         double dc_block[5];
+        const double alias_guard_hz = fmin(
+            sample_rate * 0.45,
+            fmax(sample_rate * 0.30, config->exciter_cutoff_hz * 1.25));
         design_high_pass(sample_rate, config->exciter_cutoff_hz, high_pass);
+        design_low_pass(sample_rate, alias_guard_hz, alias_guard);
         design_high_pass(sample_rate, 20.0, dc_block);
         if (!dsp_biquad_prepare(&harmonic->exciter_high_pass, high_pass) ||
+            !dsp_biquad_prepare(&harmonic->exciter_alias_guard, alias_guard) ||
             !dsp_biquad_prepare(&harmonic->exciter_dc_block, dc_block)) {
             return 0;
         }
@@ -192,6 +198,7 @@ void dsp_harmonic_reset(dsp_harmonic *harmonic) {
     harmonic->dry_write_index = 0;
     if (harmonic->exciter_enabled) {
         dsp_biquad_reset(&harmonic->exciter_high_pass);
+        dsp_biquad_reset(&harmonic->exciter_alias_guard);
         dsp_biquad_reset(&harmonic->exciter_dc_block);
     }
     if (harmonic->virtual_bass_enabled) {
@@ -214,7 +221,8 @@ void dsp_harmonic_process_frame(dsp_harmonic *harmonic, float *left, float *righ
         if (dry_index < 0) dry_index += DSP_HARMONIC_DELAY_FRAMES;
         output[channel] = harmonic->dry_delay[channel][dry_index] * harmonic->level_match_gain;
         if (harmonic->exciter_enabled) {
-            const float band = dsp_biquad_process_sample(&harmonic->exciter_high_pass, input, channel);
+            const float high_passed = dsp_biquad_process_sample(&harmonic->exciter_high_pass, input, channel);
+            const float band = dsp_biquad_process_sample(&harmonic->exciter_alias_guard, high_passed, channel);
             float harmonic_component = process_upsampled_branch(
                 &harmonic->branches[channel][0], harmonic->fir_coefficients, harmonic->taps, band, harmonic->mode);
             harmonic_component = dsp_biquad_process_sample(&harmonic->exciter_dc_block, harmonic_component, channel);
@@ -238,6 +246,7 @@ void dsp_harmonic_flush_denormals(dsp_harmonic *harmonic) {
     if (harmonic == NULL || !harmonic->active) return;
     if (harmonic->exciter_enabled) {
         dsp_biquad_flush_denormals(&harmonic->exciter_high_pass);
+        dsp_biquad_flush_denormals(&harmonic->exciter_alias_guard);
         dsp_biquad_flush_denormals(&harmonic->exciter_dc_block);
     }
     if (harmonic->virtual_bass_enabled) {

@@ -466,3 +466,11 @@ DSP master OFF has two valid contracts: a fresh disabled track is byte-exact PCM
 When converting a legacy DSP preset into a new filter topology, label it as a seeded starting configuration unless a frequency sweep proves transfer-function equivalence.
 
 Configuration acceptance and renderer adoption are separate events: preserve the prepared graph and expose its generation until the output path activates it. A USB transfer terminator must use the negotiated endpoint packet size, not a bus-speed assumption; zero-length blocking audio reads need bounded backoff without inventing samples. Redact data at the Logcat sink itself because later UI/report filtering cannot retract system logs.
+
+Test the incomplete-NCM boundary with a staged receive: deliver the first 200 bytes, require no frame or resync, then deliver the declared remainder and require only the original frame. For a damaged length with one valid following block, inject repeated USB timeouts and verify `recv()` returns promptly and close still releases the connection.
+
+Keep incremental resync scan position across USB completions and instrument candidate checks. A bytewise 8 KiB fixture is a useful regression for quadratic rescanning; bounded memory alone does not bound CPU work.
+
+When an Android Activity must remain externally launchable for system USB attach, move app commands to a non-exported Activity and check both the currently attached device identity and `UsbManager.hasPermission()` before acting on the exported entry point.
+
+For privacy audits, search every app-owned direct `Log.*` sink for Throwable arguments, then verify the replacement retains useful error classes without retaining exception messages, stack traces, or media payload bytes.

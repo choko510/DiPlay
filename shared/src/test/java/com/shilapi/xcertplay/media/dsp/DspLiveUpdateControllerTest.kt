@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -312,7 +313,7 @@ class DspLiveUpdateControllerTest {
         try {
             assertTrue(retireReturned.await(1, TimeUnit.SECONDS))
             assertTrue(retiredCloseStarted.await(5, TimeUnit.SECONDS))
-            assertEquals("dsp-pipeline-reaper", closeThread.get())
+            assertTrue(closeThread.get().orEmpty().startsWith("dsp-pipeline-reaper"))
             assertTrue("retired storage prevents another adoption", !controller.canAdoptUpdate())
             allowClose.countDown()
             assertTrue(retiredClosed.await(5, TimeUnit.SECONDS))
@@ -323,6 +324,60 @@ class DspLiveUpdateControllerTest {
             allowClose.countDown()
             audioThread.join(1_000)
             controller.close()
+        }
+    }
+
+    @Test
+    fun aBlockedReaperWorkerDoesNotHoldAnotherControllersRetirement() {
+        val firstCloseStarted = CountDownLatch(1)
+        val releaseFirstClose = CountDownLatch(1)
+        val firstClosed = CountDownLatch(1)
+        val secondClosed = CountDownLatch(1)
+        val firstController = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 1),
+            role = DspStreamRole.MEDIA,
+            provider = MutableConfigProvider(),
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = {},
+        )
+        val secondController = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 1),
+            role = DspStreamRole.MEDIA,
+            provider = MutableConfigProvider(),
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = {},
+        )
+        val firstPipeline = trackingPipeline(DspAudioFormat(48_000, 1), 0) {
+            firstCloseStarted.countDown()
+            check(releaseFirstClose.await(5, TimeUnit.SECONDS))
+            firstClosed.countDown()
+        }
+        val secondPipeline = trackingPipeline(DspAudioFormat(48_000, 1), 0) {
+            secondClosed.countDown()
+        }
+        val firstRetirement = Thread({ firstController.retire(firstPipeline) }, "first-controller-retire")
+
+        try {
+            firstRetirement.start()
+            assertTrue(firstCloseStarted.await(5, TimeUnit.SECONDS))
+            secondController.retire(secondPipeline)
+
+            assertTrue(secondClosed.await(5, TimeUnit.SECONDS))
+            assertFalse(firstController.canAdoptUpdate())
+            assertTrue(secondController.canAdoptUpdate())
+
+            releaseFirstClose.countDown()
+            assertTrue(firstClosed.await(5, TimeUnit.SECONDS))
+            val deadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (!firstController.canAdoptUpdate() && System.nanoTime() < deadlineNs) Thread.yield()
+            assertTrue(firstController.canAdoptUpdate())
+        } finally {
+            releaseFirstClose.countDown()
+            firstRetirement.join(1_000)
+            firstController.close()
+            secondController.close()
         }
     }
 

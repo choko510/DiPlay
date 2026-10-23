@@ -607,3 +607,13 @@ Serialize `DspEditorSession` async operations rather than letting a later master
 DSP editor status reports the MEDIA renderer's requested, preparing, prepared, deferred, active, or failed graph generation separately from the configured profile. Keep a latency-changing candidate prepared through the current track and adopt it before the next generation commits content; do not drop it or move its latency mid-track.
 
 Build the NCM short-packet terminator from the selected bulk-OUT endpoint max-packet size. For microphone `READ_BLOCKING` zero-byte returns, back off only after an empty read, cap delay at 50 ms, reset on positive input, and send no synthetic silence. Apply the existing diagnostic redactor before writing messages or exception details to Logcat.
+
+For the 2026-10-23 third PR-45 re-audit, preserve incomplete NTH16 blocks at their declared boundary; only recover from validated payload ends or a fixed allowed zero-pad length. Corrupt datagram-length recovery requires two consecutive valid sequence blocks, keeps bounded pending candidates, and scans only newly received offsets. A lone candidate times out and remains closeable rather than being accepted early.
+
+Keep `CarPlayHostActivity` non-exported and route its UI commands through one-use in-process tokens. The exported USB attach trampoline must validate the current CH341 device and Android USB permission before it changes the saved transport preference.
+
+For live DSP OFF with zero common latency, fade toward dry PCM instead of carrying the old Seat fallback into the disabled graph. Advance latency-preserving Float state without quantizing PCM16 on healthy DSP blocks. Bind each retirement counter when its pipeline is retired, and distribute close work over independent reaper workers.
+
+Treat DSP status as the last adopted graph and identify format-incompatible modules such as Convolver separately. Keep the Harmonic upper-band alias guard and adversarial native sweep together; target THD/listening and Seat phase acceptance remain device gates.
+
+Logcat is an independent sink from the app's redacted session trace. Log exception class names at direct `Log` sites instead of Throwable stacks/messages; remove microphone packet and decrypted video previews before logging.

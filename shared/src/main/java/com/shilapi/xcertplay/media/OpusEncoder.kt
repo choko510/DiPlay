@@ -42,7 +42,7 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
             )
         }
     } catch (error: Exception) {
-        Log.w(TAG, "Opus microphone encoder unavailable", error)
+        Log.w(TAG, "Opus microphone encoder unavailable error=${error.javaClass.simpleName}")
         null
     }
     private val bufferInfo = MediaCodec.BufferInfo()
@@ -65,7 +65,7 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
         val inputIndex = try {
             codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
         } catch (error: Exception) {
-            Log.w(TAG, "Opus microphone input dequeue failed", error)
+            Log.w(TAG, "Opus microphone input dequeue failed error=${error.javaClass.simpleName}")
             return emptyList()
         }
         if (inputIndex >= 0) {
@@ -95,7 +95,7 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
             val index = try {
                 codec.dequeueOutputBuffer(bufferInfo, 0)
             } catch (error: Exception) {
-                Log.w(TAG, "Opus microphone output dequeue failed", error)
+                Log.w(TAG, "Opus microphone output dequeue failed error=${error.javaClass.simpleName}")
                 return output
             }
             when {

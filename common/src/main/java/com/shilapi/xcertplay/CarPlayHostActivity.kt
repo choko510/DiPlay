@@ -49,6 +49,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.StringRes
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.core.view.ViewCompat
@@ -119,6 +120,7 @@ import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -142,7 +144,38 @@ internal object CarPlayHostActions {
     const val EXIT_YOUTUBE_SPLIT = "com.shilapi.xcertplay.action.EXIT_YOUTUBE_SPLIT"
     const val ENTER_DSP_SPLIT = "com.shilapi.xcertplay.action.ENTER_DSP_SPLIT"
     const val OPEN_CARPLAY = "com.shilapi.xcertplay.action.OPEN_CARPLAY"
-    private const val USB_DEVICE_ATTACHED = "android.hardware.usb.action.USB_DEVICE_ATTACHED"
+    const val USB_DEVICE_ATTACHED = "android.hardware.usb.action.USB_DEVICE_ATTACHED"
+    private const val INTERNAL_HOST_ACTION = "com.shilapi.xcertplay.action.INTERNAL_HOST_ACTION"
+    private const val EXTRA_INTERNAL_ACTION_TOKEN = "com.shilapi.xcertplay.extra.INTERNAL_ACTION_TOKEN"
+    private const val MAX_PENDING_ACTIONS = 16
+    private val pendingActions = LinkedHashMap<String, String>()
+
+    fun createInternalIntent(context: Context, action: String): Intent {
+        require(action == OPEN_CARPLAY || action == ENTER_YOUTUBE_SPLIT || action == ENTER_DSP_SPLIT ||
+            action == EXIT_YOUTUBE_SPLIT || action == USB_DEVICE_ATTACHED
+        ) { "Unsupported CarPlay host action" }
+        val token = UUID.randomUUID().toString()
+        synchronized(pendingActions) {
+            while (pendingActions.size >= MAX_PENDING_ACTIONS) {
+                pendingActions.remove(pendingActions.keys.first())
+            }
+            pendingActions[token] = action
+        }
+        return Intent(context, CarPlayHostActivity::class.java)
+            .setAction(INTERNAL_HOST_ACTION)
+            .putExtra(EXTRA_INTERNAL_ACTION_TOKEN, token)
+    }
+
+    fun consumeInternalAction(intent: Intent): String? {
+        if (intent.action != INTERNAL_HOST_ACTION) return null
+        val token = intent.getStringExtra(EXTRA_INTERNAL_ACTION_TOKEN) ?: return null
+        return synchronized(pendingActions) { pendingActions.remove(token) }
+    }
+
+    fun sanitizedIntent(intent: Intent): Intent = Intent(intent).apply {
+        action = null
+        removeExtra(EXTRA_INTERNAL_ACTION_TOKEN)
+    }
 
     fun shouldClearRestartSuppression(action: String?): Boolean =
         action == USB_DEVICE_ATTACHED || command(action) != CarPlayHostLayoutCommand.NONE || action == OPEN_CARPLAY
@@ -150,7 +183,7 @@ internal object CarPlayHostActions {
     fun command(action: String?): CarPlayHostLayoutCommand = when (action) {
         ENTER_YOUTUBE_SPLIT -> CarPlayHostLayoutCommand.ENTER_YOUTUBE_SPLIT
         ENTER_DSP_SPLIT -> CarPlayHostLayoutCommand.ENTER_DSP_SPLIT
-        EXIT_YOUTUBE_SPLIT -> CarPlayHostLayoutCommand.EXIT_SPLIT_TO_CARPLAY
+        EXIT_YOUTUBE_SPLIT, OPEN_CARPLAY -> CarPlayHostLayoutCommand.EXIT_SPLIT_TO_CARPLAY
         else -> CarPlayHostLayoutCommand.NONE
     }
 
@@ -161,6 +194,9 @@ internal object CarPlayHostActions {
             CarPlayHostLayoutCommand.EXIT_SPLIT_TO_CARPLAY -> state.returnToCarPlay()
             CarPlayHostLayoutCommand.NONE -> state
         }
+
+    fun pendingSplitModeAfterLaunch(savedPending: HostLayoutMode?, action: String?): HostLayoutMode? =
+        if (action == null) savedPending else null
 }
 
 /**
@@ -319,6 +355,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var youtubePane: FrameLayout? = null
     private var dspPane: FrameLayout? = null
     private var dspComposeView: ComposeView? = null
+    private val dspPaneVisible = mutableStateOf(false)
     private var pendingSplitStatusView: TextView? = null
     private var youtubeContent: FrameLayout? = null
     private var youtubeStatusView: TextView? = null
@@ -643,7 +680,7 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SplitPerformanceTracer.configure(applicationContext)
-        val initialAction = intent.action
+        val initialAction = CarPlayHostActions.consumeInternalAction(intent)
         if (CarPlayHostActions.shouldClearRestartSuppression(initialAction)) {
             CarPlayBackgroundSession.clearRestartSuppression()
         }
@@ -657,10 +694,11 @@ class CarPlayHostActivity : ComponentActivity() {
                     ?: SplitLayoutConfig.DEFAULT_CARPLAY_FRACTION,
             ),
         )
-        pendingSplitMode = savedInstanceState?.getString(STATE_PENDING_SPLIT_MODE)?.let { savedMode ->
+        val savedPendingSplitMode = savedInstanceState?.getString(STATE_PENDING_SPLIT_MODE)?.let { savedMode ->
             HostLayoutState.restoreMode(savedMode, legacyYoutubeSplit = false)
                 .takeUnless { it == HostLayoutMode.CARPLAY_FULL }
         }
+        pendingSplitMode = CarPlayHostActions.pendingSplitModeAfterLaunch(savedPendingSplitMode, initialAction)
         savedInstanceState?.getString(DspEditorSavedState.DRAFT_PROFILE)?.let { savedDraft ->
             val runtime = DspProfileRuntime.get(applicationContext)
             runtime.decodeProfileDraftFromSavedState(savedDraft)?.let(runtime.editorSession::restoreDraft)
@@ -674,11 +712,11 @@ class CarPlayHostActivity : ComponentActivity() {
             pendingSplitMode = hostLayoutState.mode
         }
         when (initialAction) {
-            "android.hardware.usb.action.USB_DEVICE_ATTACHED" ->
+            CarPlayHostActions.USB_DEVICE_ATTACHED ->
                 AirPlayPersistence.saveWirelessEnabled(this, false)
             else -> Unit
         }
-        if (initialAction != null) setIntent(Intent(intent).setAction(null))
+        if (intent.action != null) setIntent(CarPlayHostActions.sanitizedIntent(intent))
         if (runCatching { DiPlayBootstrap.ensure(this) }.isFailure) {
             startActivity(Intent(this, DiPlayActivity::class.java))
             finish(); return
@@ -894,38 +932,37 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent)
-        if (CarPlayHostActions.shouldClearRestartSuppression(intent.action)) {
+        val action = CarPlayHostActions.consumeInternalAction(intent)
+        setIntent(CarPlayHostActions.sanitizedIntent(intent))
+        if (action == null) return
+        if (CarPlayHostActions.shouldClearRestartSuppression(action)) {
             CarPlayBackgroundSession.clearRestartSuppression()
         }
-        if (intent.action == "android.hardware.usb.action.USB_DEVICE_ATTACHED" && wirelessEnabled) {
+        if (action == CarPlayHostActions.USB_DEVICE_ATTACHED && wirelessEnabled) {
             shutdown(false, "switching to USB") {
                 AirPlayPersistence.saveWirelessEnabled(this, false)
-                startActivity(
-                    Intent(this, CarPlayHostActivity::class.java)
-                        .setAction(CarPlayHostActions.OPEN_CARPLAY),
-                )
+                startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY))
             }
             finish()
             return
         }
-        if (intent.action == CarPlayHostActions.OPEN_CARPLAY) {
-            setIntent(Intent(intent).setAction(null))
+        if (action == CarPlayHostActions.OPEN_CARPLAY) {
+            pendingSplitMode = null
             returnToCarPlay()
             maybeStartCarPlay()
             return
         }
-        when (CarPlayHostActions.command(intent.action)) {
+        when (CarPlayHostActions.command(action)) {
             CarPlayHostLayoutCommand.ENTER_YOUTUBE_SPLIT -> {
-                setIntent(Intent(intent).setAction(null))
+                pendingSplitMode = null
                 enterYoutubeSplit()
             }
             CarPlayHostLayoutCommand.ENTER_DSP_SPLIT -> {
-                setIntent(Intent(intent).setAction(null))
+                pendingSplitMode = null
                 enterDspSplit()
             }
             CarPlayHostLayoutCommand.EXIT_SPLIT_TO_CARPLAY -> {
-                setIntent(Intent(intent).setAction(null))
+                pendingSplitMode = null
                 returnToCarPlay()
             }
             CarPlayHostLayoutCommand.NONE -> Unit
@@ -1265,6 +1302,7 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         youtube.visibility = if (youtubeSplit) View.VISIBLE else View.GONE
         dsp.visibility = if (dspSplit) View.VISIBLE else View.GONE
+        dspPaneVisible.value = dspSplit
         pendingSplitStatusView?.visibility = if (pendingSplitMode == null) View.GONE else View.VISIBLE
         hostContentRow?.requestLayout()
     }
@@ -1281,6 +1319,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     DspSettingsScreen(
                         runtime = runtime,
                         presentation = DspPresentationMode.COMPACT_SPLIT,
+                        isVisible = dspPaneVisible.value,
                         onBack = ::exitDspSplit,
                     )
                 }
@@ -2421,7 +2460,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val customIconBytes = try {
             AirPlayPersistence.loadCustomAirPlayIconFile(this)?.readBytes()
         } catch (error: Exception) {
-            Log.w(TAG, "Could not read the current AirPlay icon for settings rollback", error)
+            Log.w(TAG, "Could not read the current AirPlay icon for settings rollback error=${error.javaClass.simpleName}")
             null
         }
         return SettingsBaseline(
@@ -2458,7 +2497,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 AirPlayPersistence.saveCustomAirPlayIcon(this, bytes)
             } ?: AirPlayPersistence.clearCustomAirPlayIcon(this)
         } catch (error: Exception) {
-            Log.w(TAG, "Could not restore the previous AirPlay icon", error)
+            Log.w(TAG, "Could not restore the previous AirPlay icon error=${error.javaClass.simpleName}")
         }
         settingsBaseline = null
         locationPermissionAvailable = hasFineLocationPermission()
@@ -4472,7 +4511,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     "AirPlay dark mode=${if (night) "dark" else "light"} eventChannelReady=$sent",
                 )
             } catch (error: Throwable) {
-                Log.w(TAG, "Could not send AirPlay dark mode update", error)
+                Log.w(TAG, "Could not send AirPlay dark mode update error=${error.javaClass.simpleName}")
             }
         }
     }

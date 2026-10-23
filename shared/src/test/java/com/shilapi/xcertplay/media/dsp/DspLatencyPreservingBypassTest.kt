@@ -7,6 +7,25 @@ import org.junit.Test
 
 class DspLatencyPreservingBypassTest {
     @Test
+    fun advancingFallbackStateDoesNotEncodePcmUntilRequested() {
+        val bypass = DspLatencyPreservingBypass(
+            format = DspAudioFormat(48_000, 1),
+            commonLatencyFrames = 2,
+            seed = 1L,
+        )
+        val source = floatPcm(floatArrayOf(0.25f, 0.5f, -0.25f, -0.5f))
+
+        assertEquals(0, bypass.process(source, 0, source.size, DspPcmEncoding.PCM_FLOAT, encodeOutput = false))
+        assertEquals(0, bypass.outputLength)
+        assertEquals(4, bypass.outputFrameCount)
+        assertEquals(
+            DspBufferSizing.pcm16ByteCount(4, 1),
+            bypass.renderPcm16(),
+        )
+        assertEquals(DspBufferSizing.pcm16ByteCount(4, 1), bypass.outputLength)
+    }
+
+    @Test
     fun seatRelativeDelayAndCommonLatencyRemainSeparateDuringBypass() {
         val seat = DspSeatAlignmentConfig(
             enabled = true,

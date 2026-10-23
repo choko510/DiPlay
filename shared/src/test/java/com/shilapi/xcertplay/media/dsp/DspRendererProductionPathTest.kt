@@ -536,6 +536,64 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun seatOnlyLiveOffCrossfadeTargetsDryPcmInsteadOfTheOldSeatFallback() {
+        val seat = DspSeatAlignmentConfig(
+            enabled = true,
+            nearSpeaker = DspSeatNearSpeaker.LEFT,
+            distanceDifferenceCm = 34_300.0 * 1.5 / 48_000.0,
+        )
+        val initialConfig = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, seatAlignment = seat)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val writes = CopyOnWriteArrayList<ByteArray>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            writeAdapter = { bytes, offset, length, _ ->
+                writes += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            pipelinePreparer = { audioFormat, config ->
+                if (config.enabled) pipeline(audioFormat, latencyFrames = 0, gain = 1.0f) else null
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 0),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+
+            provider.update(DspRuntimeConfig.disabled())
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            val duringFade = pcm16(frames = 1_024, channels = 2, sample = 0).also { samples ->
+                writeSample(samples, frame = 500, channel = 0, channels = 2, sample = 12_000)
+            }
+            renderer.processDecodedPcmForTesting(
+                duringFade,
+                offset = 0,
+                length = duringFade.size,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+
+            assertTrue(writes.size >= 2)
+            assertTrue("OFF fade target must be the dry sample", readSample(writes[1], 500 * 2 * Short.SIZE_BYTES) in 11_900..12_100)
+            assertNull(renderer.dspPipeline)
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun recoveryCrossfadeUsesDelayedDryFloatsAsItsOldSignal() {
         val writes = CopyOnWriteArrayList<ByteArray>()
         val provider = MutableConfigProvider(DspRuntimeConfig(enabled = true))
@@ -683,6 +741,10 @@ class DspRendererProductionPathTest {
             assertEquals(128, renderer.dspPipeline?.algorithmicLatencyFrames)
             assertEquals(128, renderer.trackLatencyForTesting)
             assertFalse(renderer.effectiveConvolverEnabledForTesting)
+            assertEquals(
+                DspRendererApplyWarning.CONVOLVER_SAMPLE_RATE_MISMATCH,
+                provider.rendererApplyStatus()?.warning,
+            )
             renderer.handleRtpForTesting(lpcmRtp(IntArray(256) { 1_000 }), sample = 30)
             assertTrue(readSample(writes.last(), 200 * Short.SIZE_BYTES) in 990..1_010)
 
@@ -714,6 +776,7 @@ class DspRendererProductionPathTest {
             assertEquals(3L, renderer.dspGenerationForTesting)
             assertEquals(128, renderer.dspPipeline?.algorithmicLatencyFrames)
             assertTrue(renderer.effectiveConvolverEnabledForTesting)
+            assertNull(provider.rendererApplyStatus()?.warning)
             assertNull(renderer.deferredDspGenerationForTesting)
         } finally {
             renderer.releaseForTesting()
@@ -1295,6 +1358,12 @@ class DspRendererProductionPathTest {
 
     private fun readSample(bytes: ByteArray, offset: Int): Int =
         ((bytes[offset + 1].toInt() shl 8) or (bytes[offset].toInt() and 0xff)).toShort().toInt()
+
+    private fun writeSample(bytes: ByteArray, frame: Int, channel: Int, channels: Int, sample: Int) {
+        val offset = (frame * channels + channel) * Short.SIZE_BYTES
+        bytes[offset] = sample.toByte()
+        bytes[offset + 1] = (sample shr 8).toByte()
+    }
 
     private fun readLastSample(bytes: ByteArray): Int = readSample(bytes, bytes.size - Short.SIZE_BYTES)
 

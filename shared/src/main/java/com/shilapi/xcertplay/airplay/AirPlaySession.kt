@@ -174,7 +174,7 @@ class AirPlaySession(
         try {
             media.onSessionClosed(this)
         } catch (error: Exception) {
-            Log.w(TAG, "airplay media stream teardown failed", error)
+            Log.w(TAG, "airplay media stream teardown failed error=${error.javaClass.simpleName}")
         }
         teardown()
         if (notified.compareAndSet(false, true)) listener.onSessionEnded(this)
@@ -201,7 +201,7 @@ class AirPlaySession(
             output.flush()
             true
         } catch (error: Exception) {
-            Log.w(TAG, "airplay event command failed type=${command["type"]}", error)
+            Log.w(TAG, "airplay event command failed type=${command["type"]} error=${error.javaClass.simpleName}")
             close()
             false
         }
@@ -335,7 +335,7 @@ class AirPlaySession(
                         activeCipher.decrypt(encBuf)
                     } catch (error: Exception) {
                         closeReason = "control decrypt failed: ${error.message ?: error.javaClass.simpleName}"
-                        Log.e(TAG, "airplay $closeReason encrypted=${encBuf.size}", error)
+                        Log.e(TAG, "airplay $closeReason encrypted=${encBuf.size} error=${error.javaClass.simpleName}")
                         break
                     }
                     if (controlEncryptionObserved.compareAndSet(false, true)) {
@@ -392,7 +392,7 @@ class AirPlaySession(
             }
         } catch (error: Exception) {
             closeReason = "control I/O failed: ${error.message ?: error.javaClass.simpleName}"
-            if (!closed.get()) Log.e(TAG, "airplay $closeReason", error)
+            if (!closed.get()) Log.e(TAG, "airplay $closeReason error=${error.javaClass.simpleName}")
         } finally {
             debugLog("airplay control closing reason=$closeReason activeStreams=$activeStreams")
             close()
@@ -482,7 +482,7 @@ class AirPlaySession(
         try {
             media.onSetupResponseSent(this)
         } catch (error: Exception) {
-            Log.w(TAG, "airplay SETUP response callback failed", error)
+            Log.w(TAG, "airplay SETUP response callback failed error=${error.javaClass.simpleName}")
         }
     }
 
@@ -500,7 +500,7 @@ class AirPlaySession(
         try {
             listener.onDebugLog("TRACE $message")
         } catch (error: Exception) {
-            Log.w(TAG, "trace log callback failed", error)
+            Log.w(TAG, "trace log callback failed error=${error.javaClass.simpleName}")
         }
     }
 
@@ -508,7 +508,7 @@ class AirPlaySession(
         val dict = try {
             asMap(BplistCodec.decode(request.body)) ?: return RtspMessage.Response(status = 400)
         } catch (error: Exception) {
-            Log.e(TAG, "airplay SETUP plist decode failed body=${request.body.size}", error)
+            Log.e(TAG, "airplay SETUP plist decode failed body=${request.body.size} error=${error.javaClass.simpleName}")
             return RtspMessage.Response(status = 400)
         }
         debugLog("airplay SETUP keys=${dict.keys.sorted()}")
@@ -730,7 +730,7 @@ class AirPlaySession(
             runEventRead(socket)
         } catch (error: Exception) {
             if (!closed.get()) {
-                Log.e(TAG, "airplay event accept failed", error)
+                Log.e(TAG, "airplay event accept failed error=${error.javaClass.simpleName}")
                 close()
             }
         }
@@ -751,7 +751,7 @@ class AirPlaySession(
                 val decrypted = try {
                     cipher.decrypt(encrypted)
                 } catch (error: Exception) {
-                    Log.e(TAG, "airplay event decrypt failed encrypted=${encrypted.size}", error)
+                    Log.e(TAG, "airplay event decrypt failed encrypted=${encrypted.size} error=${error.javaClass.simpleName}")
                     break
                 }
                 encrypted = decrypted.rest
@@ -776,7 +776,7 @@ class AirPlaySession(
                 }
             }
         } catch (error: Exception) {
-            if (!closed.get()) Log.e(TAG, "airplay event read failed", error)
+            if (!closed.get()) Log.e(TAG, "airplay event read failed error=${error.javaClass.simpleName}")
         } finally {
             debugLog("airplay event connection closed")
             if (eventSocket === socket) eventSocket = null

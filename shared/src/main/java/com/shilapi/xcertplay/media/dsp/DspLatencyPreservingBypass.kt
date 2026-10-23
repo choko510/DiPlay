@@ -57,6 +57,7 @@ internal class DspLatencyPreservingBypass(
         offset: Int,
         length: Int,
         encoding: DspPcmEncoding,
+        encodeOutput: Boolean = true,
     ): Int {
         processedLength = 0
         processedFrames = 0
@@ -98,9 +99,16 @@ internal class DspLatencyPreservingBypass(
                 if (seatRingPosition == seatRing.size) seatRingPosition = 0
             }
         }
+        processedFrames = frames
+        if (!encodeOutput) return 0
+        return renderPcm16()
+    }
+
+    fun renderPcm16(): Int {
+        if (processedFrames <= 0) return -1
         if (!DspPcmConverter.floatArrayToPcm16(
                 source = delayedFloats,
-                frames = frames,
+                frames = processedFrames,
                 format = format,
                 destination = pcm16,
                 offset = 0,
@@ -109,8 +117,7 @@ internal class DspLatencyPreservingBypass(
         ) {
             return -1
         }
-        processedFrames = frames
-        processedLength = DspBufferSizing.pcm16ByteCount(frames, format.channels)
+        processedLength = DspBufferSizing.pcm16ByteCount(processedFrames, format.channels)
         return processedLength
     }
 

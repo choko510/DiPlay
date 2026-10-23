@@ -92,10 +92,13 @@
     <string name="dsp_renderer_apply_requested">Waiting for MEDIA renderer (generation %1$d)</string>
     <string name="dsp_renderer_apply_preparing">Preparing graph (generation %1$d)</string>
     <string name="dsp_renderer_apply_prepared">Graph prepared; waiting for a safe switch (generation %1$d)</string>
-    <string name="dsp_renderer_apply_active">Active in playback renderer (generation %1$d)</string>
+    <string name="dsp_renderer_apply_active">Last adopted by a MEDIA renderer (generation %1$d)</string>
     <string name="dsp_renderer_apply_deferred">Pending until the next audio track (requested generation %1$d, current generation %2$s)</string>
     <string name="dsp_renderer_apply_failed">Could not prepare generation %1$d; current output is retained.</string>
     <string name="dsp_renderer_apply_no_active">none</string>
+    <string name="dsp_renderer_apply_status_note">This shows the last adopted graph generation; it does not mean every configured module is active or that a renderer is currently playing.</string>
+    <string name="dsp_renderer_apply_convolver_ir_unavailable">Convolver is inactive for this output because its impulse response could not be loaded.</string>
+    <string name="dsp_renderer_apply_convolver_rate_mismatch">Convolver is inactive for this output because its impulse response sample rate does not match.</string>
     <string name="dsp_done">Done</string>
     <string name="dsp_preset_flat">Flat</string>
     <string name="dsp_preset_daily">Daily</string>

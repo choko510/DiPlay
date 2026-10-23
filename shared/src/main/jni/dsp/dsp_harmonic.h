@@ -47,6 +47,7 @@ typedef struct {
     float dry_delay[2][DSP_HARMONIC_DELAY_FRAMES];
     int dry_write_index;
     dsp_biquad exciter_high_pass;
+    dsp_biquad exciter_alias_guard;
     dsp_biquad virtual_bass_low_pass;
     dsp_biquad exciter_dc_block;
     dsp_biquad virtual_bass_dc_block;

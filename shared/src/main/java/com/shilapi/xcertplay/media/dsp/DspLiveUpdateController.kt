@@ -74,7 +74,6 @@ internal class DspLiveUpdateController(
                 val snapshot = desired.get() ?: return
                 if (snapshot.generation <= lastHandledGeneration.get()) return
                 val pipeline = pipelinePreparer(format, snapshot.config)
-                registerPipeline(pipeline)
                 if (pipeline != null && pipeline.format != format) {
                     runCatching { pipeline.close() }
                     lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
@@ -109,13 +108,8 @@ internal class DspLiveUpdateController(
 
     fun canAdoptUpdate(): Boolean = !closed.get() && retiredPipelineCount.get() == 0
 
-    fun registerPipeline(pipeline: DspPcmPipeline?) {
-        pipeline?.registerRetirementCounter(retiredPipelineCount)
-    }
-
     fun retire(pipeline: DspPcmPipeline?) {
-        if (pipeline == null || !pipeline.claimRetirement()) return
-        registerPipeline(pipeline)
+        if (pipeline == null || !pipeline.claimRetirement(retiredPipelineCount)) return
         retiredPipelineCount.incrementAndGet()
         DspPipelineReaper.enqueue(pipeline)
     }

@@ -73,6 +73,7 @@ import com.shilapi.xcertplay.media.dsp.DspSeatNearSpeaker
 import com.shilapi.xcertplay.media.dsp.DspSeatPreset
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyWarning
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -124,11 +125,21 @@ private fun rendererApplyStatusText(status: DspRendererApplyStatus?): String = w
     DspRendererApplyPhase.FAILED -> stringResource(R.string.dsp_renderer_apply_failed, status.generation)
 }
 
+@Composable
+private fun rendererApplyWarningText(status: DspRendererApplyStatus?): String? = when (status?.warning) {
+    null -> null
+    DspRendererApplyWarning.CONVOLVER_IR_UNAVAILABLE ->
+        stringResource(R.string.dsp_renderer_apply_convolver_ir_unavailable)
+    DspRendererApplyWarning.CONVOLVER_SAMPLE_RATE_MISMATCH ->
+        stringResource(R.string.dsp_renderer_apply_convolver_rate_mismatch)
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DspSettingsScreen(
     runtime: DspProfileRuntime,
     presentation: DspPresentationMode = DspPresentationMode.FULL,
+    isVisible: Boolean = true,
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -154,10 +165,12 @@ internal fun DspSettingsScreen(
     var bandTypeDialog by remember { mutableStateOf<Int?>(null) }
     var impulseResponseIds by remember(runtime) { mutableStateOf(runtime.availableImpulseResponseIds()) }
     var rendererApplyStatus by remember(runtime) { mutableStateOf(runtime.configProvider.rendererApplyStatus()) }
-    LaunchedEffect(runtime) {
-        while (true) {
-            rendererApplyStatus = runtime.configProvider.rendererApplyStatus()
-            delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
+    LaunchedEffect(runtime, isVisible) {
+        if (isVisible) {
+            while (true) {
+                rendererApplyStatus = runtime.configProvider.rendererApplyStatus()
+                delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
+            }
         }
     }
     val openImpulseResponse = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -1019,6 +1032,8 @@ internal fun DspSettingsScreen(
                     Text(stringResource(R.string.dsp_dsp_state, if (dspEnabled) "ON" else "OFF"))
                     Text(stringResource(R.string.dsp_renderer_apply_status))
                     Text(rendererApplyStatusText(rendererApplyStatus))
+                    Text(stringResource(R.string.dsp_renderer_apply_status_note))
+                    rendererApplyWarningText(rendererApplyStatus)?.let { warning -> Text(warning) }
                 }
             }
 

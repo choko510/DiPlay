@@ -219,13 +219,12 @@ class DiPlayMenuActivity : ComponentActivity() {
         Log.i(TAG, "DiPlay Menu action=return_carplay")
         try {
             startActivity(
-                Intent(this, CarPlayHostActivity::class.java)
-                    .setAction(CarPlayHostActions.EXIT_YOUTUBE_SPLIT)
+                CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.EXIT_YOUTUBE_SPLIT)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             )
             finish()
         } catch (error: RuntimeException) {
-            Log.w(TAG, "CarPlay host could not be opened", error)
+            Log.w(TAG, "CarPlay host could not be opened error=${error.javaClass.simpleName}")
             Toast.makeText(this, R.string.menu_return_failed, Toast.LENGTH_SHORT).show()
         }
     }
@@ -234,13 +233,12 @@ class DiPlayMenuActivity : ComponentActivity() {
         Log.i(TAG, "DiPlay Menu action=carplay_youtube")
         try {
             startActivity(
-                Intent(this, CarPlayHostActivity::class.java)
-                    .setAction(CarPlayHostActions.ENTER_YOUTUBE_SPLIT)
+                CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.ENTER_YOUTUBE_SPLIT)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             )
             finish()
         } catch (error: RuntimeException) {
-            Log.w(TAG, "CarPlay + YouTube host could not be opened", error)
+            Log.w(TAG, "CarPlay + YouTube host could not be opened error=${error.javaClass.simpleName}")
             Toast.makeText(this, R.string.menu_youtube_split_failed, Toast.LENGTH_SHORT).show()
         }
     }
@@ -249,13 +247,12 @@ class DiPlayMenuActivity : ComponentActivity() {
         Log.i(TAG, "DiPlay Menu action=carplay_dsp")
         try {
             startActivity(
-                Intent(this, CarPlayHostActivity::class.java)
-                    .setAction(CarPlayHostActions.ENTER_DSP_SPLIT)
+                CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.ENTER_DSP_SPLIT)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             )
             finish()
         } catch (error: RuntimeException) {
-            Log.w(TAG, "CarPlay + DSP host could not be opened", error)
+            Log.w(TAG, "CarPlay + DSP host could not be opened error=${error.javaClass.simpleName}")
             Toast.makeText(this, R.string.menu_dsp_split_failed, Toast.LENGTH_SHORT).show()
         }
     }
@@ -265,7 +262,7 @@ class DiPlayMenuActivity : ComponentActivity() {
         try {
             startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
         } catch (error: RuntimeException) {
-            Log.w(TAG, "Vehicle home screen could not be opened", error)
+            Log.w(TAG, "Vehicle home screen could not be opened error=${error.javaClass.simpleName}")
             Toast.makeText(this, R.string.menu_vehicle_home_unavailable, Toast.LENGTH_SHORT).show()
         }
     }

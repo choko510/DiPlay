@@ -67,7 +67,7 @@ class AudioPacketCapture(
                     Log.i(TAG, "audio capture started type=$streamType file=${file.absolutePath}")
                 }
             } catch (error: Exception) {
-                Log.w(TAG, "audio capture could not open type=$streamType", error)
+                Log.w(TAG, "audio capture could not open type=$streamType error=${error.javaClass.simpleName}")
                 null
             }
         }
@@ -82,7 +82,7 @@ class AudioPacketCapture(
         if (output == null || closed.get()) return
         synchronized(this) {
             if (closed.get() || packets >= maxPackets) return
-            val errorBytes = error?.message?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
+            val errorBytes = error?.javaClass?.simpleName?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
             val recordBytes = 4L * 4 + 8 + wire.size + (rtp?.size ?: 0) + errorBytes.size
             if (bytesWritten + recordBytes > maxBytes) {
                 close()
@@ -102,7 +102,7 @@ class AudioPacketCapture(
                 if (packets % FLUSH_INTERVAL_PACKETS == 0) output.flush()
                 if (packets >= maxPackets) close()
             } catch (failure: Exception) {
-                Log.w(TAG, "audio capture write failed type=$streamType", failure)
+                Log.w(TAG, "audio capture write failed type=$streamType error=${failure.javaClass.simpleName}")
                 close()
             }
         }
@@ -114,7 +114,7 @@ class AudioPacketCapture(
             output?.flush()
             output?.close()
         } catch (error: Exception) {
-            Log.w(TAG, "audio capture close failed type=$streamType", error)
+            Log.w(TAG, "audio capture close failed type=$streamType error=${error.javaClass.simpleName}")
         } finally {
             if (output != null) {
                 Log.i(

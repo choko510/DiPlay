@@ -11,6 +11,8 @@
 
 ## Last documented implementation / checks
 
+- The third integrated audit's source-correctable findings are now implemented in the current PR #45 batch: NCM resync preserves incomplete declared blocks and uses allowed alignment plus bounded incremental pair search; Host commands are tokenized behind a non-exported Activity and USB attach checks actual device permission; Split open/pending restoration is coherent; stale first-frame callbacks, per-type recovery gates and hidden DSP polling are fenced; DSP live-OFF targets dry output, fallback conversion is lazy, retirement ownership is per pipeline/controller, renderer status labels last adoption and incompatible Convolver; Harmonic high-band alias guard and expanded native sweep are included.
+- **Latest local validation:** 593 shared + 192 common tests, zero failures/errors/skips; native DSP tests, CI classifier fixtures, EX-08 `--check`, public-tree check, and `git diff --check` pass. Full host/lint/app/JNI/API 35 instrumentation and physical acceptance have not been completed for this batch.
 - Source-confirmed 4AI review follow-ups W-01…06, AI2-R03/R09, AI3-01…08, AI4-NEW-01 and AI4-SEC-BASE-01 have been fixed or classified. Notable fixes cover bounded NCM recovery, endpoint-size padding, MAIN/ALT and touch ownership, microphone empty-read backoff, Logcat redaction, Seat/fractional delay/harmonic gain, and deferred DSP graph adoption/reaper-thread close. Includes in-host 55:45 CarPlay/DSP Split editor.
 - **Local test snapshot:** 583 shared + 186 common, zero failures/errors/skips. **PR run #374** passed public-tree/EX-08 checks, native host/sanitizer and draft unit suites. The draft lane **skipped** lint, build, JNI and instrumentation; local MSYS2 ASan/UBSan linking is unavailable. A documentation-only commit does not rerun product tests.
 - Hosted API 35 DSP p99 instrumentation previously failed intermittently (#362/#364/#365/#366); local API 36.1 passing is not a replacement for hosted API 35 or physical TS10/K706 measurements. Thread-priority/benchmark follow-ups require their own applicable full gate.
@@ -23,10 +25,11 @@
 
 ## Next work (ordered)
 
-1. Close or classify **AI4-CI-NEW-01/02**, **AI4-EX08-NEW-01**, **AI4-TEST-NEW-01** and policy-dependent **AI4-SYS-BASE-01**, distinguishing source fixes from unrun evidence.
-2. Verify CI's skipped scope and run the required full Android/host/JNI/instrumentation gates, including an interpretable API 35 p99 result. Preserve workflow-sensitive baseline rules.
-3. Obtain same-device NCM `AUTO`/`NO_STATUS_POLLING` A/B measurements; do not modify 5→6 or add CDC-NCM control requests on existing data. Reproduce a queue/wait failure with USB still present before changing request recreation.
-4. Consult the referenced plan for **Stage3 timing-only monotonic wired diagnostics** and a **versioned 111-commit EX-08 overlay** that preserves the original 1,289 rows. Keep EX05 second StartSession disabled until device timing warrants redesign.
-5. Run the TS10/K706+iPhone acceptance matrix and review the remaining evidence-gated upstream decisions (including Pass15 delta rows 4/24/28/44). `ROTATION_SQUARE_CANVAS` remains `NO_GO_THIS_RUN`.
+1. Verify the new draft CI scope/result on PR #45; keep the second independent review `NOT_RUN` and do not mark the PR ready.
+2. Run full host, lint/build/JNI and API 35 instrumentation only at the review-ready gate, including an interpretable p99 result. Do not count skipped jobs as passes.
+3. Keep physical/policy gates open: TS10/K706+iPhone acceptance, USB requestWait/SYN-ACK traces, ALT-only policy, decoder stop ACK/Surface lifetime, shared MAIN/ALT Surface reachability, Seat phase acceptance, JNI same-engine process ownership, CPU/soak and signed update/rollback.
+4. Add API/baseline end-to-end negative fixtures for the CI classifier only in a workflow-sensitive batch; keep AI4-R3-08 patch SHA recomputation scoped to EX-08 candidates selected for adoption.
+5. Obtain same-device NCM `AUTO`/`NO_STATUS_POLLING` A/B measurements; do not modify 5→6 or add CDC-NCM control requests on existing data. Keep Stage3 diagnostics timing-only and EX05 second StartSession gated by target timing.
+6. Maintain the versioned 111-commit EX-08 overlay plan while preserving the 1,289-row catalog and 353 `NEED_EVIDENCE` items; review Pass15 rows 4/24/28/44 with their target evidence. `ROTATION_SQUARE_CANVAS` remains `NO_GO_THIS_RUN`.
 
 See [backlog](backlog.md) for acceptance items, [decisions](decisions.md) for rationale, [lessons](lessons.md) for pitfalls, [quirks](quirks.md) for environments and [optimization](optimization.md) for measurements.

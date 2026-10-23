@@ -71,14 +71,14 @@ internal class DspPcmPipeline(
     val algorithmicLatencyFrames: Int
         get() = processor.latencyFrames + outputDelayFrames
 
-    internal fun registerRetirementCounter(counter: AtomicInteger) {
-        retirementCount.compareAndSet(null, counter)
+    internal fun claimRetirement(counter: AtomicInteger): Boolean {
+        if (!retirementQueued.compareAndSet(false, true)) return false
+        retirementCount.set(counter)
+        return true
     }
 
-    internal fun claimRetirement(): Boolean = retirementQueued.compareAndSet(false, true)
-
     internal fun decrementRetirementCount() {
-        retirementCount.get()?.decrementAndGet()
+        retirementCount.getAndSet(null)?.decrementAndGet()
     }
 
     internal fun preserveLatencyWithDelay(frames: Int) {

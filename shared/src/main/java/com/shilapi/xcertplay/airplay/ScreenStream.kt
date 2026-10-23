@@ -99,8 +99,7 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
                 if (firstFrameLogged.compareAndSet(false, true)) {
                     Log.i(
                         TAG,
-                        "video first decrypted frame sealed=${body.size} plain=${payload.size} " +
-                        "head=${payload.hexPrefix(16)}",
+                        "video first decrypted frame sealed=${body.size} plain=${payload.size}",
                     )
                 }
                 listener.onFrame(ScreenCodec.lengthPrefixedToAnnexB(payload))
@@ -135,9 +134,6 @@ class ScreenStream(private val key: ByteArray, private val onDiagnostic: (String
         const val MAX_BODY = 8 * 1024 * 1024
     }
 }
-
-private fun ByteArray.hexPrefix(length: Int): String =
-    take(length).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
 /** Extracts the avcC/hvcC codec-data record from a VideoConfig payload. */
 object ScreenCodec {

@@ -13,10 +13,16 @@ enum class DspRendererApplyPhase {
     FAILED,
 }
 
+enum class DspRendererApplyWarning {
+    CONVOLVER_IR_UNAVAILABLE,
+    CONVOLVER_SAMPLE_RATE_MISMATCH,
+}
+
 data class DspRendererApplyStatus(
     val generation: Long,
     val phase: DspRendererApplyPhase,
     val activeGeneration: Long? = null,
+    val warning: DspRendererApplyWarning? = null,
 )
 
 fun interface DspConfigProvider {

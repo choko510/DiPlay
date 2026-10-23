@@ -698,7 +698,10 @@ class CarPlayController(
                         startPhone()
                     } catch (error: MfiCoprocessorNotFoundException) {
                         debugLog("mfi CH341 discovery failed: ${error.message}")
-                        Log.w(IphoneCarPlayConfiguration.TAG, error.message ?: "MFi discovery failed")
+                        Log.w(
+                            IphoneCarPlayConfiguration.TAG,
+                            "MFi discovery failed error=${error.javaClass.simpleName}",
+                        )
                         session.close()
                         waitForMfi()
                     } catch (error: Throwable) {
@@ -810,8 +813,7 @@ class CarPlayController(
             } catch (error: Throwable) {
                 Log.w(
                     IphoneCarPlayConfiguration.TAG,
-                    "Could not prewarm the Android location provider",
-                    error,
+                    "Could not prewarm the Android location provider error=${error.javaClass.simpleName}",
                 )
                 false
             }
@@ -2827,7 +2829,10 @@ class CarPlayController(
     } catch (error: ReflectiveOperationException) {
         false
     } catch (error: RuntimeException) {
-        Log.w(IphoneCarPlayConfiguration.TAG, "Could not read Bluetooth connection state", error)
+        Log.w(
+            IphoneCarPlayConfiguration.TAG,
+            "Could not read Bluetooth connection state error=${error.javaClass.simpleName}",
+        )
         false
     }
 
@@ -2851,7 +2856,10 @@ class CarPlayController(
                         devices.addAll(proxy.connectedDevices.orEmpty())
                     }
                 } catch (error: SecurityException) {
-                    Log.w(IphoneCarPlayConfiguration.TAG, "Could not read connected Bluetooth devices", error)
+                    Log.w(
+                        IphoneCarPlayConfiguration.TAG,
+                        "Could not read connected Bluetooth devices error=${error.javaClass.simpleName}",
+                    )
                 } finally {
                     adapter.closeProfileProxy(profileId, proxy)
                     latch.countDown()

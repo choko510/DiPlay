@@ -16,10 +16,11 @@ The first-enable Advanced M/S conversion is a starting-point mapping from legacy
 
 - Exercise all 16 on/off combinations of Seat Focus, Advanced M/S, Cabin Correction, and Harmonic Engine for 44.1/48 kHz mono/stereo output. Compare 1,024 PCM16 frames byte-for-byte between one block and variable frame boundaries.
 - Measure the Harmonic Engine folded third-harmonic component at 44.1 and 48 kHz in mono and stereo. Reject malformed Harmonic JNI arrays and test exact positive/negative half-LSB PCM16 rounding.
-- For the native Harmonic Exciter, measure original fundamental gain across 44.1/48 kHz, EVEN/ODD/MIXED, 9/17/33 taps, 1/8/12/15 kHz tones, and 0.001/0.05/0.45/0.9 peaks with internal level matching disabled; low-level gain must remain within 5% of dry. At 0.9 peak, folded second/third harmonics must remain below -26 dBc.
+- For the native Harmonic Exciter, measure original fundamental gain across 44.1/48 kHz, EVEN/ODD/MIXED, 9/17/33 taps, 1/8/12/15 kHz tones, and 0.001/0.05/0.45/0.9 peaks with internal level matching disabled; low-level gain must remain within 5% of dry. At 0.9 peak, scan through 20 kHz below Nyquist and require folded second/third harmonics below -26 dBc. The exciter branch uses a sample-rate-relative upper-band guard; the delayed dry branch preserves the input fundamental.
 - Compute Auto Headroom from the dry gain after internal level matching plus the maximum additive harmonic branches, so the same internal gain reduction is not counted twice.
 - Compare the legacy Mono Bass HPF and the LR4 high-band side response at the crossover and above; keep `fromLegacy` values labeled as a starting point rather than exact equivalence.
 - Distinguish initial master-OFF bit-exact output from live-OFF latency-preserving output and verify the next track generation returns to exact PCM16.
+- Exercise Seat-only ON → master OFF during a committed track. The crossfade target must be dry/raw when common latency is zero, so the last Seat-only fallback block does not leak a relative delay into the OFF generation.
 - Run the 56-case per-module/full-chain p99 and steady-state allocation matrix for 44.1/48 kHz mono/stereo. Include all four new modules with PEQ, Bass, dynamics, Convolver, Auto Headroom, and the safety limiter in `FullHeavyChain`.
 - Keep the disabled path golden, migration chain v0–v7, future-schema preservation, and the existing third-party notices. The new Harmonic Engine uses no additional third-party library; the existing KissFFT notice remains in force for Convolver.
 

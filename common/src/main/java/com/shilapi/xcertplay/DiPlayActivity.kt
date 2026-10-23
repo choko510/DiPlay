@@ -579,8 +579,7 @@ class DiPlayActivity : ComponentActivity() {
     }
     private fun openProjection() {
         startActivity(
-            Intent(this, CarPlayHostActivity::class.java)
-                .setAction(CarPlayHostActions.OPEN_CARPLAY)
+            CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
         )
     }

@@ -6,6 +6,8 @@ import com.shilapi.xcertplay.airplay.AudioOwnerToken
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.VideoCodec
 import java.net.InetAddress
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.*
 import org.junit.Test
@@ -14,6 +16,44 @@ import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
 class AndroidMediaSinkStateTest {
+    @Test fun retiredVideoObserverCannotClaimAReplacementStreamFrame() {
+        val generations = VideoStreamGenerations()
+        val oldMain = generations.advance(110)
+        val alt = generations.advance(111)
+        val newMain = generations.advance(110)
+
+        assertFalse(generations.isCurrent(110, oldMain))
+        assertTrue(generations.isCurrent(110, newMain))
+        assertTrue(generations.isCurrent(111, alt))
+    }
+
+    @Test fun recoveryRequestsForMainAndAltDoNotShareAnInFlightGate() {
+        val sink = AndroidMediaSink()
+        val mainStarted = CountDownLatch(1)
+        val allowMain = CountDownLatch(1)
+        val altCompleted = CountDownLatch(1)
+        val requestRecovery = AndroidMediaSink::class.java.getDeclaredMethod(
+            "requestVideoRecovery",
+            Int::class.javaPrimitiveType!!,
+        ).apply { isAccessible = true }
+        sink.setVideoRecoveryHandler(110) {
+            mainStarted.countDown()
+            check(allowMain.await(5, TimeUnit.SECONDS))
+        }
+        sink.setVideoRecoveryHandler(111) { altCompleted.countDown() }
+
+        try {
+            requestRecovery.invoke(sink, 110)
+            assertTrue(mainStarted.await(5, TimeUnit.SECONDS))
+            requestRecovery.invoke(sink, 111)
+            allowMain.countDown()
+            assertTrue(altCompleted.await(5, TimeUnit.SECONDS))
+        } finally {
+            allowMain.countDown()
+            sink.close()
+        }
+    }
+
     @Test fun recreatingTheScreenRestoresItsActiveVideoState() {
         val sink = AndroidMediaSink()
         sink.onScreenStreamActive(110, true)

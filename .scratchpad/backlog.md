@@ -8,6 +8,8 @@
 - [ ] Revalidate host/native, Android lint/build/JNI and API 35 instrumentation with the correct baseline scope. Investigate unstable DSP p99 results without silently weakening budgets or counting skipped jobs as passes.
 - [ ] Execute supported **TS10/K706 + iPhone** physical suite: NCM/IPv6→TUN; Siri/call/AEC/AGC; MAIN/ALT, YouTube/DSP/local Split 20-cycle continuity; Surface/rotation/HID/safeArea; DSP THD/headroom/latency/A-V/CPU/underruns; 30–60-minute soak; install/signature/update/rollback. SH M20 is only PARTIAL evidence.
 - [ ] Independent v3 review and G8 release decision remain NOT_RUN/NO_GO_THIS_RUN unless specifically authorized and verified.
+- [ ] Third re-audit evidence gates remain open: USB requestWait/close and SYN-ACK recovery on TS10/K706; ALT-only session policy; decoder stop ACK and Surface lifetime; MAIN/ALT shared Surface feature reachability; Seat phase response; same-engine JNI process ownership; API 35/full-host/JNI/instrumentation at the current review head; and the CI classifier's API/baseline end-to-end negative fixtures.
+- [ ] AI4-R3-08 patch hashes need independent recomputation for any adopted EX-08 candidate. `generate_step4_ex08_inventory.py --check` proves ledger consistency, not semantic adoption or patch-hash provenance.
 
 ## P1 — Measurements before fixes
 

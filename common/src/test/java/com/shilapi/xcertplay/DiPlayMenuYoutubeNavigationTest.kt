@@ -28,7 +28,7 @@ class DiPlayMenuYoutubeNavigationTest {
         val started = shadowOf(activity).nextStartedActivity
         assertNotNull(started)
         assertEquals(CarPlayHostActivity::class.java.name, started.component?.className)
-        assertEquals(CarPlayHostActions.ENTER_YOUTUBE_SPLIT, started.action)
+        assertEquals(CarPlayHostActions.ENTER_YOUTUBE_SPLIT, CarPlayHostActions.consumeInternalAction(started))
         assertTrue(activity.isFinishing)
     }
 
@@ -42,7 +42,7 @@ class DiPlayMenuYoutubeNavigationTest {
         val started = shadowOf(activity).nextStartedActivity
         assertNotNull(started)
         assertEquals(CarPlayHostActivity::class.java.name, started.component?.className)
-        assertEquals(CarPlayHostActions.ENTER_DSP_SPLIT, started.action)
+        assertEquals(CarPlayHostActions.ENTER_DSP_SPLIT, CarPlayHostActions.consumeInternalAction(started))
         assertTrue(activity.isFinishing)
     }
 
@@ -55,7 +55,7 @@ class DiPlayMenuYoutubeNavigationTest {
 
         val started = shadowOf(activity).nextStartedActivity
         assertNotNull(started)
-        assertEquals(CarPlayHostActions.EXIT_YOUTUBE_SPLIT, started.action)
+        assertEquals(CarPlayHostActions.EXIT_YOUTUBE_SPLIT, CarPlayHostActions.consumeInternalAction(started))
     }
 
     private fun findButton(view: View, text: String): Button? {

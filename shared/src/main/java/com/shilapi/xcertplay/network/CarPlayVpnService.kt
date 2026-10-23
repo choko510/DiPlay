@@ -7,6 +7,7 @@ import android.os.Binder
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.shilapi.xcertplay.DiagnosticRedactor
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
@@ -216,7 +217,10 @@ class CarPlayVpnService : VpnService() {
         try {
             while (active.get()) {
                 val socket: Socket = server.accept()
-                Log.i(TAG, "airplay connection accepted from ${socket.remoteSocketAddress}")
+                Log.i(
+                    TAG,
+                    DiagnosticRedactor.redactForLogcat("airplay connection accepted from ${socket.remoteSocketAddress}"),
+                )
                 socket.tcpNoDelay = true
                 socket.keepAlive = true
                 socket.setSoLinger(true, 0)
@@ -276,7 +280,7 @@ class CarPlayVpnService : VpnService() {
                 try {
                     session.close()
                 } catch (error: Exception) {
-                    Log.w(TAG, "AirPlay session replacement failed", error)
+                    Log.w(TAG, "AirPlay session replacement failed error=${error.javaClass.simpleName}")
                 }
             }
             sessions.clear()
@@ -289,7 +293,11 @@ class CarPlayVpnService : VpnService() {
         error: Throwable,
     ) {
         val message = error.message ?: error.javaClass.simpleName
-        Log.e(TAG, "CarPlay transport stopped: $message", error)
+        Log.e(
+            TAG,
+            "CarPlay transport stopped: ${DiagnosticRedactor.redactForLogcat(message)} " +
+                "error=${error.javaClass.simpleName}",
+        )
         Thread(
             {
                 val current = synchronized(this) { generation == attachGeneration }

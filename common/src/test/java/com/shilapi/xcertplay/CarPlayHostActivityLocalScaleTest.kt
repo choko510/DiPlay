@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Intent
+import android.os.Bundle
 import android.graphics.SurfaceTexture
 import android.view.MotionEvent
 import android.view.Surface
@@ -33,6 +34,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -101,7 +103,7 @@ class CarPlayHostActivityLocalScaleTest {
 
                 onNewIntent.invoke(
                     activity,
-                    Intent(activity, CarPlayHostActivity::class.java).setAction(CarPlayHostActions.OPEN_CARPLAY),
+                    CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.OPEN_CARPLAY),
                 )
 
                 val restoredMode = (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode
@@ -115,6 +117,27 @@ class CarPlayHostActivityLocalScaleTest {
             ownerField.set(CarPlayBackgroundSession, previousOwner)
             ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
             CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
+    @Test
+    fun openCarPlayColdCreateDiscardsSavedSplitAndPendingSplitModes() {
+        val savedState = Bundle().apply {
+            putString("host.layout_mode", HostLayoutMode.CARPLAY_DSP_SPLIT.name)
+            putString("host.pending_split_mode", HostLayoutMode.CARPLAY_YOUTUBE_SPLIT.name)
+        }
+        val intent = CarPlayHostActions.createInternalIntent(
+            RuntimeEnvironment.getApplication(),
+            CarPlayHostActions.OPEN_CARPLAY,
+        )
+        val controller = Robolectric.buildActivity(CarPlayHostActivity::class.java, intent)
+
+        try {
+            val activity = controller.create(savedState).get()
+            assertEquals(HostLayoutMode.CARPLAY_FULL, (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode)
+            assertNull(field(activity, "pendingSplitMode").get(activity))
+        } finally {
+            controller.destroy()
         }
     }
 

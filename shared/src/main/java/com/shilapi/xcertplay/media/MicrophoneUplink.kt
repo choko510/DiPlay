@@ -8,7 +8,6 @@ import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.MicrophoneCounters
 import com.shilapi.xcertplay.airplay.MicrophonePacketizer
-import com.shilapi.xcertplay.airplay.toHexString
 import java.io.Closeable
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -108,7 +107,7 @@ internal class MicrophoneUplink(
                 .setBufferSizeInBytes(bufferSize)
                 .build()
         } catch (error: Exception) {
-            Log.e(TAG, "microphone recorder creation failed", error)
+            Log.e(TAG, "microphone recorder creation failed error=${error.javaClass.simpleName}")
             nextEncoder?.close()
             running.set(false)
             return false
@@ -127,7 +126,7 @@ internal class MicrophoneUplink(
                 bind(InetSocketAddress(InetAddress.getByName("::"), 0))
             }
         } catch (error: Exception) {
-            Log.e(TAG, "microphone socket creation failed", error)
+            Log.e(TAG, "microphone socket creation failed error=${error.javaClass.simpleName}")
             nextRecorder.release()
             nextEncoder?.close()
             running.set(false)
@@ -151,7 +150,7 @@ internal class MicrophoneUplink(
             )
             true
         } catch (error: Exception) {
-            Log.e(TAG, "microphone recording failed", error)
+            Log.e(TAG, "microphone recording failed error=${error.javaClass.simpleName}")
             release()
             false
         }
@@ -196,7 +195,9 @@ internal class MicrophoneUplink(
                 }
             }
         } catch (error: Exception) {
-            if (running.get()) Log.e(TAG, "microphone capture failed", error)
+            if (running.get()) {
+                Log.e(TAG, "microphone capture failed error=${error.javaClass.simpleName}")
+            }
         } finally {
             running.set(false)
             release()
@@ -239,7 +240,6 @@ internal class MicrophoneUplink(
                 Log.i(
                     TAG,
                     "microphone first packet bytes=${packet.size} body=${body.size} " +
-                        "head=${packet.copyOf(minOf(packet.size, 16)).toHexString()} " +
                         "port=${config.port}",
                 )
             }

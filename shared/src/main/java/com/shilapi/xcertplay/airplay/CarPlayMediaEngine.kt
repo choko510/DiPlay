@@ -465,7 +465,7 @@ class CarPlayMediaEngine(
         val attached = try {
             pending.handler(pending.bridge)
         } catch (error: Throwable) {
-            Log.w(TAG, "iAP tunnel relay attachment failed", error)
+            Log.w(TAG, "iAP tunnel relay attachment failed error=${error.javaClass.simpleName}")
             false
         }
         if (!attached) {
@@ -655,7 +655,7 @@ class CarPlayMediaEngine(
         try {
             started = sink.onMicrophoneStarted(state.token, microphone)
         } catch (error: Exception) {
-            Log.w(TAG, "Microphone start failed; retrying", error)
+            Log.w(TAG, "Microphone start failed; retrying error=${error.javaClass.simpleName}")
         } finally {
             synchronized(slot.lock) {
                 state.microphoneStarted = started

@@ -92,10 +92,13 @@
     <string name="dsp_renderer_apply_requested">MEDIA再生レンダラーへの適用待ち（世代 %1$d）</string>
     <string name="dsp_renderer_apply_preparing">グラフを準備中（世代 %1$d）</string>
     <string name="dsp_renderer_apply_prepared">グラフ準備済み。安全に切り替えられる時点を待機中（世代 %1$d）</string>
-    <string name="dsp_renderer_apply_active">再生レンダラーで適用中（世代 %1$d）</string>
+    <string name="dsp_renderer_apply_active">MEDIAレンダラーで最後に採用した世代: %1$d</string>
     <string name="dsp_renderer_apply_deferred">次の音声トラックまで保留（要求世代 %1$d、現在の世代 %2$s）</string>
     <string name="dsp_renderer_apply_failed">世代 %1$d の準備に失敗。現在の出力を維持します。</string>
     <string name="dsp_renderer_apply_no_active">なし</string>
+    <string name="dsp_renderer_apply_status_note">最後に採用したグラフ世代の表示です。設定した全モジュールの有効状態や、現在再生中であることは示しません。</string>
+    <string name="dsp_renderer_apply_convolver_ir_unavailable">ConvolverはIRを読み込めなかったため、この出力では無効です。</string>
+    <string name="dsp_renderer_apply_convolver_rate_mismatch">ConvolverはIRのサンプルレートと出力が異なるため、この出力では無効です。</string>
     <string name="dsp_done">完了</string>
     <string name="dsp_preset_flat">Flat</string>
     <string name="dsp_preset_daily">Daily</string>

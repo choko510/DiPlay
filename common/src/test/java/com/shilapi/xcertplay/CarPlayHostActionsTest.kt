@@ -1,9 +1,22 @@
 package com.shilapi.xcertplay
 
+import android.content.Intent
+import android.content.ComponentName
+import android.content.pm.PackageManager
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.annotation.Config
+import com.shilapi.xcertplay.youtube.HostLayoutState
+import com.shilapi.xcertplay.youtube.HostLayoutMode
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
 class CarPlayHostActionsTest {
     @Test
     fun onlyRecognizedHostActionsClearRestartSuppression() {
@@ -15,5 +28,98 @@ class CarPlayHostActionsTest {
 
         assertFalse(CarPlayHostActions.shouldClearRestartSuppression(null))
         assertFalse(CarPlayHostActions.shouldClearRestartSuppression("com.example.unknown"))
+    }
+
+    @Test
+    fun externalHostActionStringsAreIgnoredAndInternalTokensAreSingleUse() {
+        val externalOpen = Intent().setAction(CarPlayHostActions.OPEN_CARPLAY)
+        val externalSplit = Intent().setAction(CarPlayHostActions.ENTER_DSP_SPLIT)
+        assertNull(CarPlayHostActions.consumeInternalAction(externalOpen))
+        assertNull(CarPlayHostActions.consumeInternalAction(externalSplit))
+
+        val internal = CarPlayHostActions.createInternalIntent(
+            RuntimeEnvironment.getApplication(),
+            CarPlayHostActions.ENTER_DSP_SPLIT,
+        )
+        assertEquals(CarPlayHostActions.ENTER_DSP_SPLIT, CarPlayHostActions.consumeInternalAction(internal))
+        assertNull(CarPlayHostActions.consumeInternalAction(internal))
+    }
+
+    @Test
+    fun openCarPlayMeansFullLayoutWhenRestoringASplit() {
+        val split = HostLayoutState().enterDspSplit()
+
+        assertEquals(
+            HostLayoutMode.CARPLAY_FULL,
+            CarPlayHostActions.applyLayoutCommand(split, CarPlayHostActions.OPEN_CARPLAY).mode,
+        )
+    }
+
+    @Test
+    fun aNewLaunchActionReplacesASavedPendingSplitMode() {
+        assertNull(
+            CarPlayHostActions.pendingSplitModeAfterLaunch(
+                HostLayoutMode.CARPLAY_DSP_SPLIT,
+                CarPlayHostActions.ENTER_YOUTUBE_SPLIT,
+            ),
+        )
+        assertNull(
+            CarPlayHostActions.pendingSplitModeAfterLaunch(
+                HostLayoutMode.CARPLAY_YOUTUBE_SPLIT,
+                CarPlayHostActions.OPEN_CARPLAY,
+            ),
+        )
+        assertEquals(
+            HostLayoutMode.CARPLAY_DSP_SPLIT,
+            CarPlayHostActions.pendingSplitModeAfterLaunch(
+                HostLayoutMode.CARPLAY_DSP_SPLIT,
+                action = null,
+            ),
+        )
+    }
+
+    @Test
+    fun usbAttachTrampolineRequiresTheSameCurrentlyAttachedCh341Device() {
+        val device = UsbAttachDeviceIdentity(
+            deviceId = 17,
+            deviceName = "/dev/bus/usb/001/004",
+            vendorId = 0x1a86,
+            productId = 0x5512,
+        )
+
+        assertTrue(UsbAttachIntentPolicy.isVerifiedCh341(device, listOf(device), permissionGranted = true))
+        assertFalse(UsbAttachIntentPolicy.isVerifiedCh341(device, listOf(device), permissionGranted = false))
+        assertFalse(UsbAttachIntentPolicy.isVerifiedCh341(device, emptyList(), permissionGranted = true))
+        assertFalse(
+            UsbAttachIntentPolicy.isVerifiedCh341(
+                device.copy(deviceId = 18),
+                listOf(device),
+                permissionGranted = true,
+            ),
+        )
+        assertFalse(
+            UsbAttachIntentPolicy.isVerifiedCh341(
+                device.copy(vendorId = 0x1234),
+                listOf(device),
+                permissionGranted = true,
+            ),
+        )
+    }
+
+    @Test
+    fun onlyUsbTrampolineIsExported() {
+        val application = RuntimeEnvironment.getApplication()
+        val packageManager = application.packageManager
+        val host = packageManager.getActivityInfo(
+            ComponentName(application, CarPlayHostActivity::class.java),
+            PackageManager.GET_META_DATA,
+        )
+        val usbTrampoline = packageManager.getActivityInfo(
+            ComponentName(application, CarPlayUsbAttachActivity::class.java),
+            PackageManager.GET_META_DATA,
+        )
+
+        assertFalse(host.exported)
+        assertTrue(usbTrampoline.exported)
     }
 }

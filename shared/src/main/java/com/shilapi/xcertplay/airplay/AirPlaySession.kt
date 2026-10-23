@@ -568,9 +568,7 @@ class AirPlaySession(
                             if (type == STREAM_TYPE_MAIN_SCREEN) WiredPathEvent.MAIN_SETUP else WiredPathEvent.ALT_SETUP,
                             attachGeneration,
                         )
-                        if (type == STREAM_TYPE_MAIN_SCREEN) {
-                            runCatching { listener.onConnectionTrace(ConnectionTraceStage.SCREEN_STREAM_OPENED) }
-                        }
+                        runCatching { listener.onConnectionTrace(ConnectionTraceStage.SCREEN_STREAM_OPENED) }
                         runCatching { listener.onScreenStreamOpened(this, type) }
                         activeStreams.add(type)
                         result.add(linkedMapOf("type" to type, "dataPort" to port))

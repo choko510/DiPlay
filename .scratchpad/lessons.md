@@ -443,3 +443,5 @@ For imports that persist data before returning to the UI, retain operation owner
 For NCM stream recovery, a valid next-sequence header inside an incomplete NTB's unused gap is not a block boundary. Recover a length-corrupt block only from a validated payload end; reject frames outside the VPN MTU and require a consecutive-block pair when the datagram-length field is invalid.
 
 Wired-path counters and first-event timestamps are separate atomics, so an unsealed snapshot can observe the count before its timestamp. Preserve that partial report with `first_ms=none`; a sealed snapshot can still enforce complete timestamps after waiting for writers.
+
+Split `TextureView` measurements are local pane geometry. Configuration changes during Split should retain that local cause while the Surface is absent; only Full-mode physical resizes should read the host root and participate in remote display renegotiation.

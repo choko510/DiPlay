@@ -119,6 +119,63 @@ class CarPlayHostActivityLocalScaleTest {
     }
 
     @Test
+    fun rotationWithDestroyedSurfaceInSplitKeepsRemoteCanvasAndDefersTheLocalViewport() {
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val handler = field(activity, "mainHandler").get(activity) as android.os.Handler
+        val root = CarPlayHostActivity::class.java.getDeclaredMethod("buildContentView")
+            .apply { isAccessible = true }
+            .invoke(activity) as FrameLayout
+        activity.setContentView(root)
+        val carPlayPane = field(activity, "carPlayPane").get(activity) as FrameLayout
+        val updateLayout = CarPlayHostActivity::class.java.getDeclaredMethod("updateHostLayoutInternal")
+            .apply { isAccessible = true }
+        val scheduleSizeForConfigurationChange = CarPlayHostActivity::class.java.getDeclaredMethod(
+            "scheduleDisplaySizeForConfigurationChange",
+        ).apply { isAccessible = true }
+        val remote = DisplaySize(1920, 1080)
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+            CarPlayBackgroundSession.active = true
+            setField(activity, "hostLayoutState", HostLayoutState().enterDspSplit())
+            setField(activity, "lastViewportLayoutMode", HostLayoutMode.CARPLAY_DSP_SPLIT)
+            setField(activity, "activeDisplaySize", remote)
+            setField(activity, "localViewportSize", DisplaySize(1056, 1080))
+            setField(activity, "currentSurface", null)
+            setField(activity, "localPaneLayoutPending", false)
+            updateLayout.invoke(activity)
+            root.layout(0, 0, 1080, 1920)
+            carPlayPane.layout(0, 0, 594, 1920)
+            handler.removeCallbacksAndMessages(null)
+            setField(activity, "pendingDisplaySize", null)
+            setField(activity, "pendingLocalPaneViewport", null)
+            setField(activity, "localPaneLayoutPending", false)
+
+            scheduleSizeForConfigurationChange.invoke(activity)
+
+            assertEquals(HostLayoutMode.CARPLAY_DSP_SPLIT, (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode)
+            assertEquals(594, carPlayPane.width)
+            assertEquals(remote, field(activity, "activeDisplaySize").get(activity))
+            assertEquals(DisplaySize(594, 1920), field(activity, "pendingLocalPaneViewport").get(activity))
+            assertNull(field(activity, "pendingDisplaySize").get(activity))
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+        } finally {
+            handler.removeCallbacksAndMessages(null)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
+    @Test
     fun fullAndSplitViewportCyclesKeepTheRemoteControllerSessionAndSurface() {
         val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         val ownerField = field(CarPlayBackgroundSession, "owner")

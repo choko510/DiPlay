@@ -1010,9 +1010,7 @@ class CarPlayHostActivity : ComponentActivity() {
         applyFullscreenMode()
         stageStatusView?.maxWidth = (resources.displayMetrics.widthPixels * 0.78f).toInt()
         scrollLogsToBottom()
-        carPlayPane?.post {
-            scheduleCurrentCarPlayViewportSize(cause = HostDisplaySizeCause.PHYSICAL_DISPLAY_CHANGED)
-        }
+        hostRoot?.post { scheduleDisplaySizeForConfigurationChange() }
     }
 
     override fun onDestroy() {
@@ -1053,7 +1051,18 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun buildContentView(): View {
-        val root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(12, 17, 27)) }
+        val root = FrameLayout(this).apply {
+            setBackgroundColor(Color.rgb(12, 17, 27))
+            addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                val width = right - left
+                val height = bottom - top
+                if (hostLayoutState.mode == HostLayoutMode.CARPLAY_FULL &&
+                    (width != oldRight - oldLeft || height != oldBottom - oldTop)
+                ) {
+                    scheduleDisplaySize(width, height, HostDisplaySizeCause.PHYSICAL_DISPLAY_CHANGED)
+                }
+            }
+        }
         val contentRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
         }
@@ -4484,6 +4493,20 @@ class CarPlayHostActivity : ComponentActivity() {
         DisplaySize(root.width, root.height).takeIf { it.width > 0 && it.height > 0 }
     }
 
+    private fun scheduleCurrentHostDisplaySize() {
+        currentHostDisplaySize()?.let { size ->
+            scheduleDisplaySize(size.width, size.height, HostDisplaySizeCause.PHYSICAL_DISPLAY_CHANGED)
+        }
+    }
+
+    private fun scheduleDisplaySizeForConfigurationChange() {
+        if (hostLayoutState.mode == HostLayoutMode.CARPLAY_FULL) {
+            scheduleCurrentHostDisplaySize()
+        } else {
+            scheduleCurrentCarPlayViewportSize(cause = HostDisplaySizeCause.LOCAL_PANE_LAYOUT_CHANGED)
+        }
+    }
+
     private fun scheduleCurrentCarPlayViewportSize(
         fallbackWidth: Int = 0,
         fallbackHeight: Int = 0,
@@ -4501,7 +4524,8 @@ class CarPlayHostActivity : ComponentActivity() {
         lastViewportLayoutMode = currentMode
         return when {
             isImeResizeActive() -> HostDisplaySizeCause.IME_OR_INSETS_CHANGED
-            modeChanged || localPaneLayoutPending -> HostDisplaySizeCause.LOCAL_PANE_LAYOUT_CHANGED
+            modeChanged || localPaneLayoutPending || currentMode != HostLayoutMode.CARPLAY_FULL ->
+                HostDisplaySizeCause.LOCAL_PANE_LAYOUT_CHANGED
             else -> HostDisplaySizeCause.PHYSICAL_DISPLAY_CHANGED
         }
     }

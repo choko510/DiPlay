@@ -56,13 +56,19 @@ class WiredPathAirPlayDiagnosticsTest {
                 session,
                 listOf(mapOf("type" to ALT_SCREEN, "streamConnectionID" to 2L)),
             )
-            assertEquals(emptyList<ConnectionTraceStage>(), stages.toList())
+            assertEquals(listOf(ConnectionTraceStage.SCREEN_STREAM_OPENED), stages.toList())
             assertEquals(listOf(ALT_SCREEN), openedTypes.toList())
             session.videoFrameSubmittedToSurface(ALT_SCREEN)
-            assertEquals(emptyList<ConnectionTraceStage>(), stages.toList())
+            assertEquals(listOf(ConnectionTraceStage.SCREEN_STREAM_OPENED), stages.toList())
 
             handleStreams.invoke(session, listOf(mapOf("type" to MAIN_SCREEN, "streamConnectionID" to 1L)))
-            assertEquals(listOf(ConnectionTraceStage.SCREEN_STREAM_OPENED), stages.toList())
+            assertEquals(
+                listOf(
+                    ConnectionTraceStage.SCREEN_STREAM_OPENED,
+                    ConnectionTraceStage.SCREEN_STREAM_OPENED,
+                ),
+                stages.toList(),
+            )
             assertEquals(listOf(ALT_SCREEN, MAIN_SCREEN), openedTypes.toList())
             session.videoFrameSubmittedToSurface(MAIN_SCREEN)
             session.videoFrameSubmittedToSurface(MAIN_SCREEN)

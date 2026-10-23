@@ -571,6 +571,10 @@ For plausible incomplete NTH16 recovery, preserve the declared block and do not 
 
 For wired-path diagnostic snapshots, allow an unsealed report to retain a positive count with `first_ms=none` when the snapshot races first-timestamp publication. Keep zero-count timestamps absent and reject the same inconsistency in a sealed final report.
 
+Preserve the existing wired-startup watchdog policy: an accepted MAIN or ALT screen SETUP emits the generic `SCREEN_STREAM_OPENED` completion signal, while typed MAIN/ALT diagnostics and MAIN first-frame timing remain separate. MAIN-only completion or new deadlines stay unaccepted until target UX/timing evidence exists.
+
+While CarPlay is in either Split mode, treat pane geometry changes and rotation as local viewport changes even if the Surface is temporarily absent. Use the host root dimensions for physical resize decisions in Full mode; never feed the 55% CarPlay pane width into the remote canvas.
+
 Seat Focus adds interchannel-relative timing, not common transport delay. Keep its fractional allpass delay outside PlaybackClock compensation, report it separately, and preserve the same near-channel timing in the latency-preserving bypass.
 
 Use first-order antiderivative anti-aliasing around the existing harmonic oversampler; preserve the quality choices and their latency while measuring the folded tone for every mode, tap count, and supported sample rate.

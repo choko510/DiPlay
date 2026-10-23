@@ -178,7 +178,8 @@ internal class ConnectionTraceStore(private val directory: File) {
                 val count = readValue(event)?.toLongOrNull()?.takeIf { it >= 0L } ?: return false
                 val first = readValue("${event}_first_ms") ?: return false
                 val firstElapsed = if (first == "none") null else first.toLongOrNull()?.takeIf { it >= 0L } ?: return false
-                if ((count == 0L) != (firstElapsed == null)) return false
+                if (count == 0L && firstElapsed != null) return false
+                if (sealed == "1" && count > 0L && firstElapsed == null) return false
             }
             return index == fields.size
         }

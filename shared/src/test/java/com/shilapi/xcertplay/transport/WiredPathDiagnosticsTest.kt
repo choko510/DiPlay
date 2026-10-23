@@ -4,10 +4,12 @@ import java.lang.reflect.Field
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicLongArray
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -55,6 +57,35 @@ class WiredPathDiagnosticsTest {
             .counter(WiredPathEvent.MAIN_FIRST_FRAME)
         assertEquals(1L, first.count)
         assertEquals(5L, first.firstElapsedMs)
+    }
+
+    @Test
+    fun snapshotCanObserveCountBeforeItsFirstTimestamp() {
+        val clockCalls = AtomicInteger()
+        val timestampRecording = CountDownLatch(1)
+        val allowTimestamp = CountDownLatch(1)
+        val diagnostics = WiredPathDiagnostics("run-partial", 10, enabled = true) {
+            if (clockCalls.incrementAndGet() == 1) {
+                10_000_000L
+            } else {
+                timestampRecording.countDown()
+                check(allowTimestamp.await(5, TimeUnit.SECONDS))
+                15_000_000L
+            }
+        }
+        val writer = Thread { diagnostics.record(WiredPathEvent.NCM_USB_QUEUE) }
+        writer.start()
+
+        assertTrue(timestampRecording.await(5, TimeUnit.SECONDS))
+        val partial = diagnostics.snapshot(WiredPathReportReason.ACCEPT)
+            .counter(WiredPathEvent.NCM_USB_QUEUE)
+        assertEquals(1L, partial.count)
+        assertNull(partial.firstElapsedMs)
+
+        allowTimestamp.countDown()
+        writer.join(5_000)
+        assertFalse(writer.isAlive)
+        assertEquals(5L, diagnostics.seal().counter(WiredPathEvent.NCM_USB_QUEUE).firstElapsedMs)
     }
 
     @Test

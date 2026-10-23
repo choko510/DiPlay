@@ -15,6 +15,7 @@ import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
 import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
+import com.shilapi.xcertplay.transport.EthernetIpv6Codec
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import com.shilapi.xcertplay.transport.WiredPathDiagnostics
 import com.shilapi.xcertplay.transport.WiredPathEvent
@@ -335,7 +336,7 @@ class CarPlayVpnService : VpnService() {
         private const val LINK_PREFIX = 64
         private const val LINK_LOCAL_ROUTE = "fe80::"
         private const val SESSION_NAME = "xcertplay CarPlay"
-        private const val TUN_MTU = 1500
+        private const val TUN_MTU = EthernetIpv6Codec.IPV6_MTU_BYTES
 
         /** Returns the VPN consent intent, or null when consent is already granted. */
         fun prepare(context: Context): Intent? = VpnService.prepare(context)

@@ -439,3 +439,7 @@ When a real-time microbenchmark runs on an ordinary instrumentation thread, sche
 When callbacks from two independently closing streams race, assert each stream's required open/close events and the no-deadlock condition without imposing a relative order on their concurrent close callbacks.
 
 For imports that persist data before returning to the UI, retain operation ownership until the callback resolves; reject conflicting operations, then delete the imported object if the active screen did not adopt it and no saved profile references it.
+
+For NCM stream recovery, a valid next-sequence header inside an incomplete NTB's unused gap is not a block boundary. Recover a length-corrupt block only from a validated payload end; reject frames outside the VPN MTU and require a consecutive-block pair when the datagram-length field is invalid.
+
+Wired-path counters and first-event timestamps are separate atomics, so an unsealed snapshot can observe the count before its timestamp. Preserve that partial report with `first_ms=none`; a sealed snapshot can still enforce complete timestamps after waiting for writers.

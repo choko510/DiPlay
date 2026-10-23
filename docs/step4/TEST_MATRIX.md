@@ -25,12 +25,13 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | Evidence ID | Scenario | Main test/evidence | Status |
 |---|---|---|---|
 | EX01-01 | Ethernet II, VLAN/QinQ, IPv4 IHL/length/fragments, IPv6 extensions/fragments/jumbograms, TCP flags/ports/bounds | `WiredTcpPacketClassifierTest` | `PASS_LOCAL`; 100,000 deterministic arbitrary buffers |
-| EX01-02 | Concurrent counters, first timestamps, saturation, attach-generation fencing, idempotent seal and late-event rejection | `WiredPathDiagnosticsTest` | `PASS_LOCAL` |
+| EX01-02 | Concurrent counters, first timestamps, saturation, attach-generation fencing, idempotent seal and late-event rejection | `WiredPathDiagnosticsTest` | `PASS_LOCAL`; non-final snapshots may preserve a concurrent count with `first_ms=none`; final snapshots still require timestamps |
 | EX01-03 | NCM send results are unchanged with diagnostics OFF/ON; TUN write failure, peer-MAC drop and SYN-ACK OUT NotReady are counted | `NcmUsbBridgeFixtureTest`, `Ipv6NcmBridgeWiredPathDiagnosticsTest` | `PASS_ROBOLECTRIC`; NotReady is one send attempt |
 | EX01-04 | RTSP screen stream setup distinguishes MAIN/ALT; only MAIN first frame is counted | `WiredPathAirPlayDiagnosticsTest` | `PASS_ROBOLECTRIC` |
 | EX01-05 | Separate fixed `WIRED_PATH_V1` line is persisted without changing `ConnectionTraceEvent` records | `ConnectionTraceStoreTest.wiredPathReportsUseTheirOwnFixedLineFormat` | `PASS_ROBOLECTRIC` |
 | EX01-06 | Same-attempt USB IN → Ethernet → IPv6 SYN → TUN → SYN-ACK → bulk OUT → listener accept → RECORD → MAIN on TS10/K706/iPhone | User-supplied 2026-10-22 mobile debug session log; user identifies SH M20 + iPhone 17 Pro Max, iOS 27.0.1 | `PARTIAL`: the user confirms end-to-end display/audio, successful reconnect, and two Split attempts without disconnect. The log shows bidirectional NCM, AirPlay control/encryption/event acceptance, and `screenOpened=true`; 9,279 USB reads/completions, 22,691 Ethernet RX frames, and 5,000/5,001 NCM writes succeeded. It ends as `USER_OR_PHYSICAL_DISCONNECT` with the device absent and one queue failure; no read timeout/null/unexpected completion occurred. SH M20 is outside the specified TS10/K706 targets, and the exact IPv6→TUN counters are absent, so this is compatibility evidence rather than the v3 target `HARDWARE_PASS` |
 | EX01-07 | Diagnostics OFF/ON CPU delta `<1%` and added memory `≤64 KiB` on target hardware | Physical performance A/B | `NOT_RUN`; emulator/host tests do not establish target cost |
+| EX01-08 | A concurrent wired-path counter snapshot is retained when its first timestamp is being recorded | `WiredPathDiagnosticsTest.snapshotCanObserveCountBeforeItsFirstTimestamp`; `ConnectionTraceStoreTest.wiredPathReportPreservesCounterWhenFirstTimestampIsConcurrent` | `PASS_LOCAL`; the parser allows this state only for unsealed reports and continues to reject it for final reports |
 
 ## PR-01 NCM boundary and damaged-block recovery
 
@@ -40,6 +41,10 @@ Statuses distinguish a passing existing test from a fixture that only prepares a
 | PR01-02 | Corrupt NDP offset/signature, false NTH16, unknown NTH32 signature, invalid header length, multiple datagrams, and resync to the next valid NTB | `NcmUsbBridgeFixtureTest` | `PASS_ROBOLECTRIC` |
 | PR01-03 | More than 1 MiB of garbage, existing frame-queue limit, close racing a queued read, and async/sync Bulk IN | `NcmUsbBridgeFixtureTest` | `PASS_ROBOLECTRIC`; resync stops at its 1 MiB cap |
 | PR01-04 | Target-endpoint packet boundary behavior on TS10/K706/iPhone | Physical USB run | `NOT_RUN`; no target hardware is connected |
+| PR01-05 | A valid incomplete NTB with a valid-looking next-sequence NTH16 inside its unused gap is retained until the declared block completes | `NcmUsbBridgeFixtureTest.validIncompleteNtbDoesNotResyncIntoUnusedGap` | `PASS_ROBOLECTRIC`; tested with 1/2/64/512/32,768-byte read completions |
+| PR01-06 | An over-MTU NDP datagram length cannot hide following valid NTBs; recovery requires two complete contiguous sequence blocks and works across read completions | `NcmUsbBridgeFixtureTest.oversizedDatagramLengthDoesNotHideFollowingValidNtb`; `oversizedDatagramLengthWaitsForTheFollowingSequencePairAcrossReads` | `PASS_ROBOLECTRIC`; the 1,514-byte untagged Ethernet ceiling matches the 1,500-byte VPN MTU; physical NCM packet behavior remains `NOT_RUN` |
+| PR01-07 | Recovery from a valid incomplete block does not rescan every buffered byte on each USB completion | `NcmUsbBridge.recoverFollowingValidNtb16` source path; PR01-05 fragmentation test | `PASS_STATIC` for constant-position recovery; target CPU impact remains `NOT_RUN` |
+| W-06 / W-07 / W-08 / W-09 | OUT short-packet behavior, SYN-ACK `NotReady`, close while `requestWait` is blocked, and repeated `0x4300` behavior | TS10/K706/iPhone capture and close/cancel traces | `NEED_DEVICE`; no retry or OUT-format change is adopted without the corresponding packet/timing evidence |
 
 ## EX-02 host retry fencing
 

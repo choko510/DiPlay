@@ -567,7 +567,9 @@ For PR #45 multitouch, keep Android pointer IDs in normalized contacts, then map
 
 For AirPlay accepts, require the accepting ServerSocket and captured attachment generation to still be current before using the attachment. Close the accepted socket immediately on a stale listener return. Background session lookup also filters closed sessions so Activity recreation cannot adopt a dead connection.
 
-For plausible incomplete NTH16 recovery, protect every validated NDP/datagram byte range and resync only to a fully validated next block with the contiguous sequence number. Do not scan the payload for sync signatures or accept an incomplete candidate.
+For plausible incomplete NTH16 recovery, preserve the declared block and do not scan its unused gaps. A corrupt block length may resync only at the exact end of validated NDP/datagram extents (or one endpoint-boundary short pad) to a complete next block with the contiguous sequence number. Reject datagrams larger than the VPN's supported untagged Ethernet MTU; for that invalid-header case, require two complete consecutive NTBs before discarding the prefix. Do not enable NTB32 or recover from a payload signature alone.
+
+For wired-path diagnostic snapshots, allow an unsealed report to retain a positive count with `first_ms=none` when the snapshot races first-timestamp publication. Keep zero-count timestamps absent and reject the same inconsistency in a sealed final report.
 
 Seat Focus adds interchannel-relative timing, not common transport delay. Keep its fractional allpass delay outside PlaybackClock compensation, report it separately, and preserve the same near-channel timing in the latency-preserving bypass.
 

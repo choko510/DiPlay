@@ -13,6 +13,12 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-23 — Bound incomplete NCM block recovery work
+
+- Replaced the per-completion bytewise scan through a plausible incomplete NTB with checks at the validated data end and the one allowed endpoint-boundary short-pad position. This preserves a valid partial block and removes the quadratic recovery scan identified in W-04.
+- Over-MTU datagram declarations are rejected against the same 1,500-byte IPv6 TUN MTU used by `CarPlayVpnService`; resynchronizing that invalid header requires two complete consecutive NTBs. `NcmUsbBridgeFixtureTest` reproduces the false-gap signature and the oversized datagram length, including fragmented reads, and passes locally.
+- This is a source-level work bound plus Robolectric regression coverage; target USB CPU and endpoint behavior remain unmeasured.
+
 ## 2026-10-23 — Match DSP benchmark priority to the production audio worker
 
 - API 35 run #367's uploaded logcat showed 48 kHz stereo `FullHeavyChain` p50 around 9.5 ms with repeated wall-time p99 tails of 26–69 ms, while 44.1 kHz stereo stayed near 2.9 ms p50 and below 4.1 ms p99. The product code was unchanged from passing run #361; this points to scheduling pressure in the normal-priority instrumentation thread rather than a newly introduced DSP arithmetic regression.

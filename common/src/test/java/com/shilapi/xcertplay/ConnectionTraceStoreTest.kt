@@ -110,6 +110,29 @@ class ConnectionTraceStoreTest {
         }
     }
 
+    @Test fun wiredPathReportPreservesCounterWhenFirstTimestampIsConcurrent() {
+        val directory = File(
+            RuntimeEnvironment.getApplication().cacheDir,
+            "trace-wired-path-concurrent-${System.nanoTime()}",
+        )
+        val store = ConnectionTraceStore(directory)
+        val report = validWiredPathReport().replace(
+            "ncm_usb_queue=0 ncm_usb_queue_first_ms=none",
+            "ncm_usb_queue=1 ncm_usb_queue_first_ms=none",
+        )
+        val invalidFinalReport = report.replace("sealed=0", "sealed=1")
+        try {
+            store.appendWiredPathReport(report)
+            store.appendWiredPathReport(invalidFinalReport)
+
+            val snapshot = store.snapshot()
+            assertTrue(snapshot.contains(report))
+            assertFalse(snapshot.contains(invalidFinalReport))
+        } finally {
+            store.closeForTests()
+        }
+    }
+
     private fun validWiredPathReport(): String {
         val eventKeys = listOf(
             "start",

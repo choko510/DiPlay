@@ -8,8 +8,13 @@ object DiagnosticRedactor {
     private val address = Regex("(?<![0-9])(?:[0-9]{1,3}\\.){3}[0-9]{1,3}(?![0-9])")
     private val namedDevice = Regex("(?i)(phone|device|peer|host)?name[=:]")
     private val ipv6 = Regex("(?i)(?:[0-9a-f]{1,4}:)*[0-9a-f]{0,4}::[0-9a-f:]*(?:%[a-z0-9_.-]+)?|(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}")
+    private val safeTraceEvent = Regex(
+        "TRACE_EVENT stage=(control_rx|control_tx|event_rx|event_tx|setup_response_tx|teardown_rx|" +
+            "iap_tunnel_open|iap_tunnel_debug|iap_tunnel_closed) bytes=(0|[1-9][0-9]{0,6})",
+    )
 
     fun redact(line: String): String? {
+        if (line.startsWith("TRACE_EVENT ")) return line.takeIf(safeTraceEvent::matches)
         if (line.contains("TRACE ") || line.contains("PHONE ") || line.contains('\n') || line.contains('\r')) return null
         if (secret.containsMatchIn(line) || namedDevice.containsMatchIn(line)) return null
         return line.replace(mac, "[address]").replace(identifier, "[identifier]")

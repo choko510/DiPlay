@@ -54,6 +54,7 @@ class CarPlayVpnService : VpnService() {
         val listener: AirPlaySessionListener,
         val media: AirPlayMediaHandler,
         val wiredPathDiagnostics: WiredPathDiagnostics?,
+        val usesVpn: Boolean,
     )
 
     private val binder = LocalBinder()
@@ -81,30 +82,33 @@ class CarPlayVpnService : VpnService() {
     }
 
     private fun releaseRevokedGeneration(generation: Int) {
-        val (shouldStop, revokedListener) = synchronized(this) {
-            if (generation != attachGeneration) {
-                false to null
+        val revoked = synchronized(this) {
+            if (generation != attachGeneration || attachment?.usesVpn != true) {
+                null
             } else {
                 val revokedListener = attachment?.listener
                 if (active.get()) releaseLocked()
-                true to revokedListener
+                revokedListener to attachGeneration
+            }
+        } ?: return
+        val (revokedListener, releasedGeneration) = revoked
+        revokedListener?.let { listener ->
+            val message = "CarPlay VPN permission was revoked"
+            try {
+                listener.onTransportStopping(message)
+            } catch (error: Exception) {
+                Log.w(TAG, "VPN revoke stopping callback failed error=${error.javaClass.simpleName}")
+            }
+            try {
+                listener.onTransportError(message)
+            } catch (error: Exception) {
+                Log.w(TAG, "VPN revoke error callback failed error=${error.javaClass.simpleName}")
             }
         }
-        if (shouldStop) {
-            revokedListener?.let { listener ->
-                val message = "CarPlay VPN permission was revoked"
-                try {
-                    listener.onTransportStopping(message)
-                } catch (error: Exception) {
-                    Log.w(TAG, "VPN revoke stopping callback failed error=${error.javaClass.simpleName}")
-                }
-                try {
-                    listener.onTransportError(message)
-                } catch (error: Exception) {
-                    Log.w(TAG, "VPN revoke error callback failed error=${error.javaClass.simpleName}")
-                }
+        synchronized(this) {
+            if (attachGeneration == releasedGeneration && !active.get()) {
+                stopSelf()
             }
-            stopSelf()
         }
     }
 
@@ -161,9 +165,7 @@ class CarPlayVpnService : VpnService() {
                     listener.onConnectionTrace(ConnectionTraceStage.NCM_BRIDGE_STARTED)
                 },
             )
-            ipv6Bridge.start()
             bridge = ipv6Bridge
-
             startAirPlayServer(
                 generation,
                 AirPlayAttachment(
@@ -175,8 +177,10 @@ class CarPlayVpnService : VpnService() {
                     listener,
                     media,
                     wiredPathDiagnostics,
+                    usesVpn = true,
                 ),
             )
+            ipv6Bridge.start()
             AttachResult.Started
         } catch (error: Exception) {
             releaseLocked()
@@ -207,7 +211,17 @@ class CarPlayVpnService : VpnService() {
         return try {
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(bindAddress, config, identity, pairings, mfi, listener, media, null),
+                AirPlayAttachment(
+                    bindAddress,
+                    config,
+                    identity,
+                    pairings,
+                    mfi,
+                    listener,
+                    media,
+                    null,
+                    usesVpn = false,
+                ),
             )
             AttachResult.Started
         } catch (error: Exception) {

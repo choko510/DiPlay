@@ -4,6 +4,7 @@ internal class DspLatencyPreservingBypass(
     private val format: DspAudioFormat,
     private val commonLatencyFrames: Int,
     private val seatAlignment: DspSeatAlignmentConfig = DspSeatAlignmentConfig(),
+    failurePreampDb: Double = 0.0,
     seed: Long = System.nanoTime(),
 ) {
     private val ring = FloatArray(commonLatencyFrames * format.channels)
@@ -23,6 +24,7 @@ internal class DspLatencyPreservingBypass(
     private val seatIntegerDelayFrames = seatDelayFrames.toInt()
     private val seatFraction = (seatDelayFrames - seatIntegerDelayFrames).toFloat()
     private val seatAllpassCoefficient = (1.0f - seatFraction) / (1.0f + seatFraction)
+    private val failurePreampGain = Math.pow(10.0, failurePreampDb / 20.0).toFloat()
     private val seatRing = FloatArray(maxOf(1, seatIntegerDelayFrames + 1))
     private val leftTrimGain = Math.pow(
         10.0,
@@ -164,14 +166,16 @@ internal class DspLatencyPreservingBypass(
         seatRingPosition = 0
         seatFractionalXPrevious = 0.0f
         seatFractionalYPrevious = 0.0f
+        seatControlsEnabled = false
         processedLength = 0
         processedFrames = 0
     }
 
     private fun applySeatControl(sample: Float, channel: Int): Float {
-        if (!hasSeatControls) return sample
-        val gain = if (channel == 0) leftTrimGain else rightTrimGain
-        val invert = if (channel == 0) seatAlignment.invertLeft else seatAlignment.invertRight
+        if (!hasSeatControls && failurePreampGain == 1.0f) return sample
+        val trimGain = if (!hasSeatControls) 1.0f else if (channel == 0) leftTrimGain else rightTrimGain
+        val gain = failurePreampGain * trimGain
+        val invert = hasSeatControls && if (channel == 0) seatAlignment.invertLeft else seatAlignment.invertRight
         return if (invert) -sample * gain else sample * gain
     }
 }

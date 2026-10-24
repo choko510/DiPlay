@@ -45,6 +45,7 @@ import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
 import com.shilapi.xcertplay.media.dsp.DspPipelinePreparer
 import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
 import com.shilapi.xcertplay.media.dsp.createNativePipeline
+import com.shilapi.xcertplay.media.dsp.prepare
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -113,6 +114,7 @@ class AndroidMediaSink(
         onAudioDiagnostic = onAudioDiagnostic,
     )
     private data class VideoRecoveryHandler(val generation: Long, val callback: () -> Unit)
+    private class PendingVideoRecovery(val generation: Long)
     private data class PendingVideoConfig(val generation: Long, val codec: VideoCodec, val codecData: ByteArray)
     private data class AudioRendererEntry(val token: AudioOwnerToken, val renderer: AudioRenderer)
     private data class MicrophoneEntry(val token: AudioOwnerToken, val uplink: MicrophoneUplinkController)
@@ -137,7 +139,7 @@ class AndroidMediaSink(
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, VideoRecoveryHandler>()
     private val videoDiagnosticHandlers = ConcurrentHashMap<Int, (String) -> Unit>()
-    private val recoveryPending = ConcurrentHashMap<Int, AtomicBoolean>()
+    private val recoveryPending = ConcurrentHashMap<Int, PendingVideoRecovery>()
     private val recoveryWorkerIds = AtomicInteger()
     private val recoveryQueueDrops = AtomicLong()
     private val recoveryExecutor = ThreadPoolExecutor(
@@ -170,8 +172,15 @@ class AndroidMediaSink(
 
     private fun requestVideoRecovery(type: Int, generation: Long) {
         if (closed.get() || !videoStreamGenerations.isCurrent(type, generation)) return
-        val pending = recoveryPending.computeIfAbsent(type) { AtomicBoolean() }
-        if (!pending.compareAndSet(false, true)) return
+        val pending = PendingVideoRecovery(generation)
+        while (true) {
+            val current = recoveryPending[type]
+            when {
+                current == null -> if (recoveryPending.putIfAbsent(type, pending) == null) break
+                current.generation >= generation -> return
+                recoveryPending.replace(type, current, pending) -> break
+            }
+        }
         try {
             recoveryExecutor.execute {
                 try {
@@ -477,8 +486,17 @@ class AndroidMediaSink(
                     }
                 },
                 onStopped = { safelyReleased ->
-                    if (safelyReleased) decoderReference.get()?.let { retiringVideoDecoders.remove(type, it) }
+                    if (safelyReleased) {
+                        decoderReference.get()?.let { retiringVideoDecoders.remove(type, it) }
+                    } else {
+                        diagnosticHandler?.invoke(
+                            "decoder retirement blocked type=$type generation=$generation; " +
+                                "codec and surface references retained",
+                        )
+                    }
                 },
+                streamType = type,
+                streamGeneration = generation,
             )
             decoderReference.set(decoder)
             videoDecoders[type] = decoder
@@ -552,6 +570,8 @@ private class VideoDecoder(
     private val beforeStop: () -> Unit,
     private val onFirstFrameSubmittedToSurface: () -> Unit,
     private val onStopped: (Boolean) -> Unit,
+    private val streamType: Int,
+    private val streamGeneration: Long,
 ) : Closeable {
     private val queue = VideoDecodeQueue()
     private val stopped = CountDownLatch(1)
@@ -742,9 +762,11 @@ private class VideoDecoder(
         // parameters with BAD_VALUE. Fall back to a minimal format, then to software.
         val attempts = videoDecoderAttemptPlan(softwareDecoderName(mime))
         val attemptedFormats = mutableSetOf<DecoderAttemptKey>()
-        val next = firstSuccessfulDecoderAttempt(attempts) { attempt ->
-            tryConfigure(mime, csd, surface, attempt, attemptedFormats)
-        }
+        val next = firstSuccessfulDecoderAttempt(
+            attempts = attempts,
+            configure = { attempt -> tryConfigure(mime, csd, surface, attempt, attemptedFormats) },
+            canContinueAfterFailure = { failedDecoderReleases.isEmpty() },
+        )
         if (next == null) {
             report("decoder configuration failed mime=$mime size=${width}x$height")
         }
@@ -784,7 +806,7 @@ private class VideoDecoder(
             val codec = attempt.codecName?.let { MediaCodec.createByCodecName(it) } ?: createDecoder(mime)
             candidate = codec
             if (!recordDecoderAttempt(attemptedFormats, codec.name, attempt.tuned)) {
-                runCatching { codec.release() }
+                releaseFailedCandidate(codec, "duplicate decoder candidate")
                 candidate = null
                 return null
             }
@@ -796,7 +818,7 @@ private class VideoDecoder(
             codec.start()
             codec
         } catch (error: Exception) {
-            runCatching { candidate?.release() }
+            candidate?.let { releaseFailedCandidate(it, "decoder configure failure") }
             Log.w(
                 TAG,
                 "video decoder configure failed name=${attempt.codecName ?: "default"} " +
@@ -804,6 +826,22 @@ private class VideoDecoder(
                     "error=${error.javaClass.simpleName}",
             )
             null
+        }
+    }
+
+    private fun releaseFailedCandidate(codec: MediaCodec, reason: String) {
+        try {
+            codec.release()
+        } catch (error: Exception) {
+            failedDecoderReleases.add(codec)
+            Log.e(
+                TAG,
+                "$reason could not release decoder error=${error.javaClass.simpleName}",
+            )
+            report(
+                "$reason blocked fallback type=$streamType generation=$streamGeneration " +
+                    "retained=${failedDecoderReleases.size} surfaceRetained=true",
+            )
         }
     }
 
@@ -981,6 +1019,10 @@ private class VideoDecoder(
             } catch (error: Exception) {
                 failedDecoderReleases.add(codec)
                 Log.w(TAG, "video decoder release failed error=${error.javaClass.simpleName}")
+                report(
+                    "decoder release failed type=$streamType generation=$streamGeneration " +
+                        "retained=${failedDecoderReleases.size} surfaceRetained=true",
+                )
             }
         }
         previouslyFailed.forEach { failed ->
@@ -2108,10 +2150,32 @@ internal class AudioRenderer(
                 seatAlignment.invertLeft || seatAlignment.invertRight
             )
         return if (update.latencyFrames > 0 || relativeDelayFrames > 0.0 || hasSeatControls) {
-            DspLatencyPreservingBypass(update.format, update.latencyFrames, seatAlignment)
+            DspLatencyPreservingBypass(
+                update.format,
+                update.latencyFrames,
+                seatAlignment,
+                failurePreampDb = failureFallbackPreampDb(update.format, update.config),
+            )
         } else {
             null
         }
+    }
+
+    private fun failureFallbackPreampDb(format: DspAudioFormat, config: DspRuntimeConfig): Double {
+        if (!config.enabled) return 0.0
+        val graphConfig = configuredDspGraph(format, config)
+        val preparedPreampDb = graphConfig.prepare(format).appliedPreampDb
+        val positiveSeatTrimDb = if (format.channels == 2) {
+            graphConfig.seatAlignment.positiveTrimForHeadroomDb
+        } else {
+            0.0
+        }
+        val seatSafePreampDb = if (positiveSeatTrimDb > 0.0) {
+            -positiveSeatTrimDb - maxOf(config.autoHeadroomMarginDb, FAILURE_FALLBACK_HEADROOM_MARGIN_DB)
+        } else {
+            0.0
+        }
+        return minOf(preparedPreampDb, 0.0, seatSafePreampDb)
     }
 
     private fun configuredDspGraph(format: DspAudioFormat, config: DspRuntimeConfig): DspRuntimeConfig {
@@ -2293,7 +2357,17 @@ internal class AudioRenderer(
                     ?: if (trackGenerationContentCommitted) liveUpdateLatencyFrames.get() else 0
             },
             onRetirementFailed = { error ->
-                reportDsp("DSP unavailable: reason=PIPELINE_RETIRE_FAILED error=${error.javaClass.simpleName}")
+                if (!rendererReleased && liveUpdateControllerEpoch.get() == controllerEpoch) {
+                    val generation = runCatching { dspConfigProvider.versionedSnapshot().generation }
+                        .getOrDefault(activeDspGeneration)
+                    reportDsp(
+                        "DSP unavailable: reason=PIPELINE_RETIRE_FAILED generation=$generation " +
+                            "error=${error.javaClass.simpleName}",
+                    )
+                    reportDspApplyStatus(
+                        DspRendererApplyStatus(generation, DspRendererApplyPhase.FAILED, activeDspGeneration),
+                    )
+                }
             },
         )
         val installed = synchronized(dspUpdatePublicationLock) {
@@ -2724,7 +2798,12 @@ internal class AudioRenderer(
         latencyPreservingBypass = if (fallbackWasPrepared) {
             preparedFallback
         } else if (trackGenerationLatencyFrames > 0 || interchannelRelativeDelay > 0.0 || hasSeatControls) {
-            DspLatencyPreservingBypass(effectiveFormat, trackGenerationLatencyFrames, seatAlignment)
+            DspLatencyPreservingBypass(
+                effectiveFormat,
+                trackGenerationLatencyFrames,
+                seatAlignment,
+                failurePreampDb = failureFallbackPreampDb(effectiveFormat, seatSource),
+            )
         } else {
             null
         }
@@ -3389,6 +3468,7 @@ internal class AudioRenderer(
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_POLL_MILLIS = 10L
         const val LIVE_CROSSFADE_DIVISOR = 50
+        const val FAILURE_FALLBACK_HEADROOM_MARGIN_DB = 1.0
         const val AUDIO_WRITE_RETRY_MILLIS = 2L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         // Decoder/render queue for bursts; RTP ordering and its short jitter hold happen upstream.

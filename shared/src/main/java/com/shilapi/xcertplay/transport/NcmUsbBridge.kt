@@ -742,7 +742,6 @@ class NcmUsbBridge internal constructor(
     }
 
     private fun trackIncompleteNtbProgress(header: Ntb16HeaderValidation) {
-        if (!header.structureComplete) return
         val sequence = header.sequence ?: return
         val blockLength = header.blockLength ?: return
         val current = incompleteNtbProgress

@@ -425,7 +425,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var currentSurface: Surface? = null
     private var currentSurfaceTexture: SurfaceTexture? = null
     private val surfaceRetirementLock = Any()
-    private val pendingSurfaceRetirements = IdentityHashMap<SurfaceTexture, MutableList<Surface>>()
+    private val pendingSurfaceRetirements = IdentityHashMap<SurfaceTexture, IdentityHashMap<Surface, Boolean>>()
     private val releasedSurfaceTextures = Collections.newSetFromMap(WeakHashMap<SurfaceTexture, Boolean>())
     private var activeDisplaySize: DisplaySize? = null
     private var localViewportSize: DisplaySize? = null
@@ -5044,13 +5044,13 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun retireTextureSurface(surface: Surface, texture: SurfaceTexture?) {
         if (texture != null) {
             val shouldSchedule = synchronized(surfaceRetirementLock) {
-                val existing = pendingSurfaceRetirements[texture]
-                if (existing == null) {
-                    pendingSurfaceRetirements[texture] = mutableListOf(surface)
+                val retiringSurfaces = pendingSurfaceRetirements.getOrPut(texture) {
+                    IdentityHashMap()
+                }
+                if (retiringSurfaces.containsKey(surface)) false
+                else {
+                    retiringSurfaces[surface] = false
                     true
-                } else {
-                    if (existing.none { it === surface }) existing += surface
-                    false
                 }
             }
             if (!shouldSchedule) return
@@ -5070,17 +5070,21 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun completeTextureSurfaceRetirement(surface: Surface, texture: SurfaceTexture?) {
-        val surfacesToRelease = if (texture == null) {
-            listOf(surface)
-        } else {
-            synchronized(surfaceRetirementLock) {
-                pendingSurfaceRetirements.remove(texture)?.also {
-                    releasedSurfaceTextures.add(texture)
-                } ?: return
-            }
+        if (texture == null) {
+            runCatching { surface.release() }
+            return
         }
+        val surfacesToRelease = synchronized(surfaceRetirementLock) {
+            val retiringSurfaces = pendingSurfaceRetirements[texture] ?: return@synchronized null
+            if (retiringSurfaces[surface] != false) return@synchronized null
+            retiringSurfaces[surface] = true
+            if (retiringSurfaces.values.any { !it }) return@synchronized null
+            pendingSurfaceRetirements.remove(texture)
+            releasedSurfaceTextures.add(texture)
+            retiringSurfaces.keys.toList()
+        } ?: return
         surfacesToRelease.forEach { retired -> runCatching { retired.release() } }
-        texture?.let { retired -> runCatching { retired.release() } }
+        runCatching { texture.release() }
     }
 
     private fun attachSurface(surface: Surface) {
@@ -5377,7 +5381,7 @@ class CarPlayHostActivity : ComponentActivity() {
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
         const val AUDIO_CAPTURE_MARKER = "audio-capture.enabled"
         const val AUDIO_CAPTURE_DIRECTORY = "audio-captures"
-        const val PROTOCOL_TRACE_PREFIX = "TRACE "
+        const val PROTOCOL_TRACE_PREFIX = "TRACE_EVENT "
         const val THREE_FINGER_COUNT = 3
         const val THREE_FINGER_SWIPE_DISTANCE_DP = 72
         const val THREE_FINGER_SWIPE_DIRECTION_RATIO = 1.15f

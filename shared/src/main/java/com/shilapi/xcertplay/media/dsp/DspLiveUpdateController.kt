@@ -81,7 +81,7 @@ internal class DspLiveUpdateController(
                 try {
                     candidate = pipelinePreparer(format, snapshot.config)
                     if (candidate != null && candidate.format != format) {
-                        runCatching { candidate.close() }
+                        retire(candidate)
                         candidate = null
                         lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
                         runCatching { onDeferred(snapshot.generation) }
@@ -90,12 +90,12 @@ internal class DspLiveUpdateController(
                     val latencyFrames = preparedLatencyFrames(candidate).coerceAtLeast(0)
                     val deferLatencyChange = latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()
                     if (desired.get()?.generation != snapshot.generation) {
-                        runCatching { candidate?.close() }
+                        retire(candidate)
                         candidate = null
                         continue
                     }
                     if (closed.get()) {
-                        runCatching { candidate?.close() }
+                        retire(candidate)
                         candidate = null
                         return
                     }
@@ -108,14 +108,14 @@ internal class DspLiveUpdateController(
                     if (transferred) {
                         candidate = null
                     } else {
-                        runCatching { candidate?.close() }
+                        retire(candidate)
                         candidate = null
                     }
                     if (transferred && deferLatencyChange) runCatching { onDeferred(snapshot.generation) }
                 } catch (error: Throwable) {
                     val failedCandidate = candidate
                     candidate = null
-                    runCatching { failedCandidate?.close() }
+                    retire(failedCandidate)
                     lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
                     runCatching { onFailed(snapshot, error) }
                     if (error is VirtualMachineError || error is ThreadDeath) throw error

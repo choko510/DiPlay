@@ -159,7 +159,7 @@ class AirPlaySession(
         }
     }
 
-    internal fun logTrace(message: String) = trace(message)
+    internal fun logTrace(stage: String) = traceEvent(stage, 0)
 
     fun start() {
         Thread(::runControl, "airplay-control").apply {
@@ -193,7 +193,7 @@ class AirPlaySession(
             "Content-Type: $PLIST_CONTENT_TYPE\r\n" +
             "Content-Length: ${body.size}\r\n" +
             "CSeq: $eventCseq\r\n\r\n"
-        trace("airplay event tx headers=$head bodyHex=${body.toHex()}")
+        traceEvent("event_tx", body.size)
         return try {
             val bytes = cipher.encrypt(head.toByteArray(Charsets.US_ASCII) + body)
             val output = socket.getOutputStream()
@@ -357,10 +357,7 @@ class AirPlaySession(
                         "airplay rx ${request.method} ${request.path} cseq=$cseq body=${request.body.size}",
                         showInDebugOverlay,
                     )
-                    trace(
-                        "airplay control rx headers=${request.headers} " +
-                            "bodyHex=${request.body.toHex()}",
-                    )
+                    traceEvent("control_rx", request.body.size)
                     val response = try {
                         handle(request)
                     } catch (error: Exception) {
@@ -376,7 +373,7 @@ class AirPlaySession(
                         showInDebugOverlay,
                     )
                     val wire = RtspMessage.buildResponse(request, response)
-                    trace("airplay control tx wireHex=${wire.toHex()}")
+                    traceEvent("control_tx", wire.size)
                     output.write(cipher?.encrypt(wire) ?: wire)
                     if (cipher == null && pairVerify.controlKeys != null) {
                         val keys = pairVerify.controlKeys!!
@@ -496,11 +493,12 @@ class AirPlaySession(
         }
     }
 
-    private fun trace(message: String) {
+    private fun traceEvent(stage: String, bytes: Int) {
+        if (stage !in SAFE_TRACE_STAGES || bytes !in 0..MAX_SAFE_TRACE_BYTES) return
         try {
-            listener.onDebugLog("TRACE $message")
+            listener.onDebugLog("TRACE_EVENT stage=$stage bytes=$bytes")
         } catch (error: Exception) {
-            Log.w(TAG, "trace log callback failed error=${error.javaClass.simpleName}")
+            Log.w(TAG, "trace event callback failed error=${error.javaClass.simpleName}")
         }
     }
 
@@ -517,7 +515,7 @@ class AirPlaySession(
             val responseStreams = handleStreams(streams)
             debugLog("airplay SETUP response streams=$responseStreams")
             val body = BplistCodec.encode(linkedMapOf("streams" to responseStreams))
-            trace("airplay SETUP response bplistHex=${body.toHex()}")
+            traceEvent("setup_response_tx", body.size)
             return RtspMessage.Response(headers = mapOf("Content-Type" to PLIST_CONTENT_TYPE), body = body)
         }
 
@@ -635,7 +633,7 @@ class AirPlaySession(
             "airplay TEARDOWN types=$types activeBefore=$activeStreams " +
                 "body=${request.body.size} bytes payload=$decodedBody",
         )
-        trace("airplay TEARDOWN raw${request.body.size}Hex=${request.body.toHex()}")
+        traceEvent("teardown_rx", request.body.size)
 
         if (types.isEmpty()) {
             activeStreams.toList().forEach { media.onTeardown(this, it) }
@@ -764,11 +762,8 @@ class AirPlaySession(
                         "airplay event rx ${message.method} ${message.path} cseq=${message.headers["cseq"] ?: "-"} body=${message.body.size}",
                     )
                     val response = RtspMessage.buildResponse(message, RtspMessage.Response(status = 200))
-                    trace(
-                        "airplay event rx headers=${message.headers} " +
-                            "bodyHex=${message.body.toHex()}",
-                    )
-                    trace("airplay event tx wireHex=${response.toHex()}")
+                    traceEvent("event_rx", message.body.size)
+                    traceEvent("event_tx", response.size)
                     synchronized(eventWriteLock) {
                         output.write(cipher.encrypt(response))
                         output.flush()
@@ -797,6 +792,18 @@ class AirPlaySession(
         const val PLIST_CONTENT_TYPE = "application/x-apple-binary-plist"
         const val PAIRING_CONTENT_TYPE = "application/pairing+tlv8"
         const val OCTET_CONTENT_TYPE = "application/octet-stream"
+        val SAFE_TRACE_STAGES = setOf(
+            "control_rx",
+            "control_tx",
+            "event_rx",
+            "event_tx",
+            "setup_response_tx",
+            "teardown_rx",
+            "iap_tunnel_open",
+            "iap_tunnel_debug",
+            "iap_tunnel_closed",
+        )
+        const val MAX_SAFE_TRACE_BYTES = 1_000_000
 
         const val STREAM_TYPE_MAIN_SCREEN = 110
         const val STREAM_TYPE_ALT_SCREEN = 111

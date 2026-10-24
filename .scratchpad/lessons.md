@@ -494,3 +494,5 @@ For lock-free worker retirement failures, decrement only the in-flight count in 
 When Compose scroll crashes with an infinite maximum height in a local split pane, a current-window configuration cap can provide a finite dynamic upper bound without hard-coded display dimensions. Verify the originating Android measure path and real pane rendering on target hardware before claiming the crash fixed.
 
 For a connection-enabled APK build, verify both packaging layers independently: expected MFi asset entry names inside every ABI APK and the Android APK signature schemes. Successful packaging and signature checks do not prove a new physical head-unit connection.
+
+For a valid but incomplete NCM header, sequence and block length are enough to start bounded no-progress tracking; a later incomplete NDP must not bypass the deadline. For protocol traces, persist a strict stage/byte schema rather than attempting to redact raw serialized headers or bodies.

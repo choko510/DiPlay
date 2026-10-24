@@ -282,7 +282,7 @@ internal class NativeDspProcessor internal constructor(
         val handle = nativeHandle
         if (handle <= 0L) return
         nativeHandle = 0L
-        runCatching { bindings.destroy(handle) }
+        bindings.destroy(handle)
     }
 
     companion object {

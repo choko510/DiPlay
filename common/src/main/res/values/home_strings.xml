@@ -1,6 +1,7 @@
 <resources>
     <string name="menu_return_carplay">CarPlayに戻る</string>
     <string name="menu_carplay_youtube">CarPlay + YouTube</string>
+    <string name="menu_carplay_dsp">CarPlay + DSP</string>
     <string name="menu_vehicle_home">車のホーム</string>
     <string name="menu_settings">DiPlay設定</string>
     <string name="menu_status_connected">接続中</string>
@@ -12,6 +13,7 @@
     <string name="menu_vehicle_home_unavailable">車のホーム画面を開けませんでした。</string>
     <string name="menu_return_failed">CarPlay画面を開けませんでした。</string>
     <string name="menu_youtube_split_failed">CarPlay + YouTubeを開けませんでした。</string>
+    <string name="menu_dsp_split_failed">CarPlay + DSPを開けませんでした。</string>
     <string name="youtube_waiting_for_iphone_profile">iPhoneを識別しています…</string>
     <string name="youtube_identity_error">接続中のiPhoneを識別できませんでした。</string>
     <string name="youtube_loading">YouTubeを読み込んでいます…</string>
@@ -19,6 +21,7 @@
     <string name="youtube_reload">再読み込み</string>
     <string name="youtube_back">戻る</string>
     <string name="youtube_close">YouTubeを閉じる</string>
+    <string name="host_split_waiting">CarPlayの準備が整うと分割表示を開きます。</string>
     <string name="ui_car_home">車の画面へ</string>
     <string name="ui_back">戻る</string>
     <string name="ui_home_eyebrow">あなたのスマホと、いつものドライブ。</string>

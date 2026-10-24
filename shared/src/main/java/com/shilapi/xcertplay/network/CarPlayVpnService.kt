@@ -7,6 +7,7 @@ import android.os.Binder
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.util.Log
+import com.shilapi.xcertplay.DiagnosticRedactor
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
 import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
@@ -15,7 +16,10 @@ import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.mfi.MfiAuthenticator
 import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
+import com.shilapi.xcertplay.transport.EthernetIpv6Codec
 import com.shilapi.xcertplay.transport.NcmUsbBridge
+import com.shilapi.xcertplay.transport.WiredPathDiagnostics
+import com.shilapi.xcertplay.transport.WiredPathEvent
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -49,6 +53,8 @@ class CarPlayVpnService : VpnService() {
         val mfi: MfiAuthenticator?,
         val listener: AirPlaySessionListener,
         val media: AirPlayMediaHandler,
+        val wiredPathDiagnostics: WiredPathDiagnostics?,
+        val usesVpn: Boolean,
     )
 
     private val binder = LocalBinder()
@@ -59,9 +65,52 @@ class CarPlayVpnService : VpnService() {
     private var serverSocket: ServerSocket? = null
     private var bridge: Ipv6NcmBridge? = null
     private var tun: ParcelFileDescriptor? = null
-    private var attachGeneration = 0
+    @Volatile private var attachGeneration = 0
 
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder? =
+        if (intent?.action == VpnService.SERVICE_INTERFACE) super.onBind(intent) else binder
+
+    override fun onRevoke() {
+        val revokedGeneration = attachGeneration
+        Thread(
+            { releaseRevokedGeneration(revokedGeneration) },
+            "carplay-vpn-revoke",
+        ).apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun releaseRevokedGeneration(generation: Int) {
+        val revoked = synchronized(this) {
+            if (generation != attachGeneration || attachment?.usesVpn != true) {
+                null
+            } else {
+                val revokedListener = attachment?.listener
+                if (active.get()) releaseLocked()
+                revokedListener to attachGeneration
+            }
+        } ?: return
+        val (revokedListener, releasedGeneration) = revoked
+        revokedListener?.let { listener ->
+            val message = "CarPlay VPN permission was revoked"
+            try {
+                listener.onTransportStopping(message)
+            } catch (error: Exception) {
+                Log.w(TAG, "VPN revoke stopping callback failed error=${error.javaClass.simpleName}")
+            }
+            try {
+                listener.onTransportError(message)
+            } catch (error: Exception) {
+                Log.w(TAG, "VPN revoke error callback failed error=${error.javaClass.simpleName}")
+            }
+        }
+        synchronized(this) {
+            if (attachGeneration == releasedGeneration && !active.get()) {
+                stopSelf()
+            }
+        }
+    }
 
     @Synchronized
     fun attach(
@@ -74,6 +123,7 @@ class CarPlayVpnService : VpnService() {
         mfi: MfiAuthenticator?,
         listener: AirPlaySessionListener,
         media: AirPlayMediaHandler,
+        wiredPathDiagnostics: WiredPathDiagnostics? = null,
     ): AttachResult {
         if (active.get()) {
             Log.i(TAG, "replacing stale NCM/VPN attachment")
@@ -81,6 +131,8 @@ class CarPlayVpnService : VpnService() {
         }
         active.set(true)
         val generation = ++attachGeneration
+        wiredPathDiagnostics?.recordAttachGeneration(generation.toLong())
+        ncm.setWiredPathAttachGeneration(generation.toLong())
         return try {
             val address = InetAddress.getByName(linkLocal)
             if (address !is Inet6Address || !address.isLinkLocalAddress) {
@@ -97,24 +149,38 @@ class CarPlayVpnService : VpnService() {
                 .establish()
                 ?: throw IOException("VpnService.establish returned null")
             tun = tunFd
+            wiredPathDiagnostics?.record(WiredPathEvent.VPN_ESTABLISHED, generation.toLong())
 
             val ipv6Bridge = Ipv6NcmBridge(
                 ncm = ncm,
                 tun = tunFd,
                 hostMac = hostMac,
+                wiredPathDiagnostics = wiredPathDiagnostics,
+                expectedAirPlayAddress = address.address,
+                airPlayPort = config.port,
+                attachGeneration = generation.toLong(),
                 onError = { error -> onTransportError(generation, listener, error) },
                 onBridgeStarted = {
                     // This marks worker startup, not a live NCM link.
                     listener.onConnectionTrace(ConnectionTraceStage.NCM_BRIDGE_STARTED)
                 },
             )
-            ipv6Bridge.start()
             bridge = ipv6Bridge
-
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(address, config, identity, pairings, mfi, listener, media),
+                AirPlayAttachment(
+                    address,
+                    config,
+                    identity,
+                    pairings,
+                    mfi,
+                    listener,
+                    media,
+                    wiredPathDiagnostics,
+                    usesVpn = true,
+                ),
             )
+            ipv6Bridge.start()
             AttachResult.Started
         } catch (error: Exception) {
             releaseLocked()
@@ -145,7 +211,17 @@ class CarPlayVpnService : VpnService() {
         return try {
             startAirPlayServer(
                 generation,
-                AirPlayAttachment(bindAddress, config, identity, pairings, mfi, listener, media),
+                AirPlayAttachment(
+                    bindAddress,
+                    config,
+                    identity,
+                    pairings,
+                    mfi,
+                    listener,
+                    media,
+                    null,
+                    usesVpn = false,
+                ),
             )
             AttachResult.Started
         } catch (error: Exception) {
@@ -173,6 +249,10 @@ class CarPlayVpnService : VpnService() {
     ) {
         val server = ServerSocket()
         server.bind(InetSocketAddress(replacement.address, replacement.config.port))
+        replacement.wiredPathDiagnostics?.record(
+            WiredPathEvent.LISTENER_BOUND,
+            generation.toLong(),
+        )
         attachment = replacement
         serverSocket = server
         Thread(
@@ -191,22 +271,33 @@ class CarPlayVpnService : VpnService() {
         try {
             while (active.get()) {
                 val socket: Socket = server.accept()
-                Log.i(TAG, "airplay connection accepted from ${socket.remoteSocketAddress}")
-                socket.tcpNoDelay = true
-                socket.keepAlive = true
-                socket.setSoLinger(true, 0)
-                val session = synchronized(this) {
-                    if (!active.get()) {
-                        socket.close()
+                val current = synchronized(this) {
+                    if (!active.get() || generation != attachGeneration || server !== serverSocket) {
+                        runCatching { socket.close() }
                         return
                     }
-                    val current = attachment
-                    if (current == null) {
-                        socket.close()
+                    attachment ?: run {
+                        runCatching { socket.close() }
                         return
                     }
+                }
+                var session: AirPlaySession? = null
+                try {
+                    Log.i(
+                        TAG,
+                        DiagnosticRedactor.redactForLogcat(
+                            "airplay connection accepted from ${socket.remoteSocketAddress}",
+                        ),
+                    )
+                    socket.tcpNoDelay = true
+                    socket.keepAlive = true
+                    socket.setSoLinger(true, 0)
+                    current.wiredPathDiagnostics?.record(
+                        WiredPathEvent.LISTENER_ACCEPTED,
+                        generation.toLong(),
+                    )
                     current.listener.onConnectionTrace(ConnectionTraceStage.AIRPLAY_CONTROL_ACCEPTED)
-                    AirPlaySession(
+                    session = AirPlaySession(
                         socket = socket,
                         config = current.config,
                         identity = current.identity,
@@ -219,9 +310,32 @@ class CarPlayVpnService : VpnService() {
                             }
                         },
                         media = current.media,
-                    ).also(::addSession)
+                        wiredPathDiagnostics = current.wiredPathDiagnostics,
+                        attachGeneration = generation.toLong(),
+                    )
+                    val accepted = synchronized(this) {
+                        if (!active.get() || generation != attachGeneration || server !== serverSocket ||
+                            attachment !== current
+                        ) {
+                            false
+                        } else {
+                            addSession(session)
+                            true
+                        }
+                    }
+                    if (!accepted) {
+                        session.close()
+                        return
+                    }
+                    session.start()
+                } catch (error: Exception) {
+                    session?.let { acceptedSession ->
+                        removeSession(acceptedSession)
+                        runCatching { acceptedSession.close() }
+                    } ?: runCatching { socket.close() }
+                    onTransportError(generation, current.listener, error)
+                    return
                 }
-                session.start()
             }
         } catch (error: IOException) {
             if (active.get()) {
@@ -245,7 +359,7 @@ class CarPlayVpnService : VpnService() {
                 try {
                     session.close()
                 } catch (error: Exception) {
-                    Log.w(TAG, "AirPlay session replacement failed", error)
+                    Log.w(TAG, "AirPlay session replacement failed error=${error.javaClass.simpleName}")
                 }
             }
             sessions.clear()
@@ -258,7 +372,11 @@ class CarPlayVpnService : VpnService() {
         error: Throwable,
     ) {
         val message = error.message ?: error.javaClass.simpleName
-        Log.e(TAG, "CarPlay transport stopped: $message", error)
+        Log.e(
+            TAG,
+            "CarPlay transport stopped: ${DiagnosticRedactor.redactForLogcat(message)} " +
+                "error=${error.javaClass.simpleName}",
+        )
         Thread(
             {
                 val current = synchronized(this) { generation == attachGeneration }
@@ -268,8 +386,11 @@ class CarPlayVpnService : VpnService() {
                     if (generation != attachGeneration) return@Thread
                     releaseLocked()
                 }
-                listener.onTransportError(message)
-                stopSelf()
+                try {
+                    listener.onTransportError(message)
+                } catch (error: Exception) {
+                    Log.w(TAG, "AirPlay transport error callback failed error=${error.javaClass.simpleName}")
+                }
             },
             "airplay-teardown",
         ).apply {
@@ -306,7 +427,7 @@ class CarPlayVpnService : VpnService() {
         private const val LINK_PREFIX = 64
         private const val LINK_LOCAL_ROUTE = "fe80::"
         private const val SESSION_NAME = "xcertplay CarPlay"
-        private const val TUN_MTU = 1500
+        private const val TUN_MTU = EthernetIpv6Codec.IPV6_MTU_BYTES
 
         /** Returns the VPN consent intent, or null when consent is already granted. */
         fun prepare(context: Context): Intent? = VpnService.prepare(context)

@@ -4,6 +4,8 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementCsv
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementParseResult
 import com.shilapi.xcertplay.media.dsp.DspConfigProvider
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import java.io.InputStream
@@ -25,6 +27,13 @@ internal class DspProfileRuntime private constructor(context: Context) {
     private val activeProfile: AtomicReference<DspAudioProfile>
     private val dspEnabled: AtomicBoolean
     private val runtimeConfig = DspRuntimeConfigStore()
+    internal val editorSession: DspEditorSession by lazy {
+        DspEditorSession(
+            initialDraft = selectedProfile(),
+            initialAppliedProfile = selectedProfile(),
+            initialMasterEnabled = isDspEnabled(),
+        )
+    }
     val configProvider: DspConfigProvider = runtimeConfig
 
     init {
@@ -41,6 +50,14 @@ internal class DspProfileRuntime private constructor(context: Context) {
     fun isDspEnabled(): Boolean = dspEnabled.get()
 
     fun availableImpulseResponseIds(): List<String> = impulseRepository.ids()
+
+    fun discardImportedImpulseResponse(id: String) {
+        val referencedByActiveProfile = activeProfile.get().convolver.impulseResponseId == id
+        val referencedBySavedProfile = availableProfiles().any { it.convolver.impulseResponseId == id }
+        if (referencedByActiveProfile || referencedBySavedProfile) return
+        impulseCache.remove(id)
+        impulseRepository.delete(id)
+    }
 
     fun availableProfiles(): List<DspAudioProfile> {
         val defaults = DspProfilePresets.all().associateBy(DspAudioProfile::id)
@@ -66,9 +83,8 @@ internal class DspProfileRuntime private constructor(context: Context) {
         return DspProfilePresets.find(profileId)
     }
 
-    fun apply(profile: DspAudioProfile, enabled: Boolean) {
+    fun apply(profile: DspAudioProfile, enabled: Boolean): Boolean =
         applyWithImpulse(profile, enabled, cachedImpulseResponse(profile))
-    }
 
     fun setMasterEnabled(enabled: Boolean) {
         val profile = activeProfile.get()
@@ -90,11 +106,15 @@ internal class DspProfileRuntime private constructor(context: Context) {
     internal fun decodeProfileDraftFromSavedState(serialized: String): DspAudioProfile? =
         repository.decodeDraftFromSavedState(serialized)
 
-    fun applyAsync(profile: DspAudioProfile, enabled: Boolean, onComplete: () -> Unit) {
+    fun applyAsync(profile: DspAudioProfile, enabled: Boolean, onComplete: (Boolean) -> Unit) {
+        if (!profile.hasValidEqCapacity()) {
+            Handler(Looper.getMainLooper()).post { onComplete(false) }
+            return
+        }
         ioExecutor.execute {
             val impulse = impulseResponseFor(profile)
-            applyWithImpulse(profile, enabled, impulse)
-            Handler(Looper.getMainLooper()).post(onComplete)
+            val applied = applyWithImpulse(profile, enabled, impulse)
+            Handler(Looper.getMainLooper()).post { onComplete(applied) }
         }
     }
 
@@ -113,7 +133,25 @@ internal class DspProfileRuntime private constructor(context: Context) {
         }
     }
 
-    private fun applyWithImpulse(profile: DspAudioProfile, enabled: Boolean, impulse: DspImpulseResponse?) {
+    fun importCabinMeasurementCsvAsync(
+        openInput: () -> InputStream?,
+        onComplete: (DspCabinMeasurementParseResult) -> Unit,
+    ) {
+        ioExecutor.execute {
+            val result = runCatching {
+                val input = openInput() ?: return@runCatching unavailableCabinMeasurement()
+                val contents = input.use(::readBoundedCabinCsv)
+                    ?: return@runCatching DspCabinMeasurementParseResult.CalibrationUnavailable(
+                        DspCabinMeasurementParseResult.CalibrationUnavailable.Reason.INPUT_TOO_LARGE,
+                    )
+                DspCabinMeasurementCsv.parse(contents)
+            }.getOrElse { unavailableCabinMeasurement() }
+            Handler(Looper.getMainLooper()).post { onComplete(result) }
+        }
+    }
+
+    private fun applyWithImpulse(profile: DspAudioProfile, enabled: Boolean, impulse: DspImpulseResponse?): Boolean {
+        if (!profile.hasValidEqCapacity()) return false
         activeProfile.set(profile)
         dspEnabled.set(enabled)
         runtimeConfig.update(profile.toRuntimeConfig(enabled, impulse))
@@ -121,11 +159,16 @@ internal class DspProfileRuntime private constructor(context: Context) {
             .putBoolean(KEY_DSP_ENABLED, enabled)
             .putString(KEY_SELECTED_PROFILE_ID, profile.id)
             .apply()
+        return true
     }
 
     fun saveCustomAsync(profile: DspAudioProfile, enabled: Boolean, onComplete: (DspProfileSaveResult) -> Unit) {
         if (profile.id !in CUSTOM_PROFILE_IDS) {
             onComplete(DspProfileSaveResult.INVALID_PROFILE_ID)
+            return
+        }
+        if (!profile.hasValidEqCapacity()) {
+            onComplete(DspProfileSaveResult.INVALID_EQ_CAPACITY)
             return
         }
         ioExecutor.execute {
@@ -145,6 +188,23 @@ internal class DspProfileRuntime private constructor(context: Context) {
         val id = profile.convolver.impulseResponseId ?: return null
         return cachedImpulseResponse(profile) ?: impulseRepository.load(id)?.also { impulseCache[id] = it }
     }
+
+    private fun readBoundedCabinCsv(input: InputStream): String? {
+        val builder = StringBuilder()
+        val reader = input.bufferedReader(Charsets.UTF_8)
+        val buffer = CharArray(4096)
+        while (true) {
+            val count = reader.read(buffer)
+            if (count < 0) break
+            if (builder.length + count > DspCabinMeasurementCsv.MAX_INPUT_CHARACTERS) return null
+            builder.append(buffer, 0, count)
+        }
+        return builder.toString()
+    }
+
+    private fun unavailableCabinMeasurement() = DspCabinMeasurementParseResult.CalibrationUnavailable(
+        DspCabinMeasurementParseResult.CalibrationUnavailable.Reason.INVALID_DATA,
+    )
 
     private fun loadProfile(profileId: String): DspAudioProfile? {
         DspProfilePresets.find(profileId)?.let { preset ->
@@ -167,6 +227,8 @@ internal class DspProfileRuntime private constructor(context: Context) {
         fun get(context: Context): DspProfileRuntime = instance ?: synchronized(this) {
             instance ?: DspProfileRuntime(context).also { instance = it }
         }
+
+        internal fun peekInstance(): DspProfileRuntime? = instance
 
         internal fun resetForTesting() {
             synchronized(this) { instance = null }

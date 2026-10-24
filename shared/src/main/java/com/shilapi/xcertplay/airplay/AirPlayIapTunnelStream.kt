@@ -28,23 +28,17 @@ internal class AirPlayIapTunnelStream(
     fun listen(): Int = tunnel.listen(
         object : IapTunnel.Listener {
             override fun onOpen(remoteAddress: String?) {
-                session.logTrace(
-                    "AirPlay iAP tunnel connected remote=${remoteAddress ?: "unknown"}",
-                )
+                session.logTrace("iap_tunnel_open")
             }
 
             override fun onIap(bytes: ByteArray) = offer(bytes)
 
             override fun onDebug(message: String) {
-                session.logTrace(message)
+                session.logTrace("iap_tunnel_debug")
             }
 
             override fun onClosed(cause: Throwable?) {
-                session.logTrace(
-                    "AirPlay iAP tunnel closed cause=" +
-                        "${cause?.javaClass?.simpleName ?: "peer EOF"}: " +
-                        "${cause?.message ?: "no detail"}",
-                )
+                session.logTrace("iap_tunnel_closed")
                 val shouldCloseSession = markFailed(cause)
                 if (shouldCloseSession) session.close()
             }

@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
 import android.os.Debug
+import android.os.Process
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlin.math.PI
@@ -50,6 +51,18 @@ class DspPipelineBenchmarkInstrumentedTest {
     fun benchmarks48000Stereo() = benchmarkMatrix(sampleRate = 48_000, channels = 2)
 
     private fun benchmarkMatrix(sampleRate: Int, channels: Int) {
+        val threadId = Process.myTid()
+        val originalPriority = Process.getThreadPriority(threadId)
+        Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
+        try {
+            assertEquals(Process.THREAD_PRIORITY_AUDIO, Process.getThreadPriority(threadId))
+            benchmarkMatrixAtAudioPriority(sampleRate, channels)
+        } finally {
+            Process.setThreadPriority(originalPriority)
+        }
+    }
+
+    private fun benchmarkMatrixAtAudioPriority(sampleRate: Int, channels: Int) {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val format = DspAudioFormat(sampleRate, channels)
         val source = inputBlock(format)
@@ -184,6 +197,45 @@ class DspPipelineBenchmarkInstrumentedTest {
                 )
             },
         )
+        val seatAlignment = DspSeatAlignmentConfig(
+            enabled = true,
+            preset = DspSeatPreset.DRIVER,
+            nearSpeaker = DspSeatNearSpeaker.LEFT,
+            distanceDifferenceCm = DspSeatAlignmentConfig.MAX_DISTANCE_DIFFERENCE_CM,
+            leftTrimDb = 3.0,
+            rightTrimDb = -2.0,
+        )
+        val advancedMs = DspAdvancedMsConfig(
+            enabled = true,
+            crossoverHz = 250.0,
+            centerFocusDb = 1.0,
+            midLowGainDb = -1.0,
+            midHighGainDb = 1.0,
+            sideLowGainDb = -1.0,
+            sideHighGainDb = 1.5,
+            lowBandWidth = 0.5,
+            highBandWidth = 1.4,
+            sideCompressor = DspMsSideCompressorConfig(enabled = true, thresholdDb = -28.0, ratio = 2.0),
+        )
+        val cabinCorrection = DspCabinCorrectionConfig(
+            enabled = true,
+            notches = listOf(
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 55.0, gainDb = -6.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 110.0, gainDb = -5.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 220.0, gainDb = -4.0),
+            ),
+        )
+        val harmonic = DspHarmonicConfig(
+            enabled = true,
+            mode = DspHarmonicMode.MIXED,
+            quality = DspHarmonicQuality.HIGH,
+            exciterEnabled = true,
+            exciterAmount = 0.3,
+            exciterCutoffHz = 6_000.0,
+            virtualBassEnabled = true,
+            virtualBassAmount = 0.2,
+            virtualBassCutoffHz = 120.0,
+        )
         val base = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
         val peq = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, peqBands = peq15)
 
@@ -229,6 +281,42 @@ class DspPipelineBenchmarkInstrumentedTest {
                     safetyLimiter = DspSafetyLimiterConfig(enabled = false),
                 ),
             ),
+            BenchmarkCase(
+                "SeatAlignment",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    seatAlignment = seatAlignment,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "AdvancedMS",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    advancedMs = advancedMs,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "Cabin3Notches",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    cabinCorrection = cabinCorrection,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "HarmonicEngine",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    harmonic = harmonic,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
             BenchmarkCase("Convolver4k", convolverConfig(sampleRate, channels, 4_096)),
             BenchmarkCase("Convolver16k", convolverConfig(sampleRate, channels, 16_384)),
             BenchmarkCase("Convolver64k", convolverConfig(sampleRate, channels, 65_536)),
@@ -238,12 +326,16 @@ class DspPipelineBenchmarkInstrumentedTest {
                     enabled = true,
                     gainDb = 2.0,
                     autoHeadroomEnabled = false,
-                    peqBands = peq15,
+                    peqBands = peq15.take(12),
                     bass = bass,
                     compressor = compressor,
                     safetyLimiter = limiter,
                     stereoWidth = 1.25,
                     monoBass = monoBass,
+                    seatAlignment = seatAlignment.copy(nearSpeaker = DspSeatNearSpeaker.RIGHT),
+                    advancedMs = advancedMs,
+                    cabinCorrection = cabinCorrection,
+                    harmonic = harmonic,
                     convolver = convolverConfig(sampleRate, channels, 16_384).convolver,
                     multiband = multiband,
                     dynamicEq = dynamicEq,

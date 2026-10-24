@@ -64,6 +64,14 @@ internal class DspImpulseResponseRepository(
         .sorted()
         .toList()
 
+    fun delete(id: String): Boolean {
+        val file = impulseFile(id) ?: return false
+        return runCatching {
+            AtomicFile(file).delete()
+            !file.exists()
+        }.getOrDefault(false)
+    }
+
     internal fun impulseFileForTesting(id: String): File? = impulseFile(id)
 
     private fun impulseFile(id: String): File? {

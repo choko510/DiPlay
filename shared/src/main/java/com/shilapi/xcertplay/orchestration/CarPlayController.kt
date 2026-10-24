@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.orchestration
 
+import com.shilapi.xcertplay.DiagnosticRedactor
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothA2dp
 import android.bluetooth.BluetoothDevice
@@ -73,6 +74,10 @@ import com.shilapi.xcertplay.transport.NcmFunctionDiscovery
 import com.shilapi.xcertplay.transport.NcmDiagnosticEvent
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import com.shilapi.xcertplay.transport.rejectedLockdownPairRecordError
+import com.shilapi.xcertplay.transport.WiredPathDiagnostics
+import com.shilapi.xcertplay.transport.WiredPathEvent
+import com.shilapi.xcertplay.transport.WiredPathReportReason
+import com.shilapi.xcertplay.transport.WiredPathReportFormatter
 import java.io.Closeable
 import java.io.IOException
 import java.net.InetAddress
@@ -83,6 +88,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -147,6 +153,7 @@ class CarPlayController(
     private val locationProvider: Iap2LocationProvider? = null,
     private val connectionTraceEnabled: Boolean = false,
     private val onConnectionTrace: (ConnectionTraceEvent) -> Unit = {},
+    private val onWiredPathReport: (String) -> Unit = {},
 ) : Closeable {
     private data class WirelessStackResources(
         val tunnel: Iap2Session?,
@@ -251,6 +258,7 @@ class CarPlayController(
     private val wiredStartupStartedAtNanos = AtomicLong(0L)
     private val wiredDataPathGeneration = WiredDataPathGeneration()
     private val wiredStartupAttempt = AtomicInteger(0)
+    private val wiredPathDiagnosticsByAttempt = ConcurrentHashMap<Int, WiredPathDiagnostics>()
     private val activeWiredStartupAttempt = AtomicInteger(0)
     private val wiredStartupTimeoutAttempt = AtomicInteger(0)
     private val wiredTransportFailureAttempt = AtomicInteger(0)
@@ -378,7 +386,7 @@ class CarPlayController(
         !closed && vpnService?.isAttached() == true
     }
 
-    fun currentAirPlaySession(): AirPlaySession? = activeSession
+    fun currentAirPlaySession(): AirPlaySession? = activeSession?.takeIf { !closed && !it.isClosed }
 
     fun start() {
         synchronized(this) {
@@ -431,6 +439,7 @@ class CarPlayController(
             traceConnection(ConnectionTraceStage.CANCELLED)
             closed = true
         }
+        wiredPathDiagnosticsByAttempt.keys.toList().forEach(::finishWiredPathDiagnostics)
         wiredDataPathGeneration.invalidate()
         closeReceivers()
         availabilityPollGeneration.incrementAndGet()
@@ -689,7 +698,10 @@ class CarPlayController(
                         startPhone()
                     } catch (error: MfiCoprocessorNotFoundException) {
                         debugLog("mfi CH341 discovery failed: ${error.message}")
-                        Log.w(IphoneCarPlayConfiguration.TAG, error.message ?: "MFi discovery failed")
+                        Log.w(
+                            IphoneCarPlayConfiguration.TAG,
+                            "MFi discovery failed error=${error.javaClass.simpleName}",
+                        )
                         session.close()
                         waitForMfi()
                     } catch (error: Throwable) {
@@ -801,8 +813,7 @@ class CarPlayController(
             } catch (error: Throwable) {
                 Log.w(
                     IphoneCarPlayConfiguration.TAG,
-                    "Could not prewarm the Android location provider",
-                    error,
+                    "Could not prewarm the Android location provider error=${error.javaClass.simpleName}",
                 )
                 false
             }
@@ -914,10 +925,7 @@ class CarPlayController(
             if (!adapter.isEnabled) throw IOException("Bluetooth is not enabled")
             val device = selectWirelessBluetoothDevice(adapter)
             val hostBluetoothMac = accessoryBluetoothMac(adapter)
-            debugLog(
-                "wireless selected Bluetooth target name=${device.name ?: "unknown"} " +
-                    "address=${device.address} localBt=$hostBluetoothMac",
-            )
+            debugLog("wireless selected Bluetooth target")
             val wirelessAirPlayConfig = airPlayConfig.copy(
                 deviceId = deviceIdentifier,
                 btMac = hostBluetoothMac,
@@ -976,18 +984,15 @@ class CarPlayController(
             }
 
             onStatus(CarPlayStatus.ConnectingBluetooth)
-            debugLog(
-                "wireless RFCOMM connecting address=${device.address} " +
-                    "uuid=$IAP2_IPHONE_UUID",
-            )
+            debugLog("wireless RFCOMM connecting uuid=$IAP2_IPHONE_UUID")
             val socket = device
                 .createRfcommSocketToServiceRecord(UUID.fromString(IAP2_IPHONE_UUID))
             if (!publishWirelessResource(generation) { bluetoothSocket = socket }) {
                 closeBestEffort("stale wireless Bluetooth socket") { socket.close() }
                 return
             }
-            connectBluetoothSocket(socket, device.address)
-            debugLog("wireless RFCOMM connected address=${device.address}")
+            connectBluetoothSocket(socket)
+            debugLog("wireless RFCOMM connected")
             if (isStaleWirelessRun(generation)) {
                 closeWirelessStack(expectedGeneration = generation)
                 return
@@ -1123,9 +1128,12 @@ class CarPlayController(
                 wirelessConnectionProof.mode(generation) == WirelessControlMode.TUNNEL_CONTROL &&
                 error !is Error
             ) {
-                debugLog("wireless RFCOMM bootstrap ended after authenticated tunnel control: ${error.message}")
+                debugLog(
+                    "wireless RFCOMM bootstrap ended after authenticated tunnel control " +
+                        "failureClass=${error.javaClass.simpleName}",
+                )
             } else {
-                debugLog("wireless bring-up failed", error)
+                debugLog("wireless bring-up failed failureClass=${error.javaClass.simpleName}")
                 failWirelessGeneration(generation, error)
                 if (error is Error) throw error
             }
@@ -1839,6 +1847,17 @@ class CarPlayController(
     private fun openDataPaths(device: UsbDevice) {
         val dataPathGeneration = wiredDataPathGeneration.begin()
         val startupAttempt = wiredStartupAttempt.incrementAndGet()
+        wiredPathDiagnosticsByAttempt.keys.toList().forEach(::finishWiredPathDiagnostics)
+        if (connectionTraceEnabled) {
+            val wiredDiagnostics = WiredPathDiagnostics(
+                runId = UUID.randomUUID().toString(),
+                wiredStartupAttempt = startupAttempt,
+                enabled = true,
+            )
+            wiredPathDiagnosticsByAttempt[startupAttempt] = wiredDiagnostics
+            wiredDiagnostics.record(WiredPathEvent.START)
+            reportWiredPathDiagnostics(startupAttempt, WiredPathReportReason.START)
+        }
         connectionTraceErrorReported.set(false)
         phase = Phase.DATAPATHS
         debugLog("wired opening iPhone USB data paths")
@@ -1900,6 +1919,7 @@ class CarPlayController(
     ) {
         if (!isCurrentWiredDataPath(dataPathGeneration)) return
         wiredDataPathGeneration.invalidate()
+        finishWiredPathDiagnostics(startupAttempt)
         debugLog("wired $operation failed attempt=$startupAttempt", error)
         val deviceStillPresent = isUsbDevicePresent(device)
         val category = if (deviceStillPresent) connectionTraceError(error) else {
@@ -1989,6 +2009,7 @@ class CarPlayController(
                 diagnosticAttempt = startupAttempt,
                 diagnosticsEnabled = diagnosticsEnabled,
                 onDiagnosticLog = { message -> debugLog(message) },
+                wiredPathDiagnostics = wiredPathDiagnosticsByAttempt[startupAttempt],
             )
         } finally {
             if (!connectionTransferred) runCatching { connection.close() }
@@ -2375,6 +2396,7 @@ class CarPlayController(
                     WiredRecoveryDecision.Suppressed -> Unit
                 }
             }
+            finishWiredPathDiagnostics(startupAttempt)
         }
     }
 
@@ -2405,6 +2427,7 @@ class CarPlayController(
                     }
                 }
                 if (!snapshotClaimed) return@postDelayed
+                reportWiredPathDiagnostics(attempt, WiredPathReportReason.SOFT_8S)
                 wiredStartupDiagnosticSnapshot(attempt, WIRED_STARTUP_SOFT_TIMEOUT_MILLIS)?.let { snapshot ->
                     traceConnection(ConnectionTraceStage.WIRED_STARTUP_SLOW, detail = snapshot)
                     debugLog(snapshot)
@@ -2431,6 +2454,7 @@ class CarPlayController(
                     }
                 }
                 if (!timeoutClaimed) return@postDelayed
+                reportWiredPathDiagnostics(attempt, WiredPathReportReason.HARD_15S)
                 executeWiredTeardown("xcertplay-wired-watchdog-teardown") {
                     teardownTimedOutWiredAttempt(attempt)
                 }
@@ -2599,10 +2623,12 @@ class CarPlayController(
         } else {
             config.wirelessHotspotMode
         }
-        if (hotspotMode == WirelessHotspotMode.MANUAL &&
-            com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext) == false
-        ) {
-            throw IOException("The car hotspot is off. Turn it on in the car settings and connect again.")
+        if (hotspotMode == WirelessHotspotMode.MANUAL) {
+            val hotspotState = com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext)
+            if (com.shilapi.xcertplay.network.CarHotspotStatusOverride.isReportedOff(appContext, hotspotState)) {
+                throw IOException("The car hotspot is off. Turn it on in the car settings and connect again.")
+            }
+            if (hotspotState == false) debugLog("car hotspot: Android reports it off; connecting anyway after driver confirmation")
         }
         val manager: WirelessHotspotManager = when (hotspotMode) {
             WirelessHotspotMode.WIFI_P2P -> WifiP2pGroupManager(appContext, ::debugLog)
@@ -2640,6 +2666,15 @@ class CarPlayController(
             }
             if (closeManager) closeBestEffort(hotspotMode.name) { manager.close() }
             if (isStaleWirelessRun(generation)) throw failure
+            if (hotspotMode == WirelessHotspotMode.MANUAL &&
+                com.shilapi.xcertplay.network.CarHotspotStatusOverride.clearAfterFailedManualStart(
+                    appContext,
+                    com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(appContext),
+                    failure,
+                )
+            ) {
+                debugLog("car hotspot: manual AP did not appear while Android still reported it off; restoring the off warning")
+            }
             throw IOException(
                 "Could not establish ${hotspotMode.name} hotspot: " +
                     (failure.message ?: failure.javaClass.simpleName),
@@ -2687,8 +2722,7 @@ class CarPlayController(
         if (connectedIPhones.size == 1) return connectedIPhones.single()
         if (connectedIPhones.size > 1) {
             throw IOException(
-                "Multiple connected iPhones found: " +
-                    connectedIPhones.joinToString { "${it.name ?: "iPhone"} (${it.address})" },
+                "Multiple connected iPhones found (${connectedIPhones.size}); select one in DiPlay settings",
             )
         }
         if (iPhones.size == 1) return iPhones.single()
@@ -2704,7 +2738,7 @@ class CarPlayController(
         )
     }
 
-    private fun connectBluetoothSocket(socket: BluetoothSocket, address: String) {
+    private fun connectBluetoothSocket(socket: BluetoothSocket) {
         val result = AtomicReference<Throwable?>()
         val connected = CountDownLatch(1)
         Thread(
@@ -2726,21 +2760,20 @@ class CarPlayController(
             connected.await(RFCOMM_CONNECT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
         } catch (error: InterruptedException) {
             Thread.currentThread().interrupt()
-            throw IOException("Interrupted while connecting RFCOMM to $address", error)
+            throw IOException("Interrupted while connecting RFCOMM to the selected iPhone", error)
         }
         if (!completed) {
             debugLog(
-                "wireless RFCOMM connect timed out after " +
-                    "${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms address=$address",
+                "wireless RFCOMM connect timed out after ${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms",
             )
             throw IOException(
-                "Timed out after ${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms connecting RFCOMM to $address",
+                "Timed out after ${RFCOMM_CONNECT_TIMEOUT_MILLIS}ms connecting RFCOMM to the selected iPhone",
             )
         }
         when (val failure = result.get()) {
             null -> Unit
             is IOException -> throw failure
-            else -> throw IOException("Could not connect RFCOMM to $address", failure)
+            else -> throw IOException("Could not connect RFCOMM to the selected iPhone", failure)
         }
     }
 
@@ -2796,7 +2829,10 @@ class CarPlayController(
     } catch (error: ReflectiveOperationException) {
         false
     } catch (error: RuntimeException) {
-        Log.w(IphoneCarPlayConfiguration.TAG, "Could not read Bluetooth connection state", error)
+        Log.w(
+            IphoneCarPlayConfiguration.TAG,
+            "Could not read Bluetooth connection state error=${error.javaClass.simpleName}",
+        )
         false
     }
 
@@ -2820,7 +2856,10 @@ class CarPlayController(
                         devices.addAll(proxy.connectedDevices.orEmpty())
                     }
                 } catch (error: SecurityException) {
-                    Log.w(IphoneCarPlayConfiguration.TAG, "Could not read connected Bluetooth devices", error)
+                    Log.w(
+                        IphoneCarPlayConfiguration.TAG,
+                        "Could not read connected Bluetooth devices error=${error.javaClass.simpleName}",
+                    )
                 } finally {
                     adapter.closeProfileProxy(profileId, proxy)
                     latch.countDown()
@@ -2898,6 +2937,7 @@ class CarPlayController(
                 mfi = mfiSession?.client,
                 listener = wiredSessionListener(attempt),
                 media = media,
+                wiredPathDiagnostics = wiredPathDiagnosticsByAttempt[attempt],
             )
         } catch (error: Throwable) {
             ncm.close()
@@ -2931,7 +2971,10 @@ class CarPlayController(
                     ConnectionTraceStage.AIRPLAY_CONTROL_ACCEPTED -> {
                         wiredAirPlayControlAccepted.set(true)
                         markWiredNcmLinkReady(attempt)
+                        reportWiredPathDiagnostics(attempt, WiredPathReportReason.ACCEPT)
                     }
+                    ConnectionTraceStage.AIRPLAY_SESSION_ACTIVE ->
+                        reportWiredPathDiagnostics(attempt, WiredPathReportReason.RECORD)
                     ConnectionTraceStage.AIRPLAY_CONTROL_ENCRYPTION_STARTED ->
                         wiredAirPlayEncryptionStarted.set(true)
                     ConnectionTraceStage.AIRPLAY_CONTROL_ENCRYPTED -> wiredAirPlayEncrypted.set(true)
@@ -2943,6 +2986,18 @@ class CarPlayController(
                     !markWiredStartupComplete(attempt)
                 ) return
                 sessionListener.onConnectionTrace(stage)
+            }
+
+            override fun onScreenStreamOpened(session: AirPlaySession, streamType: Int) {
+                if (isCurrentWiredAttempt(attempt) && streamType == AIRPLAY_MAIN_SCREEN_STREAM_TYPE) {
+                    reportWiredPathDiagnostics(attempt, WiredPathReportReason.MAIN)
+                }
+            }
+
+            override fun onMainFirstFrameSubmittedToSurface(session: AirPlaySession) {
+                if (isCurrentWiredAttempt(attempt)) {
+                    reportWiredPathDiagnostics(attempt, WiredPathReportReason.MAIN)
+                }
             }
 
             override fun onSessionActive(session: AirPlaySession) {
@@ -3214,22 +3269,31 @@ class CarPlayController(
     }
 
     private fun debugLog(message: String) {
-        Log.i(IphoneCarPlayConfiguration.TAG, message)
+        Log.i(IphoneCarPlayConfiguration.TAG, DiagnosticRedactor.redactForLogcat(message))
         try {
             uiListener?.onDebugLog(message)
         } catch (error: Exception) {
-            Log.w(IphoneCarPlayConfiguration.TAG, "debug log callback failed", error)
+            Log.w(
+                IphoneCarPlayConfiguration.TAG,
+                "debug log callback failed error=${error.javaClass.simpleName}",
+            )
         }
     }
 
     private fun debugLog(message: String, error: Throwable) {
-        Log.w(IphoneCarPlayConfiguration.TAG, message, error)
+        Log.w(
+            IphoneCarPlayConfiguration.TAG,
+            "${DiagnosticRedactor.redactForLogcat(message)} error=${error.javaClass.simpleName}",
+        )
         try {
             uiListener?.onDebugLog(
                 "$message: ${error.message ?: error.javaClass.simpleName}",
             )
         } catch (callbackError: Exception) {
-            Log.w(IphoneCarPlayConfiguration.TAG, "debug log callback failed", callbackError)
+            Log.w(
+                IphoneCarPlayConfiguration.TAG,
+                "debug log callback failed error=${callbackError.javaClass.simpleName}",
+            )
         }
     }
 
@@ -3292,6 +3356,27 @@ class CarPlayController(
             } catch (_: Throwable) {
                 // Diagnostics must not interrupt the connection lifecycle.
             }
+        }
+    }
+
+    private fun reportWiredPathDiagnostics(attempt: Int, reason: WiredPathReportReason) {
+        val diagnostics = wiredPathDiagnosticsByAttempt[attempt] ?: return
+        synchronized(diagnostics) {
+            if (wiredPathDiagnosticsByAttempt[attempt] !== diagnostics || !diagnostics.isEnabled) return
+            val line = WiredPathReportFormatter.format(diagnostics.snapshot(reason))
+            runCatching { onWiredPathReport(line) }
+        }
+    }
+
+    private fun finishWiredPathDiagnostics(attempt: Int) {
+        val diagnostics = wiredPathDiagnosticsByAttempt[attempt] ?: return
+        synchronized(diagnostics) {
+            if (wiredPathDiagnosticsByAttempt[attempt] !== diagnostics) return
+            val snapshot = diagnostics.seal()
+            if (diagnostics.isEnabled) {
+                runCatching { onWiredPathReport(WiredPathReportFormatter.format(snapshot)) }
+            }
+            wiredPathDiagnosticsByAttempt.remove(attempt, diagnostics)
         }
     }
 
@@ -3395,6 +3480,7 @@ class CarPlayController(
         private const val WIRELESS_VIDEO_STALL_CHECK_INTERVAL_MILLIS = 5_000L
         private const val WIRED_STARTUP_SOFT_TIMEOUT_MILLIS = WiredStartupWatchdog.SOFT_TIMEOUT_MILLIS
         private const val WIRED_STARTUP_HARD_TIMEOUT_MILLIS = WiredStartupWatchdog.HARD_TIMEOUT_MILLIS
+        private const val AIRPLAY_MAIN_SCREEN_STREAM_TYPE = 110
         private const val WIRED_DIAGNOSTIC_CAPTURE_MILLIS = 120_000L
         private const val WIRED_DIAGNOSTIC_MAX_BYTES = 256 * 1024
         private const val WIRED_DIAGNOSTIC_MAX_MATCHES = 100

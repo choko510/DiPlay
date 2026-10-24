@@ -43,7 +43,7 @@ internal data class DspBiquadCoefficients(
 }
 
 internal object DspEqDesigner {
-    const val MAX_BANDS = 15
+    const val MAX_BANDS = DspRuntimeConfig.MAX_EQ_BANDS
     const val COEFFICIENTS_PER_BAND = 5
     private const val MIN_FREQUENCY_HZ = 20.0
     private const val MAX_FREQUENCY_HZ = 20_000.0
@@ -167,12 +167,18 @@ internal object DspAutoHeadroom {
         stereoWidth: Double = 1.0,
         marginDb: Double = 1.0,
         staticBassBands: List<DspEqBand> = emptyList(),
+        seatTrimDb: Double = 0.0,
+        advancedMsBoostDb: Double = 0.0,
+        harmonicBoostDb: Double = 0.0,
     ): DspHeadroomResult {
         require(sampleRate in 8_000..192_000)
         require(preampDb.isFinite())
         require(compressorMakeupDb.isFinite())
         require(maxBandMakeupDb.isFinite())
         require(dynamicBoostDb.isFinite())
+        require(seatTrimDb.isFinite())
+        require(advancedMsBoostDb.isFinite())
+        require(harmonicBoostDb.isFinite())
         require(stereoWidth.isFinite() && stereoWidth in 0.0..2.0)
         require(marginDb.isFinite() && marginDb >= 0.0)
         require(peqBands.size <= DspEqDesigner.MAX_BANDS)
@@ -195,7 +201,9 @@ internal object DspAutoHeadroom {
         if (filters.isEmpty()) peakDb = 0.0
         val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth))
         val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
-            max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) + widthWorstCaseDb
+            max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) +
+            max(0.0, seatTrimDb) + widthWorstCaseDb +
+            max(0.0, advancedMsBoostDb) + max(0.0, harmonicBoostDb)
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
@@ -214,11 +222,18 @@ internal data class DspPreparedConfig(
     val convolverSamples: FloatArray,
     val multiband: DoubleArray,
     val dynamicEq: DoubleArray,
+    val harmonic: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
 internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
-    val enabledBands = peqBands.filter(DspEqBand::enabled)
+    advancedMs.validateForSampleRate(format.sampleRate)
+    harmonic.validateForSampleRate(format.sampleRate)
+    val cabinBands = cabinCorrection.approvedEqBands()
+    val enabledBands = (peqBands + cabinBands).filter(DspEqBand::enabled)
+    require(enabledBands.size <= DspEqDesigner.MAX_BANDS) {
+        "PEQ_CAPACITY_EXCEEDED: ${enabledBands.size} active bands exceeds ${DspEqDesigner.MAX_BANDS}"
+    }
     val coefficients = DoubleArray(enabledBands.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
     enabledBands.forEachIndexed { index, band ->
         DspEqDesigner.design(format.sampleRate, band)
@@ -268,7 +283,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
             preampDb = gainDb,
-            peqBands = peqBands,
+            peqBands = enabledBands,
             compressorMakeupDb = if (compressor.enabled) compressor.makeupDb else 0.0,
             maxBandMakeupDb = if (multiband.enabled) {
                 maxOf(
@@ -285,7 +300,10 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             } else {
                 0.0
             },
-            stereoWidth = stereoWidth,
+            seatTrimDb = if (format.channels == 2) seatAlignment.positiveTrimForHeadroomDb else 0.0,
+            stereoWidth = if (advancedMs.enabled) 1.0 else stereoWidth,
+            advancedMsBoostDb = if (format.channels == 2) advancedMs.worstCaseBoostDb else 0.0,
+            harmonicBoostDb = harmonic.worstCaseBoostDb,
             marginDb = autoHeadroomMarginDb,
             staticBassBands = if (bass.enabled) {
                 listOf(
@@ -323,6 +341,28 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             stereoWidth,
             if (monoBass.enabled) 1.0 else 0.0,
             monoBass.cutoffHz.toDouble(),
+            if (seatAlignment.enabled && format.channels == 2) 1.0 else 0.0,
+            seatAlignment.nearSpeaker.nativeValue.toDouble(),
+            seatAlignment.distanceDifferenceCm,
+            seatAlignment.leftTrimDb,
+            seatAlignment.rightTrimDb,
+            if (seatAlignment.invertLeft) 1.0 else 0.0,
+            if (seatAlignment.invertRight) 1.0 else 0.0,
+            if (advancedMs.enabled && format.channels == 2) 1.0 else 0.0,
+            advancedMs.crossoverHz,
+            advancedMs.centerFocusDb,
+            advancedMs.midLowGainDb,
+            advancedMs.midHighGainDb,
+            advancedMs.sideLowGainDb,
+            advancedMs.sideHighGainDb,
+            advancedMs.lowBandWidth,
+            advancedMs.highBandWidth,
+            if (advancedMs.sideCompressor.enabled && format.channels == 2) 1.0 else 0.0,
+            advancedMs.sideCompressor.thresholdDb,
+            advancedMs.sideCompressor.ratio,
+            advancedMs.sideCompressor.attackMs,
+            advancedMs.sideCompressor.releaseMs,
+            advancedMs.sideCompressor.kneeDb,
         ),
         convolverConfig = doubleArrayOf(
             if (convolverEnabled) 1.0 else 0.0,
@@ -334,6 +374,18 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         convolverSamples = convolverSamples,
         multiband = multibandNativeValues,
         dynamicEq = dynamicEqNativeValues,
+        harmonic = doubleArrayOf(
+            if (harmonic.isActive) 1.0 else 0.0,
+            harmonic.mode.nativeValue.toDouble(),
+            harmonic.quality.taps.toDouble(),
+            if (harmonic.isActive && harmonic.exciterEnabled) 1.0 else 0.0,
+            harmonic.exciterAmount,
+            harmonic.exciterCutoffHz,
+            if (harmonic.isActive && harmonic.virtualBassEnabled) 1.0 else 0.0,
+            harmonic.virtualBassAmount,
+            harmonic.virtualBassCutoffHz,
+            if (harmonic.levelMatchEnabled) 1.0 else 0.0,
+        ),
         headroom = headroom,
     )
 }

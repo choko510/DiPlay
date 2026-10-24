@@ -21,7 +21,7 @@ class BootReceiver : BroadcastReceiver() {
         try {
             context.startActivity(launch)
         } catch (error: RuntimeException) {
-            Log.w(TAG, "Boot auto-start could not launch CarPlayHostActivity", error)
+            Log.w(TAG, "Boot auto-start could not launch CarPlayHostActivity error=${error.javaClass.simpleName}")
         }
     }
 

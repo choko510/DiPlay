@@ -1,9 +1,16 @@
 package com.shilapi.xcertplay.dsp
 
-import android.content.Context
 import android.app.Application
+import android.content.Context
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionNotch
+import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
+import com.shilapi.xcertplay.media.dsp.DspEqBand
+import com.shilapi.xcertplay.media.dsp.DspEqType
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -14,6 +21,19 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class DspProfileRuntimeTest {
+    @Test
+    fun missingGlobalMasterPreferenceKeepsDspDisabled() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        DspProfileRuntime.resetForTesting()
+
+        val runtime = DspProfileRuntime.get(context)
+
+        assertFalse(runtime.isDspEnabled())
+        assertFalse(runtime.configProvider.snapshot().enabled)
+        DspProfileRuntime.resetForTesting()
+    }
+
     @Test
     fun globalMasterPreferenceEnablesLegacyDisabledCustomProfileAfterRuntimeRecreation() {
         val context: Application = RuntimeEnvironment.getApplication()
@@ -69,9 +89,85 @@ class DspProfileRuntimeTest {
         DspProfileRuntime.resetForTesting()
     }
 
+    @Test
+    fun discardingImportedImpulseRemovesOnlyUnreferencedFiles() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.get(context)
+        val repository = DspImpulseResponseRepository(context.filesDir)
+        val unreferencedId = "unadopted_${System.nanoTime()}"
+        val unreferencedFile = createImpulseFile(repository, unreferencedId)
+        var referencedId: String? = null
+
+        try {
+            runtime.discardImportedImpulseResponse(unreferencedId)
+
+            assertFalse(unreferencedFile.exists())
+
+            referencedId = "referenced_${System.nanoTime()}"
+            val referencedFile = createImpulseFile(repository, referencedId)
+            val referencedProfile = runtime.selectedProfile().copy(
+                convolver = DspConvolverConfig(enabled = true, impulseResponseId = referencedId),
+            )
+            assertTrue(runtime.apply(referencedProfile, runtime.isDspEnabled()))
+
+            runtime.discardImportedImpulseResponse(referencedId)
+
+            assertTrue(referencedFile.isFile)
+        } finally {
+            repository.delete(unreferencedId)
+            referencedId?.let(repository::delete)
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+            DspProfileRuntime.resetForTesting()
+        }
+    }
+
+    @Test
+    fun overCapacityApplyAndSaveLeaveTheActiveRuntimeUntouched() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.get(context)
+        val valid = DspProfilePresets.customProfile("custom1").copy(
+            eqBands = List(12) { index ->
+                DspEqBand(DspEqType.PEAK, 100.0 + index * 100.0, gainDb = -1.0)
+            },
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                notches = List(3) { index ->
+                    DspCabinCorrectionNotch(enabled = true, frequencyHz = 80.0 + index * 40.0)
+                },
+            ),
+        )
+        val invalid = valid.copy(
+            eqBands = valid.eqBands + DspEqBand(DspEqType.PEAK, 1_500.0, gainDb = -1.0),
+        )
+        assertTrue(runtime.apply(valid, enabled = true))
+        val previousConfig = runtime.configProvider.snapshot()
+        val previousProfile = runtime.selectedProfile()
+        var saveResult: DspProfileSaveResult? = null
+
+        assertFalse(runtime.apply(invalid, enabled = false))
+        runtime.saveCustomAsync(invalid, enabled = false) { saveResult = it }
+
+        assertEquals(DspProfileSaveResult.INVALID_EQ_CAPACITY, saveResult)
+        assertSame(previousConfig, runtime.configProvider.snapshot())
+        assertEquals(previousProfile, runtime.selectedProfile())
+        assertTrue(runtime.isDspEnabled())
+        DspProfileRuntime.resetForTesting()
+    }
+
     private companion object {
         const val PREFERENCES_NAME = "dsp_profile_selection"
         const val KEY_DSP_ENABLED = "enabled"
         const val KEY_SELECTED_PROFILE_ID = "selected_profile_id"
+    }
+
+    private fun createImpulseFile(repository: DspImpulseResponseRepository, id: String): File {
+        val file = requireNotNull(repository.impulseFileForTesting(id))
+        requireNotNull(file.parentFile).mkdirs()
+        file.writeBytes(byteArrayOf(1, 2, 3))
+        return file
     }
 }

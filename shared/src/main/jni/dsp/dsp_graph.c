@@ -17,7 +17,8 @@ int dsp_graph_prepare(
     const double *mono_bass_coefficients,
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
-    const dsp_convolver_config *convolver_config) {
+    const dsp_convolver_config *convolver_config,
+    const dsp_harmonic_config *harmonic_config) {
     if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
@@ -42,10 +43,15 @@ int dsp_graph_prepare(
     if (!dsp_spatial_prepare(
             &graph->spatial,
             spatial_config,
+            sample_rate,
+            channels,
             bass_coefficients,
             bass_coefficient_count,
             mono_bass_coefficients,
             mono_bass_coefficient_count)) {
+        return 0;
+    }
+    if (!dsp_harmonic_prepare(&graph->harmonic, sample_rate, channels, harmonic_config)) {
         return 0;
     }
     if (!dsp_convolver_prepare(&graph->convolver, sample_rate, channels, convolver_config)) {
@@ -67,6 +73,7 @@ void dsp_graph_reset(dsp_graph *graph) {
     dsp_multiband_reset(&graph->multiband);
     dsp_dynamic_eq_reset(&graph->dynamic_eq);
     dsp_spatial_reset(&graph->spatial);
+    dsp_harmonic_reset(&graph->harmonic);
     dsp_convolver_reset(&graph->convolver);
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
@@ -111,6 +118,7 @@ void dsp_graph_process(
 
         float output_left = dsp_gain_apply(&graph->gain, input_left);
         float output_right = channels == 2 ? dsp_gain_apply(&graph->gain, input_right) : 0.0f;
+        dsp_spatial_process_seat(&graph->spatial, &output_left, &output_right, (int)channels);
         for (size_t index = 0; index < graph->peq_count; index++) {
             output_left = dsp_biquad_process_sample(&graph->peq[index], output_left, 0);
             if (channels == 2) {
@@ -123,6 +131,7 @@ void dsp_graph_process(
         dsp_multiband_process_frame(&graph->multiband, &output_left, &output_right, (int)channels);
         dsp_dynamic_eq_process_frame(&graph->dynamic_eq, &output_left, &output_right, (int)channels);
         dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
+        dsp_harmonic_process_frame(&graph->harmonic, &output_left, &output_right, (int)channels);
         dsp_convolver_process_frame(&graph->convolver, &output_left, &output_right, (int)channels);
         dsp_dynamics_process_limiter_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
         if (!isfinite(output_left)) {
@@ -147,6 +156,7 @@ void dsp_graph_process(
         dsp_biquad_flush_denormals(&graph->peq[index]);
     }
     dsp_spatial_flush_denormals(&graph->spatial);
+    dsp_harmonic_flush_denormals(&graph->harmonic);
     dsp_multiband_flush_denormals(&graph->multiband);
     dsp_dynamic_eq_flush_denormals(&graph->dynamic_eq);
     dsp_convolver_flush_denormals(&graph->convolver);

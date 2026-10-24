@@ -5,6 +5,8 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -125,6 +127,20 @@ class DspImpulseResponseRepositoryTest {
         assertEquals(listOf("saved_ir"), repository.ids())
         assertTrue(requireNotNull(repository.impulseFileForTesting("saved_ir")).isFile)
         assertEquals(imported.impulseResponse.sampleAt(0, 0), repository.load("saved_ir")?.sampleAt(0, 0) ?: 1.0f, 0f)
+    }
+
+    @Test
+    fun deletesAnUnadoptedImportedImpulseResponse() {
+        val repository = repository()
+        val valid = wav(1, 1, 48_000, 16, byteArrayOf(0, 0))
+        repository.import("temporary_ir", valid.inputStream()) as DspImpulseImportResult.Imported
+        val file = requireNotNull(repository.impulseFileForTesting("temporary_ir"))
+
+        assertTrue(file.isFile)
+        assertTrue(repository.delete("temporary_ir"))
+        assertFalse(file.exists())
+        assertNull(repository.load("temporary_ir"))
+        assertEquals(emptyList<String>(), repository.ids())
     }
 
     private fun repository() = DspImpulseResponseRepository(temporaryFolder.newFolder("files"))

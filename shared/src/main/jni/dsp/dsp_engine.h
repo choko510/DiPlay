@@ -8,6 +8,7 @@
 #include "dsp_multiband.h"
 #include "dsp_dynamic_eq.h"
 #include "dsp_spatial.h"
+#include "dsp_harmonic.h"
 #include "dsp_convolver.h"
 
 typedef struct dsp_engine dsp_engine;
@@ -47,7 +48,8 @@ dsp_engine *dsp_engine_create(
     const double *mono_bass_coefficients,
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
-    const dsp_convolver_config *convolver_config);
+    const dsp_convolver_config *convolver_config,
+    const dsp_harmonic_config *harmonic_config);
 dsp_status dsp_engine_process(
     dsp_engine *engine,
     const float *input,
@@ -58,6 +60,7 @@ dsp_status dsp_engine_process(
     int channels);
 dsp_status dsp_engine_reset(dsp_engine *engine);
 int dsp_engine_get_latency_frames(const dsp_engine *engine);
+double dsp_engine_get_interchannel_relative_delay_frames(const dsp_engine *engine);
 dsp_status dsp_engine_get_diagnostics(const dsp_engine *engine, dsp_engine_diagnostics *diagnostics);
 void dsp_engine_destroy(dsp_engine *engine);
 

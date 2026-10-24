@@ -5,10 +5,16 @@ import com.shilapi.xcertplay.transport.EthernetIpv6Codec
 import com.shilapi.xcertplay.transport.NcmLinkPhase
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import com.shilapi.xcertplay.transport.NcmSendResult
+import com.shilapi.xcertplay.transport.WiredPathDiagnostics
+import com.shilapi.xcertplay.transport.WiredPathEvent
+import com.shilapi.xcertplay.transport.WiredPacketClassification
+import com.shilapi.xcertplay.transport.WiredTcpPacketClassifier
 import java.io.Closeable
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.LockSupport
 
@@ -25,7 +31,17 @@ class Ipv6NcmBridge(
     private val hostMac: ByteArray,
     private val onError: (Throwable) -> Unit,
     private val onBridgeStarted: () -> Unit = {},
+    private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
+    expectedAirPlayAddress: ByteArray? = null,
+    private val airPlayPort: Int = -1,
+    private val attachGeneration: Long? = null,
 ) : Closeable {
+    private val wiredDiagnostics = wiredPathDiagnostics?.takeIf { it.isEnabled }
+    private val expectedAirPlayAddress = expectedAirPlayAddress?.copyOf()
+    @Volatile internal var tunInputStreamForTest: InputStream? = null
+    @Volatile internal var tunOutputStreamForTest: OutputStream? = null
+    @Volatile internal var closeTunForTest: (() -> Unit)? = null
+
     init {
         require(hostMac.size == EthernetIpv6Codec.MAC_BYTES) { "hostMac must be 6 bytes" }
     }
@@ -55,7 +71,7 @@ class Ipv6NcmBridge(
             ncm.close()
         } finally {
             try {
-                tun.close()
+                closeTunForTest?.invoke() ?: tun.close()
             } finally {
                 join(ncmToTunThread)
                 join(tunToNcmThread)
@@ -64,14 +80,53 @@ class Ipv6NcmBridge(
     }
 
     private fun runNcmToTun() {
-        val output = FileOutputStream(tun.fileDescriptor)
+        val output = tunOutputStreamForTest ?: FileOutputStream(tun.fileDescriptor)
         try {
             while (running.get()) {
                 val frame = ncm.recv(READ_TIMEOUT_MILLIS) ?: continue
+                var synToAirPlay = false
+                var synFamily = WiredPacketClassification.FAMILY_UNKNOWN
+                if (wiredDiagnostics != null) {
+                    val classification = WiredTcpPacketClassifier.classifyEthernet(
+                        frame,
+                        expectedAddress = expectedAirPlayAddress,
+                        expectedPort = airPlayPort,
+                    )
+                    recordPacketClassification(classification)
+                    synToAirPlay = classification.tcpSyn && classification.portMatches
+                    if (synToAirPlay) {
+                        synFamily = classification.family
+                        when (classification.family) {
+                            WiredPacketClassification.FAMILY_IPV4 ->
+                                wiredDiagnostics.record(WiredPathEvent.V4_SYN_TO_AIRPLAY, attachGeneration)
+                            WiredPacketClassification.FAMILY_IPV6 -> {
+                                wiredDiagnostics.record(WiredPathEvent.V6_SYN_TO_AIRPLAY, attachGeneration)
+                                val destinationEvent = when {
+                                    classification.addressChecked && classification.addressMatches ->
+                                        WiredPathEvent.V6_SYN_DEST_MATCH
+                                    classification.addressChecked -> WiredPathEvent.V6_SYN_DEST_MISMATCH
+                                    else -> WiredPathEvent.V6_SYN_DEST_UNVERIFIED
+                                }
+                                wiredDiagnostics.record(destinationEvent, attachGeneration)
+                            }
+                            else -> Unit
+                        }
+                    }
+                }
                 val ipv6 = EthernetIpv6Codec.parseIpv6View(frame) ?: continue
                 peerMac = ipv6.sourceMac
                 ncm.recordPeerMacLearned()
-                output.write(frame, ipv6.payloadOffset, ipv6.payloadLength)
+                try {
+                    output.write(frame, ipv6.payloadOffset, ipv6.payloadLength)
+                    if (synToAirPlay && synFamily == WiredPacketClassification.FAMILY_IPV6) {
+                        wiredDiagnostics?.record(WiredPathEvent.SYN_TUN_WRITE_SUCCESS, attachGeneration)
+                    }
+                } catch (error: Exception) {
+                    if (synToAirPlay && synFamily == WiredPacketClassification.FAMILY_IPV6) {
+                        wiredDiagnostics?.record(WiredPathEvent.SYN_TUN_WRITE_FAILURE, attachGeneration)
+                    }
+                    throw error
+                }
             }
         } catch (error: IOException) {
             if (running.get()) onError(error)
@@ -81,7 +136,7 @@ class Ipv6NcmBridge(
     }
 
     private fun runTunToNcm() {
-        val input = FileInputStream(tun.fileDescriptor)
+        val input = tunInputStreamForTest ?: FileInputStream(tun.fileDescriptor)
         val buffer = ByteArray(TUN_READ_BYTES)
         try {
             while (running.get()) {
@@ -96,11 +151,34 @@ class Ipv6NcmBridge(
                     LockSupport.parkNanos(ZERO_READ_BACKOFF_NANOS)
                     continue
                 }
+                var synAckFromTun = false
+                var rstFromTun = false
+                if (wiredDiagnostics != null) {
+                    val classification = WiredTcpPacketClassifier.classifyRawIp(
+                        buffer,
+                        0,
+                        length,
+                        expectedPort = airPlayPort,
+                        matchSourcePort = true,
+                    )
+                    recordPacketClassification(classification)
+                    synAckFromTun = classification.tcpSynAck && classification.portMatches
+                    rstFromTun = classification.tcpRst && classification.portMatches
+                    if (synAckFromTun) {
+                        wiredDiagnostics.record(WiredPathEvent.TCP_SYN_ACK_FROM_TUN, attachGeneration)
+                    }
+                    if (rstFromTun) {
+                        wiredDiagnostics.record(WiredPathEvent.TCP_RST_FROM_TUN, attachGeneration)
+                    }
+                }
                 val tunPacket = buffer.copyOf(length)
                 val ipv6 = EthernetIpv6Codec.addNeighborAdvertisementTargetMac(tunPacket, hostMac)
                 val multicastMac = EthernetIpv6Codec.multicastDestinationMac(ipv6)
                 val mac = multicastMac ?: peerMac
-                if (mac == null) continue
+                if (mac == null) {
+                    if (synAckFromTun) wiredDiagnostics?.record(WiredPathEvent.PEER_MAC_DROP, attachGeneration)
+                    continue
+                }
                 val frame = EthernetIpv6Codec.build(hostMac, mac, ipv6)
                 val ndp = EthernetIpv6Codec.isNeighborResolution(ipv6)
                 val linkPhase = ncm.linkPhase()
@@ -114,6 +192,16 @@ class Ipv6NcmBridge(
                     sendOnce = { timeoutMillis -> ncm.send(frame, timeoutMillis) },
                     pause = { delayMillis -> LockSupport.parkNanos(delayMillis * NANOS_PER_MILLISECOND) },
                 )
+                if (synAckFromTun) {
+                    wiredDiagnostics?.record(
+                        when (result) {
+                            NcmSendResult.Sent -> WiredPathEvent.SYN_ACK_NCM_SENT
+                            NcmSendResult.NotReady -> WiredPathEvent.SYN_ACK_NCM_NOT_READY
+                            is NcmSendResult.Failed -> WiredPathEvent.SYN_ACK_NCM_FAILED
+                        },
+                        attachGeneration,
+                    )
+                }
                 if (result is NcmSendResult.Failed) {
                     throw result.error as? Exception ?: IOException("NCM send failed")
                 }
@@ -133,6 +221,16 @@ class Ipv6NcmBridge(
             Thread.currentThread().interrupt()
         }
         if (thread.isAlive) thread.interrupt()
+    }
+
+    private fun recordPacketClassification(classification: WiredPacketClassification) {
+        val event = when (classification.disposition) {
+            WiredPacketClassification.DISPOSITION_INVALID -> WiredPathEvent.INVALID_PACKET
+            WiredPacketClassification.DISPOSITION_UNSUPPORTED -> WiredPathEvent.UNSUPPORTED_PACKET
+            WiredPacketClassification.DISPOSITION_UNKNOWN -> WiredPathEvent.UNKNOWN_PACKET
+            else -> null
+        }
+        if (event != null) wiredDiagnostics?.record(event, attachGeneration)
     }
 
     private companion object {

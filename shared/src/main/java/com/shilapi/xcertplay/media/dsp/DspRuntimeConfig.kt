@@ -16,6 +16,10 @@ class DspRuntimeConfig(
     val convolver: DspConvolverConfig = DspConvolverConfig(),
     val multiband: DspMultibandConfig = DspMultibandConfig(),
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
+    val seatAlignment: DspSeatAlignmentConfig = DspSeatAlignmentConfig(),
+    val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
+    val cabinCorrection: DspCabinCorrectionConfig = DspCabinCorrectionConfig(),
+    val harmonic: DspHarmonicConfig = DspHarmonicConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
     val preampDb: Double
@@ -30,21 +34,31 @@ class DspRuntimeConfig(
         bass = bass,
         compressor = compressor,
         safetyLimiter = safetyLimiter,
+        seatAlignment = seatAlignment,
         stereoWidth = stereoWidth,
         monoBass = monoBass,
         convolver = convolver,
         multiband = multiband,
         dynamicEq = dynamicEq,
+        advancedMs = advancedMs,
+        cabinCorrection = cabinCorrection,
+        harmonic = harmonic,
     )
 
     init {
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)
         require(this.peqBands.size <= DspEqDesigner.MAX_BANDS)
+        val activeEqBandCount = this.peqBands.count(DspEqBand::enabled) +
+            cabinCorrection.approvedEqBands().count(DspEqBand::enabled)
+        require(activeEqBandCount <= MAX_EQ_BANDS) {
+            "PEQ_CAPACITY_EXCEEDED: $activeEqBandCount active bands exceeds $MAX_EQ_BANDS"
+        }
         require(autoHeadroomMarginDb.isFinite() && autoHeadroomMarginDb in 0.0..MAX_HEADROOM_MARGIN_DB)
         require(stereoWidth.isFinite() && stereoWidth in 0.0..MAX_STEREO_WIDTH)
     }
 
     companion object {
+        const val MAX_EQ_BANDS = 15
         fun disabled(): DspRuntimeConfig = DspRuntimeConfig(enabled = false)
 
         private const val MIN_GAIN_DB = -120.0

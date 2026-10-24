@@ -3,36 +3,446 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
   workflow_dispatch:
+concurrency:
+  group: android-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
+  checks: read
+  pull-requests: read
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      host: ${{ steps.classify.outputs.host }}
+      full_host: ${{ steps.classify.outputs.full_host }}
+      quick: ${{ steps.classify.outputs.quick }}
+      quick_scope: ${{ steps.classify.outputs.quick_scope }}
+      quick_test_filters: ${{ steps.classify.outputs.quick_test_filters }}
+      native: ${{ steps.classify.outputs.native }}
+      instrumentation: ${{ steps.classify.outputs.instrumentation }}
+      workflow_sensitive: ${{ steps.classify.outputs.workflow_sensitive }}
+      android_mk: ${{ steps.classify.outputs.android_mk }}
+      safe: ${{ steps.classify.outputs.safe }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test Android CI change classifier
+        run: bash scripts/test_android_ci_classifier.sh
+      - name: Test instrumentation evidence validator
+        run: bash scripts/test_android_instrumentation_evidence.sh
+      - name: Classify changed files
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_DRAFT: ${{ github.event.pull_request.draft }}
+        run: |
+          set -euo pipefail
+          source scripts/android_ci_classifier.sh
+          if [[ "$GITHUB_EVENT_NAME" != "pull_request" ]]; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
+            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_sensitive=false" >> "$GITHUB_OUTPUT"
+            echo "android_mk=false" >> "$GITHUB_OUTPUT"
+            echo "safe=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          previous_host_sha=""
+          previous_quick_sha=""
+          previous_full_sha=""
+          search_host_baselines="true"
+          search_full_baselines="true"
+          if [[ "$PR_DRAFT" == "true" ]]; then
+            search_host_baselines="false"
+            search_full_baselines="false"
+          fi
+          if ! commit_history="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${PR_BASE_SHA}...${PR_HEAD_SHA}" --jq '(.commits // []) | reverse | .[:100] | .[].sha')"; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
+            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
+            echo "android_mk=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mapfile -t commit_shas <<< "$commit_history"
+          if [[ -z "${commit_shas[0]:-}" ]]; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
+            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
+            echo "android_mk=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          has_check() {
+            [[ ",$1," == *,"$2",* ]]
+          }
+
+          inspected=0
+          for ((offset = 0; offset < ${#commit_shas[@]}; offset += 8)); do
+            batch=("${commit_shas[@]:offset:8}")
+            if ! batch_checks="$(printf '%s\n' "${batch[@]}" | xargs -r -P 8 -I{} bash -c '
+              set -euo pipefail
+              sha="$1"
+              checks="$(gh api --method GET --paginate "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs" -f per_page=100 --jq "$2" | sort -u | paste -sd, -)"
+              printf "%s\\t%s\\n" "$sha" "$checks"
+            ' _ {} '.check_runs[] | select(.conclusion == "success") | .name')"; then
+              echo "host=true" >> "$GITHUB_OUTPUT"
+              echo "full_host=true" >> "$GITHUB_OUTPUT"
+              echo "quick=true" >> "$GITHUB_OUTPUT"
+              echo "quick_scope=both" >> "$GITHUB_OUTPUT"
+              echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
+              echo "native=true" >> "$GITHUB_OUTPUT"
+              echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+              echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
+              echo "android_mk=true" >> "$GITHUB_OUTPUT"
+              echo "safe=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            inspected=$((inspected + ${#batch[@]}))
+
+            for candidate_sha in "${batch[@]}"; do
+              checks="$(awk -F '\t' -v sha="$candidate_sha" '$1 == sha { print substr($0, index($0, "\t") + 1); exit }' <<< "$batch_checks")"
+              if [[ "$search_host_baselines" == "true" && -z "$previous_host_sha" ]] && has_check "$checks" "host-baseline"; then
+                previous_host_sha="$candidate_sha"
+              fi
+              if [[ -z "$previous_quick_sha" ]] && has_check "$checks" "quick-baseline"; then
+                previous_quick_sha="$candidate_sha"
+              fi
+              if has_check "$checks" "host-baseline" && [[ -z "$previous_quick_sha" ]]; then
+                previous_quick_sha="$candidate_sha"
+              fi
+              if [[ "$PR_DRAFT" == "true" && -z "$previous_quick_sha" ]] &&
+                is_ci_full_android_baseline "$checks"; then
+                previous_quick_sha="$candidate_sha"
+              fi
+              if [[ "$search_full_baselines" == "true" && -z "$previous_full_sha" ]] &&
+                is_ci_full_android_baseline "$checks"; then
+                previous_full_sha="$candidate_sha"
+                if [[ -z "$previous_host_sha" ]]; then
+                  previous_host_sha="$candidate_sha"
+                fi
+                if [[ -z "$previous_quick_sha" ]]; then
+                  previous_quick_sha="$candidate_sha"
+                fi
+              fi
+              if [[ "$PR_DRAFT" == "true" ]]; then
+                if [[ -n "$previous_quick_sha" ]]; then
+                  break
+                fi
+              elif [[ -n "$previous_host_sha" && -n "$previous_quick_sha" && -n "$previous_full_sha" ]]; then
+                break
+              fi
+            done
+
+            if [[ "$PR_DRAFT" == "true" ]]; then
+              if [[ -n "$previous_quick_sha" ]]; then
+                break
+              fi
+            elif [[ -n "$previous_host_sha" && -n "$previous_quick_sha" && -n "$previous_full_sha" ]]; then
+              break
+            fi
+          done
+          echo "Inspected $inspected of ${#commit_shas[@]} recent PR commits while locating successful check baselines."
+
+          classify_since() {
+            local baseline_sha="$1"
+            local comparison
+            if [[ -z "$baseline_sha" ]]; then
+              echo "true true both all true true"
+              return 0
+            fi
+            if ! comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${baseline_sha}...${PR_HEAD_SHA}")"; then
+              return 1
+            fi
+
+            local file_count
+            file_count="$(jq '(.files // []) | length' <<< "$comparison")"
+            if (( file_count >= 300 )); then
+              echo "true true both all true true"
+              return 0
+            fi
+
+            local runtime=false
+            local native=false
+            local unscoped_runtime=false
+            local workflow_sensitive=false
+            local android_mk=false
+            local test_modules=,
+            local scoped_test_filters=""
+            local test_only_changes=true
+            while IFS=$'\t' read -r path status; do
+              if is_ci_docs_only_path "$path"; then
+                continue
+              fi
+              if is_ci_workflow_sensitive_path "$path"; then
+                workflow_sensitive=true
+              fi
+              case "$path" in
+                shared/src/test/java/*|shared/src/test/kotlin/*)
+                  runtime=true
+                  if [[ "$test_modules" != *",shared,"* ]]; then
+                    test_modules="${test_modules}shared,"
+                  fi
+                  if [[ ( "$status" == "added" || "$status" == "modified" ) && "${path##*/}" =~ Test(s|Case)?\.(kt|java)$ ]]; then
+                    test_root="shared/src/test/java/"
+                    if [[ "$path" == shared/src/test/kotlin/* ]]; then
+                      test_root="shared/src/test/kotlin/"
+                    fi
+                    test_class="${path#"$test_root"}"
+                    test_class="${test_class%.*}"
+                    test_class="${test_class//\//.}"
+                    scoped_test_filters="${scoped_test_filters}shared|${test_class},"
+                  else
+                    test_only_changes=false
+                  fi ;;
+                common/src/main/java/*|common/src/main/kotlin/*)
+                  runtime=true
+                  test_only_changes=false
+                  if [[ "$test_modules" != *",common,"* ]]; then
+                    test_modules="${test_modules}common,"
+                  fi ;;
+                common/src/test/java/*|common/src/test/kotlin/*)
+                  runtime=true
+                  if [[ "$test_modules" != *",common,"* ]]; then
+                    test_modules="${test_modules}common,"
+                  fi
+                  if [[ ( "$status" == "added" || "$status" == "modified" ) && "${path##*/}" =~ Test(s|Case)?\.(kt|java)$ ]]; then
+                    test_root="common/src/test/java/"
+                    if [[ "$path" == common/src/test/kotlin/* ]]; then
+                      test_root="common/src/test/kotlin/"
+                    fi
+                    test_class="${path#"$test_root"}"
+                    test_class="${test_class%.*}"
+                    test_class="${test_class//\//.}"
+                    scoped_test_filters="${scoped_test_filters}common|${test_class},"
+                  else
+                    test_only_changes=false
+                  fi ;;
+                *)
+                  runtime=true
+                  test_only_changes=false
+                  unscoped_runtime=true ;;
+              esac
+              if is_ci_native_path "$path"; then
+                runtime=true
+                native=true
+              fi
+              if is_ci_android_mk_link_path "$path"; then
+                runtime=true
+                native=true
+                android_mk=true
+              fi
+            done < <(jq -r '.files[]? | [.filename, .status] | @tsv' <<< "$comparison")
+            local test_scope=none
+            if [[ "$runtime" == "true" ]]; then
+              if [[ "$unscoped_runtime" == "true" ]]; then
+                test_scope=both
+              else
+                case "$test_modules" in
+                  *,shared,common,*|*,common,shared,*) test_scope=both ;;
+                  *,shared,*) test_scope=shared ;;
+                  *,common,*) test_scope=common ;;
+                  *) test_scope=both ;;
+                esac
+              fi
+            fi
+            local test_filters=all
+            if [[ "$runtime" != "true" ]]; then
+              test_filters=none
+            elif [[ "$test_only_changes" == "true" && -n "$scoped_test_filters" ]]; then
+              test_filters="${scoped_test_filters%,}"
+            fi
+            printf '%s %s %s %s %s %s\n' \
+              "$runtime" "$native" "$test_scope" "$test_filters" "$workflow_sensitive" "$android_mk"
+          }
+
+          if ! host_paths="$(classify_since "$previous_host_sha")"; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
+            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
+            echo "android_mk=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! quick_paths="$(classify_since "$previous_quick_sha")"; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
+            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
+            echo "android_mk=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! instrumentation_paths="$(classify_since "$previous_full_sha")"; then
+            echo "host=true" >> "$GITHUB_OUTPUT"
+            echo "full_host=true" >> "$GITHUB_OUTPUT"
+            echo "quick=true" >> "$GITHUB_OUTPUT"
+            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
+            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
+            echo "native=true" >> "$GITHUB_OUTPUT"
+            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
+            echo "android_mk=true" >> "$GITHUB_OUTPUT"
+            echo "safe=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          read -r host _ _ _ host_workflow_sensitive host_android_mk <<< "$host_paths"
+          read -r quick native quick_scope quick_test_filters quick_workflow_sensitive quick_android_mk <<< "$quick_paths"
+          read -r instrumentation _ _ _ instrumentation_workflow_sensitive instrumentation_android_mk <<< "$instrumentation_paths"
+
+          workflow_sensitive=false
+          android_mk=false
+          if [[ "$PR_DRAFT" == "true" ]]; then
+            workflow_sensitive="$quick_workflow_sensitive"
+            android_mk="$quick_android_mk"
+          else
+            if [[ "$host_workflow_sensitive" == "true" || "$quick_workflow_sensitive" == "true" ||
+                  "$instrumentation_workflow_sensitive" == "true" ]]; then
+              workflow_sensitive=true
+            fi
+            if [[ "$host_android_mk" == "true" || "$quick_android_mk" == "true" ||
+                  "$instrumentation_android_mk" == "true" ]]; then
+              android_mk=true
+            fi
+          fi
+
+          full_host="$host"
+          if [[ "$PR_DRAFT" == "true" && "$workflow_sensitive" != "true" ]]; then
+            full_host=false
+            instrumentation=false
+          fi
+
+          echo "host=$host" >> "$GITHUB_OUTPUT"
+          echo "full_host=$full_host" >> "$GITHUB_OUTPUT"
+          echo "quick=$quick" >> "$GITHUB_OUTPUT"
+          echo "quick_scope=$quick_scope" >> "$GITHUB_OUTPUT"
+          echo "quick_test_filters=$quick_test_filters" >> "$GITHUB_OUTPUT"
+          echo "native=$native" >> "$GITHUB_OUTPUT"
+          echo "instrumentation=$instrumentation" >> "$GITHUB_OUTPUT"
+          echo "workflow_sensitive=$workflow_sensitive" >> "$GITHUB_OUTPUT"
+          echo "android_mk=$android_mk" >> "$GITHUB_OUTPUT"
+          echo "safe=true" >> "$GITHUB_OUTPUT"
+          echo "Android CI lane: host=$host full_host=$full_host quick=$quick quick_scope=$quick_scope quick_test_filters=$quick_test_filters native=$native instrumentation=$instrumentation workflow_sensitive=$workflow_sensitive android_mk=$android_mk safe=true"
+
   check:
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Reject credential files in public source
         run: python3 scripts/check_public_tree.py
+      - name: Verify EX-08 commit inventory
+        run: python3 scripts/generate_step4_ex08_inventory.py --check
       - uses: actions/setup-java@v4
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
         with:
           distribution: temurin
           java-version: '25'
       - uses: android-actions/setup-android@v3
+        if: needs.changes.outputs.full_host == 'true'
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973
+      - uses: android-actions/setup-android@v3
+        if: needs.changes.outputs.quick == 'true' && needs.changes.outputs.full_host != 'true' && needs.changes.outputs.android_mk != 'true'
+        with:
+          packages: platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0
+      - uses: android-actions/setup-android@v3
+        if: needs.changes.outputs.android_mk == 'true' && needs.changes.outputs.full_host != 'true'
+        with:
+          packages: platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973
       - uses: gradle/actions/setup-gradle@v4
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Host native DSP tests
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.native == 'true'
         run: bash scripts/test_dsp_native.sh
       - name: Host native DSP tests with ASan and UBSan
+        if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.native == 'true'
         run: bash scripts/test_dsp_native.sh --sanitize
+      - name: Draft unit tests
+        if: needs.changes.outputs.quick == 'true' && needs.changes.outputs.full_host != 'true'
+        env:
+          DRAFT_TEST_SCOPE: ${{ needs.changes.outputs.quick_scope }}
+          DRAFT_TEST_FILTERS: ${{ needs.changes.outputs.quick_test_filters }}
+        run: |
+          run_unit_tests() {
+            local module="$1"
+            local -a gradle_args=(":${module}:testDebugUnitTest")
+            if [[ "$DRAFT_TEST_FILTERS" != "all" ]]; then
+              IFS=',' read -r -a filters <<< "$DRAFT_TEST_FILTERS"
+              local matched=0
+              for filter in "${filters[@]}"; do
+                if [[ "${filter%%|*}" == "$module" ]]; then
+                  gradle_args+=(--tests "${filter#*|}")
+                  matched=$((matched + 1))
+                fi
+              done
+              if (( matched == 0 )); then
+                echo "No targeted test classes found for module $module" >&2
+                return 1
+              fi
+            fi
+            gradle_args+=(--build-cache --parallel --stacktrace)
+            ./gradlew "${gradle_args[@]}"
+          }
+          case "$DRAFT_TEST_SCOPE" in
+            both)
+              if [[ "$DRAFT_TEST_FILTERS" == "all" ]]; then
+                ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest --build-cache --parallel --stacktrace
+              else
+                run_unit_tests shared
+                run_unit_tests common
+              fi ;;
+            shared) run_unit_tests shared ;;
+            common) run_unit_tests common ;;
+            *) echo "Unexpected draft test scope: $DRAFT_TEST_SCOPE" >&2; exit 1 ;;
+          esac
+      - name: Build Android JNI library for configured ABIs
+        if: needs.changes.outputs.android_mk == 'true' && needs.changes.outputs.full_host != 'true'
+        run: ./gradlew :shared:assembleDebug --build-cache --stacktrace
       - name: Unit tests, lint, debug and optimized builds
-        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --stacktrace
+        if: needs.changes.outputs.full_host == 'true'
+        run: ./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest :mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark --build-cache --parallel --stacktrace
       - name: Verify JNI names survive R8
+        if: needs.changes.outputs.full_host == 'true'
         run: python3 scripts/check_jni_mapping.py
 
       - name: Test reports
-        if: always()
+        if: always() && (needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true')
         uses: actions/upload-artifact@v4
         with:
           name: test-reports-${{ github.job }}
@@ -42,7 +452,40 @@ jobs:
             mobile/build/reports/lint-results-debug.html
             automotive/build/reports/lint-results-debug.html
 
+  host-baseline:
+    needs: [changes, check, android-instrumentation]
+    if: >-
+      always() &&
+      needs.changes.outputs.full_host == 'true' &&
+      needs.check.result == 'success' &&
+      (needs.changes.outputs.workflow_sensitive != 'true' ||
+       (needs.changes.outputs.instrumentation == 'true' &&
+        needs['android-instrumentation'].result == 'success'))
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record successful host verification
+        run: echo "Host checks passed for $GITHUB_SHA"
+
+  quick-baseline:
+    needs: [changes, check]
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == true &&
+      needs.changes.outputs.quick == 'true' &&
+      needs.changes.outputs.full_host != 'true' &&
+      needs.check.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Record successful draft verification
+        run: echo "Draft unit and native checks passed for $GITHUB_SHA"
+
   android-instrumentation:
+    needs: changes
+    if: >-
+      needs.changes.outputs.instrumentation == 'true' &&
+      (github.event_name != 'pull_request' || github.event.pull_request.draft == false ||
+       needs.changes.outputs.workflow_sensitive == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -55,6 +498,8 @@ jobs:
         with:
           packages: platform-tools platforms;android-37.0 platforms;android-37.1 build-tools;36.0.0 ndk;27.0.12077973 system-images;android-35;google_apis;x86_64
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
       - name: Install Android Emulator binary
         run: |
           curl --fail --location --retry 3 "https://dl.google.com/android/repository/emulator-linux_x64-16433917.zip" -o "$RUNNER_TEMP/emulator.zip"
@@ -84,3 +529,58 @@ jobs:
           path: |
             shared/build/reports/tests/
             shared/build/outputs/dsp-benchmark/
+
+  verification-status:
+    needs: [changes, check, host-baseline, android-instrumentation]
+    if: always() && github.event_name == 'pull_request'
+    name: ${{ github.event.pull_request.draft && 'Draft scope (not release-ready)' || 'Release verification' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report draft scope or enforce ready-PR gates
+        env:
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          SAFE: ${{ needs.changes.outputs.safe }}
+          FULL_HOST: ${{ needs.changes.outputs.full_host }}
+          INSTRUMENTATION: ${{ needs.changes.outputs.instrumentation }}
+          WORKFLOW_SENSITIVE: ${{ needs.changes.outputs.workflow_sensitive }}
+          ANDROID_MK: ${{ needs.changes.outputs.android_mk }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          CHECK_RESULT: ${{ needs.check.result }}
+          HOST_RESULT: ${{ needs['host-baseline'].result }}
+          INSTRUMENTATION_RESULT: ${{ needs['android-instrumentation'].result }}
+        run: |
+          set -euo pipefail
+          if [[ "$CHANGES_RESULT" != "success" || "$SAFE" != "true" || "$CHECK_RESULT" != "success" ]]; then
+            echo "Selected CI checks or change classification did not pass."
+            exit 1
+          fi
+          if [[ "$FULL_HOST" == "true" && "$HOST_RESULT" != "success" ]]; then
+            echo "Full host verification was required but did not pass."
+            exit 1
+          fi
+          if [[ "$INSTRUMENTATION" == "true" && "$IS_DRAFT" != "true" &&
+                "$INSTRUMENTATION_RESULT" != "success" ]]; then
+            echo "Android instrumentation was required but did not pass."
+            exit 1
+          fi
+          if [[ "$WORKFLOW_SENSITIVE" == "true" &&
+                ( "$FULL_HOST" != "true" || "$INSTRUMENTATION" != "true" || "$INSTRUMENTATION_RESULT" != "success" ) ]]; then
+            echo "Workflow changes require a full host and Android instrumentation pass, including on drafts."
+            exit 1
+          fi
+          if [[ "$ANDROID_MK" == "true" && "$IS_DRAFT" != "true" && "$FULL_HOST" != "true" ]]; then
+            echo "Android.mk changes require a ready-PR Android build/link pass."
+            exit 1
+          fi
+          {
+            echo "### Verification scope"
+            if [[ "$IS_DRAFT" == "true" ]]; then
+              echo "**DRAFT_ONLY_NOT_RELEASE_READY** — `check: SUCCESS` can include selected or static-only work."
+            else
+              echo "**READY_PR_VERIFIED** — required selected checks and non-skipped gates passed for this HEAD."
+            fi
+            echo "- Full host: $FULL_HOST (job: $HOST_RESULT)"
+            echo "- Android instrumentation selected: $INSTRUMENTATION (job: $INSTRUMENTATION_RESULT)"
+            echo "- Workflow-sensitive change: $WORKFLOW_SENSITIVE"
+            echo "- Android.mk link-sensitive change: $ANDROID_MK"
+          } >> "$GITHUB_STEP_SUMMARY"

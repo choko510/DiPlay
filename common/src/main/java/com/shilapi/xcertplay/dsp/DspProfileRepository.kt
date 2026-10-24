@@ -4,14 +4,25 @@ import android.util.AtomicFile
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionNotch
+import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementSummary
+import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
+import com.shilapi.xcertplay.media.dsp.DspHarmonicMode
+import com.shilapi.xcertplay.media.dsp.DspHarmonicQuality
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqBandConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqMode
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
+import com.shilapi.xcertplay.media.dsp.DspMsSideCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatNearSpeaker
+import com.shilapi.xcertplay.media.dsp.DspSeatPreset
 import java.io.File
 import java.nio.charset.StandardCharsets
 import org.json.JSONArray
@@ -27,6 +38,7 @@ internal sealed interface DspProfileReadResult {
 internal enum class DspProfileSaveResult {
     SAVED,
     INVALID_PROFILE_ID,
+    INVALID_EQ_CAPACITY,
     FUTURE_SCHEMA_PRESERVED,
     WRITE_FAILED,
 }
@@ -51,10 +63,14 @@ internal class DspProfileRepository(
                 DspProfileReadResult.Invalid
             } else {
                 val profile = decode(profileId, json, schemaVersion)
-                DspProfileReadResult.Loaded(
-                    profile = profile,
-                    migratedFromVersion = if (schemaVersion < CURRENT_SCHEMA_VERSION) schemaVersion else null,
-                )
+                if (!profile.hasValidEqCapacity()) {
+                    DspProfileReadResult.Invalid
+                } else {
+                    DspProfileReadResult.Loaded(
+                        profile = profile,
+                        migratedFromVersion = if (schemaVersion < CURRENT_SCHEMA_VERSION) schemaVersion else null,
+                    )
+                }
             }
         } catch (_: Exception) {
             DspProfileReadResult.Invalid
@@ -70,6 +86,7 @@ internal class DspProfileRepository(
         if (file.isFile && schemaVersion(file)?.let { it > CURRENT_SCHEMA_VERSION } == true) {
             return DspProfileSaveResult.FUTURE_SCHEMA_PRESERVED
         }
+        if (!profile.hasValidEqCapacity()) return DspProfileSaveResult.INVALID_EQ_CAPACITY
         if (!profilesDirectory.exists() && !profilesDirectory.mkdirs()) return DspProfileSaveResult.WRITE_FAILED
 
         return try {
@@ -97,7 +114,11 @@ internal class DspProfileRepository(
     internal fun decodeDraftFromSavedState(serialized: String): DspAudioProfile? = try {
         val json = JSONObject(serialized)
         val profileId = json.optString(KEY_ID)
-        if (!isValidProfileId(profileId)) null else decode(profileId, json, CURRENT_SCHEMA_VERSION)
+        if (!isValidProfileId(profileId)) {
+            null
+        } else {
+            decode(profileId, json, CURRENT_SCHEMA_VERSION).takeIf(DspAudioProfile::hasValidEqCapacity)
+        }
     } catch (_: Exception) {
         null
     }
@@ -127,6 +148,12 @@ internal class DspProfileRepository(
         val stereoJson = json.optJSONObject("stereo") ?: JSONObject()
         val convolverJson = json.optJSONObject("convolver") ?: JSONObject()
         val limiterJson = json.optJSONObject("limiter") ?: JSONObject()
+        val seatJson = json.optJSONObject("seatAlignment") ?: JSONObject()
+        val advancedMsJson = json.optJSONObject("advancedMs") ?: JSONObject()
+        val sideCompressorJson = advancedMsJson.optJSONObject("sideCompressor") ?: JSONObject()
+        val cabinJson = json.optJSONObject("cabinCorrection") ?: JSONObject()
+        val cabinMeasurementJson = cabinJson.optJSONObject("measurement")
+        val harmonicJson = json.optJSONObject("harmonic") ?: JSONObject()
         val multibandJson = json.optJSONObject("multiband") ?: JSONObject()
         val dynamicEqJson = json.optJSONObject("dynamicEq") ?: JSONObject()
         val monoBassJson = stereoJson.optJSONObject("monoBass") ?: JSONObject()
@@ -153,6 +180,66 @@ internal class DspProfileRepository(
                 frequencyHz = bassJson.readFiniteDouble("frequencyHz", 80.0),
             ),
             compressor = readCompressor(compressorJson),
+            seatAlignment = DspSeatAlignmentConfig(
+                enabled = seatJson.optBoolean("enabled", false),
+                preset = DspSeatPreset.valueOf(seatJson.optString("preset", DspSeatPreset.CENTER.name)),
+                nearSpeaker = DspSeatNearSpeaker.valueOf(
+                    seatJson.optString("nearSpeaker", DspSeatNearSpeaker.CENTER.name),
+                ),
+                distanceDifferenceCm = seatJson.readFiniteDouble("distanceDifferenceCm", 0.0),
+                leftTrimDb = seatJson.readFiniteDouble("leftTrimDb", 0.0),
+                rightTrimDb = seatJson.readFiniteDouble("rightTrimDb", 0.0),
+                invertLeft = seatJson.optBoolean("invertLeft", false),
+                invertRight = seatJson.optBoolean("invertRight", false),
+            ),
+            advancedMs = if (schemaVersion >= 5) DspAdvancedMsConfig(
+                enabled = advancedMsJson.optBoolean("enabled", false),
+                crossoverHz = advancedMsJson.readFiniteDouble(
+                    "crossoverHz",
+                    DspAdvancedMsConfig.DEFAULT_CROSSOVER_HZ,
+                ),
+                centerFocusDb = advancedMsJson.readFiniteDouble("centerFocusDb", 0.0),
+                midLowGainDb = advancedMsJson.readFiniteDouble("midLowGainDb", 0.0),
+                midHighGainDb = advancedMsJson.readFiniteDouble("midHighGainDb", 0.0),
+                sideLowGainDb = advancedMsJson.readFiniteDouble("sideLowGainDb", 0.0),
+                sideHighGainDb = advancedMsJson.readFiniteDouble("sideHighGainDb", 0.0),
+                lowBandWidth = advancedMsJson.readFiniteDouble("lowBandWidth", 1.0),
+                highBandWidth = advancedMsJson.readFiniteDouble("highBandWidth", 1.0),
+                sideCompressor = DspMsSideCompressorConfig(
+                    enabled = sideCompressorJson.optBoolean("enabled", false),
+                    thresholdDb = sideCompressorJson.readFiniteDouble("thresholdDb", -24.0),
+                    ratio = sideCompressorJson.readFiniteDouble("ratio", 2.0),
+                    attackMs = sideCompressorJson.readFiniteDouble("attackMs", 10.0),
+                    releaseMs = sideCompressorJson.readFiniteDouble("releaseMs", 100.0),
+                    kneeDb = sideCompressorJson.readFiniteDouble("kneeDb", 6.0),
+                ),
+            ) else DspAdvancedMsConfig(),
+            cabinCorrection = if (schemaVersion >= 6) DspCabinCorrectionConfig(
+                enabled = cabinJson.optBoolean("enabled", false),
+                measurement = cabinMeasurementJson?.let { measurement ->
+                    DspCabinMeasurementSummary(
+                        sourceSha256 = measurement.optString("sourceSha256"),
+                        pointCount = measurement.optInt("pointCount", 0),
+                        minimumFrequencyHz = measurement.readFiniteDouble("minimumFrequencyHz", Double.NaN),
+                        maximumFrequencyHz = measurement.readFiniteDouble("maximumFrequencyHz", Double.NaN),
+                        noiseFloorDb = measurement.readFiniteDouble("noiseFloorDb", Double.NaN),
+                        clippingDetected = measurement.optBoolean("clippingDetected", false),
+                    )
+                },
+                notches = readCabinNotches(cabinJson.optJSONArray("notches")),
+            ) else DspCabinCorrectionConfig(),
+            harmonic = if (schemaVersion >= 7) DspHarmonicConfig(
+                enabled = harmonicJson.optBoolean("enabled", false),
+                mode = DspHarmonicMode.valueOf(harmonicJson.optString("mode", DspHarmonicMode.MIXED.name)),
+                quality = DspHarmonicQuality.valueOf(harmonicJson.optString("quality", DspHarmonicQuality.MEDIUM.name)),
+                exciterEnabled = harmonicJson.optBoolean("exciterEnabled", false),
+                exciterAmount = harmonicJson.readFiniteDouble("exciterAmount", 0.2),
+                exciterCutoffHz = harmonicJson.readFiniteDouble("exciterCutoffHz", 6_000.0),
+                virtualBassEnabled = harmonicJson.optBoolean("virtualBassEnabled", false),
+                virtualBassAmount = harmonicJson.readFiniteDouble("virtualBassAmount", 0.2),
+                virtualBassCutoffHz = harmonicJson.readFiniteDouble("virtualBassCutoffHz", 120.0),
+                levelMatchEnabled = harmonicJson.optBoolean("levelMatchEnabled", true),
+            ) else DspHarmonicConfig(),
             stereoWidth = stereoJson.readFiniteDouble("width", 1.0),
             monoBass = DspMonoBassConfig(
                 enabled = monoBassJson.optBoolean("enabled", false),
@@ -224,6 +311,20 @@ internal class DspProfileRepository(
         }
     }
 
+    private fun readCabinNotches(array: JSONArray?): List<DspCabinCorrectionNotch> {
+        if (array == null) return emptyList()
+        require(array.length() <= DspCabinCorrectionConfig.MAX_NOTCHES)
+        return List(array.length()) { index ->
+            val values = requireNotNull(array.optJSONObject(index))
+            DspCabinCorrectionNotch(
+                enabled = values.optBoolean("enabled", false),
+                frequencyHz = values.readFiniteDouble("frequencyHz", 100.0),
+                gainDb = values.readFiniteDouble("gainDb", -3.0),
+                q = values.readFiniteDouble("q", 4.0),
+            )
+        }
+    }
+
     private fun encode(profile: DspAudioProfile): JSONObject {
         val eq = JSONArray()
         profile.eqBands.forEach { band ->
@@ -262,6 +363,80 @@ internal class DspProfileRepository(
                     .put("releaseMs", profile.compressor.releaseMs)
                     .put("kneeDb", profile.compressor.kneeDb)
                     .put("makeupDb", profile.compressor.makeupDb),
+            )
+            .put(
+                "seatAlignment",
+                JSONObject()
+                    .put("enabled", profile.seatAlignment.enabled)
+                    .put("preset", profile.seatAlignment.preset.name)
+                    .put("nearSpeaker", profile.seatAlignment.nearSpeaker.name)
+                    .put("distanceDifferenceCm", profile.seatAlignment.distanceDifferenceCm)
+                    .put("leftTrimDb", profile.seatAlignment.leftTrimDb)
+                    .put("rightTrimDb", profile.seatAlignment.rightTrimDb)
+                    .put("invertLeft", profile.seatAlignment.invertLeft)
+                    .put("invertRight", profile.seatAlignment.invertRight),
+            )
+            .put(
+                "advancedMs",
+                JSONObject()
+                    .put("enabled", profile.advancedMs.enabled)
+                    .put("crossoverHz", profile.advancedMs.crossoverHz)
+                    .put("centerFocusDb", profile.advancedMs.centerFocusDb)
+                    .put("midLowGainDb", profile.advancedMs.midLowGainDb)
+                    .put("midHighGainDb", profile.advancedMs.midHighGainDb)
+                    .put("sideLowGainDb", profile.advancedMs.sideLowGainDb)
+                    .put("sideHighGainDb", profile.advancedMs.sideHighGainDb)
+                    .put("lowBandWidth", profile.advancedMs.lowBandWidth)
+                    .put("highBandWidth", profile.advancedMs.highBandWidth)
+                    .put(
+                        "sideCompressor",
+                        JSONObject()
+                            .put("enabled", profile.advancedMs.sideCompressor.enabled)
+                            .put("thresholdDb", profile.advancedMs.sideCompressor.thresholdDb)
+                            .put("ratio", profile.advancedMs.sideCompressor.ratio)
+                            .put("attackMs", profile.advancedMs.sideCompressor.attackMs)
+                            .put("releaseMs", profile.advancedMs.sideCompressor.releaseMs)
+                            .put("kneeDb", profile.advancedMs.sideCompressor.kneeDb),
+                    ),
+            )
+            .put(
+                "cabinCorrection",
+                JSONObject()
+                    .put("enabled", profile.cabinCorrection.enabled)
+                    .put("measurement", profile.cabinCorrection.measurement?.let { measurement ->
+                        JSONObject()
+                            .put("sourceSha256", measurement.sourceSha256)
+                            .put("pointCount", measurement.pointCount)
+                            .put("minimumFrequencyHz", measurement.minimumFrequencyHz)
+                            .put("maximumFrequencyHz", measurement.maximumFrequencyHz)
+                            .put("noiseFloorDb", measurement.noiseFloorDb)
+                            .put("clippingDetected", measurement.clippingDetected)
+                    })
+                    .put("notches", JSONArray().apply {
+                        profile.cabinCorrection.notches.forEach { notch ->
+                            put(
+                                JSONObject()
+                                    .put("enabled", notch.enabled)
+                                    .put("frequencyHz", notch.frequencyHz)
+                                    .put("gainDb", notch.gainDb)
+                                    .put("q", notch.q),
+                            )
+                        }
+                    }),
+            )
+            .put(
+                "harmonic",
+                JSONObject()
+                    .put("enabled", profile.harmonic.enabled)
+                    .put("mode", profile.harmonic.mode.name)
+                    .put("quality", profile.harmonic.quality.name)
+                    .put("exciterEnabled", profile.harmonic.exciterEnabled)
+                    .put("exciterAmount", profile.harmonic.exciterAmount)
+                    .put("exciterCutoffHz", profile.harmonic.exciterCutoffHz)
+                    .put("virtualBassEnabled", profile.harmonic.virtualBassEnabled)
+                    .put("virtualBassAmount", profile.harmonic.virtualBassAmount)
+                    .put("virtualBassCutoffHz", profile.harmonic.virtualBassCutoffHz)
+                    .put("levelMatchEnabled", profile.harmonic.levelMatchEnabled),
             )
             .put(
                 "stereo",
@@ -318,7 +493,7 @@ internal class DspProfileRepository(
     }
 
     companion object {
-        const val CURRENT_SCHEMA_VERSION = 3
+        const val CURRENT_SCHEMA_VERSION = 7
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"

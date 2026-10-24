@@ -27,8 +27,24 @@ static const dsp_dynamic_eq_config bypass_dynamic_eq = {
         {0, DSP_DYNAMIC_EQ_CUT, 1000.0, 1.0, -24.0, 2.0, 10.0, 100.0, 6.0, 6.0},
     },
 };
-static const dsp_spatial_config bypass_spatial = {1.0, 0, 120};
+static const dsp_spatial_config bypass_spatial = {
+    .width = 1.0,
+    .mono_bass_enabled = 0,
+    .mono_bass_cutoff_hz = 120,
+};
 static const dsp_convolver_config bypass_convolver = {0, 0, 0, 0, 0, 0.0f, NULL};
+static const dsp_harmonic_config bypass_harmonic = {
+    .enabled = 0,
+    .mode = 2,
+    .taps = 17,
+    .exciter_enabled = 0,
+    .exciter_amount = 0.0,
+    .exciter_cutoff_hz = 6000.0,
+    .virtual_bass_enabled = 0,
+    .virtual_bass_amount = 0.0,
+    .virtual_bass_cutoff_hz = 120.0,
+    .level_match_enabled = 1,
+};
 
 static void fail(const char *message) {
     fprintf(stderr, "FAIL: %s\n", message);
@@ -57,7 +73,8 @@ static dsp_engine *create_test_engine(
         NULL,
         0,
         &bypass_spatial,
-        &bypass_convolver);
+        &bypass_convolver,
+        &bypass_harmonic);
 }
 
 static dsp_engine *create_test_engine_with_dynamics(
@@ -80,7 +97,8 @@ static dsp_engine *create_test_engine_with_dynamics(
         NULL,
         0,
         &bypass_spatial,
-        &bypass_convolver);
+        &bypass_convolver,
+        &bypass_harmonic);
 }
 
 static dsp_engine *create_test_engine_with_multiband(
@@ -103,7 +121,8 @@ static dsp_engine *create_test_engine_with_multiband(
         NULL,
         0,
         &bypass_spatial,
-        &bypass_convolver);
+        &bypass_convolver,
+        &bypass_harmonic);
 }
 
 static dsp_engine *create_test_engine_with_spatial(
@@ -130,7 +149,8 @@ static dsp_engine *create_test_engine_with_spatial(
         mono_bass_coefficients,
         mono_bass_coefficient_count,
         spatial_config,
-        &bypass_convolver);
+        &bypass_convolver,
+        &bypass_harmonic);
 }
 
 static dsp_engine *create_test_engine_with_convolver(
@@ -153,7 +173,8 @@ static dsp_engine *create_test_engine_with_convolver(
         NULL,
         0,
         &bypass_spatial,
-        convolver_config);
+        convolver_config,
+        &bypass_harmonic);
 }
 
 static dsp_engine *create_test_engine_with_dynamic_eq(
@@ -176,7 +197,32 @@ static dsp_engine *create_test_engine_with_dynamic_eq(
         NULL,
         0,
         &bypass_spatial,
-        &bypass_convolver);
+        &bypass_convolver,
+        &bypass_harmonic);
+}
+
+static dsp_engine *create_test_engine_with_harmonic(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_harmonic_config *harmonic_config) {
+    return dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        &bypass_convolver,
+        harmonic_config);
 }
 
 static void assert_true(int condition, const char *message) {
@@ -257,7 +303,7 @@ static void test_bad_handles_arguments_and_capacities(void) {
     assert_true(create_test_engine(48000, 2, 512, 0.0, NULL, 16) == NULL, "too many filters are rejected");
     assert_true(
         dsp_engine_create(48000, 2, 512, 0.0, NULL, 0, NULL, &bypass_multiband, &bypass_dynamic_eq, NULL, 0, NULL, 0,
-            &bypass_spatial, &bypass_convolver) == NULL,
+            &bypass_spatial, &bypass_convolver, &bypass_harmonic) == NULL,
         "missing dynamics configuration is rejected");
 }
 
@@ -739,8 +785,63 @@ static double measure_sine_gain(dsp_engine *engine, double frequency, int channe
     return measure_sine_gain_with_amplitude(engine, frequency, channels, 0.1);
 }
 
+static double measure_output_tone_component_at_rate_with_amplitude(
+    dsp_engine *engine,
+    int sample_rate,
+    double input_frequency,
+    double output_frequency,
+    double input_amplitude) {
+    double sine_sum = 0.0;
+    double cosine_sum = 0.0;
+    size_t measured = 0;
+    size_t frame = 0;
+    while (frame < (size_t)sample_rate) {
+        const size_t frames = (size_t)sample_rate - frame < 512 ?
+            (size_t)sample_rate - frame : 512;
+        float input[1024];
+        float output[1024];
+        for (size_t index = 0; index < frames; index++) {
+            const float sample = (float)(input_amplitude * sin(2.0 * 3.14159265358979323846 * input_frequency *
+                (double)(frame + index) / sample_rate));
+            input[index * 2] = sample;
+            input[index * 2 + 1] = -sample;
+        }
+        assert_true(
+            dsp_engine_process(engine, input, frames * 2, output, frames * 2, (int)frames, 2) == DSP_STATUS_OK,
+            "harmonic alias measurement block processes");
+        for (size_t index = 0; index < frames; index++) {
+            const size_t absolute_frame = frame + index;
+            if (absolute_frame < 4096) continue;
+            const double phase = 2.0 * 3.14159265358979323846 * output_frequency *
+                (double)absolute_frame / sample_rate;
+            sine_sum += output[index * 2] * sin(phase);
+            cosine_sum += output[index * 2] * cos(phase);
+            measured++;
+        }
+        frame += frames;
+    }
+    return measured > 0 ? 2.0 * sqrt(sine_sum * sine_sum + cosine_sum * cosine_sum) / measured : 0.0;
+}
+
+static double measure_output_tone_component_at_rate(
+    dsp_engine *engine,
+    int sample_rate,
+    double input_frequency,
+    double output_frequency) {
+    return measure_output_tone_component_at_rate_with_amplitude(
+        engine, sample_rate, input_frequency, output_frequency, 0.5);
+}
+
+static double measure_output_tone_component(dsp_engine *engine, double input_frequency, double output_frequency) {
+    return measure_output_tone_component_at_rate(engine, 48000, input_frequency, output_frequency);
+}
+
 static void test_spatial_width_and_mono_input_behavior(void) {
-    const dsp_spatial_config mono_width = {0.0, 0, 120};
+    const dsp_spatial_config mono_width = {
+        .width = 0.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *mono_engine = create_test_engine_with_spatial(48000, 2, 2, &mono_width, NULL, 0, NULL, 0);
     assert_true(mono_engine != NULL, "width zero graph creates");
     const float stereo[] = {1.0f, -1.0f, 0.5f, 0.5f};
@@ -754,7 +855,11 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     assert_near(output[3], 0.5, 0.0, "width zero keeps mono input right");
     dsp_engine_destroy(mono_engine);
 
-    const dsp_spatial_config default_width = {1.0, 0, 120};
+    const dsp_spatial_config default_width = {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *identity_engine = create_test_engine_with_spatial(
         48000, 2, 1, &default_width, NULL, 0, NULL, 0);
     assert_true(identity_engine != NULL, "width one graph creates");
@@ -767,7 +872,11 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     assert_near(identity_output[1], identity_input[1], 0.0, "width one is identity right");
     dsp_engine_destroy(identity_engine);
 
-    const dsp_spatial_config double_width = {2.0, 0, 120};
+    const dsp_spatial_config double_width = {
+        .width = 2.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *wide_engine = create_test_engine_with_spatial(48000, 2, 1, &double_width, NULL, 0, NULL, 0);
     assert_true(wide_engine != NULL, "width two graph creates");
     const float anti_phase[] = {0.5f, -0.5f};
@@ -782,7 +891,11 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     const double high_pass[DSP_BIQUAD_COEFFICIENT_COUNT] = {
         1.0, 0.0, 0.0, 0.0, 0.0,
     };
-    const dsp_spatial_config wide_mono = {2.0, 1, 120};
+    const dsp_spatial_config wide_mono = {
+        .width = 2.0,
+        .mono_bass_enabled = 1,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *mono_input_engine = create_test_engine_with_spatial(
         48000,
         1,
@@ -825,10 +938,133 @@ static void test_spatial_width_and_mono_input_behavior(void) {
     dsp_engine_destroy(non_finite_engine);
 }
 
+static void test_spatial_seat_alignment_and_latency(void) {
+    const dsp_spatial_config near_left = {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+        .seat_enabled = 1,
+        .seat_near_speaker = DSP_SPATIAL_NEAR_LEFT,
+        .seat_distance_difference_cm = 34300.0 * 2.0 / 48000.0,
+    };
+    dsp_engine *integer_delay = create_test_engine_with_spatial(
+        48000, 2, 4, &near_left, NULL, 0, NULL, 0);
+    assert_true(integer_delay != NULL, "left-speaker seat delay graph creates");
+    assert_true(dsp_engine_get_latency_frames(integer_delay) == 0,
+        "interchannel seat delay is excluded from common transport latency");
+    assert_near(dsp_engine_get_interchannel_relative_delay_frames(integer_delay), 2.0, 0.0,
+        "integer seat delay is reported as interchannel-relative latency");
+    const float impulse[] = {1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    float output[8] = {0};
+    assert_true(
+        dsp_engine_process(integer_delay, impulse, 8, output, 8, 4, 2) == DSP_STATUS_OK,
+        "integer seat delay processes stereo frames");
+    assert_near(output[0], 0.0, 0.0, "near left is delayed at frame zero");
+    assert_near(output[2], 0.0, 0.0, "near left is delayed at frame one");
+    assert_near(output[4], 1.0, 1e-6, "near left arrives at the aligned frame");
+    assert_true(dsp_engine_reset(integer_delay) == DSP_STATUS_OK, "seat delay ring resets");
+    for (size_t index = 0; index < 8; index++) output[index] = 0.0f;
+    assert_true(
+        dsp_engine_process(integer_delay, impulse, 8, output, 8, 4, 2) == DSP_STATUS_OK,
+        "reset seat delay processes a fresh block");
+    assert_near(output[4], 1.0, 1e-6, "reset seat delay restarts from a clean ring");
+    dsp_engine_destroy(integer_delay);
+
+    dsp_spatial_config fractional = near_left;
+    fractional.seat_distance_difference_cm = 34300.0 * 1.5 / 48000.0;
+    dsp_engine *fractional_delay = create_test_engine_with_spatial(
+        48000, 2, 3, &fractional, NULL, 0, NULL, 0);
+    assert_true(fractional_delay != NULL, "fractional seat delay graph creates");
+    assert_true(dsp_engine_get_latency_frames(fractional_delay) == 0,
+        "fractional seat delay is excluded from common transport latency");
+    assert_near(dsp_engine_get_interchannel_relative_delay_frames(fractional_delay), 1.5, 1e-6,
+        "fractional seat delay retains its exact relative value");
+    const float stereo_impulse[] = {1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    float fractional_output[6] = {0};
+    assert_true(
+        dsp_engine_process(fractional_delay, stereo_impulse, 6, fractional_output, 6, 3, 2) == DSP_STATUS_OK,
+        "fractional seat delay processes stereo frames");
+    assert_near(fractional_output[0], 0.0, 0.0, "fractional near channel starts with silence");
+    assert_near(fractional_output[2], 1.0 / 3.0, 1e-6, "fractional allpass starts at the expected first tap");
+    assert_near(fractional_output[4], 8.0 / 9.0, 1e-6, "fractional allpass preserves its recursive tail");
+    assert_near(fractional_output[1], 1.0, 0.0, "far channel remains undelayed");
+    dsp_engine_destroy(fractional_delay);
+
+    dsp_spatial_config fractional_half_frame = near_left;
+    fractional_half_frame.seat_distance_difference_cm = 34300.0 * 0.5 / 48000.0;
+    const double frequencies[] = {1000.0, 5000.0, 10000.0, 18000.0, 20000.0};
+    for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
+        dsp_engine *allpass = create_test_engine_with_spatial(
+            48000, 2, 512, &fractional_half_frame, NULL, 0, NULL, 0);
+        assert_true(allpass != NULL, "fractional allpass response graph creates");
+        assert_near(measure_sine_gain(allpass, frequencies[index], 2), 1.0, 1e-4,
+            "fractional seat delay preserves near-speaker high-frequency magnitude");
+        dsp_engine_destroy(allpass);
+    }
+
+    const dsp_spatial_config trims = {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+        .seat_enabled = 1,
+        .seat_near_speaker = DSP_SPATIAL_NEAR_CENTER,
+        .seat_left_trim_db = 6.0,
+        .seat_right_trim_db = -6.0,
+        .seat_invert_left = 1,
+    };
+    dsp_engine *trim_engine = create_test_engine_with_spatial(48000, 2, 1, &trims, NULL, 0, NULL, 0);
+    assert_true(trim_engine != NULL, "seat trims and polarity graph creates");
+    const float trim_input[] = {0.1f, 0.1f};
+    float trim_output[2] = {0};
+    assert_true(
+        dsp_engine_process(trim_engine, trim_input, 2, trim_output, 2, 1, 2) == DSP_STATUS_OK,
+        "seat trims and polarity process stereo frames");
+    assert_near(trim_output[0], -0.1 * pow(10.0, 6.0 / 20.0), 1e-6,
+        "left trim applies independent gain and polarity");
+    assert_near(trim_output[1], 0.1 * pow(10.0, -6.0 / 20.0), 1e-6,
+        "right trim applies independent gain");
+    dsp_engine_destroy(trim_engine);
+
+    dsp_engine *mono = create_test_engine_with_spatial(48000, 1, 1, &near_left, NULL, 0, NULL, 0);
+    assert_true(mono != NULL, "mono stream safely ignores stereo seat alignment");
+    assert_true(dsp_engine_get_latency_frames(mono) == 0, "mono seat alignment adds no common latency");
+    assert_near(dsp_engine_get_interchannel_relative_delay_frames(mono), 0.0, 0.0,
+        "mono seat alignment adds no interchannel delay");
+    const float mono_sample[] = {0.25f};
+    float mono_output[1] = {0};
+    assert_true(
+        dsp_engine_process(mono, mono_sample, 1, mono_output, 1, 1, 1) == DSP_STATUS_OK,
+        "mono seat alignment bypass processes");
+    assert_near(mono_output[0], mono_sample[0], 0.0, "mono seat alignment preserves the sample");
+    dsp_engine_destroy(mono);
+
+    const float unit_ir[] = {1.0f};
+    const dsp_convolver_config unit_config = {1, 48000, 1, 1, 1, 1.0f, unit_ir};
+    dsp_engine *combined = dsp_engine_create(
+        48000, 2, 4, 0.0, NULL, 0, &bypass_dynamics, &bypass_multiband, &bypass_dynamic_eq,
+        NULL, 0, NULL, 0, &near_left, &unit_config, &bypass_harmonic);
+    assert_true(combined != NULL, "seat delay and convolver graph creates");
+    assert_true(dsp_engine_get_latency_frames(combined) == DSP_CONVOLVER_PARTITION_FRAMES,
+        "common transport latency includes the convolver only");
+    assert_near(dsp_engine_get_interchannel_relative_delay_frames(combined), 2.0, 0.0,
+        "relative seat delay remains separate from common convolver latency");
+    dsp_engine_destroy(combined);
+
+    dsp_spatial_config invalid = near_left;
+    invalid.seat_distance_difference_cm = 171.51;
+    dsp_engine *invalid_engine = create_test_engine_with_spatial(
+        48000, 2, 4, &invalid, NULL, 0, NULL, 0);
+    assert_true(invalid_engine == NULL, "seat delay beyond the five-millisecond cap is rejected");
+}
+
 static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
     double bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
     design_low_shelf(48000.0, 80.0, 6.0, bass_coefficients);
-    const dsp_spatial_config width_one = {1.0, 0, 120};
+    const dsp_spatial_config width_one = {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+    };
     dsp_engine *low_bass = create_test_engine_with_spatial(
         48000, 1, 512, &width_one, bass_coefficients, 1, NULL, 0);
     assert_true(low_bass != NULL, "low shelf graph creates");
@@ -844,7 +1080,11 @@ static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
 
     double high_pass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
     design_high_pass(48000.0, 120.0, 0.7071067811865476, high_pass_coefficients);
-    const dsp_spatial_config mono_bass = {1.0, 1, 120};
+    const dsp_spatial_config mono_bass = {
+        .width = 1.0,
+        .mono_bass_enabled = 1,
+        .mono_bass_cutoff_hz = 120,
+    };
     const double frequencies[] = {30.0, 60.0, 120.0, 1000.0};
     for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
         dsp_engine *engine = create_test_engine_with_spatial(
@@ -859,6 +1099,399 @@ static void test_spatial_bass_shelf_and_mono_bass_frequency_response(void) {
             "mono bass filters side energy with a Butterworth slope");
         dsp_engine_destroy(engine);
     }
+}
+
+static dsp_spatial_config make_advanced_ms_config(void) {
+    return (dsp_spatial_config) {
+        .width = 1.0,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+        .advanced_ms = {
+            .enabled = 1,
+            .crossover_hz = 250.0,
+            .center_focus_db = 0.0,
+            .mid_low_gain_db = 0.0,
+            .mid_high_gain_db = 0.0,
+            .side_low_gain_db = 0.0,
+            .side_high_gain_db = 0.0,
+            .low_band_width = 1.0,
+            .high_band_width = 1.0,
+            .side_compressor_enabled = 0,
+            .side_compressor_threshold_db = -24.0,
+            .side_compressor_ratio = 2.0,
+            .side_compressor_attack_ms = 10.0,
+            .side_compressor_release_ms = 100.0,
+            .side_compressor_knee_db = 6.0,
+        },
+    };
+}
+
+static dsp_harmonic_config make_harmonic_config(void) {
+    dsp_harmonic_config config = bypass_harmonic;
+    config.enabled = 1;
+    config.exciter_enabled = 1;
+    config.exciter_amount = 0.25;
+    config.exciter_cutoff_hz = 4000.0;
+    return config;
+}
+
+static void test_harmonic_engine_latency_oversampling_modes_and_alias_rejection(void) {
+    const float identity_input[] = {0.25f, -0.5f, 0.75f, -1.0f};
+    float identity_output[4] = {0};
+    dsp_engine *legacy = create_test_engine(48000, 2, 2, 0.0, NULL, 0);
+    dsp_engine *disabled = create_test_engine_with_harmonic(48000, 2, 2, &bypass_harmonic);
+    assert_true(legacy != NULL && disabled != NULL, "disabled harmonic reference graphs create");
+    assert_true(dsp_engine_process(legacy, identity_input, 4, identity_output, 4, 2, 2) == DSP_STATUS_OK,
+        "legacy DSP reference block processes");
+    float disabled_output[4] = {0};
+    assert_true(dsp_engine_process(disabled, identity_input, 4, disabled_output, 4, 2, 2) == DSP_STATUS_OK,
+        "disabled harmonic block processes");
+    for (size_t index = 0; index < 4; index++) {
+        assert_near(disabled_output[index], identity_output[index], 0.0,
+            "disabled harmonic preserves the existing PCM-float path");
+    }
+    assert_true(dsp_engine_get_latency_frames(disabled) == 0, "disabled harmonic adds no latency");
+    dsp_engine_destroy(legacy);
+    dsp_engine_destroy(disabled);
+
+    const int qualities[] = {9, 17, 33};
+    const int expected_latencies[] = {4, 8, 16};
+    for (size_t index = 0; index < sizeof(qualities) / sizeof(qualities[0]); index++) {
+        dsp_harmonic_config config = make_harmonic_config();
+        config.taps = qualities[index];
+        dsp_engine *engine = create_test_engine_with_harmonic(48000, 2, 32, &config);
+        assert_true(engine != NULL, "quality-specific harmonic graph creates");
+        assert_true(dsp_engine_get_latency_frames(engine) == expected_latencies[index],
+            "2x FIR group delay is reported in input frames");
+        dsp_engine_destroy(engine);
+    }
+
+    dsp_harmonic_config chunk_config = make_harmonic_config();
+    chunk_config.taps = 17;
+    dsp_engine *whole = create_test_engine_with_harmonic(48000, 2, 256, &chunk_config);
+    dsp_engine *split = create_test_engine_with_harmonic(48000, 2, 256, &chunk_config);
+    assert_true(whole != NULL && split != NULL, "harmonic chunk-invariance graphs create");
+    float input[512];
+    float whole_output[512] = {0};
+    float split_output[512] = {0};
+    for (size_t frame = 0; frame < 256; frame++) {
+        const float sample = (float)(0.45 * sin(2.0 * 3.14159265358979323846 * 997.0 * frame / 48000.0));
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = -sample;
+    }
+    assert_true(dsp_engine_process(whole, input, 512, whole_output, 512, 256, 2) == DSP_STATUS_OK,
+        "whole harmonic block processes");
+    assert_true(dsp_engine_process(split, input, 154, split_output, 154, 77, 2) == DSP_STATUS_OK,
+        "first harmonic split processes");
+    assert_true(dsp_engine_process(split, input + 154, 358, split_output + 154, 358, 179, 2) == DSP_STATUS_OK,
+        "second harmonic split processes");
+    for (size_t index = 0; index < 512; index++) {
+        assert_near(whole_output[index], split_output[index], 1e-7, "harmonic output is block invariant");
+    }
+    dsp_engine_destroy(whole);
+    dsp_engine_destroy(split);
+
+    dsp_harmonic_config even_config = make_harmonic_config();
+    even_config.mode = 0;
+    even_config.taps = 33;
+    even_config.exciter_cutoff_hz = 1000.0;
+    dsp_engine *even_engine = create_test_engine_with_harmonic(48000, 2, 512, &even_config);
+    dsp_harmonic_config odd_config = even_config;
+    odd_config.mode = 1;
+    dsp_engine *odd_engine = create_test_engine_with_harmonic(48000, 2, 512, &odd_config);
+    assert_true(even_engine != NULL && odd_engine != NULL, "even and odd harmonic graphs create");
+    assert_true(measure_output_tone_component(even_engine, 1000.0, 2000.0) > 0.005,
+        "even mode creates a measured second harmonic");
+    assert_true(measure_output_tone_component(odd_engine, 1000.0, 3000.0) > 0.001,
+        "odd mode creates a measured third harmonic");
+    dsp_engine_destroy(even_engine);
+    dsp_engine_destroy(odd_engine);
+
+    dsp_harmonic_config alias_config = make_harmonic_config();
+    alias_config.mode = 1;
+    alias_config.taps = 33;
+    alias_config.exciter_cutoff_hz = 4000.0;
+    dsp_engine *alias_engine = create_test_engine_with_harmonic(48000, 2, 512, &alias_config);
+    assert_true(alias_engine != NULL, "high-quality harmonic alias graph creates");
+    const double alias_level = measure_output_tone_component(alias_engine, 14000.0, 6000.0);
+    const double fundamental_level = measure_output_tone_component(alias_engine, 14000.0, 14000.0);
+    assert_true(alias_level < fundamental_level * 0.03,
+        "2x FIR oversampling rejects the folded third-harmonic alias");
+    dsp_engine_destroy(alias_engine);
+
+    const int sample_rates[] = {44100, 48000};
+    const int alias_taps[] = {9, 17, 33};
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        const double input_frequency = sample_rate == 44100 ? 13500.0 : 15000.0;
+        for (int mode = 0; mode <= 2; mode++) {
+            for (size_t quality_index = 0; quality_index < sizeof(alias_taps) / sizeof(alias_taps[0]); quality_index++) {
+                dsp_harmonic_config alias_sweep = make_harmonic_config();
+                alias_sweep.mode = mode;
+                alias_sweep.taps = alias_taps[quality_index];
+                alias_sweep.exciter_amount = 0.5;
+                alias_sweep.exciter_cutoff_hz = 6000.0;
+                dsp_engine *swept_engine = create_test_engine_with_harmonic(sample_rate, 2, 512, &alias_sweep);
+                assert_true(swept_engine != NULL, "harmonic alias sweep graph creates");
+                const double harmonic_order = mode == 0 ? 2.0 : mode == 1 ? 3.0 : 2.0;
+                const double folded_alias = fabs(sample_rate - harmonic_order * input_frequency);
+                const double swept_alias_level = measure_output_tone_component_at_rate(
+                    swept_engine, sample_rate, input_frequency, folded_alias);
+                const double swept_fundamental_level = measure_output_tone_component_at_rate(
+                    swept_engine, sample_rate, input_frequency, input_frequency);
+                assert_true(swept_fundamental_level > 1e-4,
+                    "harmonic alias sweep retains a measurable fundamental");
+                assert_true(swept_alias_level < swept_fundamental_level * 0.05,
+                    "ADAA harmonic processing keeps folded alias below -26 dBc across modes and FIR qualities");
+                dsp_engine_destroy(swept_engine);
+            }
+        }
+    }
+
+    const double exciter_frequencies[] = {1000.0, 8000.0, 12000.0, 15000.0};
+    const double fundamental_amplitudes[] = {0.001, 0.05, 0.45, 0.9};
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        for (int mode = 0; mode <= 2; mode++) {
+            for (size_t quality_index = 0; quality_index < sizeof(alias_taps) / sizeof(alias_taps[0]); quality_index++) {
+                dsp_harmonic_config exciter = make_harmonic_config();
+                exciter.mode = mode;
+                exciter.taps = alias_taps[quality_index];
+                exciter.exciter_amount = 0.5;
+                exciter.exciter_cutoff_hz = 2000.0;
+                exciter.level_match_enabled = 0;
+                dsp_engine *engine = create_test_engine_with_harmonic(sample_rate, 2, 512, &exciter);
+                assert_true(engine != NULL, "harmonic exciter gain-sweep graph creates");
+                for (size_t amplitude_index = 0;
+                    amplitude_index < sizeof(fundamental_amplitudes) / sizeof(fundamental_amplitudes[0]);
+                    amplitude_index++) {
+                    const double amplitude = fundamental_amplitudes[amplitude_index];
+                    for (size_t frequency_index = 0;
+                        frequency_index < sizeof(exciter_frequencies) / sizeof(exciter_frequencies[0]);
+                        frequency_index++) {
+                        const double frequency = exciter_frequencies[frequency_index];
+                        const double fundamental = measure_output_tone_component_at_rate_with_amplitude(
+                            engine, sample_rate, frequency, frequency, amplitude);
+                        if (amplitude <= 0.05) {
+                            assert_near(fundamental, amplitude, amplitude * 0.05,
+                                "low-level harmonic exciter preserves the original fundamental");
+                        } else {
+                            assert_true(fundamental >= amplitude * 0.95,
+                                "high-level harmonic exciter does not attenuate the original fundamental");
+                        }
+                    }
+                }
+                dsp_engine_destroy(engine);
+            }
+        }
+    }
+
+    const double maximum_level_frequencies[] = {
+        13500.0, 15000.0, 17000.0, 18500.0, 19500.0, 20000.0, 20400.0,
+    };
+    const double exciter_cutoffs[] = {6000.0, 12000.0, 18000.0};
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        for (size_t frequency_index = 0;
+            frequency_index < sizeof(maximum_level_frequencies) / sizeof(maximum_level_frequencies[0]);
+            frequency_index++) {
+            const double input_frequency = maximum_level_frequencies[frequency_index];
+            if (input_frequency >= sample_rate * 0.5) continue;
+            for (size_t cutoff_index = 0;
+                cutoff_index < sizeof(exciter_cutoffs) / sizeof(exciter_cutoffs[0]);
+                cutoff_index++) {
+                for (int mode = 0; mode <= 2; mode++) {
+                    for (size_t quality_index = 0;
+                        quality_index < sizeof(alias_taps) / sizeof(alias_taps[0]);
+                        quality_index++) {
+                        dsp_harmonic_config max_level = make_harmonic_config();
+                        max_level.mode = mode;
+                        max_level.taps = alias_taps[quality_index];
+                        max_level.exciter_amount = 0.5;
+                        max_level.exciter_cutoff_hz = exciter_cutoffs[cutoff_index];
+                        max_level.level_match_enabled = 0;
+                        dsp_engine *engine = create_test_engine_with_harmonic(sample_rate, 2, 512, &max_level);
+                        assert_true(engine != NULL, "maximum-level harmonic graph creates");
+                        const double fundamental = measure_output_tone_component_at_rate_with_amplitude(
+                            engine, sample_rate, input_frequency, input_frequency, 0.9);
+                        const int first_order = mode == 1 ? 3 : 2;
+                        const int last_order = mode == 2 ? 3 : first_order;
+                        for (int harmonic_order = first_order; harmonic_order <= last_order; harmonic_order++) {
+                            const double alias_frequency = fabs(sample_rate - harmonic_order * input_frequency);
+                            const double alias = measure_output_tone_component_at_rate_with_amplitude(
+                                engine, sample_rate, input_frequency, alias_frequency, 0.9);
+                            char alias_message[256];
+                            snprintf(alias_message, sizeof(alias_message),
+                                "upper-band alias Fs=%d input=%.0fHz cutoff=%.0fHz mode=%d taps=%d order=%d ratio=%.5f",
+                                sample_rate, input_frequency, exciter_cutoffs[cutoff_index], mode,
+                                alias_taps[quality_index], harmonic_order,
+                                fundamental > 0.0 ? alias / fundamental : INFINITY);
+                            assert_true(alias < fundamental * 0.05, alias_message);
+                        }
+                        dsp_engine_destroy(engine);
+                    }
+                }
+            }
+        }
+    }
+
+    const float unit_ir[] = {1.0f};
+    const dsp_convolver_config unit_config = {1, 48000, 1, 1, 1, 1.0f, unit_ir};
+    dsp_harmonic_config convolved_config = make_harmonic_config();
+    convolved_config.taps = 17;
+    dsp_engine *combined = dsp_engine_create(
+        48000, 2, 32, 0.0, NULL, 0, &bypass_dynamics, &bypass_multiband, &bypass_dynamic_eq,
+        NULL, 0, NULL, 0, &bypass_spatial, &unit_config, &convolved_config);
+    assert_true(combined != NULL, "harmonic and convolver graph creates");
+    assert_true(dsp_engine_get_latency_frames(combined) == DSP_CONVOLVER_PARTITION_FRAMES + 8,
+        "harmonic FIR latency sums with convolver latency");
+    dsp_engine_destroy(combined);
+}
+
+static void test_advanced_ms_crossover_mono_side_dynamics_and_limiter(void) {
+    dsp_spatial_config neutral = make_advanced_ms_config();
+    dsp_spatial_config legacy_identity = neutral;
+    legacy_identity.advanced_ms.enabled = 0;
+    dsp_engine *identity_engine = create_test_engine_with_spatial(48000, 2, 512, &legacy_identity, NULL, 0, NULL, 0);
+    dsp_engine *neutral_engine = create_test_engine_with_spatial(48000, 2, 512, &neutral, NULL, 0, NULL, 0);
+    assert_true(identity_engine != NULL && neutral_engine != NULL, "neutral M/S identity graphs create");
+    float identity_input[1024];
+    float identity_output[1024] = {0};
+    float neutral_output[1024] = {0};
+    for (size_t frame = 0; frame < 512; frame++) {
+        identity_input[frame * 2] = (float)(0.25 * sin(2.0 * 3.14159265358979323846 * 1300.0 * frame / 48000.0));
+        identity_input[frame * 2 + 1] = (float)(0.2 * cos(2.0 * 3.14159265358979323846 * 4700.0 * frame / 48000.0));
+    }
+    assert_true(dsp_engine_process(identity_engine, identity_input, 1024, identity_output, 1024, 512, 2) == DSP_STATUS_OK,
+        "legacy identity spatial graph processes");
+    assert_true(dsp_engine_process(neutral_engine, identity_input, 1024, neutral_output, 1024, 512, 2) == DSP_STATUS_OK,
+        "neutral M/S identity graph processes");
+    for (size_t index = 0; index < 1024; index++) {
+        assert_near(neutral_output[index], identity_output[index], 0.0,
+            "neutral Advanced M/S is byte-exact to the legacy identity path");
+    }
+    dsp_engine_destroy(identity_engine);
+    dsp_engine_destroy(neutral_engine);
+
+    dsp_engine *engine = create_test_engine_with_spatial(48000, 2, 512, &neutral, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "advanced M/S neutral graph creates");
+    const double frequencies[] = {30.0, 60.0, 120.0, 250.0, 500.0, 2000.0, 10000.0, 20000.0};
+    for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
+        assert_near(measure_sine_gain(engine, frequencies[index], 2), 1.0, 0.025,
+            "neutral LR4 crossover has flat reconstructed magnitude");
+        assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "M/S crossover state resets between tones");
+    }
+    dsp_engine_destroy(engine);
+
+    dsp_spatial_config band_width = make_advanced_ms_config();
+    band_width.width = 0.0;
+    band_width.advanced_ms.low_band_width = 0.0;
+    band_width.advanced_ms.high_band_width = 1.0;
+    engine = create_test_engine_with_spatial(48000, 2, 512, &band_width, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "band-dependent M/S width graph creates");
+    assert_true(measure_sine_gain(engine, 60.0, 2) < 0.04,
+        "low Side energy is collapsed by the low-band width control");
+    assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "M/S width graph resets before high-band tone");
+    assert_true(measure_sine_gain(engine, 4000.0, 2) > 0.95,
+        "high Side energy remains at unity width");
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_spatial(48000, 2, 4, &band_width, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "M/S mono-compatibility graph creates");
+    const float mono_input[] = {0.1f, 0.1f, -0.2f, -0.2f, 0.3f, 0.3f, -0.4f, -0.4f};
+    float mono_output[8] = {0};
+    assert_true(dsp_engine_process(engine, mono_input, 8, mono_output, 8, 4, 2) == DSP_STATUS_OK,
+        "mono-compatible M/S block processes");
+    for (size_t frame = 0; frame < 4; frame++) {
+        assert_near(mono_output[frame * 2], mono_output[frame * 2 + 1], 1e-7,
+            "Side width controls do not create output from mono input");
+    }
+    dsp_engine_destroy(engine);
+
+    engine = create_test_engine_with_spatial(48000, 2, 4, &band_width, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "M/S antiphase graph creates");
+    const float antiphase_input[] = {0.1f, -0.1f, -0.2f, 0.2f, 0.3f, -0.3f, -0.4f, 0.4f};
+    float antiphase_output[8] = {0};
+    assert_true(dsp_engine_process(engine, antiphase_input, 8, antiphase_output, 8, 4, 2) == DSP_STATUS_OK,
+        "antiphase-compatible M/S block processes");
+    for (size_t frame = 0; frame < 4; frame++) {
+        assert_near(antiphase_output[frame * 2], -antiphase_output[frame * 2 + 1], 1e-7,
+            "matched M/S crossover phase preserves antiphase separation");
+    }
+    dsp_engine_destroy(engine);
+
+    dsp_spatial_config compressed = make_advanced_ms_config();
+    compressed.advanced_ms.side_compressor_enabled = 1;
+    compressed.advanced_ms.side_compressor_threshold_db = -30.0;
+    compressed.advanced_ms.side_compressor_ratio = 4.0;
+    dsp_engine *side_compressor = create_test_engine_with_spatial(
+        48000, 2, 512, &compressed, NULL, 0, NULL, 0);
+    engine = create_test_engine_with_spatial(48000, 2, 512, &neutral, NULL, 0, NULL, 0);
+    assert_true(side_compressor != NULL && engine != NULL, "Side compressor and reference graphs create");
+    const double compressed_gain = measure_sine_gain_with_amplitude(side_compressor, 1000.0, 2, 0.8);
+    const double uncompressed_gain = measure_sine_gain_with_amplitude(engine, 1000.0, 2, 0.8);
+    assert_true(compressed_gain < uncompressed_gain * 0.75,
+        "optional Side compressor reduces sustained over-threshold Side energy");
+    dsp_engine_destroy(side_compressor);
+    dsp_engine_destroy(engine);
+
+    dsp_spatial_config wide = make_advanced_ms_config();
+    wide.advanced_ms.low_band_width = 2.0;
+    wide.advanced_ms.high_band_width = 2.0;
+    dsp_dynamics_config limiter = bypass_dynamics;
+    limiter.limiter_enabled = 1;
+    limiter.limiter_threshold_db = -1.0;
+    dsp_engine *limited = dsp_engine_create(
+        48000, 2, 16, 0.0, NULL, 0, &limiter, &bypass_multiband, &bypass_dynamic_eq,
+        NULL, 0, NULL, 0, &wide, &bypass_convolver, &bypass_harmonic);
+    assert_true(limited != NULL, "advanced M/S with final limiter graph creates");
+    const float antiphase[] = {0.8f, -0.8f, 0.8f, -0.8f, 0.8f, -0.8f, 0.8f, -0.8f};
+    float limited_output[8] = {0};
+    assert_true(dsp_engine_process(limited, antiphase, 8, limited_output, 8, 4, 2) == DSP_STATUS_OK,
+        "wide antiphase Side reaches the final limiter");
+    for (size_t index = 0; index < 8; index++) {
+        assert_true(fabsf(limited_output[index]) <= powf(10.0f, -1.0f / 20.0f) + 1e-5f,
+            "final limiter constrains M/S width overshoot");
+    }
+    dsp_engine_destroy(limited);
+
+    dsp_spatial_config invalid = make_advanced_ms_config();
+    invalid.advanced_ms.crossover_hz = 1001.0;
+    assert_true(create_test_engine_with_spatial(48000, 2, 8, &invalid, NULL, 0, NULL, 0) == NULL,
+        "M/S crossover outside the configured range is rejected");
+}
+
+static void test_advanced_ms_legacy_migration_is_a_starting_point(void) {
+    double mono_bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_high_pass(48000.0, 120.0, 0.7071067811865476, mono_bass_coefficients);
+    const dsp_spatial_config legacy = {
+        .width = 1.5,
+        .mono_bass_enabled = 1,
+        .mono_bass_cutoff_hz = 120,
+    };
+    dsp_spatial_config migrated = make_advanced_ms_config();
+    migrated.width = 0.0;
+    migrated.advanced_ms.crossover_hz = 120.0;
+    migrated.advanced_ms.low_band_width = 0.0;
+    migrated.advanced_ms.high_band_width = 1.5;
+    dsp_engine *legacy_engine = create_test_engine_with_spatial(
+        48000, 2, 512, &legacy, NULL, 0, mono_bass_coefficients, 1);
+    dsp_engine *migrated_engine = create_test_engine_with_spatial(
+        48000, 2, 512, &migrated, NULL, 0, NULL, 0);
+    assert_true(legacy_engine != NULL && migrated_engine != NULL, "legacy and migrated M/S graphs create");
+
+    const double legacy_at_crossover = measure_sine_gain_with_amplitude(legacy_engine, 120.0, 2, 0.1);
+    const double migrated_at_crossover = measure_sine_gain_with_amplitude(migrated_engine, 120.0, 2, 0.1);
+    assert_true(legacy_at_crossover > migrated_at_crossover * 1.25,
+        "legacy Mono Bass and migrated LR4 response differ at the crossover as documented");
+    assert_true(dsp_engine_reset(legacy_engine) == DSP_STATUS_OK, "legacy Mono Bass resets before high-band tone");
+    assert_true(dsp_engine_reset(migrated_engine) == DSP_STATUS_OK, "migrated M/S resets before high-band tone");
+    const double legacy_at_500 = measure_sine_gain_with_amplitude(legacy_engine, 500.0, 2, 0.1);
+    const double migrated_at_500 = measure_sine_gain_with_amplitude(migrated_engine, 500.0, 2, 0.1);
+    assert_near(migrated_at_500, legacy_at_500, 0.08,
+        "legacy-seeded high-band width remains close above the crossover");
+    dsp_engine_destroy(legacy_engine);
+    dsp_engine_destroy(migrated_engine);
 }
 
 static void test_multiband_unity_reconstruction_and_phase(void) {
@@ -1482,7 +2115,8 @@ static void test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass(voi
         NULL,
         0,
         &bypass_spatial,
-        &mismatched_rate);
+        &mismatched_rate,
+        &bypass_harmonic);
     assert_true(bypassed != NULL, "sample-rate-mismatched IR leaves DSP engine prepared");
     assert_true(dsp_engine_get_latency_frames(bypassed) == 0, "mismatched IR reports zero added latency");
     const float dry_input[] = {0.25f, -0.5f};
@@ -1594,7 +2228,11 @@ int main(void) {
     test_compressor_attack_and_release_steps();
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
+    test_spatial_seat_alignment_and_latency();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();
+    test_advanced_ms_crossover_mono_side_dynamics_and_limiter();
+    test_advanced_ms_legacy_migration_is_a_starting_point();
+    test_harmonic_engine_latency_oversampling_modes_and_alias_rejection();
     test_multiband_unity_reconstruction_and_phase();
     test_multiband_compression_is_band_selective();
     test_multiband_chunk_invariance_reset_and_validation();

@@ -32,6 +32,15 @@ internal class ConnectionTraceStore(private val directory: File) {
         }
     }
 
+    fun appendWiredPathReport(report: String) {
+        if (!isValidWiredPathReport(report)) return
+        runCatching {
+            executor.execute {
+                runCatching { appendLine(report) }
+            }
+        }
+    }
+
     fun snapshot(): String = runCatching {
         val result: Future<String> = executor.submit<String> {
             runCatching {
@@ -98,11 +107,82 @@ internal class ConnectionTraceStore(private val directory: File) {
         private const val CURRENT_FILE = "connection-trace.log"
         private const val MAX_BYTES = 128 * 1024L
         private const val MAX_DETAIL_CHARS = 4_096
+        private const val MAX_WIRED_PATH_REPORT_CHARS = 4_096
         private const val MAX_TRACKED_ATTEMPTS = 256
         private val ATTEMPT_ID = Regex("attempt-[a-z0-9-]{1,40}")
+        private val WIRED_PATH_RUN_ID = Regex("[A-Za-z0-9_-]{1,48}")
+        private val WIRED_PATH_REASONS = setOf("START", "SOFT_8S", "HARD_15S", "ACCEPT", "RECORD", "MAIN", "FINAL")
+        private val WIRED_PATH_EVENT_KEYS = listOf(
+            "start",
+            "ncm_usb_queue",
+            "ncm_usb_completion",
+            "ncm_ethernet_complete",
+            "ncm_ethernet_delivered",
+            "v4_syn_to_airplay",
+            "v6_syn_to_airplay",
+            "v6_syn_dest_match",
+            "v6_syn_dest_mismatch",
+            "v6_syn_dest_unverified",
+            "syn_tun_write_success",
+            "syn_tun_write_failure",
+            "tcp_syn_ack_from_tun",
+            "tcp_rst_from_tun",
+            "peer_mac_drop",
+            "syn_ack_ncm_sent",
+            "syn_ack_ncm_not_ready",
+            "syn_ack_ncm_failed",
+            "first_bulk_out_full_sent",
+            "vpn_established",
+            "listener_bound",
+            "listener_accepted",
+            "record_active",
+            "main_setup",
+            "alt_setup",
+            "main_first_frame",
+            "invalid_packet",
+            "unsupported_packet",
+            "unknown_packet",
+            "stale_callback",
+        )
         private val ARCHIVE_FILES = listOf("connection-trace-1.log", "connection-trace-2.log", "connection-trace-3.log")
         private val REPORT_FILES = ARCHIVE_FILES.reversed() + CURRENT_FILE
         private val nextId = AtomicLong()
+
+        private fun isValidWiredPathReport(report: String): Boolean {
+            if (report.length > MAX_WIRED_PATH_REPORT_CHARS) return false
+            val fields = report.split(' ')
+            if (fields.size < 2 || fields[0] != "WIRED_PATH_V1" || fields[1] != "schema=1") return false
+
+            var index = 2
+            fun readValue(expectedKey: String): String? {
+                val field = fields.getOrNull(index++) ?: return null
+                val separator = field.indexOf('=')
+                if (separator <= 0 || separator != field.lastIndexOf('=')) return null
+                if (field.substring(0, separator) != expectedKey) return null
+                return field.substring(separator + 1).takeIf(String::isNotEmpty)
+            }
+
+            if (readValue("run")?.matches(WIRED_PATH_RUN_ID) != true) return false
+            if (readValue("attempt")?.toIntOrNull()?.let { it > 0 } != true) return false
+            val generation = readValue("attach_generation") ?: return false
+            if (generation != "none" && generation.toLongOrNull()?.let { it >= 0L } != true) return false
+            val reason = readValue("reason") ?: return false
+            if (reason !in WIRED_PATH_REASONS) return false
+            val sealed = readValue("sealed") ?: return false
+            if (sealed != "0" && sealed != "1") return false
+            val counterOverflow = readValue("counter_overflow") ?: return false
+            if (counterOverflow != "0" && counterOverflow != "1") return false
+            if (readValue("checksum") != "NOT_CHECKED") return false
+
+            for (event in WIRED_PATH_EVENT_KEYS) {
+                val count = readValue(event)?.toLongOrNull()?.takeIf { it >= 0L } ?: return false
+                val first = readValue("${event}_first_ms") ?: return false
+                val firstElapsed = if (first == "none") null else first.toLongOrNull()?.takeIf { it >= 0L } ?: return false
+                if (count == 0L && firstElapsed != null) return false
+                if (sealed == "1" && count > 0L && firstElapsed == null) return false
+            }
+            return index == fields.size
+        }
 
         @Volatile private var appStore: ConnectionTraceStore? = null
 

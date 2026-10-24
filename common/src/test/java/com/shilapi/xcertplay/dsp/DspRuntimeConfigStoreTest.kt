@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.dsp
 
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.Closeable
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -35,5 +37,39 @@ class DspRuntimeConfigStoreTest {
 
         assertEquals(listOf(0L, 1L), received)
         assertEquals(2L, store.versionedSnapshot().generation)
+    }
+
+    @Test
+    fun rendererApplyStatusTracksProgressAndIgnoresStaleGenerations() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+
+        assertEquals(
+            DspRendererApplyStatus(1L, DspRendererApplyPhase.REQUESTED),
+            store.rendererApplyStatus(),
+        )
+        store.reportRendererApplyStatus(DspRendererApplyStatus(1L, DspRendererApplyPhase.PREPARING))
+        store.reportRendererApplyStatus(DspRendererApplyStatus(1L, DspRendererApplyPhase.PREPARED))
+        store.reportRendererApplyStatus(DspRendererApplyStatus(1L, DspRendererApplyPhase.DEFERRED, activeGeneration = 0L))
+        store.update(DspRuntimeConfig(enabled = false))
+        store.reportRendererApplyStatus(DspRendererApplyStatus(1L, DspRendererApplyPhase.ACTIVE, activeGeneration = 1L))
+
+        assertEquals(
+            DspRendererApplyStatus(2L, DspRendererApplyPhase.REQUESTED, activeGeneration = 0L),
+            store.rendererApplyStatus(),
+        )
+    }
+
+    @Test
+    fun activeRendererStatusCannotRegressToPrepared() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.reportRendererApplyStatus(DspRendererApplyStatus(1L, DspRendererApplyPhase.ACTIVE, activeGeneration = 1L))
+        store.reportRendererApplyStatus(DspRendererApplyStatus(1L, DspRendererApplyPhase.PREPARED))
+
+        assertEquals(
+            DspRendererApplyStatus(1L, DspRendererApplyPhase.ACTIVE, activeGeneration = 1L),
+            store.rendererApplyStatus(),
+        )
     }
 }

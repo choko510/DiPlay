@@ -593,9 +593,9 @@ internal class YoutubeBrowserController(
         try {
             action()
         } catch (error: RuntimeException) {
-            Log.w(TAG, "Gecko cleanup failed: $operation", error)
+            Log.w(TAG, "Gecko cleanup failed: $operation error=${error.javaClass.simpleName}")
         } catch (error: LinkageError) {
-            Log.w(TAG, "Gecko cleanup failed: $operation", error)
+            Log.w(TAG, "Gecko cleanup failed: $operation error=${error.javaClass.simpleName}")
         }
     }
 

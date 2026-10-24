@@ -3,6 +3,9 @@ package com.shilapi.xcertplay.dsp
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
@@ -11,6 +14,7 @@ import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig
+import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
 
 data class DspAudioProfile(
     val id: String,
@@ -28,6 +32,10 @@ data class DspAudioProfile(
     val multiband: DspMultibandConfig = DspMultibandConfig(),
     val dynamicEq: DspDynamicEqConfig = DspDynamicEqConfig(),
     val limiter: DspSafetyLimiterConfig = DspSafetyLimiterConfig(),
+    val seatAlignment: DspSeatAlignmentConfig = DspSeatAlignmentConfig(),
+    val advancedMs: DspAdvancedMsConfig = DspAdvancedMsConfig(),
+    val cabinCorrection: DspCabinCorrectionConfig = DspCabinCorrectionConfig(),
+    val harmonic: DspHarmonicConfig = DspHarmonicConfig(),
 ) {
     init {
         require(ID_PATTERN.matches(id))
@@ -50,15 +58,24 @@ data class DspAudioProfile(
         bass = bass,
         compressor = compressor,
         safetyLimiter = limiter,
+        seatAlignment = seatAlignment,
         stereoWidth = stereoWidth,
         monoBass = monoBass,
         convolver = convolver.copy(impulseResponse = impulseResponse),
         multiband = multiband,
         dynamicEq = dynamicEq,
+        advancedMs = advancedMs,
+        cabinCorrection = cabinCorrection,
+        harmonic = harmonic,
     )
 
+    fun activeEqBandCount(): Int = eqBands.count(DspEqBand::enabled) +
+        cabinCorrection.approvedEqBands().count(DspEqBand::enabled)
+
+    fun hasValidEqCapacity(): Boolean = activeEqBandCount() <= MAX_EQ_BANDS
+
     companion object {
-        const val MAX_EQ_BANDS = 15
+        const val MAX_EQ_BANDS = DspRuntimeConfig.MAX_EQ_BANDS
         private const val MAX_NAME_LENGTH = 48
         private const val MIN_PREAMP_DB = -120.0
         private const val MAX_PREAMP_DB = 24.0

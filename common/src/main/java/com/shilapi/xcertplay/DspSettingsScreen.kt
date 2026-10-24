@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -39,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -303,8 +305,15 @@ internal fun DspSettingsScreen(
     val showBasic = !compact || compactSection == DspCompactSection.BASIC
     val showEq = (compact && compactSection == DspCompactSection.EQ) || (!compact && advanced)
     val showAdvanced = (compact && compactSection == DspCompactSection.ADVANCED) || (!compact && advanced)
+    val compactHeightCap = LocalConfiguration.current.screenHeightDp.coerceAtLeast(1).dp
 
     Scaffold(
+        modifier = if (compact) {
+            // Cap an unbounded OEM pane to the current window before its body creates a scroll viewport.
+            Modifier.heightIn(max = compactHeightCap).fillMaxSize()
+        } else {
+            Modifier.fillMaxSize()
+        },
         topBar = {
             if (compact) {
                 Column(modifier = Modifier.fillMaxWidth()) {

@@ -490,3 +490,7 @@ For SurfaceTexture teardown, an asynchronous `SurfaceChanged(null)` enqueue is n
 When a native DSP process fails after its fallback state has advanced for the current block, apply only the missing Seat gain/polarity to that already-delayed fallback output, then apply it once per subsequent block. Precompute gains off the audio callback and keep master OFF on a separate dry path.
 
 For lock-free worker retirement failures, decrement only the in-flight count in `finally` and keep a separate failure state; otherwise a failed native close can falsely reopen the pipeline-adoption gate. Test post-inspection getters and callback publication as well as the primary preparer exception.
+
+When Compose scroll crashes with an infinite maximum height in a local split pane, a current-window configuration cap can provide a finite dynamic upper bound without hard-coded display dimensions. Verify the originating Android measure path and real pane rendering on target hardware before claiming the crash fixed.
+
+For a connection-enabled APK build, verify both packaging layers independently: expected MFi asset entry names inside every ABI APK and the Android APK signature schemes. Successful packaging and signature checks do not prove a new physical head-unit connection.

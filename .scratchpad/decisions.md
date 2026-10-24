@@ -639,3 +639,7 @@ Keep TextureView SurfaceTexture ownership until each MAIN/ALT decoder worker ack
 Keep video control/recovery work bounded and coalesce superseded surface/config jobs while carrying every surface-retirement callback forward. Scope one in-flight keyframe recovery request per stream type and bound the executor to two workers plus 16 queued jobs.
 
 Treat one DSP preparation generation as a single ownership scope: getter/publish exceptions close an untransferred candidate and report FAILED once. Serialize renderer-owner checks with pending publication; a failed native close remains a failed retirement and blocks further adoption. Preserve Seat trim/polarity only in the native-failure fallback; the user-selected DSP OFF path remains dry.
+
+For the DSP Split crash, cap the compact Scaffold with the current window's `screenHeightDp` before constructing a vertical scroll viewport. This is dynamic across orientation/window changes and leaves any smaller finite parent constraints in effect; keep parent MeasureSpec capture and SH-M27 acceptance open rather than treating the guard as device proof.
+
+For a locally installable CarPlay build without configured release signing, use the Android Debug signing config and package external MFi identity/certificate files as separate runtime-auth assets. The MFi files enable protocol authentication; they do not constitute the Android APK signer or release approval.

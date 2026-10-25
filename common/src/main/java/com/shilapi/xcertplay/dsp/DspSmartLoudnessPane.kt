@@ -13,6 +13,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 
@@ -53,6 +56,14 @@ fun DspSmartLoudnessPane(
             Text("Enabled")
             Switch(
                 checked = settings.mode != DspSmartLoudnessMode.OFF,
+                modifier = Modifier.semantics {
+                    contentDescription = "Smart Loudness enabled"
+                    stateDescription = when {
+                        settings.mode == DspSmartLoudnessMode.OFF -> "Off"
+                        settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED && !autoAvailable -> "On, automatic mode unavailable for this route"
+                        else -> "On, ${settings.mode.accessibilityLabel()} mode"
+                    }
+                },
                 onCheckedChange = { enabled ->
                     onSettingsChange(settings.copy(mode = if (enabled) DspSmartLoudnessMode.MANUAL_ESTIMATE else DspSmartLoudnessMode.OFF))
                 },
@@ -125,6 +136,10 @@ private fun LoudnessSlider(label: String, value: Double, onValueChange: (Double)
             value = value.toFloat(),
             onValueChange = { onValueChange(it.toDouble().coerceIn(0.0, 1.0)) },
             valueRange = 0f..1f,
+            modifier = Modifier.semantics {
+                contentDescription = label
+                stateDescription = "${(value * 100).toInt()} percent"
+            },
         )
     }
 }
@@ -151,3 +166,10 @@ private fun volumeInputLabel(calibration: DspLoudnessCalibration?, reading: DspV
 }
 
 private fun formatDb(low: Double, high: Double): String = String.format(Locale.ROOT, "%.1f / %.1f dB (low / high)", low, high)
+
+private fun DspSmartLoudnessMode.accessibilityLabel(): String = when (this) {
+    DspSmartLoudnessMode.OFF -> "off"
+    DspSmartLoudnessMode.AUTO_CALIBRATED -> "automatic"
+    DspSmartLoudnessMode.MANUAL_ESTIMATE -> "manual"
+    DspSmartLoudnessMode.FIXED -> "fixed"
+}

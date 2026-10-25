@@ -9,8 +9,11 @@ interface DspVolumeSource {
 class AndroidStreamVolumeSource(
     private val readStreamVolume: () -> DspVolumeReading,
 ) : DspVolumeSource {
-    override fun read(): DspVolumeReading = runCatching { readStreamVolume().validated() }
-        .getOrDefault(DspVolumeReading())
+    override fun read(): DspVolumeReading = try {
+        readStreamVolume().validated()
+    } catch (_: Exception) {
+        DspVolumeReading()
+    }
 }
 
 class ManualVolumeSource(initialLevel: Double = 0.5) : DspVolumeSource {

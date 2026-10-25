@@ -20,6 +20,18 @@ class DspVolumeSourceTest {
     }
 
     @Test
+    fun androidSourceDoesNotSwallowFatalErrors() {
+        val source = AndroidStreamVolumeSource { throw AssertionError("fatal") }
+
+        try {
+            source.read()
+            throw AssertionError("Expected fatal error to propagate")
+        } catch (error: AssertionError) {
+            assertEquals("fatal", error.message)
+        }
+    }
+
+    @Test
     fun calibrationRequiresTrustedMonotonicPointsOnSameRouteAndPreservesExistingValue() {
         val original = DspLoudnessCalibration("route_a", 0.1, 0.8)
         val controller = DspLoudnessCalibrationController(original)

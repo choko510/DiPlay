@@ -520,3 +520,7 @@ For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()
 When a test latch runs inside a worker that is deliberately interrupted during shutdown, `await()` can throw before the test releases the gate. Make the test gate interruption-tolerant and rely on explicit cleanup to release it; allow enough time for a separately scheduled assertion thread to run in CI.
 
 Smart Loudness route calibration should use two trusted readings from the same route in increasing volume order. Failed, untrusted, reversed, or cross-route samples must leave the previous calibration intact.
+
+## Keep screen instrumentation isolated and classify execution precisely
+
+Give standalone screen tests their own files directory and preference name, and assert draft edits do not change runtime configuration before Preview. Android-test Kotlin compilation proves source/build validity only; a test that cannot run on a connected device remains `BLOCKED_ENV`, and CarPlay host geometry/session/Surface acceptance remains `NOT_RUN` until measured there.

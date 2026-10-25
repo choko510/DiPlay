@@ -677,3 +677,7 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 The decoder-retirement test must keep its stop gate closed until the assertion completes even though `VideoDecoder.close()` interrupts the worker to wake its queue. The test hook absorbs that expected interrupt while waiting, then restores the thread interrupt flag after explicit release.
 
 Smart Loudness AUTO trusts only explicit route-bound readings supplied by a platform adapter and user-captured quiet/reference points. The common module does not infer Android stream volume as physical playback volume; MANUAL and FIXED remain independent fallbacks.
+
+## Keep DSP Studio rollback claims tied to production wiring
+
+The schema-v1 workspace remains separate from legacy v7 profile storage. `DspStudioFeatureFlags` has no production call sites, so it is not an operational kill switch; describe rollback as DSP Master OFF, new modules disabled/default-neutral, and unsupported stateful or latency-changing updates deferred.

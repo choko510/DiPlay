@@ -5,6 +5,7 @@
 ## 2026-10-26
 
 - Added isolated DSP Studio workspace schema-v1, module/macro preset persistence, and draft/preview/commit session coordination. Kotlin compilation passed; focused Robolectric tests were blocked by `No space left on device` while initializing the native runtime.
+- Completed the DSP Studio source and review evidence on `codex/dsp-studio-final`. The 860 Shared/Common unit tests, Native suite and sanitizers, and static checks pass; connected instrumentation and TS10/K706 hardware gates remain blocked or not run.
 
 ## 2026-10-23
 

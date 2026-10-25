@@ -3005,7 +3005,14 @@ class CarPlayController(
             }
 
             override fun onSessionEnded(session: AirPlaySession) {
-                endWiredSession(attempt, session)
+                when (wiredAirPlayCloseAction(wiredStartupComplete.get(), session.hasReceivedRecord)) {
+                    WiredAirPlayCloseAction.WAIT_FOR_STARTUP_WATCHDOG -> Unit
+                    WiredAirPlayCloseAction.RECOVER_PRE_RECORD -> handleWiredTransportError(
+                        attempt,
+                        "AirPlay control TCP closed before RECORD",
+                    )
+                    WiredAirPlayCloseAction.END_ACTIVE_SESSION -> endWiredSession(attempt, session)
+                }
             }
 
             override fun onTransportError(message: String) {

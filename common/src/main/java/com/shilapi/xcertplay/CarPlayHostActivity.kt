@@ -1190,7 +1190,7 @@ class CarPlayHostActivity : ComponentActivity() {
             setBackgroundColor(Color.rgb(0, 0, 0))
             visibility = View.GONE
         }
-        val dsp = FrameLayout(this).apply {
+        val dsp = createDspMeasurementPane().apply {
             setBackgroundColor(Color.rgb(12, 17, 27))
             visibility = View.GONE
             isFocusable = true
@@ -1330,18 +1330,6 @@ class CarPlayHostActivity : ComponentActivity() {
         val pane = dspPane ?: return
         if (dspComposeView != null) return
         val runtime = DspProfileRuntime.get(applicationContext)
-        fun childMeasureSpec(parentSpec: Int, padding: Int): Int {
-            val mode = when (View.MeasureSpec.getMode(parentSpec)) {
-                View.MeasureSpec.EXACTLY -> View.MeasureSpec.EXACTLY
-                View.MeasureSpec.AT_MOST -> View.MeasureSpec.AT_MOST
-                else -> View.MeasureSpec.UNSPECIFIED
-            }
-            val size = (View.MeasureSpec.getSize(parentSpec) - padding).coerceAtLeast(0)
-            return View.MeasureSpec.makeMeasureSpec(
-                if (mode == View.MeasureSpec.UNSPECIFIED) 0 else size,
-                mode,
-            )
-        }
         val view = ComposeView(this).apply {
             id = R.id.dsp_split_compose_view
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
@@ -1357,30 +1345,48 @@ class CarPlayHostActivity : ComponentActivity() {
             }
         }
         dspComposeView = view
-        val measurementProbe = object : FrameLayout(this) {
-            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-                val composeWidthSpec = childMeasureSpec(widthMeasureSpec, paddingLeft + paddingRight)
-                val composeHeightSpec = childMeasureSpec(heightMeasureSpec, paddingTop + paddingBottom)
-                val parentSize = (parent as? View)?.let { "${it.measuredWidth}x${it.measuredHeight}" } ?: "none"
-                val measurement = "widthMode=${measureMode(composeWidthSpec)} " +
-                    "heightMode=${measureMode(composeHeightSpec)} " +
-                    "composeSize=${View.MeasureSpec.getSize(composeWidthSpec)}x" +
-                    "${View.MeasureSpec.getSize(composeHeightSpec)} parent=$parentSize " +
-                    "root=${rootView.measuredWidth}x${rootView.measuredHeight}"
-                if (DspSplitMeasureDiagnostics.record(measurement)) {
-                    Log.i(TAG, "DSP_SPLIT_VIEW_MEASURE $measurement")
-                }
-                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-            }
+        pane.addView(view, FrameLayout.LayoutParams(-1, -1))
+    }
 
-            private fun measureMode(spec: Int): String = when (View.MeasureSpec.getMode(spec)) {
-                View.MeasureSpec.EXACTLY -> "EXACTLY"
-                View.MeasureSpec.AT_MOST -> "AT_MOST"
-                else -> "UNSPECIFIED"
+    private fun createDspMeasurementPane(): FrameLayout = object : FrameLayout(this) {
+        override fun measureChildWithMargins(
+            child: View,
+            parentWidthMeasureSpec: Int,
+            widthUsed: Int,
+            parentHeightMeasureSpec: Int,
+            heightUsed: Int,
+        ) {
+            if (child.id != R.id.dsp_split_compose_view) {
+                super.measureChildWithMargins(
+                    child,
+                    parentWidthMeasureSpec,
+                    widthUsed,
+                    parentHeightMeasureSpec,
+                    heightUsed,
+                )
+                return
+            }
+            val params = child.layoutParams as ViewGroup.MarginLayoutParams
+            val widthPadding = paddingLeft + paddingRight + params.leftMargin + params.rightMargin + widthUsed
+            val heightPadding = paddingTop + paddingBottom + params.topMargin + params.bottomMargin + heightUsed
+            val composeWidthSpec = getChildMeasureSpec(parentWidthMeasureSpec, widthPadding, params.width)
+            val composeHeightSpec = getChildMeasureSpec(parentHeightMeasureSpec, heightPadding, params.height)
+            child.measure(composeWidthSpec, composeHeightSpec)
+            val measurement = "widthMode=${measureMode(composeWidthSpec)} " +
+                "widthSize=${View.MeasureSpec.getSize(composeWidthSpec)} " +
+                "heightMode=${measureMode(composeHeightSpec)} " +
+                "heightSize=${View.MeasureSpec.getSize(composeHeightSpec)} " +
+                "measured=${child.measuredWidth}x${child.measuredHeight}"
+            if (DspSplitMeasureDiagnostics.record(measurement)) {
+                Log.i(TAG, "DSP_SPLIT_COMPOSE_MEASURE $measurement")
             }
         }
-        measurementProbe.addView(view, FrameLayout.LayoutParams(-1, -1))
-        pane.addView(measurementProbe, FrameLayout.LayoutParams(-1, -1))
+
+        private fun measureMode(spec: Int): String = when (View.MeasureSpec.getMode(spec)) {
+            View.MeasureSpec.EXACTLY -> "EXACTLY"
+            View.MeasureSpec.AT_MOST -> "AT_MOST"
+            else -> "UNSPECIFIED"
+        }
     }
 
     private fun enterYoutubeSplit() {

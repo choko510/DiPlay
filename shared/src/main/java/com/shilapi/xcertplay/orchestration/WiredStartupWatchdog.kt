@@ -59,6 +59,21 @@ internal class WiredStartupWatchdog {
     }
 }
 
+internal enum class WiredAirPlayCloseAction {
+    WAIT_FOR_STARTUP_WATCHDOG,
+    RECOVER_PRE_RECORD,
+    END_ACTIVE_SESSION,
+}
+
+internal fun wiredAirPlayCloseAction(
+    screenStreamOpened: Boolean,
+    recordReceived: Boolean,
+): WiredAirPlayCloseAction = when {
+    recordReceived -> WiredAirPlayCloseAction.END_ACTIVE_SESSION
+    screenStreamOpened -> WiredAirPlayCloseAction.RECOVER_PRE_RECORD
+    else -> WiredAirPlayCloseAction.WAIT_FOR_STARTUP_WATCHDOG
+}
+
 internal sealed interface WiredRecoveryDecision {
     data class FastCleanRetry(val delayMillis: Long) : WiredRecoveryDecision
     data object DeepRecoveryCandidate : WiredRecoveryDecision

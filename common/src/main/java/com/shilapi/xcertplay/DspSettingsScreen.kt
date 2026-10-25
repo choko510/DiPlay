@@ -324,11 +324,12 @@ internal fun DspSettingsScreen(
             if (constraints.maxHeight == Constraints.Infinity) {
                 val measurement = "DSP_SPLIT_BODY_UNBOUNDED " +
                     "minHeight=${constraints.minHeight} maxHeight=${constraints.maxHeight} capHeight=$capPx"
-                DspSplitMeasureDiagnostics.record(measurement)
-                Log.w(
-                    "xcertplay-usb",
-                    "$measurement recentViewMeasures=${DspSplitMeasureDiagnostics.recentMeasurements()}",
-                )
+                if (DspSplitMeasureDiagnostics.record(measurement)) {
+                    Log.w(
+                        "xcertplay-usb",
+                        "$measurement recentViewMeasures=${DspSplitMeasureDiagnostics.recentMeasurements()}",
+                    )
+                }
             }
             val boundedMaxHeight = maxOf(constraints.minHeight, minOf(constraints.maxHeight, capPx))
             val placeable = measurable.measure(constraints.copy(maxHeight = boundedMaxHeight))
@@ -441,8 +442,8 @@ internal fun DspSettingsScreen(
         Column(
             modifier = compactBodyConstraint
                 .fillMaxSize()
-                .verticalScroll(rememberScrollState())
                 .padding(insetPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = if (compact) 8.dp else 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

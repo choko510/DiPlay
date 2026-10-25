@@ -512,3 +512,5 @@ For asynchronous DSP teardown, carry the configuration generation with the pipel
 When tests share an executor with asynchronous retirement or preparation, do not infer completion from a callback that only schedules the work. Wait for an explicit completion latch, and assert only status states that remain valid when the worker advances before the test thread resumes.
 
 Pipeline close callbacks precede the reaper's retirement-count decrement, so a close latch alone does not prove that another update is adoptable. Wait for the exposed adoption gate when that is the behavior under test.
+
+For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()` cannot be overridden. Capture the exact specs at the existing pane's `measureChildWithMargins` call, pass those specs to `child.measure()`, and record the child result afterward; do not report a reconstructed probe value or a parent's pre-measure size.

@@ -14,6 +14,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.net.SocketException
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -152,6 +153,57 @@ class CarPlayVpnServiceAcceptGenerationTest {
     }
 
     @Test
+    fun excessControlConnectionsAreClosedAtTheServiceLimit() {
+        val service = Robolectric.buildService(CarPlayVpnService::class.java).create().get()
+        val listener = CountingListener()
+        val server = QueuedServerSocket()
+        val pairs = List(CarPlayVpnService.MAX_CONTROL_CONNECTIONS + 1) { connectedSocketPair() }
+        val acceptLoop = CarPlayVpnService::class.java.getDeclaredMethod(
+            "acceptLoop",
+            Int::class.javaPrimitiveType,
+            ServerSocket::class.java,
+        ).apply { isAccessible = true }
+        val invocationFailure = AtomicReference<Throwable?>()
+
+        synchronized(service) {
+            field(service, "active").set(service, AtomicBoolean(true))
+            field(service, "attachGeneration").setInt(service, 1)
+            field(service, "attachment").set(service, createAttachment(listener))
+            field(service, "serverSocket").set(service, server)
+        }
+        val acceptThread = Thread {
+            try {
+                acceptLoop.invoke(service, 1, server)
+            } catch (error: Throwable) {
+                invocationFailure.set(error)
+            }
+        }.apply {
+            name = "test-airplay-connection-limit"
+            isDaemon = true
+            start()
+        }
+
+        try {
+            pairs.forEach { (accepted, _) -> server.enqueue(accepted) }
+            awaitCondition {
+                sessionCount(service) == CarPlayVpnService.MAX_CONTROL_CONNECTIONS &&
+                    pairs.last().first.isClosed
+            }
+
+            assertEquals(CarPlayVpnService.MAX_CONTROL_CONNECTIONS, sessionCount(service))
+            assertNull(invocationFailure.get())
+        } finally {
+            service.detach()
+            pairs.forEach { (accepted, client) ->
+                runCatching { accepted.close() }
+                runCatching { client.close() }
+            }
+            runCatching { server.close() }
+            acceptThread.join(2_000)
+        }
+    }
+
+    @Test
     fun revokeCleanupDoesNotBlockCallbackOrTearDownANewerAttachment() {
         val service = Robolectric.buildService(CarPlayVpnService::class.java).create().get()
         val active = AtomicBoolean(true)
@@ -229,6 +281,16 @@ class CarPlayVpnServiceAcceptGenerationTest {
         }
     }
 
+    private fun connectedSocketPair(): Pair<Socket, Socket> {
+        val listener = ServerSocket(0)
+        return try {
+            val client = Socket("127.0.0.1", listener.localPort)
+            listener.accept() to client
+        } finally {
+            listener.close()
+        }
+    }
+
     private fun sessionCount(service: CarPlayVpnService): Int =
         (field(service, "sessions").get(service) as Set<*>).size
 
@@ -242,6 +304,41 @@ class CarPlayVpnServiceAcceptGenerationTest {
             Thread.yield()
         }
         throw AssertionError("Thread $name did not start")
+    }
+
+    private fun awaitCondition(condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (System.nanoTime() < deadline) {
+            if (condition()) return
+            Thread.sleep(5)
+        }
+        throw AssertionError("Condition did not become true")
+    }
+
+    private class QueuedServerSocket : ServerSocket() {
+        private val queued = LinkedBlockingQueue<Socket>()
+        @Volatile private var accepting = true
+
+        override fun accept(): Socket {
+            while (accepting) {
+                try {
+                    queued.poll(50, TimeUnit.MILLISECONDS)?.let { return it }
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    throw SocketException("test accept interrupted")
+                }
+            }
+            throw SocketException("test accept closed")
+        }
+
+        fun enqueue(socket: Socket) {
+            queued.add(socket)
+        }
+
+        override fun close() {
+            accepting = false
+            super.close()
+        }
     }
 
     private class GatedServerSocket(private val accepted: Socket) : ServerSocket() {

@@ -26,6 +26,7 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -61,6 +62,7 @@ class CarPlayVpnService : VpnService() {
     private val active = AtomicBoolean(false)
     private val sessionsLock = Any()
     private val sessions = mutableSetOf<AirPlaySession>()
+    private val controlSessionPermits = Semaphore(MAX_CONTROL_CONNECTIONS, true)
     @Volatile private var attachment: AirPlayAttachment? = null
     private var serverSocket: ServerSocket? = null
     private var bridge: Ipv6NcmBridge? = null
@@ -290,6 +292,15 @@ class CarPlayVpnService : VpnService() {
                         return
                     }
                 }
+                if (!controlSessionPermits.tryAcquire()) {
+                    runCatching { socket.close() }
+                    continue
+                }
+                val permitReleased = AtomicBoolean(false)
+                fun releasePermit() {
+                    if (permitReleased.compareAndSet(false, true)) controlSessionPermits.release()
+                }
+                var permitTransferredToSession = false
                 var session: AirPlaySession? = null
                 try {
                     Log.i(
@@ -315,6 +326,7 @@ class CarPlayVpnService : VpnService() {
                         listener = object : AirPlaySessionListener by current.listener {
                             override fun onSessionEnded(session: AirPlaySession) {
                                 removeSession(session)
+                                releasePermit()
                                 current.listener.onSessionEnded(session)
                             }
                         },
@@ -337,6 +349,7 @@ class CarPlayVpnService : VpnService() {
                         return
                     }
                     session.start()
+                    permitTransferredToSession = true
                 } catch (error: Exception) {
                     session?.let { acceptedSession ->
                         removeSession(acceptedSession)
@@ -344,6 +357,8 @@ class CarPlayVpnService : VpnService() {
                     } ?: runCatching { socket.close() }
                     onTransportError(generation, current.listener, error)
                     return
+                } finally {
+                    if (!permitTransferredToSession) releasePermit()
                 }
             }
         } catch (error: IOException) {
@@ -433,6 +448,7 @@ class CarPlayVpnService : VpnService() {
 
     companion object {
         private const val TAG = "xcertplay-usb"
+        internal const val MAX_CONTROL_CONNECTIONS = 4
         private const val LINK_PREFIX = 64
         private const val LINK_LOCAL_ROUTE = "fe80::"
         private const val SESSION_NAME = "xcertplay CarPlay"

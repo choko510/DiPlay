@@ -663,3 +663,5 @@ For Surface retirement, keep every release acknowledgement until decoder ownersh
 For DSP Split measurement diagnostics, retain the most recent 64 distinct measurement signatures and include the latest 16 in the unbounded-body diagnostic. Keep this ring bounded and continue to treat SH-M27 rendering/scroll acceptance as a separate device gate.
 
 For a retired DSP pipeline close failure, bind the failure to that pipeline's configuration generation and identity. Keep the status phase ACTIVE for the current graph, attach the old pipeline failure as separate metadata, and report that further updates are blocked; never mark the latest configured generation as a preparation failure for an older pipeline.
+
+When separating Surface retirement callbacks from coalesced jobs, preserve the original `SurfaceChanged` job if its callback list is empty. Tests for background DSP teardown must wait on an explicit close signal, and tests observing transient apply status must allow preparation to advance to deferred before reading it.

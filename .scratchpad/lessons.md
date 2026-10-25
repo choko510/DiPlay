@@ -508,3 +508,5 @@ Do not retry `DspRuntimeConfig.prepare()` to calculate an audio-failure fallback
 When coalescing queue control jobs, keep required resource-release callbacks in a separate FIFO and coalesce only the latest control state. This avoids quadratic list copying without treating an unacknowledged Surface as safe to release; a hard cap needs an explicit safe overflow policy.
 
 For asynchronous DSP teardown, carry the configuration generation with the pipeline into the reaper failure callback. Report an old graph's release failure beside the active generation and blocked-update state so the UI does not conflate retirement with candidate preparation.
+
+When tests share an executor with asynchronous retirement or preparation, do not infer completion from a callback that only schedules the work. Wait for an explicit completion latch, and assert only status states that remain valid when the worker advances before the test thread resumes.

@@ -44,7 +44,7 @@ internal class VideoDecodeQueue(
     private val surfaceRetirementCount = AtomicInteger()
 
     @Synchronized fun offer(job: VideoJob) {
-        var queuedJob = if (job is VideoJob.SurfaceChanged) {
+        var queuedJob = if (job is VideoJob.SurfaceChanged && job.retirements.isNotEmpty()) {
             surfaceRetirementCount.addAndGet(job.retirements.size)
             surfaceRetirements.addAll(job.retirements)
             job.copy(retirements = emptyList())

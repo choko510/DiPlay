@@ -1136,7 +1136,12 @@ class DspRendererProductionPathTest {
             assertEquals(DspRendererApplyPhase.ACTIVE, provider.rendererApplyStatus()?.phase)
 
             provider.update(convolverConfig(ir))
-            assertEquals(DspRendererApplyPhase.PREPARING, provider.rendererApplyStatus()?.phase)
+            val updateStatus = checkNotNull(provider.rendererApplyStatus())
+            assertEquals(1L, updateStatus.generation)
+            assertTrue(
+                updateStatus.phase == DspRendererApplyPhase.PREPARING ||
+                    updateStatus.phase == DspRendererApplyPhase.DEFERRED,
+            )
             assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
             awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
             renderer.processDecodedPcmForTesting(

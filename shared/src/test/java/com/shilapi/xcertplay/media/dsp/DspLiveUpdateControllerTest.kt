@@ -208,6 +208,7 @@ class DspLiveUpdateControllerTest {
         val provider = MutableConfigProvider()
         val failFirstPublish = AtomicBoolean(true)
         val closedCandidates = AtomicInteger()
+        val candidateClosed = CountDownLatch(1)
         val failed = LinkedBlockingQueue<Long>()
         val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
         val controller = DspLiveUpdateController(
@@ -221,14 +222,18 @@ class DspLiveUpdateControllerTest {
                 prepared.offer(it)
             },
             onFailed = { snapshot, _ -> failed.offer(snapshot.generation) },
-            pipelinePreparer = { format, _ -> trackingPipeline(format, 0) { closedCandidates.incrementAndGet() } },
+            pipelinePreparer = { format, _ ->
+                trackingPipeline(format, 0) {
+                    closedCandidates.incrementAndGet()
+                    candidateClosed.countDown()
+                }
+            },
         )
 
         try {
             provider.update(DspRuntimeConfig(enabled = true))
             assertEquals(1L, failed.poll(5, TimeUnit.SECONDS))
-            assertEquals(1, closedCandidates.get())
-            Thread.sleep(50)
+            assertTrue(candidateClosed.await(5, TimeUnit.SECONDS))
             assertEquals(1, closedCandidates.get())
 
             provider.update(DspRuntimeConfig(enabled = true, gainDb = 1.0))

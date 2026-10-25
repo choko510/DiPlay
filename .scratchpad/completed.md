@@ -2,6 +2,10 @@
 
 > 186 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
+## 2026-10-26
+
+- Added isolated DSP Studio workspace schema-v1, module/macro preset persistence, and draft/preview/commit session coordination. Kotlin compilation passed; focused Robolectric tests were blocked by `No space left on device` while initializing the native runtime.
+
 ## 2026-10-23
 
 - 2026-10-23: Applied source fixes from the PR-45 fourth integrated audit: plausible incomplete NCM blocks no longer resync on gap signatures (max-length ambiguity fails closed); oversized NDP tables are bounded; microphone recovery observes post-start worker death; video recovery is generation-fenced and parallel across MAIN/ALT, decoder replacement waits for a bounded stop ACK; notification open is reusable across taps/process death; USB attach requires MANAGE_USB; DSP preparation exceptions terminate the generation and callbacks are controller-epoch fenced; Harmonic native sweep includes 6/12/18 kHz cutoff settings through 20.4 kHz. Latest local checks: 601 shared + 193 common tests, native DSP, Android shared JNI debug link for arm64-v8a/armeabi-v7a/x86_64, CI classifier, EX-08 inventory, public-tree, and diff checks passed. PR #45 Draft run #379 passed classifier/public-tree/EX-08, native/ASan/UBSan, and Draft unit tests; docs-only run #380 passed static checks. Full host/R8, API 35 instrumentation, SurfaceTexture lifetime, hardware/protocol, signing/rollback, and governance gates remain open or skipped.

@@ -65,6 +65,42 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun persistedStudioMacrosAreResolvedIntoTheRuntimeConfig() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        workspaceFile.delete()
+        try {
+            val profile = DspProfilePresets.find("flat")!!
+            val workspace = DspStudioWorkspace(
+                profileSourceId = profile.id,
+                baseProfileSnapshot = profile,
+                macros = DspSoundMacroSettings(enabled = true, bassImpact = 100),
+            )
+            assertEquals(
+                DspWorkspaceSaveResult.SAVED,
+                DspStudioWorkspaceRepository(context.filesDir).save(workspace),
+            )
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_DSP_ENABLED, true)
+                .putString(KEY_SELECTED_PROFILE_ID, profile.id)
+                .commit()
+
+            DspProfileRuntime.resetForTesting()
+            val runtime = DspProfileRuntime.get(context)
+
+            val resolved = runtime.configProvider.snapshot()
+            assertTrue(resolved.enabled)
+            assertTrue(resolved.macroTone.enabled)
+            assertEquals(4.0, resolved.macroTone.bassGainDb, 0.0)
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
     fun masterToggleChangesOnlyActiveProfileAndApplyCommitsTheDraft() {
         val context: Application = RuntimeEnvironment.getApplication()
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()

@@ -172,11 +172,52 @@ class DspStudioPersistenceTest {
         assertEquals(67, coordinator.preview.macros.bassImpact)
     }
 
+    @Test fun commitSavedMovesTheBaselineAndClearsUndoHistory() {
+        val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
+        coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 80)) }
+        val saved = coordinator.preview
+
+        coordinator.commitSaved(saved)
+
+        assertFalse(coordinator.isDirty)
+        assertFalse(coordinator.canUndo)
+        assertFalse(coordinator.canRedo)
+        assertEquals(80, coordinator.compareA().macros.bassImpact)
+        assertEquals(saved.macros.vocalPresence, coordinator.compareA().macros.vocalPresence)
+    }
+
     @Test fun disabledFactoryConvolverDoesNotTurnJsonNullIntoAnIrId() {
         val preset = DspFactoryPresets.modulePresets().single { it.moduleKey == "convolver" }
         val profile = DspProfilePresets.find("flat")!!
         val applied = requireNotNull(DspModulePresetRepository(temporaryFolder.root).applyTo(profile, preset))
 
         assertNull(applied.convolver.impulseResponseId)
+    }
+
+    @Test fun savedUserModulePresetRoundTripsOnlyItsOwnSettings() {
+        val repository = DspModulePresetRepository(temporaryFolder.root)
+        val initial = workspace()
+        val savedProfile = initial.baseProfileSnapshot.copy(
+            preampDb = 4.0,
+            bass = initial.baseProfileSnapshot.bass.copy(enabled = true, gainDb = 8.0),
+        )
+        val savedWorkspace = initial.copy(baseProfileSnapshot = savedProfile)
+
+        assertEquals(
+            DspPresetStoreResult.SAVED,
+            repository.saveCurrent(savedWorkspace, "bass", "user-driver", "Driver bass"),
+        )
+
+        val preset = repository.userPresets("bass").single()
+        assertEquals("Driver bass", preset.name)
+        val targetProfile = savedProfile.copy(
+            preampDb = -3.0,
+            bass = savedProfile.bass.copy(gainDb = -5.0),
+        )
+        val applied = requireNotNull(repository.applyTo(initial.copy(baseProfileSnapshot = targetProfile), preset))
+
+        assertEquals(8.0, applied.baseProfileSnapshot.bass.gainDb, 0.0)
+        assertEquals(-3.0, applied.baseProfileSnapshot.preampDb, 0.0)
+        assertEquals(initial.macros, applied.macros)
     }
 }

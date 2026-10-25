@@ -10,6 +10,9 @@ JNI_CLASSES = {
     "com.shilapi.xcertplay.transport.LinuxI2cNativeException": {"<init>"},
     "com.shilapi.xcertplay.media.dsp.NativeDspJni": {
         "nativeCreate",
+        "nativeApplyHotConfig",
+        "nativeBindHotUpdateContext",
+        "nativeGetHotAckToken",
         "nativeProcess",
         "nativeReset",
         "nativeGetLatencyFrames",

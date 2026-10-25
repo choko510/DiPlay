@@ -26,6 +26,7 @@ fun DspSmartLoudnessPane(
     volumeReading: DspVolumeReading,
     onSettingsChange: (DspSmartLoudnessSettings) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onCaptureQuietPoint: (() -> Unit)? = null,
     onCaptureReferencePoint: (() -> Unit)? = null,
 ) {
@@ -56,6 +57,7 @@ fun DspSmartLoudnessPane(
             Text("Enabled")
             Switch(
                 checked = settings.mode != DspSmartLoudnessMode.OFF,
+                enabled = enabled,
                 modifier = Modifier.semantics {
                     contentDescription = "Smart Loudness enabled"
                     stateDescription = when {
@@ -70,16 +72,16 @@ fun DspSmartLoudnessPane(
             )
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            ModeButton("OFF", settings.mode == DspSmartLoudnessMode.OFF, Modifier.weight(1f)) {
+            ModeButton("OFF", settings.mode == DspSmartLoudnessMode.OFF, Modifier.weight(1f), enabled = enabled) {
                 onSettingsChange(settings.copy(mode = DspSmartLoudnessMode.OFF))
             }
-            ModeButton("AUTO", settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED, Modifier.weight(1f), enabled = autoAvailable) {
+            ModeButton("AUTO", settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED, Modifier.weight(1f), enabled = enabled && autoAvailable) {
                 onSettingsChange(settings.copy(mode = DspSmartLoudnessMode.AUTO_CALIBRATED))
             }
-            ModeButton("MANUAL", settings.mode == DspSmartLoudnessMode.MANUAL_ESTIMATE, Modifier.weight(1f)) {
+            ModeButton("MANUAL", settings.mode == DspSmartLoudnessMode.MANUAL_ESTIMATE, Modifier.weight(1f), enabled = enabled) {
                 onSettingsChange(settings.copy(mode = DspSmartLoudnessMode.MANUAL_ESTIMATE))
             }
-            ModeButton("FIXED", settings.mode == DspSmartLoudnessMode.FIXED, Modifier.weight(1f)) {
+            ModeButton("FIXED", settings.mode == DspSmartLoudnessMode.FIXED, Modifier.weight(1f), enabled = enabled) {
                 onSettingsChange(settings.copy(mode = DspSmartLoudnessMode.FIXED))
             }
         }
@@ -94,26 +96,26 @@ fun DspSmartLoudnessPane(
         Text("Current correction: ${if (active) formatDb(lowDb, highDb) else "0.0 / 0.0 dB"}")
 
         if (settings.mode == DspSmartLoudnessMode.MANUAL_ESTIMATE) {
-            LoudnessSlider("Manual listening level", settings.manualListeningLevel) {
+            LoudnessSlider("Manual listening level", settings.manualListeningLevel, enabled) {
                 onSettingsChange(settings.copy(manualListeningLevel = it))
             }
         }
         if (settings.mode == DspSmartLoudnessMode.FIXED) {
-            LoudnessSlider("Fixed amount", settings.fixedAmount) {
+            LoudnessSlider("Fixed amount", settings.fixedAmount, enabled) {
                 onSettingsChange(settings.copy(fixedAmount = it))
             }
         }
         if (settings.mode != DspSmartLoudnessMode.OFF) {
-            LoudnessSlider("Strength", settings.strength) { onSettingsChange(settings.copy(strength = it)) }
+            LoudnessSlider("Strength", settings.strength, enabled) { onSettingsChange(settings.copy(strength = it)) }
             Text("Maximum: low ${settings.maxLowBoostDb} dB · high ${settings.maxHighBoostDb} dB")
         }
         if (onCaptureQuietPoint != null || onCaptureReferencePoint != null) {
             Text("Route calibration uses two trusted playback-volume readings. It is a listening-level preference, not an SPL measurement.")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onCaptureQuietPoint?.invoke() }, enabled = volumeReading.trustworthy && volumeReading.routeToken != null) {
+                Button(onClick = { onCaptureQuietPoint?.invoke() }, enabled = enabled && volumeReading.trustworthy && volumeReading.routeToken != null) {
                     Text("Capture quiet")
                 }
-                Button(onClick = { onCaptureReferencePoint?.invoke() }, enabled = volumeReading.trustworthy && volumeReading.routeToken != null) {
+                Button(onClick = { onCaptureReferencePoint?.invoke() }, enabled = enabled && volumeReading.trustworthy && volumeReading.routeToken != null) {
                     Text("Capture reference")
                 }
             }
@@ -129,13 +131,14 @@ private fun ModeButton(label: String, selected: Boolean, modifier: Modifier = Mo
 }
 
 @Composable
-private fun LoudnessSlider(label: String, value: Double, onValueChange: (Double) -> Unit) {
+private fun LoudnessSlider(label: String, value: Double, enabled: Boolean, onValueChange: (Double) -> Unit) {
     Column {
         Text("$label · ${(value * 100).toInt()}%")
         Slider(
             value = value.toFloat(),
             onValueChange = { onValueChange(it.toDouble().coerceIn(0.0, 1.0)) },
             valueRange = 0f..1f,
+            enabled = enabled,
             modifier = Modifier.semantics {
                 contentDescription = label
                 stateDescription = "${(value * 100).toInt()} percent"

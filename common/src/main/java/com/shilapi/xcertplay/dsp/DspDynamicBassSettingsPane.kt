@@ -23,6 +23,7 @@ fun DspDynamicBassSettingsPane(
     settings: DspDynamicBassSettings,
     onSettingsChange: (DspDynamicBassSettings) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     Card(modifier = modifier.fillMaxWidth()) {
         Column(
@@ -43,6 +44,7 @@ fun DspDynamicBassSettingsPane(
                 }
                 Switch(
                     checked = settings.enabled,
+                    enabled = enabled,
                     onCheckedChange = { onSettingsChange(settings.copy(enabled = it)) },
                     modifier = Modifier.semantics {
                         contentDescription = "Dynamic Bass enabled, ${if (settings.enabled) "on" else "off"}"
@@ -53,13 +55,14 @@ fun DspDynamicBassSettingsPane(
                 "A linked low-frequency detector reads the input before this lift. Quiet bass can receive more lift; stronger bass receives less, up to the shared gain-safety budget.",
                 style = MaterialTheme.typography.bodySmall,
             )
+            val controlsEnabled = enabled && settings.enabled
             val thresholdGap = minOf(0.1, (settings.highThresholdDbfs - settings.lowThresholdDbfs) * 0.5)
             DspDynamicBassSlider(
                 label = "Strength",
                 value = settings.strength,
                 range = 0.0..1.0,
                 unit = "%",
-                enabled = settings.enabled,
+                enabled = controlsEnabled,
                 valueScale = 100.0,
                 explanation = "Scales the requested lift: 0% is neutral; 100% allows the full configured maximum.",
                 onValueChange = { onSettingsChange(settings.copy(strength = it)) },
@@ -69,7 +72,7 @@ fun DspDynamicBassSettingsPane(
                 value = settings.maxBoostDb,
                 range = 0.0..3.0,
                 unit = "dB",
-                enabled = settings.enabled,
+                enabled = controlsEnabled,
                 explanation = "Upper limit for the lift; the shared safety budget can reduce the effective amount.",
                 onValueChange = { onSettingsChange(settings.copy(maxBoostDb = it)) },
             )
@@ -78,7 +81,7 @@ fun DspDynamicBassSettingsPane(
                 value = settings.detectorCutoffHz,
                 range = 80.0..160.0,
                 unit = "Hz",
-                enabled = settings.enabled,
+                enabled = controlsEnabled,
                 explanation = "Cutoff of the low-pass detector that measures bass before the lift is applied.",
                 onValueChange = { onSettingsChange(settings.copy(detectorCutoffHz = it)) },
             )
@@ -87,7 +90,7 @@ fun DspDynamicBassSettingsPane(
                 value = settings.silenceGateDbfs,
                 range = -90.0..-30.0,
                 unit = "dBFS",
-                enabled = settings.enabled,
+                enabled = controlsEnabled,
                 explanation = "Bass below this detector level is treated as silence and receives no lift.",
                 onValueChange = { onSettingsChange(settings.copy(silenceGateDbfs = it)) },
             )
@@ -96,7 +99,7 @@ fun DspDynamicBassSettingsPane(
                 value = settings.lowThresholdDbfs,
                 range = -60.0..(settings.highThresholdDbfs - thresholdGap),
                 unit = "dBFS",
-                enabled = settings.enabled,
+                enabled = controlsEnabled,
                 explanation = "At or below this bass level, the requested lift reaches its maximum.",
                 onValueChange = { onSettingsChange(settings.copy(lowThresholdDbfs = it)) },
             )
@@ -105,7 +108,7 @@ fun DspDynamicBassSettingsPane(
                 value = settings.highThresholdDbfs,
                 range = (settings.lowThresholdDbfs + thresholdGap)..0.0,
                 unit = "dBFS",
-                enabled = settings.enabled,
+                enabled = controlsEnabled,
                 explanation = "At or above this bass level, no dynamic lift is requested.",
                 onValueChange = { onSettingsChange(settings.copy(highThresholdDbfs = it)) },
             )
@@ -114,7 +117,7 @@ fun DspDynamicBassSettingsPane(
                 value = settings.attackMs,
                 range = 10.0..200.0,
                 unit = "ms",
-                enabled = settings.enabled,
+                enabled = controlsEnabled,
                 explanation = "How quickly the detector envelope and requested lift respond to level changes.",
                 onValueChange = { onSettingsChange(settings.copy(attackMs = it)) },
             )
@@ -123,7 +126,7 @@ fun DspDynamicBassSettingsPane(
                 value = settings.releaseMs,
                 range = 50.0..1_000.0,
                 unit = "ms",
-                enabled = settings.enabled,
+                enabled = controlsEnabled,
                 explanation = "How gradually the lift settles after the bass level changes.",
                 onValueChange = { onSettingsChange(settings.copy(releaseMs = it)) },
             )

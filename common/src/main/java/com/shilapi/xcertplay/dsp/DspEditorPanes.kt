@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.dsp
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,11 +10,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Path
@@ -37,6 +50,7 @@ fun DspEqEditorPane(
     profile: DspAudioProfile,
     cabinCorrection: DspCabinCorrectionConfig = profile.cabinCorrection,
     onProfileChange: (DspAudioProfile) -> Unit,
+    onEditBandType: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
     sampleRateHz: Int = 44_100,
 ) {
@@ -54,7 +68,7 @@ fun DspEqEditorPane(
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("PEQ band ${index + 1} · ${band.type.name.replace('_', ' ')}", Modifier.weight(1f))
+                        Text("PEQ band ${index + 1}", Modifier.weight(1f))
                         Switch(
                             checked = band.enabled,
                             onCheckedChange = { enabled ->
@@ -66,6 +80,9 @@ fun DspEqEditorPane(
                             },
                             modifier = Modifier.semantics { contentDescription = "Enable PEQ band ${index + 1}" },
                         )
+                    }
+                    TextButton(onClick = { onEditBandType(index) }) {
+                        Text("Type · ${band.type.name.replace('_', ' ')}")
                     }
                     AccessibleSlider("Band ${index + 1} frequency", band.frequencyHz.toFloat(), 20f..maxFrequencyHz, "Hz") {
                         updateBand(profile, index, band.copy(frequencyHz = it.toDouble()), onProfileChange)
@@ -236,3 +253,136 @@ private fun AccessibleSlider(label: String, value: Float, range: ClosedFloatingP
 @Composable
 private fun ValueSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, unit: String, onChange: (Float) -> Unit) =
     AccessibleSlider(label, value, range, unit, onChange)
+
+@Composable
+internal fun DspModulePresetPane(
+    moduleKey: String,
+    moduleKeys: List<String>,
+    presets: List<DspModulePreset>,
+    selectedPresetId: String?,
+    enabled: Boolean,
+    onModuleKeyChange: (String) -> Unit,
+    onPresetSelect: (String) -> Unit,
+    onApply: (DspModulePreset) -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var moduleMenuExpanded by remember { mutableStateOf(false) }
+    var presetMenuExpanded by remember { mutableStateOf(false) }
+    var saveDialogVisible by remember { mutableStateOf(false) }
+    var newPresetName by remember { mutableStateOf("") }
+    val selectedPreset = presets.firstOrNull { it.id == selectedPresetId } ?: presets.firstOrNull()
+
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Module presets", style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Module", Modifier.weight(1f))
+                Box {
+                    OutlinedButton(onClick = { moduleMenuExpanded = true }, enabled = enabled) {
+                        Text("${modulePresetLabel(moduleKey)} ▾")
+                    }
+                    DropdownMenu(
+                        expanded = moduleMenuExpanded,
+                        onDismissRequest = { moduleMenuExpanded = false },
+                    ) {
+                        moduleKeys.forEach { key ->
+                            DropdownMenuItem(
+                                text = { Text(modulePresetLabel(key)) },
+                                onClick = {
+                                    moduleMenuExpanded = false
+                                    onModuleKeyChange(key)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Preset", Modifier.weight(1f))
+                Box {
+                    OutlinedButton(
+                        onClick = { presetMenuExpanded = true },
+                        enabled = enabled && presets.isNotEmpty(),
+                    ) {
+                        Text(selectedPreset?.let { "${it.name} · ${if (it.factory) "Factory" else "User"} ▾" } ?: "Loading…")
+                    }
+                    DropdownMenu(
+                        expanded = presetMenuExpanded,
+                        onDismissRequest = { presetMenuExpanded = false },
+                    ) {
+                        presets.forEach { preset ->
+                            DropdownMenuItem(
+                                text = { Text("${preset.name} · ${if (preset.factory) "Factory" else "User"}") },
+                                onClick = {
+                                    presetMenuExpanded = false
+                                    onPresetSelect(preset.id)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { selectedPreset?.let(onApply) },
+                    enabled = enabled && selectedPreset != null,
+                ) {
+                    Text("Apply preset to draft")
+                }
+                OutlinedButton(onClick = { saveDialogVisible = true }, enabled = enabled) {
+                    Text("Save as User preset")
+                }
+            }
+            Text(
+                "Applying changes only this module in the draft. Preview and Save are separate.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+
+    if (saveDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { saveDialogVisible = false },
+            title = { Text("Save ${modulePresetLabel(moduleKey)} preset") },
+            text = {
+                OutlinedTextField(
+                    value = newPresetName,
+                    onValueChange = { if (it.length <= 48) newPresetName = it },
+                    label = { Text("Preset name") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        saveDialogVisible = false
+                        onSave(newPresetName.trim())
+                        newPresetName = ""
+                    },
+                    enabled = enabled && newPresetName.isNotBlank(),
+                ) { Text("Save") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { saveDialogVisible = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+private fun modulePresetLabel(key: String): String = when (key) {
+    "peq" -> "PEQ"
+    "bass" -> "Bass"
+    "seat" -> "Seat alignment"
+    "advanced_ms" -> "Advanced M/S"
+    "compressor" -> "Compressor"
+    "multiband" -> "Multiband"
+    "dynamic_eq" -> "Dynamic EQ"
+    "harmonic" -> "Harmonic"
+    "limiter" -> "Safety limiter"
+    "convolver" -> "Convolver"
+    "cabin" -> "Cabin correction"
+    "smart_loudness" -> "Smart Loudness"
+    "dynamic_bass" -> "Dynamic Bass"
+    "macros" -> "Sound macros"
+    else -> key
+}

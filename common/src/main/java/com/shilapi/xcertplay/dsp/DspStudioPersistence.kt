@@ -83,6 +83,8 @@ internal class DspModulePresetRepository(
     private val writer: (File, ByteArray) -> Unit = ::atomicWrite,
     private val irReferenceExists: (String) -> Boolean = { id -> DspImpulseResponseRepository(filesDirectory).load(id) != null },
 ) {
+    val supportedModuleKeys: List<String> get() = MODULES.sorted()
+
     fun save(preset: DspModulePreset): DspPresetStoreResult {
         if (preset.factory || !validId(preset.id) || preset.moduleKey !in MODULES || preset.name.isBlank() || preset.name.length > 48 || !validPayload(preset.moduleKey, preset.payload) || preset.payload.toString().length > MAX_PAYLOAD_CHARS) return DspPresetStoreResult.INVALID
         if (!validReferences(preset.moduleKey, preset.payload)) return DspPresetStoreResult.INVALID
@@ -98,6 +100,48 @@ internal class DspModulePresetRepository(
         val target = File(File(filesDirectory, "dsp/modules"), "$moduleKey/$id.json")
         return try { if (target.length() > MAX_PAYLOAD_CHARS) return null; val j = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }); if (j.getInt("schemaVersion") != SCHEMA || j.getInt("payloadVersion") != 1 || j.getString("id") != id || j.getString("moduleKey") != moduleKey) return null; val payload = j.getJSONObject("payload"); val name = j.getString("name"); if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) null else DspModulePreset(id, moduleKey, name, payload) } catch (_: Exception) { null }
     }
+    fun userPresets(moduleKey: String): List<DspModulePreset> {
+        if (moduleKey !in MODULES) return emptyList()
+        val directory = File(File(filesDirectory, "dsp/modules"), moduleKey)
+        return directory.listFiles()
+            ?.asSequence()
+            ?.filter { it.isFile && it.extension == "json" }
+            ?.mapNotNull { load(moduleKey, it.nameWithoutExtension) }
+            ?.sortedBy(DspModulePreset::name)
+            ?.toList()
+            .orEmpty()
+    }
+
+    fun saveCurrent(
+        workspace: DspStudioWorkspace,
+        moduleKey: String,
+        id: String,
+        name: String,
+    ): DspPresetStoreResult {
+        if (moduleKey !in MODULES || !workspace.baseProfileSnapshot.hasValidEqCapacity()) {
+            return DspPresetStoreResult.INVALID
+        }
+        val profile = JSONObject(DspProfileRepository(filesDirectory).encodeDraftForSavedState(workspace.baseProfileSnapshot))
+        val payload = when (moduleKey) {
+            "peq" -> JSONObject().put("bands", profile.getJSONArray("peq"))
+            "bass" -> profile.getJSONObject("bass")
+            "seat" -> profile.getJSONObject("seatAlignment")
+            "advanced_ms" -> profile.getJSONObject("advancedMs")
+            "compressor" -> profile.getJSONObject("compressor")
+            "multiband" -> profile.getJSONObject("multiband")
+            "dynamic_eq" -> profile.getJSONObject("dynamicEq")
+            "harmonic" -> profile.getJSONObject("harmonic")
+            "limiter" -> profile.getJSONObject("limiter")
+            "convolver" -> profile.getJSONObject("convolver")
+            "cabin" -> profile.getJSONObject("cabinCorrection")
+            "smart_loudness" -> workspace.smartLoudness.toJson()
+            "dynamic_bass" -> workspace.dynamicBass.toJson()
+            "macros" -> workspace.macros.toMacroJson()
+            else -> return DspPresetStoreResult.INVALID
+        }
+        return save(DspModulePreset(id, moduleKey, name, payload))
+    }
+
     fun applyTo(profile: DspAudioProfile, preset: DspModulePreset): DspAudioProfile? {
         if (preset.moduleKey !in MODULES || !validPayload(preset.moduleKey, preset.payload) || !validReferences(preset.moduleKey, preset.payload)) return null
         val p = preset.payload
@@ -248,6 +292,8 @@ internal class DspStudioSessionCoordinator(initial: DspStudioWorkspace, private 
     private var generation = 0L
     var preview: DspStudioWorkspace = draft.deepCopy(); private set
     var isDirty: Boolean = false; private set
+    val canUndo: Boolean get() = undo.isNotEmpty()
+    val canRedo: Boolean get() = redo.isNotEmpty()
     fun edit(transform: (DspStudioWorkspace) -> DspStudioWorkspace): Long { undo.add(draft.deepCopy()); if (undo.size > 100) undo.removeAt(0); draft = transform(draft).deepCopy(); redo.clear(); isDirty = draft != committed; generation++; preview = draft.deepCopy(); return generation }
     fun undo(): Boolean { if (undo.isEmpty()) return false; redo.add(draft); draft = undo.removeAt(undo.lastIndex); isDirty = draft != committed; generation++; preview = draft.deepCopy(); return true }
     fun redo(): Boolean { if (redo.isEmpty()) return false; undo.add(draft); draft = redo.removeAt(redo.lastIndex); isDirty = draft != committed; generation++; preview = draft.deepCopy(); return true }
@@ -255,6 +301,19 @@ internal class DspStudioSessionCoordinator(initial: DspStudioWorkspace, private 
     fun compareA(): DspStudioWorkspace = committed.deepCopy()
     fun compareB(): DspStudioWorkspace = draft.deepCopy()
     fun save(): DspWorkspaceSaveResult { val result = repository.save(draft); if (result == DspWorkspaceSaveResult.SAVED) { committed = draft.deepCopy(); isDirty = false; undo.clear(); redo.clear() }; return result }
+    fun commitSaved(workspace: DspStudioWorkspace) {
+        committed = workspace.deepCopy()
+        if (draft == workspace) {
+            draft = committed.deepCopy()
+            isDirty = false
+        } else {
+            isDirty = draft != committed
+        }
+        undo.clear()
+        redo.clear()
+        generation++
+        preview = draft.deepCopy()
+    }
     fun generation(): Long = generation
 }
 

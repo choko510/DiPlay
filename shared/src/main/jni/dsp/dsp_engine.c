@@ -29,6 +29,11 @@ struct dsp_engine {
     _Atomic uint32_t hot_write_index;
     _Atomic uint32_t hot_read_index;
     _Atomic uint32_t hot_ack_token;
+    _Atomic uint64_t hot_editor_owner_epoch;
+    _Atomic uint64_t hot_renderer_owner_token;
+    _Atomic uint64_t hot_pcm_format_epoch;
+    _Atomic uint64_t hot_last_generation;
+    _Atomic uint32_t hot_context_token;
 };
 
 static uint32_t float_to_bits(float value) {
@@ -114,6 +119,11 @@ dsp_engine *dsp_engine_create_with_studio(
     atomic_init(&engine->hot_write_index, 0);
     atomic_init(&engine->hot_read_index, 0);
     atomic_init(&engine->hot_ack_token, 0);
+    atomic_init(&engine->hot_editor_owner_epoch, 0);
+    atomic_init(&engine->hot_renderer_owner_token, 0);
+    atomic_init(&engine->hot_pcm_format_epoch, 0);
+    atomic_init(&engine->hot_last_generation, 0);
+    atomic_init(&engine->hot_context_token, 0);
     engine->sample_rate = sample_rate;
     engine->channels = channels;
     engine->max_frames = max_frames;
@@ -190,13 +200,49 @@ dsp_engine *dsp_engine_create(
 }
 
 int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_update *update) {
-    if (!engine_is_prepared(engine) || update == NULL || !isfinite(update->gain_db) ||
+    if (!engine_is_prepared(engine) || update == NULL || update->generation == 0 ||
+        update->editor_owner_epoch == 0 || update->renderer_owner_token == 0 ||
+        update->pcm_format_epoch == 0 || update->hot_context_token == 0 || update->media_role != 1 ||
+        update->hot_context_token != atomic_load_explicit(&engine->hot_context_token, memory_order_acquire) ||
+        update->editor_owner_epoch != atomic_load_explicit(&engine->hot_editor_owner_epoch, memory_order_acquire) ||
+        update->renderer_owner_token != atomic_load_explicit(&engine->hot_renderer_owner_token, memory_order_acquire) ||
+        update->pcm_format_epoch != atomic_load_explicit(&engine->hot_pcm_format_epoch, memory_order_acquire) ||
+        update->generation <= atomic_load_explicit(&engine->hot_last_generation, memory_order_acquire) ||
+        !isfinite(update->gain_db) ||
         update->gain_db < -700.0 || update->gain_db > 24.0) return 0;
     const uint32_t write_index = atomic_load_explicit(&engine->hot_write_index, memory_order_relaxed);
     const uint32_t read_index = atomic_load_explicit(&engine->hot_read_index, memory_order_acquire);
     if ((uint32_t)(write_index - read_index) >= DSP_HOT_UPDATE_QUEUE_CAPACITY) return 0;
     engine->hot_updates[write_index % DSP_HOT_UPDATE_QUEUE_CAPACITY] = *update;
     atomic_store_explicit(&engine->hot_write_index, write_index + 1, memory_order_release);
+    atomic_store_explicit(&engine->hot_last_generation, update->generation, memory_order_release);
+    return 1;
+}
+
+int dsp_engine_bind_hot_update_context(
+    dsp_engine *engine,
+    int sample_rate,
+    int channels,
+    uint64_t editor_owner_epoch,
+    uint64_t renderer_owner_token,
+    uint64_t pcm_format_epoch,
+    uint32_t hot_context_token,
+    int media_role) {
+    if (!engine_is_prepared(engine) || sample_rate != engine->sample_rate || channels != engine->channels) {
+        return 0;
+    }
+    if (media_role != 1) {
+        atomic_store_explicit(&engine->hot_editor_owner_epoch, 0, memory_order_release);
+        atomic_store_explicit(&engine->hot_renderer_owner_token, 0, memory_order_release);
+        atomic_store_explicit(&engine->hot_pcm_format_epoch, 0, memory_order_release);
+        atomic_store_explicit(&engine->hot_context_token, 0, memory_order_release);
+        return 1;
+    }
+    if (editor_owner_epoch == 0 || renderer_owner_token == 0 || pcm_format_epoch == 0 || hot_context_token == 0) return 0;
+    atomic_store_explicit(&engine->hot_renderer_owner_token, renderer_owner_token, memory_order_release);
+    atomic_store_explicit(&engine->hot_pcm_format_epoch, pcm_format_epoch, memory_order_release);
+    atomic_store_explicit(&engine->hot_editor_owner_epoch, editor_owner_epoch, memory_order_release);
+    atomic_store_explicit(&engine->hot_context_token, hot_context_token, memory_order_release);
     return 1;
 }
 
@@ -241,6 +287,12 @@ dsp_status dsp_engine_process(
     while (hot_read_index != hot_write_index) {
         const dsp_engine_hot_update *update =
             &engine->hot_updates[hot_read_index % DSP_HOT_UPDATE_QUEUE_CAPACITY];
+        const int owner_is_current = update->media_role == 1 && update->hot_context_token != 0 &&
+            update->hot_context_token == atomic_load_explicit(&engine->hot_context_token, memory_order_acquire);
+        if (!owner_is_current) {
+            hot_read_index++;
+            continue;
+        }
         if (!dsp_graph_apply_studio_hot(
                 &engine->graph,
                 update->gain_db,

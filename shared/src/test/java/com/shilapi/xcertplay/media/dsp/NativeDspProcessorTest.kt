@@ -189,12 +189,24 @@ class NativeDspProcessorTest {
         val processor = NativeDspProcessor(DspAudioFormat(48_000, 2), 7L, bindings, latencyFrames = 0)
         val update = DspPreparedHotUpdate(
             generation = 11L,
+            editorOwnerEpoch = 4L,
+            rendererOwnerToken = 9L,
+            pcmFormatEpoch = 3L,
+            hotContextToken = 1,
+            mediaRole = true,
             appliedPreampDb = -1.0,
             macroValues = doubleArrayOf(1.0, 1.0, 0.0, 0.0, 1.0),
             smartLoudnessValues = doubleArrayOf(0.0, 0.0, 0.0),
             dynamicBassValues = doubleArrayOf(0.0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0),
         )
 
+        assertFalse(processor.enqueueHotUpdate(update))
+        assertTrue(processor.bindHotUpdateContext(4L, 9L, 3L, 1, mediaRole = true))
+        assertFalse(processor.enqueueHotUpdate(update.copy(editorOwnerEpoch = 5L)))
+        assertFalse(processor.enqueueHotUpdate(update.copy(rendererOwnerToken = 10L)))
+        assertFalse(processor.enqueueHotUpdate(update.copy(pcmFormatEpoch = 4L)))
+        assertFalse(processor.enqueueHotUpdate(update.copy(hotContextToken = 2)))
+        assertFalse(processor.enqueueHotUpdate(update.copy(mediaRole = false)))
         assertTrue(processor.enqueueHotUpdate(update))
         assertEquals(0, processor.hotAcknowledgedToken())
         val result = processor.process(floatBuffer(0.1f, -0.1f), ByteBuffer.allocateDirect(8), frames = 1)
@@ -202,6 +214,8 @@ class NativeDspProcessorTest {
         assertEquals(DspProcessStatus.SUCCESS, result.status)
         assertEquals(update.generationToken, processor.hotAcknowledgedToken())
         assertEquals(update.generation, bindings.lastHotGeneration)
+        processor.invalidateHotUpdateContext()
+        assertFalse(processor.enqueueHotUpdate(update.copy(generation = 12L)))
         processor.close()
     }
 
@@ -410,6 +424,7 @@ class NativeDspProcessorTest {
         var lastHotGeneration: Long? = null
         private var pendingHotToken = 0
         private var acknowledgedHotToken = 0
+        private var hotContext: List<Long>? = null
 
         override fun createWithStudio(
             sampleRate: Int,
@@ -509,9 +524,33 @@ class NativeDspProcessorTest {
 
         override fun reset(handle: Long): Int = 0
         override fun applyHotConfig(handle: Long, update: DspPreparedHotUpdate): Int {
+            if (hotContext != listOf(
+                    update.editorOwnerEpoch,
+                    update.rendererOwnerToken,
+                    update.pcmFormatEpoch,
+                    update.hotContextToken.toLong(),
+                ) || !update.mediaRole
+            ) return 2
             lastHotGeneration = update.generation
             pendingHotToken = update.generationToken
             return 0
+        }
+        override fun bindHotUpdateContext(
+            handle: Long,
+            format: DspAudioFormat,
+            editorOwnerEpoch: Long,
+            rendererOwnerToken: Long,
+            pcmFormatEpoch: Long,
+            hotContextToken: Int,
+            mediaRole: Boolean,
+        ): Boolean {
+            if (format != DspAudioFormat(48_000, 2)) return false
+            if (!mediaRole) {
+                hotContext = null
+                return true
+            }
+            hotContext = listOf(editorOwnerEpoch, rendererOwnerToken, pcmFormatEpoch, hotContextToken.toLong())
+            return true
         }
         override fun hotAckToken(handle: Long): Int = acknowledgedHotToken
         override fun latencyFrames(handle: Long): Int = 0

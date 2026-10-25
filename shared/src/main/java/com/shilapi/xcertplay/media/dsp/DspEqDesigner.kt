@@ -234,6 +234,11 @@ internal data class DspPreparedConfig(
 
 internal data class DspPreparedHotUpdate(
     val generation: Long,
+    val editorOwnerEpoch: Long,
+    val rendererOwnerToken: Long,
+    val pcmFormatEpoch: Long,
+    val hotContextToken: Int,
+    val mediaRole: Boolean,
     val appliedPreampDb: Double,
     val macroValues: DoubleArray,
     val smartLoudnessValues: DoubleArray,
@@ -247,11 +252,25 @@ internal data class DspPreparedHotUpdate(
     }
 }
 
-internal fun DspRuntimeConfig.prepareHotUpdate(format: DspAudioFormat, generation: Long): DspPreparedHotUpdate {
-    require(generation > 0)
+internal fun DspRuntimeConfig.prepareHotUpdate(
+    format: DspAudioFormat,
+    generation: Long,
+    editorOwnerEpoch: Long,
+    rendererOwnerToken: Long,
+    pcmFormatEpoch: Long,
+    hotContextToken: Int,
+    mediaRole: Boolean,
+): DspPreparedHotUpdate {
+    require(generation > 0 && editorOwnerEpoch > 0 && rendererOwnerToken > 0 &&
+        pcmFormatEpoch > 0 && hotContextToken > 0)
     val prepared = prepare(format)
     return DspPreparedHotUpdate(
         generation = generation,
+        editorOwnerEpoch = editorOwnerEpoch,
+        rendererOwnerToken = rendererOwnerToken,
+        pcmFormatEpoch = pcmFormatEpoch,
+        hotContextToken = hotContextToken,
+        mediaRole = mediaRole,
         appliedPreampDb = prepared.appliedPreampDb,
         macroValues = prepared.macroTone,
         smartLoudnessValues = prepared.smartLoudness,

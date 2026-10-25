@@ -216,6 +216,20 @@ internal class DspPcmPipeline(
 
     internal fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = processor.enqueueHotUpdate(update)
 
+    internal fun bindHotUpdateContext(
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): Boolean = processor.bindHotUpdateContext(
+        editorOwnerEpoch, rendererOwnerToken, pcmFormatEpoch, hotContextToken, mediaRole,
+    )
+
+    internal fun invalidateHotUpdateContext() = processor.invalidateHotUpdateContext()
+
+    internal fun hotUpdateContextToken(): Int = processor.hotUpdateContextToken()
+
     internal fun hasAcknowledged(update: DspPreparedHotUpdate): Boolean =
         processor.hotAcknowledgedToken() == update.generationToken
 

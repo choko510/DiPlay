@@ -68,6 +68,18 @@ internal interface DspProcessor : Closeable {
 
     fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = false
 
+    fun bindHotUpdateContext(
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): Boolean = false
+
+    fun invalidateHotUpdateContext() {}
+
+    fun hotUpdateContextToken(): Int = 0
+
     fun hotAcknowledgedToken(): Int = 0
 
     fun diagnostics(): DspDiagnosticsSnapshot

@@ -2272,26 +2272,67 @@ static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
     assert_true(engine != NULL, "hot update studio graph creates");
     const dsp_engine_hot_update update = {
         .generation_token = 42,
+        .generation = 42,
+        .editor_owner_epoch = 7,
+        .renderer_owner_token = 9,
+        .pcm_format_epoch = 3,
+        .hot_context_token = 1,
+        .media_role = 1,
         .gain_db = 0.0,
         .macro = {1, 0.0, 0.0, 0.0, 1.25},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
     };
     dsp_engine_hot_update next_update = update;
-    next_update.generation_token = 43;
-    assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "hot update has no acknowledgement before enqueue");
-    assert_true(dsp_engine_enqueue_hot_update(engine, &update), "hot command enters bounded queue");
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &update), "unbound owner context rejects hot command");
+    assert_true(!dsp_engine_bind_hot_update_context(engine, 44100, 2, 7, 9, 3, 1, 1),
+        "format mismatch cannot bind hot owner context");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "matching MEDIA owner context binds");
+    dsp_engine_hot_update stale_update = update;
+    stale_update.editor_owner_epoch++;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &stale_update), "stale editor epoch is rejected");
+    stale_update = update;
+    stale_update.renderer_owner_token++;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &stale_update), "stale renderer owner is rejected");
+    stale_update = update;
+    stale_update.pcm_format_epoch++;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &stale_update), "stale PCM format epoch is rejected");
+    stale_update = update;
+    stale_update.media_role = 0;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &stale_update), "non-MEDIA hot command is rejected");
+    assert_true(dsp_engine_enqueue_hot_update(engine, &update), "current owner command enters queue");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 8, 9, 3, 2, 1),
+        "new editor epoch invalidates an already queued command");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "stale queued command block processes without applying it");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "stale queued command is not acknowledged");
+    dsp_engine_hot_update current_update = update;
+    current_update.generation = 43;
+    current_update.generation_token = 43;
+    current_update.editor_owner_epoch = 8;
+    current_update.pcm_format_epoch = 3;
+    current_update.hot_context_token = 2;
+    next_update.generation_token = 44;
+    next_update.generation = 44;
+    next_update.editor_owner_epoch = 8;
+    next_update.hot_context_token = 2;
+    assert_true(dsp_engine_enqueue_hot_update(engine, &current_update), "current editor epoch command enters queue");
     assert_true(!dsp_engine_enqueue_hot_update(engine, &next_update), "single-slot hot queue rejects a second pending command");
     assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "hot command waits for a processed block");
     assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
         "hot command block processes");
-    assert_true(dsp_engine_get_hot_ack_token(engine) == 42, "hot acknowledgement follows the processed block");
-    assert_true(fabsf(output[1022]) > 0.5f && fabsf(output[1022]) < 0.63f,
-        "macro width moves toward its target without an abrupt step");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 43, "hot acknowledgement follows the processed block");
     assert_true(dsp_engine_enqueue_hot_update(engine, &next_update), "hot queue accepts a new command after the block");
     assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
         "second hot command block processes");
-    assert_true(dsp_engine_get_hot_ack_token(engine) == 43, "newer generation is acknowledged after its block");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 44, "newer generation is acknowledged after its block");
+    assert_true(fabsf(output[1022]) > 0.5f && fabsf(output[1022]) < 0.63f,
+        "macro width moves toward its target without an abrupt step");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 0, 0, 0, 0, 0),
+        "renderer close invalidates native owner context");
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &next_update),
+        "closed renderer cannot enqueue a stale hot command");
     dsp_engine_destroy(engine);
 }
 

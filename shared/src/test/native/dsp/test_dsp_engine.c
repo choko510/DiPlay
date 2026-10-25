@@ -1,4 +1,5 @@
 #include "dsp_engine.h"
+#include "dsp_dynamic_bass.h"
 
 #include <float.h>
 #include <math.h>
@@ -2339,6 +2340,141 @@ static void test_dynamic_bass_stereo_link_and_boost_ceiling(void) {
     dsp_engine_destroy(engine);
 }
 
+static const dsp_dynamic_bass_config dynamic_bass_test_config = {
+    1, 1.0, 3.0, 120.0, -60.0, -40.0, -10.0, 40.0, 250.0,
+};
+
+static void process_dynamic_bass_constant(
+    dsp_dynamic_bass *bass,
+    float left,
+    float right,
+    int channels,
+    size_t frames) {
+    for (size_t frame = 0; frame < frames; frame++) {
+        float sample_left = left;
+        float sample_right = right;
+        dsp_dynamic_bass_process_frame(bass, &sample_left, &sample_right, channels);
+    }
+}
+
+static void test_dynamic_bass_disabled_and_silence_are_neutral(void) {
+    dsp_dynamic_bass bass;
+    dsp_dynamic_bass_config config = dynamic_bass_test_config;
+    config.enabled = 0;
+    assert_true(dsp_dynamic_bass_prepare(&bass, 48000, 1, &config), "disabled dynamic bass prepares");
+    float left = 0.25f;
+    dsp_dynamic_bass_process_frame(&bass, &left, NULL, 1);
+    assert_near(left, 0.25, 0.0, "disabled dynamic bass preserves samples exactly");
+    assert_near(bass.current_gain, 1.0, 0.0, "disabled dynamic bass starts at unity");
+
+    config.enabled = 1;
+    assert_true(dsp_dynamic_bass_prepare(&bass, 48000, 1, &config), "enabled dynamic bass prepares");
+    for (size_t frame = 0; frame < 48000; frame++) {
+        left = 0.0f;
+        dsp_dynamic_bass_process_frame(&bass, &left, NULL, 1);
+    }
+    assert_near(bass.current_gain, 1.0, 1e-12, "silence never requests bass lift");
+    assert_near(bass.envelope, 0.0, 1e-12, "silence detector envelope remains at zero");
+}
+
+static void test_dynamic_bass_threshold_curve_and_boost_ceiling(void) {
+    dsp_dynamic_bass bass;
+    assert_true(dsp_dynamic_bass_prepare(&bass, 48000, 1, &dynamic_bass_test_config),
+        "threshold-curve dynamic bass prepares");
+    process_dynamic_bass_constant(&bass, 0.1f, 0.0f, 1, 48000);
+    const double expected_max_gain = pow(10.0, 3.0 / 20.0);
+    assert_true(bass.current_gain > 1.0 && bass.current_gain < expected_max_gain,
+        "mid-threshold bass requests an intermediate lift");
+    const double threshold_amount = (pow(10.0, -10.0 / 20.0) - 0.1) /
+        (pow(10.0, -10.0 / 20.0) - pow(10.0, -40.0 / 20.0));
+    assert_near(bass.current_gain, 1.0 + (expected_max_gain - 1.0) * threshold_amount, 0.015,
+        "threshold interpolation follows the configured linear-amplitude curve");
+    assert_true(bass.current_gain <= expected_max_gain + 1e-12,
+        "dynamic bass gain remains within configured maximum boost");
+}
+
+static void test_dynamic_bass_attack_release_and_linked_detection(void) {
+    dsp_dynamic_bass bass;
+    assert_true(dsp_dynamic_bass_prepare(&bass, 44100, 1, &dynamic_bass_test_config),
+        "mono dynamic bass prepares at 44.1 kHz");
+    process_dynamic_bass_constant(&bass, 0.05f, 0.0f, 1, 44100);
+    const double quiet_gain = bass.current_gain;
+    assert_true(quiet_gain > 1.0, "quiet low band reaches a positive lift");
+    process_dynamic_bass_constant(&bass, 0.5f, 0.0f, 1, 1);
+    const double first_transient_gain = bass.current_gain;
+    process_dynamic_bass_constant(&bass, 0.5f, 0.0f, 1, 4410);
+    const double strong_bass_gain = bass.current_gain;
+    assert_true(first_transient_gain < quiet_gain && strong_bass_gain < first_transient_gain,
+        "attack progressively reduces lift when strong bass arrives");
+    process_dynamic_bass_constant(&bass, 0.05f, 0.0f, 1, 22050);
+    assert_true(bass.current_gain > strong_bass_gain && bass.current_gain <= quiet_gain,
+        "release restores lift gradually when bass becomes quiet");
+
+    dsp_dynamic_bass mono;
+    dsp_dynamic_bass stereo;
+    assert_true(dsp_dynamic_bass_prepare(&mono, 48000, 1, &dynamic_bass_test_config),
+        "mono reference prepares at 48 kHz");
+    assert_true(dsp_dynamic_bass_prepare(&stereo, 48000, 2, &dynamic_bass_test_config),
+        "stereo linked detector prepares at 48 kHz");
+    process_dynamic_bass_constant(&mono, 0.1f, 0.0f, 1, 48000);
+    process_dynamic_bass_constant(&stereo, 0.1f, 0.1f, 2, 48000);
+    assert_near(stereo.current_gain, mono.current_gain, 1e-12,
+        "stereo-linked detector agrees with mono for dual-mono input");
+}
+
+static void test_dynamic_bass_stereo_link_preserves_channel_ratio(void) {
+    dsp_dynamic_bass bass;
+    assert_true(dsp_dynamic_bass_prepare(&bass, 48000, 2, &dynamic_bass_test_config),
+        "stereo dynamic bass prepares");
+    float left = 0.1f;
+    float right = 0.05f;
+    for (size_t frame = 0; frame < 48000; frame++) {
+        left = 0.1f;
+        right = 0.05f;
+        dsp_dynamic_bass_process_frame(&bass, &left, &right, 2);
+    }
+    assert_true(left > 0.1f && right > 0.05f, "linked detector applies a common lift to both channels");
+    assert_near(left / right, 2.0, 1e-4, "linked detector does not alter the channel level ratio");
+}
+
+static void test_dynamic_bass_graph_is_block_boundary_invariant(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = dynamic_bass_test_config;
+    enum { FRAME_COUNT = 4096 };
+    float input[FRAME_COUNT * 2];
+    float reference[FRAME_COUNT * 2] = {0.0f};
+    float partitioned[FRAME_COUNT * 2] = {0.0f};
+    for (int frame = 0; frame < FRAME_COUNT; frame++) {
+        const float sample = 0.08f * sinf((float)frame * 0.017f);
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = sample * 0.7f;
+    }
+    dsp_engine *reference_engine = create_studio_test_engine(48000, 2, FRAME_COUNT, &macro, &loudness, &dynamic_bass);
+    dsp_engine *partitioned_engine = create_studio_test_engine(48000, 2, FRAME_COUNT, &macro, &loudness, &dynamic_bass);
+    assert_true(reference_engine != NULL && partitioned_engine != NULL, "block-invariance graphs create");
+    assert_true(dsp_engine_process(reference_engine, input, FRAME_COUNT * 2, reference, FRAME_COUNT * 2,
+        FRAME_COUNT, 2) == DSP_STATUS_OK, "reference dynamic bass graph processes as one block");
+    const int blocks[] = {1, 17, 128, 3, 511, 64};
+    int cursor = 0;
+    size_t block_index = 0;
+    while (cursor < FRAME_COUNT) {
+        const int frames = blocks[block_index++ % (sizeof(blocks) / sizeof(blocks[0]))] < FRAME_COUNT - cursor
+            ? blocks[(block_index - 1) % (sizeof(blocks) / sizeof(blocks[0]))]
+            : FRAME_COUNT - cursor;
+        assert_true(dsp_engine_process(partitioned_engine, input + cursor * 2, (size_t)frames * 2,
+            partitioned + cursor * 2, (size_t)frames * 2, frames, 2) == DSP_STATUS_OK,
+            "partitioned dynamic bass graph block processes");
+        cursor += frames;
+    }
+    for (int sample = 0; sample < FRAME_COUNT * 2; sample++) {
+        assert_near(partitioned[sample], reference[sample], 1e-7,
+            "dynamic bass output is independent of caller block boundaries");
+    }
+    dsp_engine_destroy(reference_engine);
+    dsp_engine_destroy(partitioned_engine);
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
@@ -2374,6 +2510,11 @@ int main(void) {
     test_studio_hot_command_is_acknowledged_after_its_block();
     test_smart_loudness_uses_its_bounded_shelf_gains();
     test_dynamic_bass_stereo_link_and_boost_ceiling();
+    test_dynamic_bass_disabled_and_silence_are_neutral();
+    test_dynamic_bass_threshold_curve_and_boost_ceiling();
+    test_dynamic_bass_attack_release_and_linked_detection();
+    test_dynamic_bass_stereo_link_preserves_channel_ratio();
+    test_dynamic_bass_graph_is_block_boundary_invariant();
     puts("native DSP tests passed");
     return 0;
 }

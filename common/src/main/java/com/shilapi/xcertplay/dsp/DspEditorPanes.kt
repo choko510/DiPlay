@@ -23,10 +23,12 @@ import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
+import com.shilapi.xcertplay.media.dsp.DspEqResponse
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
 import kotlin.math.ln
+import kotlin.math.log10
 import kotlin.math.pow
 
 /** Reusable editor for the profile's existing 15-band PEQ and approved Cabin EQ. */
@@ -36,15 +38,18 @@ fun DspEqEditorPane(
     cabinCorrection: DspCabinCorrectionConfig = profile.cabinCorrection,
     onProfileChange: (DspAudioProfile) -> Unit,
     modifier: Modifier = Modifier,
+    sampleRateHz: Int = 44_100,
 ) {
+    require(sampleRateHz in 8_000..192_000)
     val cabinBands = cabinCorrection.approvedEqBands()
     val activeTotal = activeEqBandCount(profile.eqBands, cabinBands)
+    val maxFrequencyHz = minOf(20_000f, sampleRateHz * 0.45f)
     Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Parametric EQ · $activeTotal/${DspAudioProfile.MAX_EQ_BANDS} total active · ${cabinBands.size} Cabin bands")
         AccessibleSlider("Preamp", profile.preampDb.toFloat(), -24f..12f, "dB") {
             onProfileChange(profile.copy(preampDb = it.toDouble()))
         }
-        EqResponseGraph(profile.eqBands + cabinBands, profile.preampDb.toFloat(), Modifier.fillMaxWidth().height(150.dp))
+        EqResponseGraph(profile.eqBands + cabinBands, profile.preampDb.toFloat(), sampleRateHz, Modifier.fillMaxWidth().height(150.dp))
         profile.eqBands.forEachIndexed { index, band ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -62,7 +67,7 @@ fun DspEqEditorPane(
                             modifier = Modifier.semantics { contentDescription = "Enable PEQ band ${index + 1}" },
                         )
                     }
-                    AccessibleSlider("Band ${index + 1} frequency", band.frequencyHz.toFloat(), 20f..20_000f, "Hz") {
+                    AccessibleSlider("Band ${index + 1} frequency", band.frequencyHz.toFloat(), 20f..maxFrequencyHz, "Hz") {
                         updateBand(profile, index, band.copy(frequencyHz = it.toDouble()), onProfileChange)
                     }
                     if (band.type in setOf(DspEqType.PEAK, DspEqType.LOW_SHELF, DspEqType.HIGH_SHELF)) {
@@ -155,25 +160,34 @@ private fun safeMultiband(config: DspMultibandConfig, lowMid: Double? = null, mi
 
 private data class CurvePoint(val x: Float, val y: Float)
 
-internal fun dspEqResponseDb(frequencyHz: Double, bands: List<DspEqBand>, preampDb: Double = 0.0): Double {
+internal fun dspEqResponseDb(
+    frequencyHz: Double,
+    bands: List<DspEqBand>,
+    preampDb: Double = 0.0,
+    sampleRateHz: Int = 44_100,
+): Double {
+    require(sampleRateHz in 8_000..192_000)
     if (frequencyHz <= 0.0) return preampDb
+    val maxFrequencyHz = minOf(20_000.0, sampleRateHz * 0.45)
+    val safeFrequencyHz = frequencyHz.coerceIn(20.0, maxFrequencyHz)
     return preampDb + bands.filter(DspEqBand::enabled).sumOf { band ->
-        if (band.type != DspEqType.PEAK) return@sumOf 0.0
-        val octaveDistance = ln(frequencyHz / band.frequencyHz) / ln(2.0)
-        band.gainDb * kotlin.math.exp(-0.5 * (2.0 * band.q * octaveDistance).let { it * it })
+        val safeBand = band.copy(frequencyHz = band.frequencyHz.coerceIn(20.0, maxFrequencyHz))
+        val magnitude = DspEqResponse.magnitudeAt(sampleRateHz, safeFrequencyHz, safeBand).coerceAtLeast(1e-12)
+        20.0 * log10(magnitude)
     }
 }
 
 @Composable
-private fun EqResponseGraph(bands: List<DspEqBand>, preampDb: Float, modifier: Modifier) {
+private fun EqResponseGraph(bands: List<DspEqBand>, preampDb: Float, sampleRateHz: Int, modifier: Modifier) {
     val curveColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
     Canvas(modifier.semantics { contentDescription = "Equalizer frequency response graph" }) {
         val lowDb = -18f
         val highDb = 18f
+        val maxFrequencyHz = minOf(20_000.0, sampleRateHz * 0.45)
         val points = (0..160).map { i ->
-            val hz = 20.0 * 1_000.0.pow(i / 160.0)
+            val hz = 20.0 * (maxFrequencyHz / 20.0).pow(i / 160.0)
             val x = size.width * i / 160f
-            val response = dspEqResponseDb(hz, bands, preampDb.toDouble()).toFloat().coerceIn(lowDb, highDb)
+            val response = dspEqResponseDb(hz, bands, preampDb.toDouble(), sampleRateHz).toFloat().coerceIn(lowDb, highDb)
             CurvePoint(x, size.height * (highDb - response) / (highDb - lowDb))
         }
         val zeroY = size.height * highDb / (highDb - lowDb)

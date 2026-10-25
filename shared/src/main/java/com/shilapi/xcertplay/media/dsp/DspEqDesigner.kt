@@ -149,6 +149,15 @@ internal object DspEqDesigner {
     }
 }
 
+object DspEqResponse {
+    fun magnitudeAt(sampleRate: Int, frequencyHz: Double, band: DspEqBand): Double {
+        require(sampleRate in 8_000..192_000)
+        val maxFrequency = minOf(20_000.0, sampleRate * 0.45)
+        require(frequencyHz.isFinite() && frequencyHz in 20.0..maxFrequency)
+        return DspEqDesigner.design(sampleRate, band).magnitudeAt(sampleRate, frequencyHz)
+    }
+}
+
 internal data class DspHeadroomResult(
     val filterPeakDb: Double,
     val reductionDb: Double,

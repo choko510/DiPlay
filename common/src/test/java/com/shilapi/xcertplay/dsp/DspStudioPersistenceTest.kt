@@ -160,4 +160,23 @@ class DspStudioPersistenceTest {
         assertFalse(coordinator.isDirty)
         assertEquals(62, (repo.load() as DspWorkspaceReadResult.Loaded).workspace.macros.bassImpact)
     }
+
+    @Test fun cancelPreviewClearsRedoHistory() {
+        val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
+        coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 80)) }
+        assertTrue(coordinator.undo())
+
+        coordinator.cancelPreview()
+
+        assertFalse(coordinator.redo())
+        assertEquals(67, coordinator.preview.macros.bassImpact)
+    }
+
+    @Test fun disabledFactoryConvolverDoesNotTurnJsonNullIntoAnIrId() {
+        val preset = DspFactoryPresets.modulePresets().single { it.moduleKey == "convolver" }
+        val profile = DspProfilePresets.find("flat")!!
+        val applied = requireNotNull(DspModulePresetRepository(temporaryFolder.root).applyTo(profile, preset))
+
+        assertNull(applied.convolver.impulseResponseId)
+    }
 }

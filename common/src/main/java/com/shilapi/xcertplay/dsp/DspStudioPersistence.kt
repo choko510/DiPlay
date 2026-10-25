@@ -111,7 +111,7 @@ internal class DspModulePresetRepository(
             "dynamic_eq" -> profile.copy(dynamicEq = dynamicEq(p))
             "harmonic" -> profile.copy(harmonic = harmonic(p))
             "limiter" -> profile.copy(limiter = limiter(p))
-            "convolver" -> profile.copy(convolver = DspConvolverConfig(p.getBoolean("enabled"), p.optString("impulseResponseId").takeIf(String::isNotEmpty), p.getDouble("wet")))
+            "convolver" -> profile.copy(convolver = convolver(p))
             "cabin" -> profile.copy(cabinCorrection = cabin(p))
             else -> null
         }?.takeIf { it.hasValidEqCapacity() } } catch (_: Exception) { null }
@@ -136,7 +136,7 @@ internal class DspModulePresetRepository(
         "dynamic_eq" -> dynamicEq(p)
         "harmonic" -> harmonic(p)
         "limiter" -> limiter(p)
-        "convolver" -> DspConvolverConfig(p.getBoolean("enabled"), p.optString("impulseResponseId").takeIf(String::isNotEmpty), p.getDouble("wet"))
+        "convolver" -> convolver(p)
         "cabin" -> cabin(p)
         "smart_loudness" -> loudness(p)
         "dynamic_bass" -> dynamicBass(p)
@@ -154,9 +154,14 @@ internal class DspModulePresetRepository(
     private fun macroSettings(p: JSONObject) = DspSoundMacroSettings(p.getBoolean("enabled"), p.getInt("bassImpact"), p.getInt("vocalPresence"), p.getInt("airDetail"), p.getInt("soundstageWidth"))
     private fun loudness(p: JSONObject) = p.toLoudness()
     private fun dynamicBass(p: JSONObject) = p.toDynamicBass()
+    private fun convolver(p: JSONObject) = DspConvolverConfig(
+        p.getBoolean("enabled"),
+        p.optString("impulseResponseId").takeIf { it.isNotEmpty() && !p.isNull("impulseResponseId") },
+        p.getDouble("wet"),
+    )
     private fun validReferences(key: String, p: JSONObject): Boolean {
         if (key != "convolver" || !p.getBoolean("enabled")) return true
-        val id = p.optString("impulseResponseId").takeIf(String::isNotEmpty) ?: return false
+        val id = p.optString("impulseResponseId").takeIf { it.isNotEmpty() && !p.isNull("impulseResponseId") } ?: return false
         return irReferenceExists(id)
     }
     private fun readEq(a: JSONArray): List<com.shilapi.xcertplay.media.dsp.DspEqBand>? = try { require(a.length() <= DspAudioProfile.MAX_EQ_BANDS); List(a.length()) { i -> val b = a.getJSONObject(i); com.shilapi.xcertplay.media.dsp.DspEqBand(com.shilapi.xcertplay.media.dsp.DspEqType.valueOf(b.getString("type")), b.getDouble("frequencyHz"), b.getDouble("gainDb"), b.getDouble("q"), b.getBoolean("enabled")) } } catch (_: Exception) { null }
@@ -246,7 +251,7 @@ internal class DspStudioSessionCoordinator(initial: DspStudioWorkspace, private 
     fun edit(transform: (DspStudioWorkspace) -> DspStudioWorkspace): Long { undo.add(draft.deepCopy()); if (undo.size > 100) undo.removeAt(0); draft = transform(draft).deepCopy(); redo.clear(); isDirty = draft != committed; generation++; preview = draft.deepCopy(); return generation }
     fun undo(): Boolean { if (undo.isEmpty()) return false; redo.add(draft); draft = undo.removeAt(undo.lastIndex); isDirty = draft != committed; generation++; preview = draft.deepCopy(); return true }
     fun redo(): Boolean { if (redo.isEmpty()) return false; undo.add(draft); draft = redo.removeAt(redo.lastIndex); isDirty = draft != committed; generation++; preview = draft.deepCopy(); return true }
-    fun cancelPreview(): Long { draft = committed.deepCopy(); isDirty = false; generation++; preview = draft.deepCopy(); return generation }
+    fun cancelPreview(): Long { draft = committed.deepCopy(); undo.clear(); redo.clear(); isDirty = false; generation++; preview = draft.deepCopy(); return generation }
     fun compareA(): DspStudioWorkspace = committed.deepCopy()
     fun compareB(): DspStudioWorkspace = draft.deepCopy()
     fun save(): DspWorkspaceSaveResult { val result = repository.save(draft); if (result == DspWorkspaceSaveResult.SAVED) { committed = draft.deepCopy(); isDirty = false; undo.clear(); redo.clear() }; return result }

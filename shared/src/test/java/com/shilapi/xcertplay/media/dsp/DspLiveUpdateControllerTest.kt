@@ -532,6 +532,8 @@ class DspLiveUpdateControllerTest {
 
             assertTrue(secondClosed.await(5, TimeUnit.SECONDS))
             assertFalse(firstController.canAdoptUpdate())
+            val secondDeadlineNs = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (!secondController.canAdoptUpdate() && System.nanoTime() < secondDeadlineNs) Thread.yield()
             assertTrue(secondController.canAdoptUpdate())
 
             releaseFirstClose.countDown()

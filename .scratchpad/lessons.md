@@ -510,3 +510,5 @@ When coalescing queue control jobs, keep required resource-release callbacks in 
 For asynchronous DSP teardown, carry the configuration generation with the pipeline into the reaper failure callback. Report an old graph's release failure beside the active generation and blocked-update state so the UI does not conflate retirement with candidate preparation.
 
 When tests share an executor with asynchronous retirement or preparation, do not infer completion from a callback that only schedules the work. Wait for an explicit completion latch, and assert only status states that remain valid when the worker advances before the test thread resumes.
+
+Pipeline close callbacks precede the reaper's retirement-count decrement, so a close latch alone does not prove that another update is adoptable. Wait for the exposed adoption gate when that is the behavior under test.

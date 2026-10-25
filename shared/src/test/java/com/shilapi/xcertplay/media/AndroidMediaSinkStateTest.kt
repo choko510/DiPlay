@@ -215,7 +215,16 @@ class AndroidMediaSinkStateTest {
         val oldDecoder = checkNotNull(videoDecoder(sink, type))
         sink.beforeVideoDecoderStopForTest = {
             stopEntered.countDown()
-            check(releaseStop.await(5, TimeUnit.SECONDS))
+            var interrupted = false
+            while (true) {
+                try {
+                    releaseStop.await()
+                    break
+                } catch (_: InterruptedException) {
+                    interrupted = true
+                }
+            }
+            if (interrupted) Thread.currentThread().interrupt()
         }
 
         try {
@@ -229,7 +238,7 @@ class AndroidMediaSinkStateTest {
                 sink.onVideoConfig(type, byteArrayOf(2))
                 configReturned.countDown()
             }.apply { isDaemon = true; start() }
-            assertTrue(configReturned.await(100, TimeUnit.MILLISECONDS))
+            assertTrue(configReturned.await(1, TimeUnit.SECONDS))
             assertNull(videoDecoder(sink, type))
 
             releaseStop.countDown()

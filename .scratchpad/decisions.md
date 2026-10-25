@@ -669,3 +669,5 @@ When separating Surface retirement callbacks from coalesced jobs, preserve the o
 The reaper's close callback can signal before its `finally` decrements the retired-pipeline count. Tests of controller adoption must wait for `canAdoptUpdate()` after close notification instead of reading it immediately.
 
 Keep the wired startup watchdog's existing completion signal on an accepted MAIN or ALT screen SETUP. After that point, treat control TCP closure before RECORD as a separate startup failure and route it through the existing transport teardown/retry policy. Bound RTSP headers to 64 KiB, bodies to 4 MiB, and simultaneous control sessions to four; verify these limits against supported-device traffic before treating hardware acceptance as complete.
+
+The decoder-retirement test must keep its stop gate closed until the assertion completes even though `VideoDecoder.close()` interrupts the worker to wake its queue. The test hook absorbs that expected interrupt while waiting, then restores the thread interrupt flag after explicit release.

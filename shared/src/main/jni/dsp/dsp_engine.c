@@ -231,11 +231,12 @@ int dsp_engine_bind_hot_update_context(
     if (!engine_is_prepared(engine) || sample_rate != engine->sample_rate || channels != engine->channels) {
         return 0;
     }
+    /* Invalidate queued work before publishing another owner tuple. */
+    atomic_store_explicit(&engine->hot_context_token, 0, memory_order_release);
     if (media_role != 1) {
         atomic_store_explicit(&engine->hot_editor_owner_epoch, 0, memory_order_release);
         atomic_store_explicit(&engine->hot_renderer_owner_token, 0, memory_order_release);
         atomic_store_explicit(&engine->hot_pcm_format_epoch, 0, memory_order_release);
-        atomic_store_explicit(&engine->hot_context_token, 0, memory_order_release);
         return 1;
     }
     if (editor_owner_epoch == 0 || renderer_owner_token == 0 || pcm_format_epoch == 0 || hot_context_token == 0) return 0;

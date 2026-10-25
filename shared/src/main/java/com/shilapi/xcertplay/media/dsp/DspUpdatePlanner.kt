@@ -61,8 +61,9 @@ internal object DspUpdatePlanner {
         currentLatencyFrames: Int,
         targetLatencyFrames: Int,
         requiresStateContinuity: Boolean,
+        mediaRole: Boolean = true,
     ): DspUpdatePlan {
-        if (hasActivePipeline && current.canApplyStudioHotUpdateTo(target)) {
+        if (mediaRole && hasActivePipeline && current.canApplyStudioHotUpdateTo(target)) {
             return DspUpdatePlan.HOT
         }
         if (trackGenerationCommitted &&

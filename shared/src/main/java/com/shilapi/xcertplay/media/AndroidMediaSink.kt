@@ -137,6 +137,7 @@ class AndroidMediaSink(
     private val pendingVideoConfigs = ConcurrentHashMap<Int, PendingVideoConfig>()
     private val audioTypeLocks = ConcurrentHashMap<Int, Any>()
     private val activeAudioOwners = ConcurrentHashMap<Int, AudioOwnerToken>()
+    private val nextAudioRendererOwnerToken = AtomicLong()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRendererEntry>()
     private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneEntry>()
     private val closed = AtomicBoolean(false)
@@ -545,6 +546,9 @@ class AndroidMediaSink(
             beforeDspUpdatePublishForTest = beforeDspUpdatePublishForTest,
             afterDspUpdateOwnerCheckForTest = afterDspUpdateOwnerCheckForTest,
             onDspUpdatePreparedForTest = onDspUpdatePreparedForTest,
+            rendererOwnerToken = nextAudioRendererOwnerToken.incrementAndGet().also {
+                check(it > 0L) { "audio renderer owner token exhausted" }
+            },
         )
     }
 
@@ -1103,6 +1107,7 @@ internal class AudioRenderer(
     private val beforeDspUpdatePublishForTest: (() -> Unit)? = null,
     internal var afterDspUpdateOwnerCheckForTest: (() -> Unit)? = null,
     private val onDspUpdatePreparedForTest: (() -> Unit)? = null,
+    private val rendererOwnerToken: Long = 1L,
 ) : Closeable {
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
     private data class PreparedRendererDspUpdate(
@@ -1142,6 +1147,11 @@ internal class AudioRenderer(
     private val dspUpdatePublicationLock = Any()
     private var liveUpdateController: DspLiveUpdateController? = null
     private val liveUpdateControllerEpoch = AtomicLong()
+    private var pcmFormatEpoch = 0L
+    private var liveUpdatePcmFormat: DspAudioFormat? = null
+    @Volatile private var hotBoundPipeline: DspPcmPipeline? = null
+    @Volatile private var hotBoundContextToken = 0
+    private val nextHotContextToken = AtomicInteger()
     @Volatile private var liveUpdateFormat: DspAudioFormat? = null
     private var liveUpdateLatencyFrames = AtomicInteger(0)
     private var trackGenerationLatencyFrames = 0
@@ -1361,6 +1371,14 @@ internal class AudioRenderer(
     }
 
     override fun close() {
+        val activePipeline = synchronized(dspUpdatePublicationLock) {
+            rendererReleased = true
+            liveUpdateControllerEpoch.incrementAndGet()
+            hotBoundPipeline = null
+            hotBoundContextToken = 0
+            dspPipeline
+        }
+        activePipeline?.invalidateHotUpdateContext()
         lifecycle.close(thread) { queue.clear() }
     }
 
@@ -2042,6 +2060,11 @@ internal class AudioRenderer(
 
     private fun prepareDspPipeline(pcmFormat: DecoderPcmFormat) {
         val nextFormat = runCatching { DspAudioFormat(pcmFormat.sampleRate, pcmFormat.channels) }.getOrNull()
+        if (nextFormat != liveUpdatePcmFormat) {
+            pcmFormatEpoch++
+            if (pcmFormatEpoch <= 0L) pcmFormatEpoch = 1L
+            liveUpdatePcmFormat = nextFormat
+        }
         if (nextFormat != liveUpdateFormat) {
             trackGenerationContentCommitted = false
             trackGenerationLatencyFrames = 0
@@ -2242,6 +2265,7 @@ internal class AudioRenderer(
         transition.discardedUpdate?.update?.pipeline?.let { runCatching { it.close() } }
         if (transition.disabled) return
         val controllerEpoch = transition.epoch
+        bindHotPipeline(dspPipeline, controllerEpoch, format)
         liveCrossfade = DspPcmCrossfade(format.channels, maxOf(1, format.sampleRate / LIVE_CROSSFADE_DIVISOR))
         liveCrossfadeFloats = FloatArray(DspBufferSizing.MAX_DECODER_PCM_FRAMES * format.channels)
         liveCrossfadeSourceFloats = FloatArray(DspBufferSizing.MAX_DECODER_PCM_FRAMES * format.channels)
@@ -2406,7 +2430,8 @@ internal class AudioRenderer(
             },
             hotUpdatePreparer = { candidateFormat, snapshot ->
                 val current = activeDspConfig
-                if (candidateFormat == format && dspPipeline?.format == candidateFormat &&
+                if (hotBoundPipeline === dspPipeline && candidateFormat == format &&
+                    dspPipeline?.format == candidateFormat &&
                     DspUpdatePlanner.classify(
                         current = current,
                         target = snapshot.config,
@@ -2415,9 +2440,18 @@ internal class AudioRenderer(
                         currentLatencyFrames = liveUpdateLatencyFrames.get(),
                         targetLatencyFrames = liveUpdateLatencyFrames.get(),
                         requiresStateContinuity = false,
+                        mediaRole = classification.dspRole == DspStreamRole.MEDIA,
                     ) == DspUpdatePlan.HOT
                 ) {
-                    snapshot.config.prepareHotUpdate(candidateFormat, snapshot.generation)
+                    snapshot.config.prepareHotUpdate(
+                        candidateFormat,
+                        snapshot.generation,
+                        editorOwnerEpoch = controllerEpoch,
+                        rendererOwnerToken = rendererOwnerToken,
+                        pcmFormatEpoch = pcmFormatEpoch,
+                        hotContextToken = hotBoundContextToken,
+                        mediaRole = classification.dspRole == DspStreamRole.MEDIA,
+                    )
                 } else {
                     null
                 }
@@ -2440,6 +2474,26 @@ internal class AudioRenderer(
         synchronized(dspUpdatePublicationLock) {
             !rendererReleased && liveUpdateControllerEpoch.get() == epoch && liveUpdateFormat == format
         }
+
+    private fun bindHotPipeline(pipeline: DspPcmPipeline?, epoch: Long, format: DspAudioFormat): Boolean {
+        if (pipeline == null || pipeline.format != format || classification.dspRole != DspStreamRole.MEDIA) {
+            hotBoundPipeline = null
+            hotBoundContextToken = 0
+            return false
+        }
+        val bound = pipeline.bindHotUpdateContext(
+            editorOwnerEpoch = epoch,
+            rendererOwnerToken = rendererOwnerToken,
+            pcmFormatEpoch = pcmFormatEpoch,
+            hotContextToken = nextHotContextToken.updateAndGet { previous ->
+                if (previous == Int.MAX_VALUE) 1 else previous + 1
+            },
+            mediaRole = true,
+        )
+        hotBoundPipeline = pipeline.takeIf { bound }
+        hotBoundContextToken = pipeline.hotUpdateContextToken().takeIf { bound } ?: 0
+        return bound
+    }
 
     private fun writePcmWithLiveUpdates(
         source: ByteArray,
@@ -2579,6 +2633,17 @@ internal class AudioRenderer(
             if (pendingDspUpdate.compareAndSet(prepared, null)) controller.retire(update.pipeline)
             return
         }
+        val hotUpdate = update.hotUpdate
+        if (hotUpdate != null && (rendererReleased || hotUpdate.generation != update.generation ||
+                hotUpdate.editorOwnerEpoch != liveUpdateControllerEpoch.get() ||
+                hotUpdate.rendererOwnerToken != rendererOwnerToken ||
+                hotUpdate.pcmFormatEpoch != pcmFormatEpoch || hotUpdate.hotContextToken != hotBoundContextToken ||
+                !hotUpdate.mediaRole ||
+                classification.dspRole != DspStreamRole.MEDIA)
+        ) {
+            if (pendingDspUpdate.compareAndSet(prepared, null)) controller.retire(update.pipeline)
+            return
+        }
         val latestGeneration = runCatching { dspConfigProvider.versionedSnapshot().generation }
             .getOrDefault(update.generation)
         if (update.generation < latestGeneration) {
@@ -2588,10 +2653,14 @@ internal class AudioRenderer(
         if (trackGenerationContentCommitted && deferredDspGeneration == update.generation &&
             update.hotUpdate == null
         ) return
-        val hotUpdate = update.hotUpdate
         if (hotUpdate != null) {
             val pipeline = dspPipeline
-            if (pipeline == null || pipeline.format != update.format ||
+            if (rendererReleased || hotBoundPipeline !== pipeline || pipeline == null || pipeline.format != update.format ||
+                hotUpdate.generation != update.generation ||
+                hotUpdate.editorOwnerEpoch != liveUpdateControllerEpoch.get() ||
+                hotUpdate.rendererOwnerToken != rendererOwnerToken ||
+                hotUpdate.pcmFormatEpoch != pcmFormatEpoch || hotUpdate.hotContextToken != hotBoundContextToken ||
+                !hotUpdate.mediaRole ||
                 pendingHotApply != null || !pendingDspUpdate.compareAndSet(prepared, null)
             ) return
             if (!pipeline.enqueueHotUpdate(hotUpdate)) {
@@ -2617,6 +2686,7 @@ internal class AudioRenderer(
             currentLatencyFrames = trackGenerationLatencyFrames,
             targetLatencyFrames = candidateLatencyFrames,
             requiresStateContinuity = graphConfig.requiresStateContinuity(),
+            mediaRole = classification.dspRole == DspStreamRole.MEDIA,
         )
         if (updatePlan == DspUpdatePlan.DEFERRED) {
             if (deferredDspGeneration != update.generation) {
@@ -2635,6 +2705,7 @@ internal class AudioRenderer(
             if (!pendingDspUpdate.compareAndSet(prepared, null)) return
             val oldPipeline = dspPipeline
             dspPipeline = update.pipeline
+            bindHotPipeline(dspPipeline, liveUpdateControllerEpoch.get(), update.format)
             activeDspConfig = update.config
             activeDspGraphConfig = graphConfig
             activeDspGeneration = update.generation
@@ -2788,6 +2859,7 @@ internal class AudioRenderer(
     private fun finishLiveCrossfade() {
         val oldPipeline = liveFadeFrom
         dspPipeline = liveFadeTo
+        dspPipeline?.let { bindHotPipeline(it, liveUpdateControllerEpoch.get(), it.format) }
         liveFadeFrom = null
         liveFadeTo = null
         liveFadeInProgress = false
@@ -2822,6 +2894,7 @@ internal class AudioRenderer(
         }
         val oldPipeline = liveFadeFrom
         dspPipeline = liveFadeTo
+        dspPipeline?.let { bindHotPipeline(it, liveUpdateControllerEpoch.get(), it.format) }
         liveFadeFrom = null
         liveFadeTo = null
         liveFadeLatencyPreservingBypass = null

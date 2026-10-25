@@ -39,6 +39,12 @@ typedef struct {
 
 typedef struct {
     uint32_t generation_token;
+    uint64_t generation;
+    uint64_t editor_owner_epoch;
+    uint64_t renderer_owner_token;
+    uint64_t pcm_format_epoch;
+    uint32_t hot_context_token;
+    int media_role;
     double gain_db;
     dsp_macro_config macro;
     dsp_smart_loudness_config smart_loudness;
@@ -83,6 +89,15 @@ dsp_engine *dsp_engine_create_with_studio(
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);
 int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_update *update);
+int dsp_engine_bind_hot_update_context(
+    dsp_engine *engine,
+    int sample_rate,
+    int channels,
+    uint64_t editor_owner_epoch,
+    uint64_t renderer_owner_token,
+    uint64_t pcm_format_epoch,
+    uint32_t hot_context_token,
+    int media_role);
 uint32_t dsp_engine_get_hot_ack_token(const dsp_engine *engine);
 dsp_status dsp_engine_process(
     dsp_engine *engine,

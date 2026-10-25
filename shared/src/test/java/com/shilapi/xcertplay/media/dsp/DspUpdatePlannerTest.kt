@@ -26,6 +26,10 @@ class DspUpdatePlannerTest {
             DspUpdatePlan.HOT,
             DspUpdatePlanner.classify(current, target, true, true, 0, 0, true),
         )
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, target, true, true, 0, 0, true, mediaRole = false),
+        )
     }
 
     @Test

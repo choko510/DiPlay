@@ -508,6 +508,11 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     jobject receiver,
     jlong handle,
     jlong generation,
+    jlong editor_owner_epoch,
+    jlong renderer_owner_token,
+    jlong pcm_format_epoch,
+    jint hot_context_token,
+    jboolean media_role,
     jdouble gain_db,
     jdoubleArray macro_values,
     jdoubleArray smart_loudness_values,
@@ -515,7 +520,9 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     (void)receiver;
     dsp_engine_lease lease = {0};
     if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
-    if (generation <= 0 || !isfinite(gain_db) || gain_db < -700.0 || gain_db > 24.0 ||
+    if (generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 || pcm_format_epoch <= 0 ||
+        hot_context_token <= 0 ||
+        media_role != JNI_TRUE || !isfinite(gain_db) || gain_db < -700.0 || gain_db > 24.0 ||
         macro_values == NULL || smart_loudness_values == NULL || dynamic_bass_values == NULL ||
         (*env)->GetArrayLength(env, macro_values) != 5 ||
         (*env)->GetArrayLength(env, smart_loudness_values) != 3 ||
@@ -571,6 +578,12 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     if (generation_token == 0) generation_token = 1;
     const dsp_engine_hot_update update = {
         .generation_token = generation_token,
+        .generation = (uint64_t)generation,
+        .editor_owner_epoch = (uint64_t)editor_owner_epoch,
+        .renderer_owner_token = (uint64_t)renderer_owner_token,
+        .pcm_format_epoch = (uint64_t)pcm_format_epoch,
+        .hot_context_token = hot_context_token > 0 ? (uint32_t)hot_context_token : 0,
+        .media_role = media_role == JNI_TRUE ? 1 : 0,
         .gain_db = gain_db,
         .macro = {
             .enabled = (int)macro_values_data[0],
@@ -599,6 +612,35 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     const int queued = dsp_engine_enqueue_hot_update(lease.engine, &update);
     release_engine(&lease);
     return queued ? DSP_STATUS_OK : DSP_STATUS_QUEUE_FULL;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeBindHotUpdateContext(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jint sample_rate,
+    jint channels,
+    jlong editor_owner_epoch,
+    jlong renderer_owner_token,
+    jlong pcm_format_epoch,
+    jint hot_context_token,
+    jboolean media_role) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    const int bound = dsp_engine_bind_hot_update_context(
+        lease.engine,
+        sample_rate,
+        channels,
+        editor_owner_epoch > 0 ? (uint64_t)editor_owner_epoch : 0,
+        renderer_owner_token > 0 ? (uint64_t)renderer_owner_token : 0,
+        pcm_format_epoch > 0 ? (uint64_t)pcm_format_epoch : 0,
+        hot_context_token > 0 ? (uint32_t)hot_context_token : 0,
+        media_role == JNI_TRUE ? 1 : 0);
+    release_engine(&lease);
+    return bound ? DSP_STATUS_OK : DSP_STATUS_INVALID_ARGUMENT;
 }
 
 JNIEXPORT jint JNICALL

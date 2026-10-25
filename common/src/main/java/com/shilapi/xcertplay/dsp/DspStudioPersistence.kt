@@ -5,6 +5,7 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import org.json.JSONArray
 import org.json.JSONObject
+import com.shilapi.xcertplay.media.dsp.*
 
 internal sealed interface DspWorkspaceReadResult {
     data class Loaded(val workspace: DspStudioWorkspace) : DspWorkspaceReadResult
@@ -80,9 +81,11 @@ internal data class DspModulePreset(val id: String, val moduleKey: String, val n
 internal class DspModulePresetRepository(
     private val filesDirectory: File,
     private val writer: (File, ByteArray) -> Unit = ::atomicWrite,
+    private val irReferenceExists: (String) -> Boolean = { id -> DspImpulseResponseRepository(filesDirectory).load(id) != null },
 ) {
     fun save(preset: DspModulePreset): DspPresetStoreResult {
         if (preset.factory || !validId(preset.id) || preset.moduleKey !in MODULES || preset.name.isBlank() || preset.name.length > 48 || !validPayload(preset.moduleKey, preset.payload) || preset.payload.toString().length > MAX_PAYLOAD_CHARS) return DspPresetStoreResult.INVALID
+        if (!validReferences(preset.moduleKey, preset.payload)) return DspPresetStoreResult.INVALID
         val dir = File(File(filesDirectory, "dsp/modules"), preset.moduleKey)
         val target = File(dir, "${preset.id}.json")
         if (target.isFile && schema(target)?.let { it > SCHEMA } == true) return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
@@ -93,19 +96,69 @@ internal class DspModulePresetRepository(
     fun load(moduleKey: String, id: String): DspModulePreset? {
         if (moduleKey !in MODULES || !validId(id)) return null
         val target = File(File(filesDirectory, "dsp/modules"), "$moduleKey/$id.json")
-        return try { if (target.length() > MAX_PAYLOAD_CHARS) return null; val j = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }); if (j.getInt("schemaVersion") != SCHEMA || j.getInt("payloadVersion") != 1 || j.getString("id") != id || j.getString("moduleKey") != moduleKey) return null; val payload = j.getJSONObject("payload"); val name = j.getString("name"); if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload)) null else DspModulePreset(id, moduleKey, name, payload) } catch (_: Exception) { null }
+        return try { if (target.length() > MAX_PAYLOAD_CHARS) return null; val j = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }); if (j.getInt("schemaVersion") != SCHEMA || j.getInt("payloadVersion") != 1 || j.getString("id") != id || j.getString("moduleKey") != moduleKey) return null; val payload = j.getJSONObject("payload"); val name = j.getString("name"); if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) null else DspModulePreset(id, moduleKey, name, payload) } catch (_: Exception) { null }
     }
     fun applyTo(profile: DspAudioProfile, preset: DspModulePreset): DspAudioProfile? {
-        if (preset.moduleKey !in MODULES || !validPayload(preset.moduleKey, preset.payload)) return null
+        if (preset.moduleKey !in MODULES || !validPayload(preset.moduleKey, preset.payload) || !validReferences(preset.moduleKey, preset.payload)) return null
         val p = preset.payload
-        return when (preset.moduleKey) {
-            "bass" -> profile.copy(bass = profile.bass.copy(enabled = p.getBoolean("enabled"), gainDb = p.getDouble("gainDb"), frequencyHz = p.getDouble("frequencyHz")))
+        return try { when (preset.moduleKey) {
+            "bass" -> profile.copy(bass = DspBassConfig(p.getBoolean("enabled"), p.getDouble("gainDb"), p.getDouble("frequencyHz")))
             "peq" -> profile.copy(eqBands = readEq(p.getJSONArray("bands")) ?: return null)
-            "limiter" -> profile.copy(limiter = profile.limiter.copy(enabled = p.getBoolean("enabled"), thresholdDb = p.getDouble("thresholdDb"), releaseMs = p.getDouble("releaseMs")))
+            "seat" -> profile.copy(seatAlignment = seat(p))
+            "advanced_ms" -> profile.copy(advancedMs = advancedMs(p))
+            "compressor" -> profile.copy(compressor = compressor(p))
+            "multiband" -> profile.copy(multiband = multiband(p))
+            "dynamic_eq" -> profile.copy(dynamicEq = dynamicEq(p))
+            "harmonic" -> profile.copy(harmonic = harmonic(p))
+            "limiter" -> profile.copy(limiter = limiter(p))
+            "convolver" -> profile.copy(convolver = DspConvolverConfig(p.getBoolean("enabled"), p.optString("impulseResponseId").takeIf(String::isNotEmpty), p.getDouble("wet")))
+            "cabin" -> profile.copy(cabinCorrection = cabin(p))
             else -> null
-        }
+        }?.takeIf { it.hasValidEqCapacity() } } catch (_: Exception) { null }
     }
-    private fun validPayload(key: String, p: JSONObject): Boolean = try { when (key) { "bass" -> com.shilapi.xcertplay.media.dsp.DspBassConfig(p.getBoolean("enabled"), p.getDouble("gainDb"), p.getDouble("frequencyHz")); "peq" -> requireNotNull(readEq(p.getJSONArray("bands"))); "limiter" -> com.shilapi.xcertplay.media.dsp.DspSafetyLimiterConfig(p.getBoolean("enabled"), p.getDouble("thresholdDb"), p.getDouble("releaseMs")); else -> return false }; true } catch (_: Exception) { false }
+    fun applyTo(workspace: DspStudioWorkspace, preset: DspModulePreset): DspStudioWorkspace? {
+        if (preset.moduleKey !in MODULES || !validPayload(preset.moduleKey, preset.payload) || !validReferences(preset.moduleKey, preset.payload)) return null
+        val p = preset.payload
+        return try { when (preset.moduleKey) {
+            "macros" -> workspace.copy(macros = macroSettings(p))
+            "smart_loudness" -> workspace.copy(smartLoudness = loudness(p))
+            "dynamic_bass" -> workspace.copy(dynamicBass = dynamicBass(p))
+            else -> applyTo(workspace.baseProfileSnapshot, preset)?.let { workspace.copy(baseProfileSnapshot = it) }
+        } } catch (_: Exception) { null }
+    }
+    private fun validPayload(key: String, p: JSONObject): Boolean = try { when (key) {
+        "bass" -> DspBassConfig(p.getBoolean("enabled"), p.getDouble("gainDb"), p.getDouble("frequencyHz"))
+        "peq" -> requireNotNull(readEq(p.getJSONArray("bands")))
+        "seat" -> seat(p)
+        "advanced_ms" -> advancedMs(p)
+        "compressor" -> compressor(p)
+        "multiband" -> multiband(p)
+        "dynamic_eq" -> dynamicEq(p)
+        "harmonic" -> harmonic(p)
+        "limiter" -> limiter(p)
+        "convolver" -> DspConvolverConfig(p.getBoolean("enabled"), p.optString("impulseResponseId").takeIf(String::isNotEmpty), p.getDouble("wet"))
+        "cabin" -> cabin(p)
+        "smart_loudness" -> loudness(p)
+        "dynamic_bass" -> dynamicBass(p)
+        "macros" -> macroSettings(p)
+        else -> return false
+    }; true } catch (_: Exception) { false }
+    private fun compressor(p: JSONObject) = DspCompressorConfig(p.getBoolean("enabled"), p.getDouble("thresholdDb"), p.getDouble("ratio"), p.getDouble("attackMs"), p.getDouble("releaseMs"), p.getDouble("kneeDb"), p.getDouble("makeupDb"))
+    private fun limiter(p: JSONObject) = DspSafetyLimiterConfig(p.getBoolean("enabled"), p.getDouble("thresholdDb"), p.getDouble("releaseMs"))
+    private fun seat(p: JSONObject) = DspSeatAlignmentConfig(p.getBoolean("enabled"), DspSeatPreset.valueOf(p.getString("preset")), DspSeatNearSpeaker.valueOf(p.getString("nearSpeaker")), p.getDouble("distanceDifferenceCm"), p.getDouble("leftTrimDb"), p.getDouble("rightTrimDb"), p.getBoolean("invertLeft"), p.getBoolean("invertRight"))
+    private fun advancedMs(p: JSONObject) = DspAdvancedMsConfig(p.getBoolean("enabled"), p.getDouble("crossoverHz"), p.getDouble("centerFocusDb"), p.getDouble("midLowGainDb"), p.getDouble("midHighGainDb"), p.getDouble("sideLowGainDb"), p.getDouble("sideHighGainDb"), p.getDouble("lowBandWidth"), p.getDouble("highBandWidth"), p.getJSONObject("sideCompressor").let { DspMsSideCompressorConfig(it.getBoolean("enabled"), it.getDouble("thresholdDb"), it.getDouble("ratio"), it.getDouble("attackMs"), it.getDouble("releaseMs"), it.getDouble("kneeDb")) })
+    private fun multiband(p: JSONObject) = DspMultibandConfig(p.getBoolean("enabled"), p.getDouble("lowMidCrossoverHz"), p.getDouble("midHighCrossoverHz"), compressor(p.getJSONObject("low")), compressor(p.getJSONObject("mid")), compressor(p.getJSONObject("high")))
+    private fun dynamicEq(p: JSONObject): DspDynamicEqConfig { val bands = p.getJSONArray("bands"); require(bands.length() <= DspDynamicEqConfig.MAX_BANDS); return DspDynamicEqConfig(p.getBoolean("enabled"), List(bands.length()) { i -> val b = bands.getJSONObject(i); DspDynamicEqBandConfig(b.getBoolean("enabled"), b.getDouble("frequencyHz"), b.getDouble("q"), b.getDouble("thresholdDb"), b.getDouble("ratio"), b.getDouble("attackMs"), b.getDouble("releaseMs"), b.getDouble("maxBoostDb"), b.getDouble("maxCutDb"), DspDynamicEqMode.valueOf(b.getString("mode"))) }) }
+    private fun harmonic(p: JSONObject) = DspHarmonicConfig(p.getBoolean("enabled"), DspHarmonicMode.valueOf(p.getString("mode")), DspHarmonicQuality.valueOf(p.getString("quality")), p.getBoolean("exciterEnabled"), p.getDouble("exciterAmount"), p.getDouble("exciterCutoffHz"), p.getBoolean("virtualBassEnabled"), p.getDouble("virtualBassAmount"), p.getDouble("virtualBassCutoffHz"), p.getBoolean("levelMatchEnabled"))
+    private fun cabin(p: JSONObject): DspCabinCorrectionConfig { val notches = p.getJSONArray("notches"); require(notches.length() <= DspCabinCorrectionConfig.MAX_NOTCHES); val measurement = p.optJSONObject("measurement")?.let { DspCabinMeasurementSummary(it.getString("sourceSha256"), it.getInt("pointCount"), it.getDouble("minimumFrequencyHz"), it.getDouble("maximumFrequencyHz"), it.getDouble("noiseFloorDb"), it.getBoolean("clippingDetected")) }; return DspCabinCorrectionConfig(p.getBoolean("enabled"), measurement, List(notches.length()) { i -> val n = notches.getJSONObject(i); DspCabinCorrectionNotch(n.getBoolean("enabled"), n.getDouble("frequencyHz"), n.getDouble("gainDb"), n.getDouble("q")) }) }
+    private fun macroSettings(p: JSONObject) = DspSoundMacroSettings(p.getBoolean("enabled"), p.getInt("bassImpact"), p.getInt("vocalPresence"), p.getInt("airDetail"), p.getInt("soundstageWidth"))
+    private fun loudness(p: JSONObject) = p.toLoudness()
+    private fun dynamicBass(p: JSONObject) = p.toDynamicBass()
+    private fun validReferences(key: String, p: JSONObject): Boolean {
+        if (key != "convolver" || !p.getBoolean("enabled")) return true
+        val id = p.optString("impulseResponseId").takeIf(String::isNotEmpty) ?: return false
+        return irReferenceExists(id)
+    }
     private fun readEq(a: JSONArray): List<com.shilapi.xcertplay.media.dsp.DspEqBand>? = try { require(a.length() <= DspAudioProfile.MAX_EQ_BANDS); List(a.length()) { i -> val b = a.getJSONObject(i); com.shilapi.xcertplay.media.dsp.DspEqBand(com.shilapi.xcertplay.media.dsp.DspEqType.valueOf(b.getString("type")), b.getDouble("frequencyHz"), b.getDouble("gainDb"), b.getDouble("q"), b.getBoolean("enabled")) } } catch (_: Exception) { null }
     private fun schema(f: File): Int? = try { JSONObject(AtomicFile(f).openRead().bufferedReader().use { it.readText() }).optInt("schemaVersion", 0) } catch (_: Exception) { null }
     private fun validId(id: String) = ID.matches(id) && !id.contains("..")
@@ -137,10 +190,28 @@ internal class DspMacroPresetRepository(private val directory: File, private val
 }
 
 internal object DspFactoryPresets {
-    fun modulePresets(): List<DspModulePreset> = listOf(
-        DspModulePreset("factory-bass-neutral", "bass", "Neutral", JSONObject().put("enabled", false).put("gainDb", 0.0).put("frequencyHz", 80.0), true),
-        DspModulePreset("factory-limiter-safe", "limiter", "Safety", JSONObject().put("enabled", true).put("thresholdDb", -1.0).put("releaseMs", 60.0), true),
-    )
+    fun modulePresets(): List<DspModulePreset> {
+        val flat = DspProfilePresets.find("flat")!!
+        val macros = DspSoundMacroSettings()
+        val loudness = DspSmartLoudnessSettings()
+        val dynamicBass = DspDynamicBassSettings()
+        return listOf(
+            DspModulePreset("factory-peq-flat", "peq", "Flat", JSONObject().put("bands", JSONArray().apply { flat.eqBands.forEach { put(JSONObject().put("type", it.type.name).put("frequencyHz", it.frequencyHz).put("gainDb", it.gainDb).put("q", it.q).put("enabled", it.enabled)) } }), true),
+            DspModulePreset("factory-bass-neutral", "bass", "Neutral", JSONObject().put("enabled", false).put("gainDb", 0.0).put("frequencyHz", 80.0), true),
+            DspModulePreset("factory-seat-center", "seat", "Center", JSONObject().put("enabled", false).put("preset", "CENTER").put("nearSpeaker", "CENTER").put("distanceDifferenceCm", 0.0).put("leftTrimDb", 0.0).put("rightTrimDb", 0.0).put("invertLeft", false).put("invertRight", false), true),
+            DspModulePreset("factory-advanced-ms-neutral", "advanced_ms", "Neutral", JSONObject().put("enabled", false).put("crossoverHz", 250.0).put("centerFocusDb", 0.0).put("midLowGainDb", 0.0).put("midHighGainDb", 0.0).put("sideLowGainDb", 0.0).put("sideHighGainDb", 0.0).put("lowBandWidth", 1.0).put("highBandWidth", 1.0).put("sideCompressor", JSONObject().put("enabled", false).put("thresholdDb", -24.0).put("ratio", 2.0).put("attackMs", 10.0).put("releaseMs", 100.0).put("kneeDb", 6.0)), true),
+            DspModulePreset("factory-compressor-off", "compressor", "Off", compressorJson(flat.compressor), true),
+            DspModulePreset("factory-multiband-off", "multiband", "Off", JSONObject().put("enabled", false).put("lowMidCrossoverHz", 120.0).put("midHighCrossoverHz", 2500.0).put("low", compressorJson(DspCompressorConfig())).put("mid", compressorJson(DspCompressorConfig())).put("high", compressorJson(DspCompressorConfig())), true),
+            DspModulePreset("factory-dynamic-eq-off", "dynamic_eq", "Off", JSONObject().put("enabled", false).put("bands", JSONArray().apply { listOf(63.0, 250.0, 1000.0, 4000.0, 10000.0).forEach { frequency -> put(JSONObject().put("enabled", false).put("frequencyHz", frequency).put("q", 1.0).put("thresholdDb", -24.0).put("ratio", 2.0).put("attackMs", 10.0).put("releaseMs", 100.0).put("maxBoostDb", 6.0).put("maxCutDb", 6.0).put("mode", "CUT")) } }), true),
+            DspModulePreset("factory-harmonic-off", "harmonic", "Off", JSONObject().put("enabled", false).put("mode", "MIXED").put("quality", "MEDIUM").put("exciterEnabled", false).put("exciterAmount", .2).put("exciterCutoffHz", 6000.0).put("virtualBassEnabled", false).put("virtualBassAmount", .2).put("virtualBassCutoffHz", 120.0).put("levelMatchEnabled", true), true),
+            DspModulePreset("factory-limiter-safe", "limiter", "Safety", JSONObject().put("enabled", true).put("thresholdDb", -1.0).put("releaseMs", 60.0), true),
+            DspModulePreset("factory-convolver-off", "convolver", "Off", JSONObject().put("enabled", false).put("impulseResponseId", JSONObject.NULL).put("wet", 1.0), true),
+            DspModulePreset("factory-cabin-off", "cabin", "Off", JSONObject().put("enabled", false).put("measurement", JSONObject.NULL).put("notches", JSONArray()), true),
+            DspModulePreset("factory-loudness-off", "smart_loudness", "Off", loudness.toJson(), true),
+            DspModulePreset("factory-dynamic-bass-off", "dynamic_bass", "Off", dynamicBass.toJson(), true),
+            DspModulePreset("factory-macros-neutral", "macros", "Neutral", macros.toMacroJson(), true),
+        )
+    }
     val macroPresets: Map<String, DspSoundMacroSettings> = mapOf(
         "neutral" to DspSoundMacroSettings(),
         "warm" to DspSoundMacroSettings(true, bassImpact = 60),
@@ -148,6 +219,9 @@ internal object DspFactoryPresets {
         "air" to DspSoundMacroSettings(true, airDetail = 65),
     )
 }
+
+private fun compressorJson(c: DspCompressorConfig) = JSONObject().put("enabled", c.enabled).put("thresholdDb", c.thresholdDb).put("ratio", c.ratio).put("attackMs", c.attackMs).put("releaseMs", c.releaseMs).put("kneeDb", c.kneeDb).put("makeupDb", c.makeupDb)
+private fun DspSoundMacroSettings.toMacroJson() = JSONObject().put("enabled", enabled).put("bassImpact", bassImpact).put("vocalPresence", vocalPresence).put("airDetail", airDetail).put("soundstageWidth", soundstageWidth)
 
 internal fun DspStudioWorkspace.deepCopy(): DspStudioWorkspace = copy(
     baseProfileSnapshot = baseProfileSnapshot.copy(

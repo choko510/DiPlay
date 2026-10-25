@@ -59,6 +59,19 @@ class DspStudioPersistenceTest {
         assertNull(repo.load("bass", "../escape"))
     }
 
+    @Test fun futureModulePresetIsPreservedAndFactoryPresetCannotBeOverwritten() {
+        val root = temporaryFolder.root
+        val file = File(root, "dsp/modules/bass/future.json")
+        file.parentFile!!.mkdirs()
+        val future = "{\"schemaVersion\":8,\"sentinel\":true}"
+        file.writeText(future)
+        val repo = DspModulePresetRepository(root)
+        val replacement = DspModulePreset("future", "bass", "Replacement", JSONObject().put("enabled", true).put("gainDb", 1.0).put("frequencyHz", 80.0))
+        assertEquals(DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED, repo.save(replacement))
+        assertEquals(future, file.readText())
+        assertEquals(DspPresetStoreResult.INVALID, repo.save(DspFactoryPresets.modulePresets().first()))
+    }
+
     @Test fun applyingBassPresetChangesOnlyBassModule() {
         val profile = DspProfilePresets.find("vocal")!!
         val preset = DspModulePreset("factory-bass", "bass", "Factory", JSONObject().put("enabled", true).put("gainDb", 2.5).put("frequencyHz", 90.0), factory = true)
@@ -70,20 +83,78 @@ class DspStudioPersistenceTest {
         assertNull(DspModulePresetRepository(temporaryFolder.root).applyTo(profile, preset.copy(moduleKey = "limiter")))
     }
 
+    @Test fun enabledConvolverPresetRequiresAnExistingIrReference() {
+        val preset = DspModulePreset("ir-ref", "convolver", "IR", JSONObject().put("enabled", true).put("impulseResponseId", "safe-ir-id").put("wet", .5))
+        val rejected = DspModulePresetRepository(temporaryFolder.root, irReferenceExists = { false })
+        assertEquals(DspPresetStoreResult.INVALID, rejected.save(preset))
+        val accepted = DspModulePresetRepository(temporaryFolder.root, irReferenceExists = { it == "safe-ir-id" })
+        assertEquals(DspPresetStoreResult.SAVED, accepted.save(preset))
+        assertNotNull(accepted.load("convolver", preset.id))
+    }
+
+    @Test fun everyFactoryModulePayloadValidatesAndAppliesToItsScope() {
+        val repo = DspModulePresetRepository(temporaryFolder.root)
+        val workspace = workspace()
+        val profile = workspace.baseProfileSnapshot
+        val presets = DspFactoryPresets.modulePresets()
+        assertEquals(14, presets.size)
+        presets.forEach { factory ->
+            val userPreset = factory.copy(id = "user-${factory.moduleKey}", factory = false)
+            assertEquals("${factory.moduleKey} store", DspPresetStoreResult.SAVED, repo.save(userPreset))
+            val loaded = repo.load(factory.moduleKey, userPreset.id)
+            assertNotNull("${factory.moduleKey} load", loaded)
+            val loadedPreset = requireNotNull(loaded)
+            if (factory.moduleKey in setOf("macros", "smart_loudness", "dynamic_bass")) {
+                val applied = repo.applyTo(workspace, loadedPreset)
+                assertNotNull("${factory.moduleKey} workspace apply", applied)
+                assertEquals(workspace.baseProfileSnapshot, applied!!.baseProfileSnapshot)
+                when (factory.moduleKey) {
+                    "macros" -> { assertEquals(workspace.smartLoudness, applied.smartLoudness); assertEquals(workspace.dynamicBass, applied.dynamicBass) }
+                    "smart_loudness" -> { assertEquals(workspace.macros, applied.macros); assertEquals(workspace.dynamicBass, applied.dynamicBass) }
+                    "dynamic_bass" -> { assertEquals(workspace.macros, applied.macros); assertEquals(workspace.smartLoudness, applied.smartLoudness) }
+                }
+            } else {
+                val applied = repo.applyTo(profile, loadedPreset)
+                assertNotNull("${factory.moduleKey} profile apply", applied)
+                val unchanged = profile.copy(
+                    eqBands = if (factory.moduleKey == "peq") applied!!.eqBands else profile.eqBands,
+                    bass = if (factory.moduleKey == "bass") applied!!.bass else profile.bass,
+                    seatAlignment = if (factory.moduleKey == "seat") applied!!.seatAlignment else profile.seatAlignment,
+                    advancedMs = if (factory.moduleKey == "advanced_ms") applied!!.advancedMs else profile.advancedMs,
+                    compressor = if (factory.moduleKey == "compressor") applied!!.compressor else profile.compressor,
+                    multiband = if (factory.moduleKey == "multiband") applied!!.multiband else profile.multiband,
+                    dynamicEq = if (factory.moduleKey == "dynamic_eq") applied!!.dynamicEq else profile.dynamicEq,
+                    harmonic = if (factory.moduleKey == "harmonic") applied!!.harmonic else profile.harmonic,
+                    limiter = if (factory.moduleKey == "limiter") applied!!.limiter else profile.limiter,
+                    convolver = if (factory.moduleKey == "convolver") applied!!.convolver else profile.convolver,
+                    cabinCorrection = if (factory.moduleKey == "cabin") applied!!.cabinCorrection else profile.cabinCorrection,
+                )
+                assertEquals("${factory.moduleKey} locality", applied, unchanged)
+                val workspaceApplied = repo.applyTo(workspace, loadedPreset)
+                assertNotNull("${factory.moduleKey} workspace apply", workspaceApplied)
+                assertEquals(applied, workspaceApplied!!.baseProfileSnapshot)
+                assertEquals(workspace.macros, workspaceApplied.macros)
+                assertEquals(workspace.smartLoudness, workspaceApplied.smartLoudness)
+                assertEquals(workspace.dynamicBass, workspaceApplied.dynamicBass)
+                assertEquals(workspace.selectedModulePresetIds, workspaceApplied.selectedModulePresetIds)
+            }
+        }
+    }
+
     @Test fun previewCancelUndoAndSaveRemainSeparate() {
         val repo = DspStudioWorkspaceRepository(temporaryFolder.root)
         val coordinator = DspStudioSessionCoordinator(workspace(), repo)
         coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 80)) }
         assertTrue(coordinator.isDirty)
         assertEquals(80, coordinator.preview.macros.bassImpact)
-        assertEquals(50, coordinator.compareA().macros.bassImpact)
+        assertEquals(67, coordinator.compareA().macros.bassImpact)
         assertEquals(80, coordinator.compareB().macros.bassImpact)
         coordinator.cancelPreview()
         assertFalse(coordinator.isDirty)
-        assertEquals(50, coordinator.preview.macros.bassImpact)
+        assertEquals(67, coordinator.preview.macros.bassImpact)
         coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 61)) }
         assertTrue(coordinator.undo())
-        assertEquals(50, coordinator.preview.macros.bassImpact)
+        assertEquals(67, coordinator.preview.macros.bassImpact)
         coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 62)) }
         assertEquals(DspWorkspaceSaveResult.SAVED, coordinator.save())
         assertFalse(coordinator.isDirty)

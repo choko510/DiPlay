@@ -288,6 +288,7 @@ internal fun DspSettingsScreen(
         studioOperationPending = true
         runtime.previewStudioWorkspaceAsync(workspace, dspEnabled) { applied ->
             studioOperationPending = false
+            if (applied) editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             if (!applied && screenActive.get()) {
                 Toast.makeText(context, "Could not preview DSP Studio settings", Toast.LENGTH_LONG).show()
@@ -388,6 +389,7 @@ internal fun DspSettingsScreen(
         runtime.saveStudioWorkspaceAsync(workspace, dspEnabled) { result ->
             studioOperationPending = false
             if (result == DspWorkspaceSaveResult.SAVED) studioSession.commitSaved(workspace)
+            editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             val message = when (result) {
                 DspWorkspaceSaveResult.SAVED -> "DSP Studio saved"
@@ -400,10 +402,12 @@ internal fun DspSettingsScreen(
     }
     val cancelStudioChanges: () -> Unit = {
         studioOperationPending = true
+        calibrationController.cancel()
         studioSession.cancelPreview()
         syncStudioDraftToScreen(studioSession.preview)
         runtime.restoreCommittedStudioWorkspaceAsync(dspEnabled) { restored ->
             studioOperationPending = false
+            editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             if (!restored && screenActive.get()) {
                 Toast.makeText(context, "Could not restore the saved DSP Studio", Toast.LENGTH_LONG).show()

@@ -13,6 +13,8 @@ typedef struct {
     double release_ms;
 } dsp_dynamic_bass_config;
 
+int dsp_dynamic_bass_config_is_valid(const dsp_dynamic_bass_config *config);
+
 typedef struct {
     int sample_rate;
     int channels;

@@ -11,6 +11,7 @@
 #define DSP_HOT_UPDATE_QUEUE_CAPACITY 1u
 
 _Static_assert(ATOMIC_INT_LOCK_FREE == 2, "DSP diagnostics require lock-free 32-bit atomics");
+_Static_assert(ATOMIC_LLONG_LOCK_FREE == 2, "DSP owner epochs require lock-free 64-bit atomics");
 
 struct dsp_engine {
     uint32_t magic;
@@ -52,6 +53,11 @@ static int engine_is_prepared(const dsp_engine *engine) {
     return engine != NULL && engine->magic == DSP_ENGINE_MAGIC &&
         engine->sample_rate >= 8000 && engine->sample_rate <= 192000 &&
         engine->channels >= 1 && engine->channels <= 2 && engine->max_frames > 0;
+}
+
+static uint32_t hot_generation_token(uint64_t generation) {
+    const uint32_t token = (uint32_t)(generation & UINT64_C(0x7fffffff));
+    return token == 0 ? 1 : token;
 }
 
 static void saturating_add_counter(_Atomic uint32_t *counter, uint32_t increment) {
@@ -201,6 +207,7 @@ dsp_engine *dsp_engine_create(
 
 int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_update *update) {
     if (!engine_is_prepared(engine) || update == NULL || update->generation == 0 ||
+        update->generation_token != hot_generation_token(update->generation) ||
         update->editor_owner_epoch == 0 || update->renderer_owner_token == 0 ||
         update->pcm_format_epoch == 0 || update->hot_context_token == 0 || update->media_role != 1 ||
         update->hot_context_token != atomic_load_explicit(&engine->hot_context_token, memory_order_acquire) ||
@@ -208,8 +215,11 @@ int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_updat
         update->renderer_owner_token != atomic_load_explicit(&engine->hot_renderer_owner_token, memory_order_acquire) ||
         update->pcm_format_epoch != atomic_load_explicit(&engine->hot_pcm_format_epoch, memory_order_acquire) ||
         update->generation <= atomic_load_explicit(&engine->hot_last_generation, memory_order_acquire) ||
-        !isfinite(update->gain_db) ||
-        update->gain_db < -700.0 || update->gain_db > 24.0) return 0;
+        !dsp_graph_studio_hot_config_is_valid(
+            update->gain_db,
+            &update->macro,
+            &update->smart_loudness,
+            &update->dynamic_bass)) return 0;
     const uint32_t write_index = atomic_load_explicit(&engine->hot_write_index, memory_order_relaxed);
     const uint32_t read_index = atomic_load_explicit(&engine->hot_read_index, memory_order_acquire);
     if ((uint32_t)(write_index - read_index) >= DSP_HOT_UPDATE_QUEUE_CAPACITY) return 0;

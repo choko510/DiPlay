@@ -61,6 +61,19 @@ class DspEditorSessionTest {
         assertFalse(session.masterEnabled)
     }
 
+    @Test
+    fun runtimeRefreshAdoptsAppliedProfileWhenDraftWasClean() {
+        val session = session()
+        val runtimeProfile = applied.copy(preampDb = 1.5)
+
+        session.refreshFromRuntime(runtimeProfile, currentMasterEnabled = true)
+
+        assertEquals(runtimeProfile, session.appliedProfile)
+        assertEquals(runtimeProfile, session.draftProfile)
+        assertFalse(session.hasUnappliedChanges)
+        assertTrue(session.masterEnabled)
+    }
+
     private fun session() = DspEditorSession(
         initialDraft = applied,
         initialAppliedProfile = applied,

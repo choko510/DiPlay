@@ -11,7 +11,7 @@ static double one_pole_alpha(double frequency_hz, int sample_rate) {
     return 1.0 - exp(-2.0 * 3.14159265358979323846 * frequency_hz / (double)sample_rate);
 }
 
-static int config_is_valid(const dsp_macro_config *config) {
+int dsp_macro_config_is_valid(const dsp_macro_config *config) {
     return config != NULL && (config->enabled == 0 || config->enabled == 1) &&
         isfinite(config->bass_gain_db) && config->bass_gain_db >= -2.0 && config->bass_gain_db <= 4.0 &&
         isfinite(config->vocal_gain_db) && config->vocal_gain_db >= -2.0 && config->vocal_gain_db <= 2.5 &&
@@ -37,7 +37,7 @@ static void set_targets(dsp_macro *macro, const dsp_macro_config *config) {
 
 int dsp_macro_prepare(dsp_macro *macro, int sample_rate, int channels, const dsp_macro_config *config) {
     if (macro == NULL || sample_rate < 8000 || sample_rate > 192000 ||
-        channels < 1 || channels > 2 || !config_is_valid(config)) {
+        channels < 1 || channels > 2 || !dsp_macro_config_is_valid(config)) {
         return 0;
     }
     memset(macro, 0, sizeof(*macro));
@@ -58,7 +58,7 @@ int dsp_macro_prepare(dsp_macro *macro, int sample_rate, int channels, const dsp
 }
 
 int dsp_macro_apply_hot(dsp_macro *macro, const dsp_macro_config *config) {
-    if (macro == NULL || macro->sample_rate < 8000 || !config_is_valid(config)) return 0;
+    if (macro == NULL || macro->sample_rate < 8000 || !dsp_macro_config_is_valid(config)) return 0;
     if (!macro->enabled && config->enabled == 0) return 1;
     if (config->enabled) macro->enabled = 1;
     set_targets(macro, config);

@@ -60,6 +60,11 @@ int dsp_graph_apply_studio_hot(
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);
+int dsp_graph_studio_hot_config_is_valid(
+    double gain_db,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config);
 void dsp_graph_reset(dsp_graph *graph);
 void dsp_graph_close(dsp_graph *graph);
 void dsp_graph_process(

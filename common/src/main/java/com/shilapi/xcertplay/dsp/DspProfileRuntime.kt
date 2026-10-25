@@ -8,6 +8,7 @@ import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementCsv
 import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementParseResult
 import com.shilapi.xcertplay.media.dsp.DspConfigProvider
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import java.io.File
 import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
@@ -16,13 +17,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
-internal class DspProfileRuntime private constructor(context: Context) {
+internal class DspProfileRuntime private constructor(
+    context: Context,
+    filesDirectory: File = context.applicationContext.filesDir,
+    preferencesName: String = PREFERENCES_NAME,
+) {
     private val applicationContext = context.applicationContext
-    private val preferences = applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-    private val repository = DspProfileRepository(applicationContext.filesDir)
-    private val workspaceRepository = DspStudioWorkspaceRepository(applicationContext.filesDir)
-    private val modulePresetRepository = DspModulePresetRepository(applicationContext.filesDir)
-    private val impulseRepository = DspImpulseResponseRepository(applicationContext.filesDir)
+    private val preferences = applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+    private val repository = DspProfileRepository(filesDirectory)
+    private val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+    private val modulePresetRepository = DspModulePresetRepository(filesDirectory)
+    private val impulseRepository = DspImpulseResponseRepository(filesDirectory)
     private val impulseCache = ConcurrentHashMap<String, DspImpulseResponse>()
     private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "dsp-profile-io").apply { isDaemon = true }
@@ -170,6 +175,12 @@ internal class DspProfileRuntime private constructor(context: Context) {
             val restored = generation == studioApplyGeneration.get() && runCatching {
                 applyStudioWorkspace(workspace, enabled, impulseResponseFor(workspace.baseProfileSnapshot))
             }.getOrDefault(false)
+            if (restored) {
+                preferences.edit()
+                    .putBoolean(KEY_DSP_ENABLED, enabled)
+                    .putString(KEY_SELECTED_PROFILE_ID, workspace.profileSourceId)
+                    .apply()
+            }
             Handler(Looper.getMainLooper()).post { onComplete(restored) }
         }
     }
@@ -396,6 +407,12 @@ internal class DspProfileRuntime private constructor(context: Context) {
         fun get(context: Context): DspProfileRuntime = instance ?: synchronized(this) {
             instance ?: DspProfileRuntime(context).also { instance = it }
         }
+
+        internal fun createForTesting(
+            context: Context,
+            filesDirectory: File,
+            preferencesName: String,
+        ): DspProfileRuntime = DspProfileRuntime(context, filesDirectory, preferencesName)
 
         internal fun peekInstance(): DspProfileRuntime? = instance
 

@@ -7,6 +7,8 @@ typedef struct {
     double high_gain_db;
 } dsp_smart_loudness_config;
 
+int dsp_smart_loudness_config_is_valid(const dsp_smart_loudness_config *config);
+
 typedef struct {
     int sample_rate;
     int channels;

@@ -12,7 +12,7 @@ static double envelope_alpha(double time_ms, int sample_rate) {
     return exp(-1.0 / (time_ms * 0.001 * (double)sample_rate));
 }
 
-static int config_is_valid(const dsp_dynamic_bass_config *config) {
+int dsp_dynamic_bass_config_is_valid(const dsp_dynamic_bass_config *config) {
     return config != NULL && (config->enabled == 0 || config->enabled == 1) &&
         isfinite(config->strength) && config->strength >= 0.0 && config->strength <= 1.0 &&
         isfinite(config->max_boost_db) && config->max_boost_db >= 0.0 && config->max_boost_db <= 3.0 &&
@@ -52,7 +52,7 @@ int dsp_dynamic_bass_prepare(
     int channels,
     const dsp_dynamic_bass_config *config) {
     if (bass == NULL || sample_rate < 8000 || sample_rate > 192000 ||
-        channels < 1 || channels > 2 || !config_is_valid(config)) return 0;
+        channels < 1 || channels > 2 || !dsp_dynamic_bass_config_is_valid(config)) return 0;
     memset(bass, 0, sizeof(*bass));
     bass->sample_rate = sample_rate;
     bass->channels = channels;
@@ -63,7 +63,7 @@ int dsp_dynamic_bass_prepare(
 }
 
 int dsp_dynamic_bass_apply_hot(dsp_dynamic_bass *bass, const dsp_dynamic_bass_config *config) {
-    if (bass == NULL || bass->sample_rate < 8000 || !config_is_valid(config)) return 0;
+    if (bass == NULL || bass->sample_rate < 8000 || !dsp_dynamic_bass_config_is_valid(config)) return 0;
     if (!bass->enabled && config->enabled == 0) return 1;
     copy_config(bass, config);
     if (config->enabled || bass->current_gain > 1.000001) bass->enabled = 1;

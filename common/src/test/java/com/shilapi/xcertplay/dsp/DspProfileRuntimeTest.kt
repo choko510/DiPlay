@@ -2,12 +2,16 @@ package com.shilapi.xcertplay.dsp
 
 import android.app.Application
 import android.content.Context
+import android.os.Looper
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionNotch
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -16,6 +20,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -96,6 +101,60 @@ class DspProfileRuntimeTest {
         } finally {
             DspProfileRuntime.resetForTesting()
             context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
+    fun restoringCommittedStudioWorkspaceRestoresSelectedProfileAcrossRuntimeRecreation() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.get(context)
+        val committedProfile = DspProfilePresets.find("flat")!!
+        val committedWorkspace = DspStudioWorkspace(committedProfile.id, committedProfile)
+        val saveResult = AtomicReference<DspWorkspaceSaveResult?>()
+        val saveComplete = CountDownLatch(1)
+
+        try {
+            runtime.saveStudioWorkspaceAsync(committedWorkspace, enabled = true) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            drainMainLooperUntil(saveComplete)
+            assertEquals(DspWorkspaceSaveResult.SAVED, saveResult.get())
+
+            runtime.setMasterEnabled(false)
+            assertFalse(preferences.getBoolean(KEY_DSP_ENABLED, true))
+            val appliedProfile = DspProfilePresets.find("vocal")!!
+            assertTrue(runtime.apply(appliedProfile, enabled = false))
+            assertEquals(appliedProfile.id, preferences.getString(KEY_SELECTED_PROFILE_ID, null))
+
+            val restoreResult = AtomicReference<Boolean>()
+            val restoreComplete = CountDownLatch(1)
+            runtime.restoreCommittedStudioWorkspaceAsync(enabled = true) {
+                restoreResult.set(it)
+                restoreComplete.countDown()
+            }
+            drainMainLooperUntil(restoreComplete)
+
+            assertEquals(true, restoreResult.get())
+            assertEquals(committedProfile.id, preferences.getString(KEY_SELECTED_PROFILE_ID, null))
+            assertTrue(preferences.getBoolean(KEY_DSP_ENABLED, false))
+            assertTrue(runtime.isDspEnabled())
+            assertEquals(committedProfile, runtime.selectedProfile())
+
+            DspProfileRuntime.resetForTesting()
+            val recreated = DspProfileRuntime.get(context)
+            assertEquals(committedProfile.id, recreated.selectedProfile().id)
+            assertEquals(committedProfile, recreated.selectedProfile())
+            assertTrue(recreated.isDspEnabled())
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
             workspaceFile.delete()
         }
     }
@@ -205,5 +264,15 @@ class DspProfileRuntimeTest {
         requireNotNull(file.parentFile).mkdirs()
         file.writeBytes(byteArrayOf(1, 2, 3))
         return file
+    }
+
+    private fun drainMainLooperUntil(completed: CountDownLatch) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (completed.count > 0L && System.nanoTime() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(5)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue("main-thread callback completed", completed.await(0, TimeUnit.MILLISECONDS))
     }
 }

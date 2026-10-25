@@ -70,16 +70,25 @@ int dsp_graph_prepare(
     return 1;
 }
 
+int dsp_graph_studio_hot_config_is_valid(
+    double gain_db,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config) {
+    return isfinite(gain_db) && gain_db >= -700.0 && gain_db <= 24.0 &&
+        dsp_macro_config_is_valid(macro_config) &&
+        dsp_smart_loudness_config_is_valid(smart_loudness_config) &&
+        dsp_dynamic_bass_config_is_valid(dynamic_bass_config);
+}
+
 int dsp_graph_apply_studio_hot(
     dsp_graph *graph,
     double gain_db,
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config) {
-    if (graph == NULL || !isfinite(gain_db) || gain_db < -700.0 || gain_db > 24.0 ||
-        macro_config == NULL || smart_loudness_config == NULL || dynamic_bass_config == NULL) {
-        return 0;
-    }
+    if (graph == NULL || !dsp_graph_studio_hot_config_is_valid(
+            gain_db, macro_config, smart_loudness_config, dynamic_bass_config)) return 0;
     if (!dsp_gain_set_db(&graph->gain, gain_db) ||
         !dsp_macro_apply_hot(&graph->macro, macro_config) ||
         !dsp_smart_loudness_apply_hot(&graph->smart_loudness, smart_loudness_config) ||

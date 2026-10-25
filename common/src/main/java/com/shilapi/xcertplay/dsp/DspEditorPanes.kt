@@ -58,7 +58,7 @@ fun DspEqEditorPane(
     val cabinBands = cabinCorrection.approvedEqBands()
     val activeTotal = activeEqBandCount(profile.eqBands, cabinBands)
     val maxFrequencyHz = minOf(20_000f, sampleRateHz * 0.45f)
-    Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Parametric EQ · $activeTotal/${DspAudioProfile.MAX_EQ_BANDS} total active · ${cabinBands.size} Cabin bands")
         AccessibleSlider("Preamp", profile.preampDb.toFloat(), -24f..12f, "dB") {
             onProfileChange(profile.copy(preampDb = it.toDouble()))

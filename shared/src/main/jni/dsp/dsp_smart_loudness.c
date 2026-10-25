@@ -10,7 +10,7 @@ static double one_pole_alpha(double frequency_hz, int sample_rate) {
     return 1.0 - exp(-2.0 * 3.14159265358979323846 * frequency_hz / (double)sample_rate);
 }
 
-static int config_is_valid(const dsp_smart_loudness_config *config) {
+int dsp_smart_loudness_config_is_valid(const dsp_smart_loudness_config *config) {
     return config != NULL && (config->enabled == 0 || config->enabled == 1) &&
         isfinite(config->low_gain_db) && config->low_gain_db >= 0.0 && config->low_gain_db <= 3.0 &&
         isfinite(config->high_gain_db) && config->high_gain_db >= 0.0 && config->high_gain_db <= 1.5;
@@ -28,7 +28,7 @@ int dsp_smart_loudness_prepare(
     int channels,
     const dsp_smart_loudness_config *config) {
     if (loudness == NULL || sample_rate < 8000 || sample_rate > 192000 ||
-        channels < 1 || channels > 2 || !config_is_valid(config)) return 0;
+        channels < 1 || channels > 2 || !dsp_smart_loudness_config_is_valid(config)) return 0;
     memset(loudness, 0, sizeof(*loudness));
     loudness->sample_rate = sample_rate;
     loudness->channels = channels;
@@ -44,7 +44,7 @@ int dsp_smart_loudness_prepare(
 int dsp_smart_loudness_apply_hot(
     dsp_smart_loudness *loudness,
     const dsp_smart_loudness_config *config) {
-    if (loudness == NULL || loudness->sample_rate < 8000 || !config_is_valid(config)) return 0;
+    if (loudness == NULL || loudness->sample_rate < 8000 || !dsp_smart_loudness_config_is_valid(config)) return 0;
     if (!loudness->enabled && config->enabled == 0) return 1;
     if (config->enabled) loudness->enabled = 1;
     set_targets(loudness, config);

@@ -1106,6 +1106,7 @@ internal class AudioRenderer(
     private val audioTrackWriteAdapterForTest: AudioTrackWriteAdapterForTest? = null,
     private val beforeDspUpdatePublishForTest: (() -> Unit)? = null,
     internal var afterDspUpdateOwnerCheckForTest: (() -> Unit)? = null,
+    internal var afterHotApplyPendingReadForTest: (() -> Unit)? = null,
     private val onDspUpdatePreparedForTest: (() -> Unit)? = null,
     private val rendererOwnerToken: Long = 1L,
 ) : Closeable {
@@ -1118,6 +1119,11 @@ internal class AudioRenderer(
         val activeStatus: DspRendererApplyStatus,
         val deferredStatus: DspRendererApplyStatus,
         val failedStatus: DspRendererApplyStatus,
+    )
+    private data class PendingRendererHotApply(
+        val prepared: PreparedRendererDspUpdate,
+        val pipeline: DspPcmPipeline,
+        val hotContextToken: Int,
     )
     private data class LiveUpdateTransition(
         val epoch: Long,
@@ -1143,7 +1149,7 @@ internal class AudioRenderer(
     private var track: AudioTrack? = null
     @Volatile internal var dspPipeline: DspPcmPipeline? = null
     private val pendingDspUpdate = AtomicReference<PreparedRendererDspUpdate?>(null)
-    private var pendingHotApply: PreparedRendererDspUpdate? = null
+    private val pendingHotApply = AtomicReference<PendingRendererHotApply?>(null)
     private val dspUpdatePublicationLock = Any()
     private var liveUpdateController: DspLiveUpdateController? = null
     private val liveUpdateControllerEpoch = AtomicLong()
@@ -1267,6 +1273,9 @@ internal class AudioRenderer(
     internal val hasPreparedDspUpdateForTesting: Boolean
         get() = pendingDspUpdate.get() != null
 
+    internal val hasPendingHotApplyForTesting: Boolean
+        get() = pendingHotApply.get() != null
+
     internal val trackLatencyForTesting: Int
         get() = trackGenerationLatencyFrames
 
@@ -1332,6 +1341,10 @@ internal class AudioRenderer(
         playbackClockSnapshot = null
     }
 
+    internal fun rebindHotPipelineForTesting() {
+        dspPipeline?.let { bindHotPipeline(it, liveUpdateControllerEpoch.get(), it.format) }
+    }
+
     internal fun releaseForTesting() = release()
 
     fun start(): Boolean {
@@ -1379,6 +1392,7 @@ internal class AudioRenderer(
             dspPipeline
         }
         activePipeline?.invalidateHotUpdateContext()
+        failPendingHotApply()
         lifecycle.close(thread) { queue.clear() }
     }
 
@@ -2479,6 +2493,7 @@ internal class AudioRenderer(
         if (pipeline == null || pipeline.format != format || classification.dspRole != DspStreamRole.MEDIA) {
             hotBoundPipeline = null
             hotBoundContextToken = 0
+            discardStalePendingHotApply()
             return false
         }
         val bound = pipeline.bindHotUpdateContext(
@@ -2492,6 +2507,7 @@ internal class AudioRenderer(
         )
         hotBoundPipeline = pipeline.takeIf { bound }
         hotBoundContextToken = pipeline.hotUpdateContextToken().takeIf { bound } ?: 0
+        discardStalePendingHotApply()
         return bound
     }
 
@@ -2618,6 +2634,7 @@ internal class AudioRenderer(
     }
 
     private fun adoptPreparedDspUpdate() {
+        discardStalePendingHotApply()
         if (liveFadeInProgress) return
         val prepared = pendingDspUpdate.get() ?: return
         val update = prepared.update
@@ -2661,7 +2678,7 @@ internal class AudioRenderer(
                 hotUpdate.rendererOwnerToken != rendererOwnerToken ||
                 hotUpdate.pcmFormatEpoch != pcmFormatEpoch || hotUpdate.hotContextToken != hotBoundContextToken ||
                 !hotUpdate.mediaRole ||
-                pendingHotApply != null || !pendingDspUpdate.compareAndSet(prepared, null)
+                pendingHotApply.get() != null || !pendingDspUpdate.compareAndSet(prepared, null)
             ) return
             if (!pipeline.enqueueHotUpdate(hotUpdate)) {
                 pendingDspUpdate.compareAndSet(null, prepared)
@@ -2669,7 +2686,8 @@ internal class AudioRenderer(
                 reportDspApplyStatus(prepared.deferredStatus)
                 return
             }
-            pendingHotApply = prepared
+            pendingHotApply.set(PendingRendererHotApply(prepared, pipeline, hotUpdate.hotContextToken))
+            discardStalePendingHotApply()
             return
         }
         val candidateLatencyFrames = when {
@@ -3003,6 +3021,7 @@ internal class AudioRenderer(
             -1
         }
         if (outputLength < 0) {
+            val failedHotApply = takePendingHotApplyForPipeline(pipeline)
             if (dspPipeline === pipeline) {
                 latencyPreservingBypass?.activateSeatControlsForCurrentOutput()
                 dspPipeline = null
@@ -3010,9 +3029,11 @@ internal class AudioRenderer(
             }
             liveUpdateController?.retire(pipeline)
             reportDsp("DSP unavailable: reason=PROCESS_FAILED fallback=LEGACY_PCM")
-            reportDspApplyStatus(
-                DspRendererApplyStatus(activeDspGeneration, DspRendererApplyPhase.FAILED, activeDspGeneration),
-            )
+            reportDspApplyStatus(failedHotApply?.failedStatus ?: DspRendererApplyStatus(
+                activeDspGeneration,
+                DspRendererApplyPhase.FAILED,
+                activeDspGeneration,
+            ))
             return false
         }
         acknowledgeHotApply(pipeline)
@@ -3021,17 +3042,45 @@ internal class AudioRenderer(
     }
 
     private fun acknowledgeHotApply(pipeline: DspPcmPipeline) {
-        val prepared = pendingHotApply ?: return
+        discardStalePendingHotApply()
+        val pending = pendingHotApply.get() ?: return
+        val prepared = pending.prepared
         val update = prepared.update
         val hotUpdate = update.hotUpdate ?: return
-        if (pipeline !== dspPipeline || !pipeline.hasAcknowledged(hotUpdate)) return
-        pendingHotApply = null
+        if (pipeline !== pending.pipeline || pipeline !== dspPipeline || !pipeline.hasAcknowledged(hotUpdate)) return
+        runCatching { afterHotApplyPendingReadForTest?.invoke() }
+        if (!pendingHotApply.compareAndSet(pending, null)) return
         activeDspConfig = update.config
         activeDspGraphConfig = prepared.graphConfig
         activeDspGeneration = update.generation
         liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
         deferredDspGeneration = null
         reportDspApplyStatus(prepared.activeStatus)
+    }
+
+    private fun takePendingHotApplyForPipeline(pipeline: DspPcmPipeline): PreparedRendererDspUpdate? {
+        val pending = pendingHotApply.get() ?: return null
+        if (pending.pipeline !== pipeline || !pendingHotApply.compareAndSet(pending, null)) return null
+        return pending.prepared
+    }
+
+    private fun discardStalePendingHotApply() {
+        val pending = pendingHotApply.get() ?: return
+        val hotUpdate = pending.prepared.update.hotUpdate
+        val current = !rendererReleased && hotUpdate != null && pending.pipeline === dspPipeline &&
+            pending.pipeline === hotBoundPipeline && pending.hotContextToken == hotBoundContextToken &&
+            pending.hotContextToken == pending.pipeline.hotUpdateContextToken() &&
+            hotUpdate.editorOwnerEpoch == liveUpdateControllerEpoch.get() &&
+            hotUpdate.rendererOwnerToken == rendererOwnerToken && hotUpdate.pcmFormatEpoch == pcmFormatEpoch &&
+            hotUpdate.hotContextToken == hotBoundContextToken
+        if (current || !pendingHotApply.compareAndSet(pending, null)) return
+        reportDspApplyStatus(pending.prepared.failedStatus)
+    }
+
+    private fun failPendingHotApply() {
+        val pending = pendingHotApply.get() ?: return
+        if (!pendingHotApply.compareAndSet(pending, null)) return
+        reportDspApplyStatus(pending.prepared.failedStatus)
     }
 
     private fun dspPcmEncoding(encoding: Int): DspPcmEncoding? = when {
@@ -3530,6 +3579,7 @@ internal class AudioRenderer(
     }
 
     private fun release() {
+        failPendingHotApply()
         val (controller, pendingUpdate) = synchronized(dspUpdatePublicationLock) {
             rendererReleased = true
             liveUpdateControllerEpoch.incrementAndGet()

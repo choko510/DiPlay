@@ -1,5 +1,6 @@
 #include "dsp_engine.h"
 #include "dsp_dynamic_bass.h"
+#include "dsp_graph.h"
 
 #include <float.h>
 #include <math.h>
@@ -2337,6 +2338,92 @@ static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
     dsp_engine_destroy(engine);
 }
 
+static void test_studio_hot_update_rejects_invalid_module_configs_atomically(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 2, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "invalid hot update test graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "invalid hot update test binds MEDIA owner context");
+    const dsp_engine_hot_update valid_update = {
+        .generation_token = 42,
+        .generation = 42,
+        .editor_owner_epoch = 7,
+        .renderer_owner_token = 9,
+        .pcm_format_epoch = 3,
+        .hot_context_token = 1,
+        .media_role = 1,
+        .gain_db = 6.0,
+        .macro = {1, 0.0, 0.0, 0.0, 1.0},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    dsp_engine_hot_update invalid_update = valid_update;
+    invalid_update.macro.bass_gain_db = 5.0;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &invalid_update), "invalid macro config is rejected");
+    invalid_update = valid_update;
+    invalid_update.smart_loudness.low_gain_db = 3.1;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &invalid_update), "invalid loudness config is rejected");
+    invalid_update = valid_update;
+    invalid_update.dynamic_bass.high_threshold_dbfs = invalid_update.dynamic_bass.low_threshold_dbfs;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &invalid_update), "invalid dynamic bass config is rejected");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "invalid module payload is never acknowledged");
+    dsp_engine_destroy(engine);
+
+    dsp_graph graph = {0};
+    dsp_macro_config invalid_macro = macro;
+    invalid_macro.air_gain_db = 3.0;
+    assert_true(!dsp_graph_apply_studio_hot(&graph, 6.0, &invalid_macro, &loudness, &dynamic_bass),
+        "graph rejects invalid module config before applying hot changes");
+    assert_near(graph.gain.decibels, 0.0, 0.0, "invalid module config does not partially change preamp");
+}
+
+static void test_studio_hot_update_validates_ack_generation_token(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float input[4] = {0.25f, -0.25f, 0.5f, -0.5f};
+    float output[4] = {0.0f};
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 2, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "generation token test graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "generation token test binds MEDIA owner context");
+    const dsp_engine_hot_update update = {
+        .generation_token = 42,
+        .generation = 42,
+        .editor_owner_epoch = 7,
+        .renderer_owner_token = 9,
+        .pcm_format_epoch = 3,
+        .hot_context_token = 1,
+        .media_role = 1,
+        .gain_db = 0.0,
+        .macro = {1, 0.0, 0.0, 0.0, 1.0},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    dsp_engine_hot_update invalid_update = update;
+    invalid_update.generation_token = 0;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &invalid_update), "zero generation token is rejected");
+    invalid_update = update;
+    invalid_update.generation_token = 41;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &invalid_update), "mismatched generation token is rejected");
+    assert_true(dsp_engine_enqueue_hot_update(engine, &update), "matching generation token is accepted");
+    assert_true(dsp_engine_process(engine, input, 4, output, 4, 2, 2) == DSP_STATUS_OK,
+        "matching generation token update processes");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 42, "matching generation token is acknowledged");
+
+    dsp_engine_hot_update wrapped_token_update = update;
+    wrapped_token_update.generation = UINT64_C(0x80000000);
+    wrapped_token_update.generation_token = 1;
+    assert_true(dsp_engine_enqueue_hot_update(engine, &wrapped_token_update),
+        "zero low-31-bit generation uses JNI fallback token");
+    assert_true(dsp_engine_process(engine, input, 4, output, 4, 2, 2) == DSP_STATUS_OK,
+        "wrapped generation token update processes");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 1, "wrapped generation uses token one for acknowledgement");
+    dsp_engine_destroy(engine);
+}
+
 static void test_smart_loudness_uses_its_bounded_shelf_gains(void) {
     const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
     const dsp_smart_loudness_config loudness = {1, 3.0, 1.5};
@@ -2549,6 +2636,8 @@ int main(void) {
     test_convolver_sparse_sentinel_taps_reach_their_output_frames();
     test_studio_neutral_macro_preserves_exact_samples();
     test_studio_hot_command_is_acknowledged_after_its_block();
+    test_studio_hot_update_rejects_invalid_module_configs_atomically();
+    test_studio_hot_update_validates_ack_generation_token();
     test_smart_loudness_uses_its_bounded_shelf_gains();
     test_dynamic_bass_stereo_link_and_boost_ceiling();
     test_dynamic_bass_disabled_and_silence_are_neutral();

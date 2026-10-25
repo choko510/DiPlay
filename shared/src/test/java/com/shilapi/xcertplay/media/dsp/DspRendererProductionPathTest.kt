@@ -14,6 +14,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
@@ -366,6 +367,252 @@ class DspRendererProductionPathTest {
             assertEquals(128, renderer.trackLatencyForTesting)
             assertTrue(renderer.trackContentCommittedForTesting)
         } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun failedHotProcessingClearsPendingGenerationAndReportsFailure() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initial,
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).also(processorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 300),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    macroTone = DspMacroToneConfig(enabled = true, bassGainDb = 1.0),
+                ),
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            processorRef.get()?.failProcessing?.set(true)
+
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 400),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 200L,
+            )
+
+            assertFalse(renderer.hasPendingHotApplyForTesting)
+            awaitApplyStatus(provider, DspRendererApplyPhase.FAILED, generation = 1L)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun rendererCloseFailsAnUnacknowledgedHotGeneration() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initial,
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).also(processorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 300),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+            processorRef.get()?.suppressAcknowledgement = true
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    macroTone = DspMacroToneConfig(enabled = true, bassGainDb = 1.0),
+                ),
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 400),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 200L,
+            )
+            assertTrue(renderer.hasPendingHotApplyForTesting)
+
+            renderer.close()
+
+            assertFalse(renderer.hasPendingHotApplyForTesting)
+            awaitApplyStatus(provider, DspRendererApplyPhase.FAILED, generation = 1L)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun rendererCloseWinsWhenAckHasReadPendingHotGeneration() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initial,
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).also(processorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        val ackReadPending = CountDownLatch(1)
+        val resumeAck = CountDownLatch(1)
+        val processFailure = AtomicReference<Throwable?>()
+        val processThread = Thread {
+            runCatching {
+                renderer.processDecodedPcmForTesting(
+                    source = pcm16(frames = 64, channels = 1, sample = 400),
+                    offset = 0,
+                    length = 128,
+                    decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                    sourceSample = 200L,
+                )
+            }.onFailure(processFailure::set)
+        }.apply { isDaemon = true }
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 300),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    macroTone = DspMacroToneConfig(enabled = true, bassGainDb = 1.0),
+                ),
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            assertNotNull(processorRef.get())
+            renderer.afterHotApplyPendingReadForTest = {
+                ackReadPending.countDown()
+                check(resumeAck.await(5, TimeUnit.SECONDS))
+            }
+            processThread.start()
+            assertTrue(ackReadPending.await(5, TimeUnit.SECONDS))
+            assertTrue(renderer.hasPendingHotApplyForTesting)
+
+            renderer.close()
+            awaitApplyStatus(provider, DspRendererApplyPhase.FAILED, generation = 1L)
+
+            resumeAck.countDown()
+            processThread.join(5_000)
+            assertFalse(processThread.isAlive)
+            assertNull(processFailure.get())
+            assertFalse(renderer.hasPendingHotApplyForTesting)
+            assertEquals(DspRendererApplyPhase.FAILED, provider.rendererApplyStatus()?.phase)
+        } finally {
+            resumeAck.countDown()
+            processThread.join(1_000)
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun hotContextRebindFailsPendingGenerationAfterAckRead() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val initialProcessor = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initial,
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).also(initialProcessor::set)
+                    .let { DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false) }
+            },
+        )
+        val ackReadPending = CountDownLatch(1)
+        val resumeAck = CountDownLatch(1)
+        val processFailure = AtomicReference<Throwable?>()
+        val processThread = Thread {
+            runCatching {
+                renderer.processDecodedPcmForTesting(
+                    source = pcm16(frames = 64, channels = 1, sample = 400),
+                    offset = 0,
+                    length = 128,
+                    decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                    sourceSample = 200L,
+                )
+            }.onFailure(processFailure::set)
+        }.apply { isDaemon = true }
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 300),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    macroTone = DspMacroToneConfig(enabled = true, bassGainDb = 1.0),
+                ),
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            assertNotNull(initialProcessor.get())
+            renderer.afterHotApplyPendingReadForTest = {
+                ackReadPending.countDown()
+                check(resumeAck.await(5, TimeUnit.SECONDS))
+            }
+            processThread.start()
+            assertTrue(ackReadPending.await(5, TimeUnit.SECONDS))
+            assertTrue(renderer.hasPendingHotApplyForTesting)
+
+            renderer.rebindHotPipelineForTesting()
+
+            assertFalse(renderer.hasPendingHotApplyForTesting)
+            awaitApplyStatus(provider, DspRendererApplyPhase.FAILED, generation = 1L)
+
+            resumeAck.countDown()
+            processThread.join(5_000)
+            assertFalse(processThread.isAlive)
+            assertNull(processFailure.get())
+            assertEquals(DspRendererApplyPhase.FAILED, provider.rendererApplyStatus()?.phase)
+            assertEquals(1L, provider.rendererApplyStatus()?.generation)
+        } finally {
+            resumeAck.countDown()
+            processThread.join(1_000)
             renderer.releaseForTesting()
         }
     }
@@ -1532,6 +1779,61 @@ class DspRendererProductionPathTest {
         override fun diagnostics(): DspDiagnosticsSnapshot = DspDiagnosticsSnapshot.EMPTY
 
         override fun close() = onClose()
+    }
+
+    private class HotProcessor(override val format: DspAudioFormat) : DspProcessor {
+        private val result = DspProcessResult()
+        val failProcessing = AtomicBoolean()
+        var suppressAcknowledgement = false
+        private var hotContextToken = 0
+        private var queuedGenerationToken = 0
+        private var acknowledgedGenerationToken = 0
+        override val latencyFrames: Int = 0
+
+        override fun process(input: ByteBuffer, output: ByteBuffer, frames: Int): DspProcessResult {
+            if (failProcessing.get()) {
+                return result.failure(frames, latencyFrames, DspBypassReason.NATIVE_FAILURE, errorCode = 1)
+            }
+            val start = input.position()
+            repeat(frames * format.channels) { sample ->
+                output.putFloat(input.getFloat(start + sample * Float.SIZE_BYTES))
+            }
+            input.position(start + frames * format.channels * Float.SIZE_BYTES)
+            if (!suppressAcknowledgement) acknowledgedGenerationToken = queuedGenerationToken
+            return result.success(frames, latencyFrames)
+        }
+
+        override fun reset() = Unit
+
+        override fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean {
+            if (!update.mediaRole || update.hotContextToken != hotContextToken) return false
+            queuedGenerationToken = update.generationToken
+            return true
+        }
+
+        override fun bindHotUpdateContext(
+            editorOwnerEpoch: Long,
+            rendererOwnerToken: Long,
+            pcmFormatEpoch: Long,
+            hotContextToken: Int,
+            mediaRole: Boolean,
+        ): Boolean {
+            if (!mediaRole || hotContextToken <= 0) return false
+            this.hotContextToken = hotContextToken
+            return true
+        }
+
+        override fun invalidateHotUpdateContext() {
+            hotContextToken = 0
+        }
+
+        override fun hotUpdateContextToken(): Int = hotContextToken
+
+        override fun hotAcknowledgedToken(): Int = acknowledgedGenerationToken
+
+        override fun diagnostics(): DspDiagnosticsSnapshot = DspDiagnosticsSnapshot.EMPTY
+
+        override fun close() = Unit
     }
 
     private class MutableConfigProvider(initial: DspRuntimeConfig) : DspConfigProvider {

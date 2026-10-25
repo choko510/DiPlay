@@ -9,6 +9,8 @@ typedef struct {
     double relative_width;
 } dsp_macro_config;
 
+int dsp_macro_config_is_valid(const dsp_macro_config *config);
+
 typedef struct {
     int sample_rate;
     int channels;

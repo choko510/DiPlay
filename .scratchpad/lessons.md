@@ -298,6 +298,8 @@ For diagnostic classification, resolve ICMPv6 through bounded extension-header p
 
 Use the external `DIPLAY_AUTH_ASSETS_DIR` input for a local-only debug build, and gate packaging with an exact two-file allowlist. Generated APKs may contain those user-requested assets; keep them out of source, commits, and logs.
 
+If the input arrives inside an APK, verify that each allowlisted ZIP entry occurs exactly once before extracting it. After packaging, verify the asset entries and v1/v2 signatures in every ABI APK, then remove the temporary extracted copies.
+
 ## Verify the APK signature schemes explicitly
 
 Use `apksigner verify --verbose --min-sdk-version 23` when confirming v1 compatibility on an APK whose manifest minSdk is 28 or higher; the default report can show v1 as not applicable while v2 remains valid. Check the exact final APK file rather than assuming Gradle's successful package task alone resolved an installer error.
@@ -500,3 +502,9 @@ For a valid but incomplete NCM header, sequence and block length are enough to s
 When DSP candidates retire through a background reaper, observe completion with a latch or other explicit signal in tests. For fallback audio, headroom/limiting should activate only on the failed-output path so normal and low-level delayed fallback samples remain unchanged.
 
 For Compose scroll exceptions, bound the scroll node's incoming constraints directly; a finite cap on its higher-level Scaffold may not be sufficient on OEM measure paths. Capture both Android View MeasureSpecs and the Compose body's incoming maxHeight, then verify the rendered flow on the affected device.
+
+Do not retry `DspRuntimeConfig.prepare()` to calculate an audio-failure fallback: the invalid profile that caused preparation to fail can throw again, and the full path scans EQ response and copies convolution data. The failure path only needs a conservative scalar gain bound and its existing output limiter.
+
+When coalescing queue control jobs, keep required resource-release callbacks in a separate FIFO and coalesce only the latest control state. This avoids quadratic list copying without treating an unacknowledged Surface as safe to release; a hard cap needs an explicit safe overflow policy.
+
+For asynchronous DSP teardown, carry the configuration generation with the pipeline into the reaper failure callback. Report an old graph's release failure beside the active generation and blocked-update state so the UI does not conflate retirement with candidate preparation.

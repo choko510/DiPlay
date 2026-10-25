@@ -18,6 +18,7 @@ internal class DspPcmPipeline(
     private val retirementCount = AtomicReference<AtomicInteger?>(null)
     private val retirementFailureHandler = AtomicReference<((Throwable) -> Unit)?>(null)
     private val closed = AtomicBoolean()
+    @Volatile internal var configGeneration: Long? = null
     @Volatile internal var reaperNext: DspPcmPipeline? = null
     private val diagnostics = DspDiagnostics()
     private val pipelineProcessTiming = DspFixedHistogram()

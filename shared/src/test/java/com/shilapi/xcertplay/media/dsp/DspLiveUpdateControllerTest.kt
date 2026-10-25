@@ -278,7 +278,7 @@ class DspLiveUpdateControllerTest {
             initialGeneration = 0L,
             activeLatencyFrames = { 0 },
             onPrepared = {},
-            onRetirementFailed = { error ->
+            onRetirementFailed = { _, error ->
                 failureType.set(error.javaClass.simpleName)
                 failureReported.countDown()
             },

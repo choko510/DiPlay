@@ -17,6 +17,11 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-25 — Keep DSP fallback and Surface churn work bounded
+
+- Replaced fallback-time full DSP graph preparation with a conservative scalar headroom estimate over bounded profile fields. It avoids EQ frequency scans and convolution sample copies on track-generation changes and no longer rethrows invalid PEQ configuration from the fallback path. Shared/common Kotlin compilation passed; no p99, allocation, underrun or hardware measurements were collected.
+- Moved Surface retirement callbacks out of coalesced control jobs and removed repeated accumulated-list flatten/copy work. Added a 5-second count/oldest-age diagnostic interval. Callback count is still retained until decoder acknowledgement; memory-cap/overflow policy and target churn measurements remain open.
+
 ## 2026-10-23 — Move retired DSP pipeline cleanup off the render worker
 
 - Replaced the audio-caller's synchronized retire queue and timer scheduling with a prestarted single reaper thread and an intrusive lock-free pipeline stack. Retirement uses existing pipeline objects, and the renderer waits for the retire count to drain before adopting another graph.

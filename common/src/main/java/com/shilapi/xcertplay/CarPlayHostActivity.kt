@@ -1342,7 +1342,6 @@ class CarPlayHostActivity : ComponentActivity() {
                 mode,
             )
         }
-        val loggedMeasureSpecs = mutableSetOf<String>()
         val view = ComposeView(this).apply {
             id = R.id.dsp_split_compose_view
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
@@ -1368,7 +1367,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     "composeSize=${View.MeasureSpec.getSize(composeWidthSpec)}x" +
                     "${View.MeasureSpec.getSize(composeHeightSpec)} parent=$parentSize " +
                     "root=${rootView.measuredWidth}x${rootView.measuredHeight}"
-                if (loggedMeasureSpecs.size < 8 && loggedMeasureSpecs.add(measurement)) {
+                if (DspSplitMeasureDiagnostics.record(measurement)) {
                     Log.i(TAG, "DSP_SPLIT_VIEW_MEASURE $measurement")
                 }
                 super.onMeasure(widthMeasureSpec, heightMeasureSpec)

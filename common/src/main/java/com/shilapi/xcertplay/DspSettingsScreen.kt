@@ -121,7 +121,16 @@ private fun rendererApplyStatusText(status: DspRendererApplyStatus?): String = w
     DspRendererApplyPhase.REQUESTED -> stringResource(R.string.dsp_renderer_apply_requested, status.generation)
     DspRendererApplyPhase.PREPARING -> stringResource(R.string.dsp_renderer_apply_preparing, status.generation)
     DspRendererApplyPhase.PREPARED -> stringResource(R.string.dsp_renderer_apply_prepared, status.generation)
-    DspRendererApplyPhase.ACTIVE -> stringResource(R.string.dsp_renderer_apply_active, status.generation)
+    DspRendererApplyPhase.ACTIVE -> if (status.updatesBlocked) {
+        stringResource(
+            R.string.dsp_renderer_apply_retirement_failed,
+            status.retiredGeneration?.toString() ?: stringResource(R.string.dsp_renderer_apply_no_active),
+            status.retiredPipelineId?.toString() ?: stringResource(R.string.dsp_renderer_apply_no_active),
+            status.activeGeneration?.toString() ?: stringResource(R.string.dsp_renderer_apply_no_active),
+        )
+    } else {
+        stringResource(R.string.dsp_renderer_apply_active, status.generation)
+    }
     DspRendererApplyPhase.DEFERRED -> stringResource(
         R.string.dsp_renderer_apply_deferred,
         status.generation,
@@ -313,9 +322,12 @@ internal fun DspSettingsScreen(
         Modifier.layout { measurable, constraints ->
             val capPx = compactHeightCap.roundToPx()
             if (constraints.maxHeight == Constraints.Infinity) {
+                val measurement = "DSP_SPLIT_BODY_UNBOUNDED " +
+                    "minHeight=${constraints.minHeight} maxHeight=${constraints.maxHeight} capHeight=$capPx"
+                DspSplitMeasureDiagnostics.record(measurement)
                 Log.w(
                     "xcertplay-usb",
-                    "DSP_SPLIT_BODY_UNBOUNDED minHeight=${constraints.minHeight} capHeight=$capPx",
+                    "$measurement recentViewMeasures=${DspSplitMeasureDiagnostics.recentMeasurements()}",
                 )
             }
             val boundedMaxHeight = maxOf(constraints.minHeight, minOf(constraints.maxHeight, capPx))

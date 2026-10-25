@@ -248,19 +248,28 @@ class CarPlayVpnService : VpnService() {
         replacement: AirPlayAttachment,
     ) {
         val server = ServerSocket()
-        server.bind(InetSocketAddress(replacement.address, replacement.config.port))
-        replacement.wiredPathDiagnostics?.record(
-            WiredPathEvent.LISTENER_BOUND,
-            generation.toLong(),
-        )
-        attachment = replacement
-        serverSocket = server
-        Thread(
-            { acceptLoop(generation, server) },
-            "airplay-accept",
-        ).apply {
-            isDaemon = true
-            start()
+        var ownershipTransferred = false
+        try {
+            server.bind(InetSocketAddress(replacement.address, replacement.config.port))
+            replacement.wiredPathDiagnostics?.record(
+                WiredPathEvent.LISTENER_BOUND,
+                generation.toLong(),
+            )
+            val acceptThread = Thread(
+                { acceptLoop(generation, server) },
+                "airplay-accept",
+            ).apply { isDaemon = true }
+            attachment = replacement
+            serverSocket = server
+            ownershipTransferred = true
+            acceptThread.start()
+        } finally {
+            if (!ownershipTransferred) {
+                runCatching { server.close() }
+                    .onFailure { error ->
+                        Log.w(TAG, "unowned AirPlay server close failed error=${error.javaClass.simpleName}")
+                    }
+            }
         }
     }
 

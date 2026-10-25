@@ -95,6 +95,7 @@
     <string name="dsp_renderer_apply_active">Last adopted by a MEDIA renderer (generation %1$d)</string>
     <string name="dsp_renderer_apply_deferred">Pending until the next audio track (requested generation %1$d, current generation %2$s)</string>
     <string name="dsp_renderer_apply_failed">Could not prepare generation %1$d; current output is retained.</string>
+    <string name="dsp_renderer_apply_retirement_failed">Retired generation %1$s (pipeline %2$s) could not be released. Current generation %3$s remains active; DSP updates are blocked.</string>
     <string name="dsp_renderer_apply_no_active">none</string>
     <string name="dsp_renderer_apply_status_note">This shows the last adopted graph generation; it does not mean every configured module is active or that a renderer is currently playing.</string>
     <string name="dsp_renderer_apply_convolver_ir_unavailable">Convolver is inactive for this output because its impulse response could not be loaded.</string>

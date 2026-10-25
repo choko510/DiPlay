@@ -44,6 +44,7 @@ import com.shilapi.xcertplay.media.dsp.DspStreamRole
 import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
 import com.shilapi.xcertplay.media.dsp.DspPipelinePreparer
 import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
+import com.shilapi.xcertplay.media.dsp.failureFallbackPreampDb
 import com.shilapi.xcertplay.media.dsp.createNativePipeline
 import com.shilapi.xcertplay.media.dsp.prepare
 import java.io.Closeable
@@ -591,6 +592,7 @@ private class VideoDecoder(
     private val referenceChain = VideoReferenceChain()
     private var lastKeyFrameRequestNs = 0L
     private val stats = VideoStats()
+    private var lastSurfaceRetirementDiagnosticNs = 0L
     private val thread = Thread(::run, "carplay-video").apply { isDaemon = true }
 
     fun start() {
@@ -668,8 +670,9 @@ private class VideoDecoder(
                             } else feed(job.nalus)
                         }
                         is VideoJob.SurfaceChanged -> {
-                            pendingSurfaceRetirements += job.retirements
+                            pendingSurfaceRetirements += queue.takeSurfaceRetirements()
                             if (changeSurface(job.surface)) completeRetiredSurfaceChanges()
+                            reportSurfaceRetirementBacklogIfDue()
                         }
                         is VideoJob.Resync -> recover("video queue overflow")
                         null -> Unit
@@ -702,6 +705,7 @@ private class VideoDecoder(
                     surfaceReleaseSafe = releaseDecoder()
                 } finally {
                     pendingSurfaceRetirements += queue.drainSurfaceRetirements()
+                    reportSurfaceRetirementBacklogIfDue()
                     if (surfaceReleaseSafe) {
                         outputSurface = null
                         lastConfig = null
@@ -727,6 +731,24 @@ private class VideoDecoder(
                 runCatching(retirement.onApplied)
             }
         }
+    }
+
+    private fun reportSurfaceRetirementBacklogIfDue() {
+        val queuedCount = queue.queuedSurfaceRetirementCount
+        val pendingCount = pendingSurfaceRetirements.size
+        val count = queuedCount + pendingCount
+        if (count == 0) {
+            lastSurfaceRetirementDiagnosticNs = 0L
+            return
+        }
+        val now = System.nanoTime()
+        if (now - lastSurfaceRetirementDiagnosticNs < SURFACE_RETIREMENT_DIAGNOSTIC_INTERVAL_NS) return
+        lastSurfaceRetirementDiagnosticNs = now
+        val oldestCreatedNs = pendingSurfaceRetirements.firstOrNull()?.createdNs
+            ?: queue.oldestQueuedSurfaceRetirementNs()
+            ?: now
+        val oldestAgeMs = (now - oldestCreatedNs).coerceAtLeast(0L) / 1_000_000L
+        report("surface retirement backlog count=$count oldestAgeMs=$oldestAgeMs")
     }
 
     private fun configureDecoder(config: VideoJob.Config) {
@@ -1041,6 +1063,7 @@ private class VideoDecoder(
         const val MAX_INPUT_SIZE = 8 * 1024 * 1024
         const val INPUT_TIMEOUT_US = 10_000L
         const val MAX_FRAME_AGE_NS = 250_000_000L
+        const val SURFACE_RETIREMENT_DIAGNOSTIC_INTERVAL_NS = 5_000_000_000L
         val START_CODE = byteArrayOf(0x00, 0x00, 0x00, 0x01)
     }
 }
@@ -2089,6 +2112,7 @@ internal class AudioRenderer(
         if (preparedPipeline.algorithmicLatencyFrames < requiredLatency) {
             preparedPipeline.preserveLatencyWithDelay(requiredLatency - preparedPipeline.algorithmicLatencyFrames)
         }
+        preparedPipeline.configGeneration = activeDspGeneration
         dspPipeline = preparedPipeline.also {
             reportDsp("DSP: Float32 pipeline ready sampleRate=${nextFormat.sampleRate} channels=${nextFormat.channels}")
         }
@@ -2162,15 +2186,7 @@ internal class AudioRenderer(
     }
 
     private fun failureFallbackPreampDb(format: DspAudioFormat, config: DspRuntimeConfig): Double {
-        if (!config.enabled || !config.autoHeadroomEnabled) return 0.0
-        val graphConfig = configuredDspGraph(format, config)
-        val positiveSeatTrimDb = if (format.channels == 2) {
-            graphConfig.seatAlignment.positiveTrimForHeadroomDb
-        } else {
-            0.0
-        }
-        if (positiveSeatTrimDb <= 0.0) return 0.0
-        return graphConfig.prepare(format).appliedPreampDb.coerceAtMost(0.0)
+        return config.failureFallbackPreampDb(format)
     }
 
     private fun configuredDspGraph(format: DspAudioFormat, config: DspRuntimeConfig): DspRuntimeConfig {
@@ -2351,16 +2367,26 @@ internal class AudioRenderer(
                 pipeline?.algorithmicLatencyFrames
                     ?: if (trackGenerationContentCommitted) liveUpdateLatencyFrames.get() else 0
             },
-            onRetirementFailed = { error ->
+            onRetirementFailed = { pipeline, error ->
                 if (!rendererReleased && liveUpdateControllerEpoch.get() == controllerEpoch) {
                     val generation = runCatching { dspConfigProvider.versionedSnapshot().generation }
                         .getOrDefault(activeDspGeneration)
                     reportDsp(
-                        "DSP unavailable: reason=PIPELINE_RETIRE_FAILED generation=$generation " +
+                        "DSP retirement failed retiredPipelineId=${System.identityHashCode(pipeline)} " +
+                            "retiredGeneration=${pipeline.configGeneration ?: "unknown"} " +
+                            "activeGeneration=$activeDspGeneration requestedGeneration=$generation " +
+                            "rendererEpoch=$controllerEpoch updatesBlocked=true " +
                             "error=${error.javaClass.simpleName}",
                     )
                     reportDspApplyStatus(
-                        DspRendererApplyStatus(generation, DspRendererApplyPhase.FAILED, activeDspGeneration),
+                        DspRendererApplyStatus(
+                            generation = generation,
+                            phase = DspRendererApplyPhase.ACTIVE,
+                            activeGeneration = activeDspGeneration,
+                            retiredGeneration = pipeline.configGeneration,
+                            retiredPipelineId = System.identityHashCode(pipeline),
+                            updatesBlocked = true,
+                        ),
                     )
                 }
             },

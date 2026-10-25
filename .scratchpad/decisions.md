@@ -646,6 +646,20 @@ For failed DSP fallback, keep the legacy delayed output unchanged for low-level/
 
 For a locally installable CarPlay build without configured release signing, use the Android Debug signing config and package external MFi identity/certificate files as separate runtime-auth assets. The MFi files enable protocol authentication; they do not constitute the Android APK signer or release approval.
 
+## Extract only allowlisted MFi assets from a supplied APK
+
+When an existing APK is the user-supplied source, inspect its ZIP entries and extract only one copy each of `assets/offline-mfi/identity.pk8` and `assets/offline-mfi/certificate.p7b` to a permission-restricted temporary directory outside the worktree. Keep the embedded CarPlay identity distinct from Android signing and use the existing Debug signing config for a local build.
+
 For sixth-review source fixes, start no-progress tracking as soon as a valid NTH16 sequence and declared length are known, even when its NDP structure is incomplete; keep VPN revoke scoped to the attachment's transport kind/generation. If a codec candidate cannot release, retain it and stop fallback codec attempts. Native DSP retirement failures must flow to the reaper's FAILED path, while protocol diagnostics retain only allowlisted stage/byte counts and never payload bytes.
 
 For the DSP Split infinity-height crash, cap the scroll body itself before `verticalScroll` and record the incoming Compose constraints plus the Android ComposeView MeasureSpec path. A Scaffold-level cap alone was insufficient according to the user's device result; keep device acceptance open until measured on SH-M27.
+
+For DSP failure fallback, do not call full graph `prepare()` from the AudioTrack worker. Use a bounded conservative gain estimate from configured positive boosts, Seat trim, and margin; keep the soft limiter on the failed-output path and leave the DSP-OFF path unchanged. This avoids retrying an invalid PEQ and avoids EQ scans or impulse-response copies during track-generation changes.
+
+For AirPlay listener startup, keep the newly created ServerSocket locally owned through bind and diagnostics setup, then transfer ownership to the service fields before starting the accept thread. A failure before transfer closes the local socket; failures after transfer are cleaned through the normal attachment release path.
+
+For Surface retirement, keep every release acknowledgement until decoder ownership is safe, but store callbacks separately from coalesced surface-control jobs so rapid surface changes do not repeatedly copy the accumulated callback list. Emit bounded count/age diagnostics; do not invent a cap that would discard required acknowledgements or force unsafe Surface release.
+
+For DSP Split measurement diagnostics, retain the most recent 64 distinct measurement signatures and include the latest 16 in the unbounded-body diagnostic. Keep this ring bounded and continue to treat SH-M27 rendering/scroll acceptance as a separate device gate.
+
+For a retired DSP pipeline close failure, bind the failure to that pipeline's configuration generation and identity. Keep the status phase ACTIVE for the current graph, attach the old pipeline failure as separate metadata, and report that further updates are blocked; never mark the latest configured generation as a preparation failure for an older pipeline.

@@ -2,8 +2,10 @@ package com.shilapi.xcertplay.media
 
 import android.view.Surface
 import com.shilapi.xcertplay.airplay.VideoCodec
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 internal sealed interface VideoJob {
     data class Config(val codec: VideoCodec, val codecData: ByteArray) : VideoJob
@@ -18,6 +20,7 @@ internal sealed interface VideoJob {
 internal data class VideoSurfaceRetirement(
     val surface: Surface,
     val onApplied: () -> Unit,
+    val createdNs: Long = System.nanoTime(),
 )
 
 /** Do not resume dependent pictures after losing a reference frame. */
@@ -37,9 +40,17 @@ internal class VideoDecodeQueue(
     private val maxBytes: Int = 8 * 1024 * 1024,
 ) {
     private val jobs = LinkedBlockingQueue<VideoJob>()
+    private val surfaceRetirements = ConcurrentLinkedQueue<VideoSurfaceRetirement>()
+    private val surfaceRetirementCount = AtomicInteger()
 
     @Synchronized fun offer(job: VideoJob) {
-        var queuedJob = job
+        var queuedJob = if (job is VideoJob.SurfaceChanged) {
+            surfaceRetirementCount.addAndGet(job.retirements.size)
+            surfaceRetirements.addAll(job.retirements)
+            job.copy(retirements = emptyList())
+        } else {
+            job
+        }
         if (queuedJob is VideoJob.Config && jobs.any { it is VideoJob.Config }) {
             discardFrames()
             jobs.removeIf { it is VideoJob.Config }
@@ -48,9 +59,7 @@ internal class VideoDecodeQueue(
         if (queuedJob is VideoJob.SurfaceChanged) {
             val superseded = jobs.filterIsInstance<VideoJob.SurfaceChanged>()
             if (superseded.isNotEmpty()) {
-                val retirements = superseded.flatMap(VideoJob.SurfaceChanged::retirements)
                 jobs.removeIf { it is VideoJob.SurfaceChanged }
-                queuedJob = queuedJob.copy(retirements = retirements + queuedJob.retirements)
             }
         }
         if (queuedJob is VideoJob.Resync && jobs.lastOrNull() is VideoJob.Resync) return
@@ -71,10 +80,24 @@ internal class VideoDecodeQueue(
     }
 
     @Synchronized fun drainSurfaceRetirements(): List<VideoSurfaceRetirement> {
-        val retirements = jobs.filterIsInstance<VideoJob.SurfaceChanged>().flatMap(VideoJob.SurfaceChanged::retirements)
         jobs.clear()
+        return takeSurfaceRetirements()
+    }
+
+    fun takeSurfaceRetirements(): List<VideoSurfaceRetirement> {
+        val retirements = ArrayList<VideoSurfaceRetirement>()
+        while (true) {
+            val retirement = surfaceRetirements.poll() ?: break
+            surfaceRetirementCount.decrementAndGet()
+            retirements.add(retirement)
+        }
         return retirements
     }
+
+    internal val queuedSurfaceRetirementCount: Int
+        get() = surfaceRetirementCount.get()
+
+    internal fun oldestQueuedSurfaceRetirementNs(): Long? = surfaceRetirements.peek()?.createdNs
 
     internal val queuedJobsForTest: Int get() = jobs.size
 

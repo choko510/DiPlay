@@ -23,6 +23,9 @@ data class DspRendererApplyStatus(
     val phase: DspRendererApplyPhase,
     val activeGeneration: Long? = null,
     val warning: DspRendererApplyWarning? = null,
+    val retiredGeneration: Long? = null,
+    val retiredPipelineId: Int? = null,
+    val updatesBlocked: Boolean = false,
 )
 
 fun interface DspConfigProvider {

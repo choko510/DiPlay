@@ -4,6 +4,8 @@
 
 These cumulative lessons include general rules followed by individual incident findings. Check applicability to the current code.
 
+- For DSP Studio persistence, share the existing v7 profile codec for the embedded base snapshot instead of maintaining a second serializer. Keep editable preview state in memory until an explicit workspace save succeeds; preset application should map only the owning module's fields.
+
 - **USB / NCM:** [readiness proof](#require-bidirectional-proof-before-ncm-readiness), [request timeout](#treat-usb-request-wait-timeouts-as-pending-operations), [NDP](#separate-ndp-accounting-from-startup-retries).
 - **DSP / audio:** [DSP eligibility](#do-not-infer-dsp-eligibility-from-android-usage), [buffer validation](#validate-audio-buffers-with-frames-channels-and-encoding-together), [live DSP](#exercise-live-dsp-through-the-production-renderer-boundary).
 - **AirPlay / Split:** [IME resize](#keep-ime-resize-separate-from-negotiated-carplay-size), [phone identity](#revalidate-profile-identity-across-a-carplay-controller-restart).

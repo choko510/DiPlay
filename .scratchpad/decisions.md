@@ -4,6 +4,10 @@
 
 The decisions below are retained with their full rationale; earlier choices may require validation against a newer PR head.
 
+## Keep DSP Studio workspace persistence separate from schema-v7 profiles
+
+Store committed workspace state in its own schema-v1 AtomicFile under `files/dsp/workspace/current.json`. The workspace embeds the complete v7-compatible base profile snapshot and the new enhancement/module-selection settings; this preserves `custom1`/`custom2` semantics and lets old app versions continue using the untouched v7 repository. Unknown future workspace schemas must fail closed on writes.
+
 - **Scope / EX-08:** [pinned baseline](#freeze-main-behavior-before-step4-corrections), [provenance](#keep-ex-08-provenance-separate-from-current-decisions), [PR #45 batching](#batch-remaining-step4-work-in-the-existing-pr).
 - **Wired NCM / USBMUX:** [persistent NCM IN](#keep-ncm-bulk-in-persistent-and-drain-an-available-status-endpoint), [USBMUX recovery](#keep-one-usbmux-in-request-and-use-bounded-recovery), [teardown](#fence-and-serialize-wired-teardown).
 - **AirPlay / host split:** [LOCAL Split](#keep-local-split-resizing-inside-android), [ViewAreas](#keep-multiple-viewareas-explicit-and-wire-switching-disabled), [DSP Split](#add-dsp-as-a-mutually-exclusive-host-split-mode).

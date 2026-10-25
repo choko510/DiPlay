@@ -56,6 +56,7 @@ import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.dsp.DspProfileSaveResult
 import com.shilapi.xcertplay.dsp.DspImpulseImportResult
 import com.shilapi.xcertplay.dsp.DspEditorOperationKind
+import com.shilapi.xcertplay.dsp.DspSoundMacroSettings
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
@@ -110,9 +111,44 @@ internal enum class DspPresentationMode {
 private const val RENDERER_APPLY_STATUS_POLL_INTERVAL_MS = 500L
 
 private enum class DspCompactSection {
+    STUDIO,
+    PROFILE,
     BASIC,
     EQ,
     ADVANCED,
+}
+
+@Composable
+private fun DspStudioNavigation(
+    selected: DspCompactSection,
+    onSelect: (DspCompactSection) -> Unit,
+) {
+    val options = listOf(
+        DspCompactSection.STUDIO to "Studio",
+        DspCompactSection.PROFILE to "Profile",
+        DspCompactSection.EQ to "EQ",
+        DspCompactSection.ADVANCED to "More",
+    )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        options.forEach { (section, label) ->
+            val isSelected = selected == section || (section == DspCompactSection.PROFILE && selected == DspCompactSection.BASIC)
+            TextButton(
+                onClick = { onSelect(section) },
+                modifier = Modifier.semantics {
+                    contentDescription = if (isSelected) "$label, selected" else label
+                },
+            ) {
+                Text(
+                    label,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -174,7 +210,8 @@ internal fun DspSettingsScreen(
     var profile by remember(editorSession) { editorSession.draftProfileState }
     var dspEnabled by remember(editorSession) { editorSession.masterEnabledMutableState }
     var advanced by rememberSaveable { mutableStateOf(false) }
-    var compactSection by rememberSaveable { mutableStateOf(DspCompactSection.BASIC) }
+    var compactSection by rememberSaveable { mutableStateOf(DspCompactSection.STUDIO) }
+    var macroSettings by remember { mutableStateOf(DspSoundMacroSettings()) }
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var bandTypeDialog by remember { mutableStateOf<Int?>(null) }
     var impulseResponseIds by remember(runtime) { mutableStateOf(runtime.availableImpulseResponseIds()) }
@@ -314,9 +351,10 @@ internal fun DspSettingsScreen(
     }
 
     val compact = presentation == DspPresentationMode.COMPACT_SPLIT
-    val showBasic = !compact || compactSection == DspCompactSection.BASIC
-    val showEq = (compact && compactSection == DspCompactSection.EQ) || (!compact && advanced)
-    val showAdvanced = (compact && compactSection == DspCompactSection.ADVANCED) || (!compact && advanced)
+    val showStudio = compactSection == DspCompactSection.STUDIO
+    val showProfile = compactSection == DspCompactSection.PROFILE || compactSection == DspCompactSection.BASIC
+    val showEq = compactSection == DspCompactSection.EQ
+    val showAdvanced = compactSection == DspCompactSection.ADVANCED && advanced
     val compactHeightCap = LocalConfiguration.current.screenHeightDp.coerceAtLeast(1).dp
     val compactBodyConstraint = if (compact) {
         Modifier.layout { measurable, constraints ->
@@ -366,49 +404,16 @@ internal fun DspSettingsScreen(
                             })
                         }
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        TextButton(onClick = { compactSection = DspCompactSection.BASIC }) {
-                            Text(
-                                stringResource(R.string.dsp_basic_controls),
-                                color = if (compactSection == DspCompactSection.BASIC) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                        TextButton(onClick = { compactSection = DspCompactSection.EQ }) {
-                            Text(
-                                stringResource(R.string.dsp_compact_eq_tab),
-                                color = if (compactSection == DspCompactSection.EQ) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                        TextButton(onClick = { compactSection = DspCompactSection.ADVANCED }) {
-                            Text(
-                                stringResource(R.string.dsp_advanced_controls),
-                                color = if (compactSection == DspCompactSection.ADVANCED) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                    }
+                    DspStudioNavigation(compactSection) { compactSection = it }
                 }
             } else {
-                TopAppBar(
-                    title = { Text(stringResource(R.string.dsp_settings_title)) },
-                    navigationIcon = {
-                        TextButton(onClick = leaveEditor) { Text("‹") }
-                    },
-                )
+                Column {
+                    TopAppBar(
+                        title = { Text("DSP Studio") },
+                        navigationIcon = { TextButton(onClick = leaveEditor) { Text("‹") } },
+                    )
+                    DspStudioNavigation(compactSection) { compactSection = it }
+                }
             }
         },
         bottomBar = {
@@ -447,11 +452,20 @@ internal fun DspSettingsScreen(
                 .padding(horizontal = if (compact) 8.dp else 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (!compact) {
-                Text(stringResource(R.string.dsp_settings_description), style = MaterialTheme.typography.bodyMedium)
+            if (showStudio) {
+                DspMacroStudio(
+                    settings = macroSettings,
+                    enabled = !operationPending,
+                    onSettingsChange = { macroSettings = it },
+                )
+                Text("Base EQ and profile controls stay independent of these macros.", style = MaterialTheme.typography.bodySmall)
             }
 
-            if (showBasic) Card(modifier = Modifier.fillMaxWidth()) {
+            if (!compact) {
+                if (showProfile) Text(stringResource(R.string.dsp_settings_description), style = MaterialTheme.typography.bodyMedium)
+            }
+
+            if (showProfile) Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_enabled),
@@ -501,7 +515,7 @@ internal fun DspSettingsScreen(
                 }
             }
 
-            if (showBasic) SectionCard(title = stringResource(R.string.dsp_basic_controls)) {
+            if (showProfile) SectionCard(title = stringResource(R.string.dsp_basic_controls)) {
                 DspValueSlider(stringResource(R.string.dsp_preamp), profile.preampDb, -24.0..12.0, "dB") {
                     profile = profile.copy(preampDb = it)
                 }
@@ -536,7 +550,7 @@ internal fun DspSettingsScreen(
                 }
             }
 
-            if (!compact) Card(modifier = Modifier.fillMaxWidth()) {
+            if (compactSection == DspCompactSection.ADVANCED) Card(modifier = Modifier.fillMaxWidth()) {
                 DspSwitchRow(
                     modifier = Modifier.padding(16.dp),
                     title = stringResource(R.string.dsp_advanced_controls),

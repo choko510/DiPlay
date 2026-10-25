@@ -139,13 +139,17 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jdoubleArray spatial_values,
     jdoubleArray convolver_values,
     jfloatArray convolver_samples,
-    jdoubleArray harmonic_values) {
+    jdoubleArray harmonic_values,
+    jdoubleArray macro_values,
+    jdoubleArray smart_loudness_values,
+    jdoubleArray dynamic_bass_values) {
     (void)env;
     (void)receiver;
     if (peq_coefficients == NULL || dynamics_values == NULL || multiband_values == NULL ||
         dynamic_eq_values == NULL || bass_coefficients == NULL ||
         mono_bass_coefficients == NULL || spatial_values == NULL || convolver_values == NULL ||
-        convolver_samples == NULL || harmonic_values == NULL) {
+        convolver_samples == NULL || harmonic_values == NULL || macro_values == NULL ||
+        smart_loudness_values == NULL || dynamic_bass_values == NULL) {
         return 0;
     }
     const jsize coefficient_count = (*env)->GetArrayLength(env, peq_coefficients);
@@ -158,6 +162,9 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     const jsize convolver_value_count = (*env)->GetArrayLength(env, convolver_values);
     const jsize convolver_sample_count = (*env)->GetArrayLength(env, convolver_samples);
     const jsize harmonic_count = (*env)->GetArrayLength(env, harmonic_values);
+    const jsize macro_count = (*env)->GetArrayLength(env, macro_values);
+    const jsize smart_loudness_count = (*env)->GetArrayLength(env, smart_loudness_values);
+    const jsize dynamic_bass_count = (*env)->GetArrayLength(env, dynamic_bass_values);
     if (coefficient_count < 0 || coefficient_count >
             DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
         coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10 ||
@@ -166,7 +173,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         (bass_coefficient_count != 0 && bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         (mono_bass_coefficient_count != 0 && mono_bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         spatial_count != DSP_SPATIAL_VALUES_COUNT || convolver_value_count != 5 ||
-        harmonic_count != DSP_HARMONIC_VALUES_COUNT || convolver_sample_count < 0 ||
+        harmonic_count != DSP_HARMONIC_VALUES_COUNT || macro_count != 5 ||
+        smart_loudness_count != 3 || dynamic_bass_count != 9 || convolver_sample_count < 0 ||
         convolver_sample_count > DSP_CONVOLVER_MAX_IR_FRAMES * 2) {
         return 0;
     }
@@ -179,6 +187,9 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     double spatial_values_data[DSP_SPATIAL_VALUES_COUNT];
     double convolver_values_data[5];
     double harmonic_values_data[DSP_HARMONIC_VALUES_COUNT];
+    double macro_values_data[5];
+    double smart_loudness_values_data[3];
+    double dynamic_bass_values_data[9];
     if (coefficient_count > 0) {
         (*env)->GetDoubleArrayRegion(env, peq_coefficients, 0, coefficient_count, coefficients);
         if ((*env)->ExceptionCheck(env)) {
@@ -194,6 +205,41 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     if ((*env)->ExceptionCheck(env) ||
         (multiband_values_data[0] != 0.0 && multiband_values_data[0] != 1.0) ||
         !isfinite(multiband_values_data[1]) || !isfinite(multiband_values_data[2])) {
+        return 0;
+    }
+    (*env)->GetDoubleArrayRegion(env, macro_values, 0, macro_count, macro_values_data);
+    if ((*env)->ExceptionCheck(env) ||
+        (macro_values_data[0] != 0.0 && macro_values_data[0] != 1.0) ||
+        !isfinite(macro_values_data[1]) || macro_values_data[1] < -2.0 || macro_values_data[1] > 4.0 ||
+        !isfinite(macro_values_data[2]) || macro_values_data[2] < -2.0 || macro_values_data[2] > 2.5 ||
+        !isfinite(macro_values_data[3]) || macro_values_data[3] < -2.0 || macro_values_data[3] > 2.0 ||
+        !isfinite(macro_values_data[4]) || macro_values_data[4] < 0.75 || macro_values_data[4] > 1.25) {
+        return 0;
+    }
+    (*env)->GetDoubleArrayRegion(env, smart_loudness_values, 0, smart_loudness_count, smart_loudness_values_data);
+    if ((*env)->ExceptionCheck(env) ||
+        (smart_loudness_values_data[0] != 0.0 && smart_loudness_values_data[0] != 1.0) ||
+        !isfinite(smart_loudness_values_data[1]) || smart_loudness_values_data[1] < 0.0 ||
+        smart_loudness_values_data[1] > 3.0 || !isfinite(smart_loudness_values_data[2]) ||
+        smart_loudness_values_data[2] < 0.0 || smart_loudness_values_data[2] > 1.5) {
+        return 0;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamic_bass_values, 0, dynamic_bass_count, dynamic_bass_values_data);
+    if ((*env)->ExceptionCheck(env) ||
+        (dynamic_bass_values_data[0] != 0.0 && dynamic_bass_values_data[0] != 1.0) ||
+        !isfinite(dynamic_bass_values_data[1]) || dynamic_bass_values_data[1] < 0.0 ||
+        dynamic_bass_values_data[1] > 1.0 || !isfinite(dynamic_bass_values_data[2]) ||
+        dynamic_bass_values_data[2] < 0.0 || dynamic_bass_values_data[2] > 3.0 ||
+        !isfinite(dynamic_bass_values_data[3]) || dynamic_bass_values_data[3] < 80.0 ||
+        dynamic_bass_values_data[3] > 160.0 || !isfinite(dynamic_bass_values_data[4]) ||
+        dynamic_bass_values_data[4] < -90.0 || dynamic_bass_values_data[4] > -30.0 ||
+        !isfinite(dynamic_bass_values_data[5]) || dynamic_bass_values_data[5] < -60.0 ||
+        dynamic_bass_values_data[5] > 0.0 || !isfinite(dynamic_bass_values_data[6]) ||
+        dynamic_bass_values_data[6] < -60.0 || dynamic_bass_values_data[6] > 0.0 ||
+        dynamic_bass_values_data[5] >= dynamic_bass_values_data[6] ||
+        !isfinite(dynamic_bass_values_data[7]) || dynamic_bass_values_data[7] < 10.0 ||
+        dynamic_bass_values_data[7] > 200.0 || !isfinite(dynamic_bass_values_data[8]) ||
+        dynamic_bass_values_data[8] < 50.0 || dynamic_bass_values_data[8] > 1000.0) {
         return 0;
     }
     (*env)->GetDoubleArrayRegion(env, harmonic_values, 0, harmonic_count, harmonic_values_data);
@@ -407,7 +453,30 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         .virtual_bass_cutoff_hz = harmonic_values_data[8],
         .level_match_enabled = (int)harmonic_values_data[9],
     };
-    dsp_engine *engine = dsp_engine_create(
+    const dsp_macro_config macro_config = {
+        .enabled = (int)macro_values_data[0],
+        .bass_gain_db = macro_values_data[1],
+        .vocal_gain_db = macro_values_data[2],
+        .air_gain_db = macro_values_data[3],
+        .relative_width = macro_values_data[4],
+    };
+    const dsp_smart_loudness_config smart_loudness_config = {
+        .enabled = (int)smart_loudness_values_data[0],
+        .low_gain_db = smart_loudness_values_data[1],
+        .high_gain_db = smart_loudness_values_data[2],
+    };
+    const dsp_dynamic_bass_config dynamic_bass_config = {
+        .enabled = (int)dynamic_bass_values_data[0],
+        .strength = dynamic_bass_values_data[1],
+        .max_boost_db = dynamic_bass_values_data[2],
+        .detector_cutoff_hz = dynamic_bass_values_data[3],
+        .silence_gate_dbfs = dynamic_bass_values_data[4],
+        .low_threshold_dbfs = dynamic_bass_values_data[5],
+        .high_threshold_dbfs = dynamic_bass_values_data[6],
+        .attack_ms = dynamic_bass_values_data[7],
+        .release_ms = dynamic_bass_values_data[8],
+    };
+    dsp_engine *engine = dsp_engine_create_with_studio(
         sample_rate,
         channels,
         max_frames,
@@ -423,11 +492,127 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         mono_bass_coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
         &spatial_config,
         &convolver_config,
-        &harmonic_config);
+        &harmonic_config,
+        &macro_config,
+        &smart_loudness_config,
+        &dynamic_bass_config);
     if (impulse_samples != NULL) {
         (*env)->ReleaseFloatArrayElements(env, convolver_samples, impulse_samples, JNI_ABORT);
     }
     return register_engine(engine);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jlong generation,
+    jdouble gain_db,
+    jdoubleArray macro_values,
+    jdoubleArray smart_loudness_values,
+    jdoubleArray dynamic_bass_values) {
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    if (generation <= 0 || !isfinite(gain_db) || gain_db < -700.0 || gain_db > 24.0 ||
+        macro_values == NULL || smart_loudness_values == NULL || dynamic_bass_values == NULL ||
+        (*env)->GetArrayLength(env, macro_values) != 5 ||
+        (*env)->GetArrayLength(env, smart_loudness_values) != 3 ||
+        (*env)->GetArrayLength(env, dynamic_bass_values) != 9) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    jdouble macro_values_data[5];
+    jdouble smart_loudness_values_data[3];
+    jdouble dynamic_bass_values_data[9];
+    (*env)->GetDoubleArrayRegion(env, macro_values, 0, 5, macro_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, smart_loudness_values, 0, 3, smart_loudness_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamic_bass_values, 0, 9, dynamic_bass_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    if ((macro_values_data[0] != 0.0 && macro_values_data[0] != 1.0) ||
+        !isfinite(macro_values_data[1]) || macro_values_data[1] < -2.0 || macro_values_data[1] > 4.0 ||
+        !isfinite(macro_values_data[2]) || macro_values_data[2] < -2.0 || macro_values_data[2] > 2.5 ||
+        !isfinite(macro_values_data[3]) || macro_values_data[3] < -2.0 || macro_values_data[3] > 2.0 ||
+        !isfinite(macro_values_data[4]) || macro_values_data[4] < 0.75 || macro_values_data[4] > 1.25 ||
+        (smart_loudness_values_data[0] != 0.0 && smart_loudness_values_data[0] != 1.0) ||
+        !isfinite(smart_loudness_values_data[1]) || smart_loudness_values_data[1] < 0.0 ||
+        smart_loudness_values_data[1] > 3.0 || !isfinite(smart_loudness_values_data[2]) ||
+        smart_loudness_values_data[2] < 0.0 || smart_loudness_values_data[2] > 1.5 ||
+        (dynamic_bass_values_data[0] != 0.0 && dynamic_bass_values_data[0] != 1.0) ||
+        !isfinite(dynamic_bass_values_data[1]) || dynamic_bass_values_data[1] < 0.0 ||
+        dynamic_bass_values_data[1] > 1.0 || !isfinite(dynamic_bass_values_data[2]) ||
+        dynamic_bass_values_data[2] < 0.0 || dynamic_bass_values_data[2] > 3.0 ||
+        !isfinite(dynamic_bass_values_data[3]) || dynamic_bass_values_data[3] < 80.0 ||
+        dynamic_bass_values_data[3] > 160.0 || !isfinite(dynamic_bass_values_data[4]) ||
+        dynamic_bass_values_data[4] < -90.0 || dynamic_bass_values_data[4] > -30.0 ||
+        !isfinite(dynamic_bass_values_data[5]) || dynamic_bass_values_data[5] < -60.0 ||
+        dynamic_bass_values_data[5] > 0.0 || !isfinite(dynamic_bass_values_data[6]) ||
+        dynamic_bass_values_data[6] < -60.0 || dynamic_bass_values_data[6] > 0.0 ||
+        dynamic_bass_values_data[5] >= dynamic_bass_values_data[6] ||
+        !isfinite(dynamic_bass_values_data[7]) || dynamic_bass_values_data[7] < 10.0 ||
+        dynamic_bass_values_data[7] > 200.0 || !isfinite(dynamic_bass_values_data[8]) ||
+        dynamic_bass_values_data[8] < 50.0 || dynamic_bass_values_data[8] > 1000.0) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t generation_token = (uint32_t)((uint64_t)generation & UINT32_C(0x7fffffff));
+    if (generation_token == 0) generation_token = 1;
+    const dsp_engine_hot_update update = {
+        .generation_token = generation_token,
+        .gain_db = gain_db,
+        .macro = {
+            .enabled = (int)macro_values_data[0],
+            .bass_gain_db = macro_values_data[1],
+            .vocal_gain_db = macro_values_data[2],
+            .air_gain_db = macro_values_data[3],
+            .relative_width = macro_values_data[4],
+        },
+        .smart_loudness = {
+            .enabled = (int)smart_loudness_values_data[0],
+            .low_gain_db = smart_loudness_values_data[1],
+            .high_gain_db = smart_loudness_values_data[2],
+        },
+        .dynamic_bass = {
+            .enabled = (int)dynamic_bass_values_data[0],
+            .strength = dynamic_bass_values_data[1],
+            .max_boost_db = dynamic_bass_values_data[2],
+            .detector_cutoff_hz = dynamic_bass_values_data[3],
+            .silence_gate_dbfs = dynamic_bass_values_data[4],
+            .low_threshold_dbfs = dynamic_bass_values_data[5],
+            .high_threshold_dbfs = dynamic_bass_values_data[6],
+            .attack_ms = dynamic_bass_values_data[7],
+            .release_ms = dynamic_bass_values_data[8],
+        },
+    };
+    const int queued = dsp_engine_enqueue_hot_update(lease.engine, &update);
+    release_engine(&lease);
+    return queued ? DSP_STATUS_OK : DSP_STATUS_QUEUE_FULL;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotAckToken(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return -DSP_STATUS_INVALID_HANDLE;
+    const uint32_t ack_token = dsp_engine_get_hot_ack_token(lease.engine);
+    release_engine(&lease);
+    return (jint)ack_token;
 }
 
 JNIEXPORT jint JNICALL

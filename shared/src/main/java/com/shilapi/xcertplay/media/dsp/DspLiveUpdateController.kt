@@ -14,6 +14,7 @@ internal data class DspPreparedUpdate(
     val config: DspRuntimeConfig,
     val pipeline: DspPcmPipeline?,
     val latencyFrames: Int,
+    val hotUpdate: DspPreparedHotUpdate? = null,
 )
 
 internal typealias DspPipelinePreparer = (DspAudioFormat, DspRuntimeConfig) -> DspPcmPipeline?
@@ -34,6 +35,7 @@ internal class DspLiveUpdateController(
     private val preparedLatencyFrames: (DspPcmPipeline?) -> Int = { it?.algorithmicLatencyFrames ?: 0 },
     private val onPreparedResult: ((DspPreparedUpdate) -> Boolean)? = null,
     private val onRetirementFailed: (DspPcmPipeline, Throwable) -> Unit = { _, _ -> },
+    private val hotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedHotUpdate?)? = null,
 ) : Closeable {
     private val controlExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "dsp-live-control").apply { isDaemon = true }
@@ -79,7 +81,8 @@ internal class DspLiveUpdateController(
                 if (snapshot.generation <= lastHandledGeneration.get()) return
                 var candidate: DspPcmPipeline? = null
                 try {
-                    candidate = pipelinePreparer(format, snapshot.config)
+                    val hotUpdate = hotUpdatePreparer?.invoke(format, snapshot)
+                    if (hotUpdate == null) candidate = pipelinePreparer(format, snapshot.config)
                     candidate?.configGeneration = snapshot.generation
                     if (candidate != null && candidate.format != format) {
                         retire(candidate)
@@ -88,7 +91,8 @@ internal class DspLiveUpdateController(
                         runCatching { onDeferred(snapshot.generation) }
                         continue
                     }
-                    val latencyFrames = preparedLatencyFrames(candidate).coerceAtLeast(0)
+                    val latencyFrames = if (hotUpdate != null) activeLatencyFrames().coerceAtLeast(0)
+                    else preparedLatencyFrames(candidate).coerceAtLeast(0)
                     val deferLatencyChange = latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()
                     if (desired.get()?.generation != snapshot.generation) {
                         retire(candidate)
@@ -101,7 +105,14 @@ internal class DspLiveUpdateController(
                         return
                     }
                     lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
-                    val update = DspPreparedUpdate(snapshot.generation, format, snapshot.config, candidate, latencyFrames)
+                    val update = DspPreparedUpdate(
+                        snapshot.generation,
+                        format,
+                        snapshot.config,
+                        candidate,
+                        latencyFrames,
+                        hotUpdate,
+                    )
                     val transferred = onPreparedResult?.invoke(update) ?: run {
                         onPrepared(update)
                         true

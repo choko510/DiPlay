@@ -8,6 +8,7 @@
 #include <stdlib.h>
 
 #define DSP_ENGINE_MAGIC UINT32_C(0x44535031)
+#define DSP_HOT_UPDATE_QUEUE_CAPACITY 1u
 
 _Static_assert(ATOMIC_INT_LOCK_FREE == 2, "DSP diagnostics require lock-free 32-bit atomics");
 
@@ -24,6 +25,10 @@ struct dsp_engine {
     _Atomic uint32_t non_finite_output_samples;
     _Atomic uint32_t native_error_count;
     _Atomic uint32_t reset_requested;
+    dsp_engine_hot_update hot_updates[DSP_HOT_UPDATE_QUEUE_CAPACITY];
+    _Atomic uint32_t hot_write_index;
+    _Atomic uint32_t hot_read_index;
+    _Atomic uint32_t hot_ack_token;
 };
 
 static uint32_t float_to_bits(float value) {
@@ -60,7 +65,7 @@ static void saturating_add_counter(_Atomic uint32_t *counter, uint32_t increment
     }
 }
 
-dsp_engine *dsp_engine_create(
+dsp_engine *dsp_engine_create_with_studio(
     int sample_rate,
     int channels,
     int max_frames,
@@ -76,7 +81,10 @@ dsp_engine *dsp_engine_create(
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
     const dsp_convolver_config *convolver_config,
-    const dsp_harmonic_config *harmonic_config) {
+    const dsp_harmonic_config *harmonic_config,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
         peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
@@ -85,7 +93,8 @@ dsp_engine *dsp_engine_create(
         (bass_coefficient_count > 0 && bass_coefficients == NULL) ||
         mono_bass_coefficient_count < 0 || mono_bass_coefficient_count > 1 ||
         (mono_bass_coefficient_count > 0 && mono_bass_coefficients == NULL) || spatial_config == NULL ||
-        convolver_config == NULL || harmonic_config == NULL) {
+        convolver_config == NULL || harmonic_config == NULL || macro_config == NULL ||
+        smart_loudness_config == NULL || dynamic_bass_config == NULL) {
         return NULL;
     }
 
@@ -102,6 +111,9 @@ dsp_engine *dsp_engine_create(
     atomic_init(&engine->non_finite_output_samples, 0);
     atomic_init(&engine->native_error_count, 0);
     atomic_init(&engine->reset_requested, 0);
+    atomic_init(&engine->hot_write_index, 0);
+    atomic_init(&engine->hot_read_index, 0);
+    atomic_init(&engine->hot_ack_token, 0);
     engine->sample_rate = sample_rate;
     engine->channels = channels;
     engine->max_frames = max_frames;
@@ -121,13 +133,76 @@ dsp_engine *dsp_engine_create(
             mono_bass_coefficient_count,
             spatial_config,
             convolver_config,
-            harmonic_config)) {
+            harmonic_config,
+            macro_config,
+            smart_loudness_config,
+            dynamic_bass_config)) {
         dsp_graph_close(&engine->graph);
         free(engine);
         return NULL;
     }
     engine->magic = DSP_ENGINE_MAGIC;
     return engine;
+}
+
+dsp_engine *dsp_engine_create(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const double *peq_coefficients,
+    int peq_band_count,
+    const dsp_dynamics_config *dynamics_config,
+    const dsp_multiband_config *multiband_config,
+    const dsp_dynamic_eq_config *dynamic_eq_config,
+    const double *bass_coefficients,
+    int bass_coefficient_count,
+    const double *mono_bass_coefficients,
+    int mono_bass_coefficient_count,
+    const dsp_spatial_config *spatial_config,
+    const dsp_convolver_config *convolver_config,
+    const dsp_harmonic_config *harmonic_config) {
+    const dsp_macro_config macro_config = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config smart_loudness_config = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass_config = {
+        0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0,
+    };
+    return dsp_engine_create_with_studio(
+        sample_rate,
+        channels,
+        max_frames,
+        gain_db,
+        peq_coefficients,
+        peq_band_count,
+        dynamics_config,
+        multiband_config,
+        dynamic_eq_config,
+        bass_coefficients,
+        bass_coefficient_count,
+        mono_bass_coefficients,
+        mono_bass_coefficient_count,
+        spatial_config,
+        convolver_config,
+        harmonic_config,
+        &macro_config,
+        &smart_loudness_config,
+        &dynamic_bass_config);
+}
+
+int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_update *update) {
+    if (!engine_is_prepared(engine) || update == NULL || !isfinite(update->gain_db) ||
+        update->gain_db < -700.0 || update->gain_db > 24.0) return 0;
+    const uint32_t write_index = atomic_load_explicit(&engine->hot_write_index, memory_order_relaxed);
+    const uint32_t read_index = atomic_load_explicit(&engine->hot_read_index, memory_order_acquire);
+    if ((uint32_t)(write_index - read_index) >= DSP_HOT_UPDATE_QUEUE_CAPACITY) return 0;
+    engine->hot_updates[write_index % DSP_HOT_UPDATE_QUEUE_CAPACITY] = *update;
+    atomic_store_explicit(&engine->hot_write_index, write_index + 1, memory_order_release);
+    return 1;
+}
+
+uint32_t dsp_engine_get_hot_ack_token(const dsp_engine *engine) {
+    if (!engine_is_prepared(engine)) return 0;
+    return atomic_load_explicit(&engine->hot_ack_token, memory_order_acquire);
 }
 
 dsp_status dsp_engine_process(
@@ -160,6 +235,26 @@ dsp_status dsp_engine_process(
         dsp_graph_reset(&engine->graph);
     }
 
+    uint32_t hot_read_index = atomic_load_explicit(&engine->hot_read_index, memory_order_relaxed);
+    const uint32_t hot_write_index = atomic_load_explicit(&engine->hot_write_index, memory_order_acquire);
+    uint32_t processed_hot_token = 0;
+    while (hot_read_index != hot_write_index) {
+        const dsp_engine_hot_update *update =
+            &engine->hot_updates[hot_read_index % DSP_HOT_UPDATE_QUEUE_CAPACITY];
+        if (!dsp_graph_apply_studio_hot(
+                &engine->graph,
+                update->gain_db,
+                &update->macro,
+                &update->smart_loudness,
+                &update->dynamic_bass)) {
+            saturating_add_counter(&engine->native_error_count, 1);
+        } else {
+            processed_hot_token = update->generation_token;
+        }
+        hot_read_index++;
+    }
+    atomic_store_explicit(&engine->hot_read_index, hot_read_index, memory_order_release);
+
     dsp_graph_process(
         &engine->graph,
         input,
@@ -168,6 +263,9 @@ dsp_status dsp_engine_process(
         (size_t)channels,
         &non_finite_input,
         &non_finite_output);
+    if (processed_hot_token != 0) {
+        atomic_store_explicit(&engine->hot_ack_token, processed_hot_token, memory_order_release);
+    }
     saturating_add_counter(&engine->processed_frames, (uint32_t)frames);
     saturating_add_counter(&engine->processed_blocks, 1);
     saturating_add_counter(

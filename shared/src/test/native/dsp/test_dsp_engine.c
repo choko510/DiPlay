@@ -2215,6 +2215,130 @@ static void test_convolver_sparse_sentinel_taps_reach_their_output_frames(void) 
     }
 }
 
+static dsp_engine *create_studio_test_engine(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const dsp_macro_config *macro,
+    const dsp_smart_loudness_config *loudness,
+    const dsp_dynamic_bass_config *dynamic_bass) {
+    return dsp_engine_create_with_studio(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        &bypass_convolver,
+        &bypass_harmonic,
+        macro,
+        loudness,
+        dynamic_bass);
+}
+
+static void test_studio_neutral_macro_preserves_exact_samples(void) {
+    const dsp_macro_config macro = {1, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    const float input[] = {0.1234567f, -0.7654321f, 0.3333333f, -0.2222222f};
+    float output[4] = {0.0f};
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 2, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "neutral studio graph creates");
+    assert_true(dsp_engine_process(engine, input, 4, output, 4, 2, 2) == DSP_STATUS_OK,
+        "neutral studio block processes");
+    assert_true(memcmp(input, output, sizeof(input)) == 0, "centered macro controls preserve exact samples");
+    dsp_engine_destroy(engine);
+}
+
+static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) {
+        input[frame * 2] = 0.5f;
+        input[frame * 2 + 1] = -0.5f;
+    }
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "hot update studio graph creates");
+    const dsp_engine_hot_update update = {
+        .generation_token = 42,
+        .gain_db = 0.0,
+        .macro = {1, 0.0, 0.0, 0.0, 1.25},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    dsp_engine_hot_update next_update = update;
+    next_update.generation_token = 43;
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "hot update has no acknowledgement before enqueue");
+    assert_true(dsp_engine_enqueue_hot_update(engine, &update), "hot command enters bounded queue");
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &next_update), "single-slot hot queue rejects a second pending command");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "hot command waits for a processed block");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "hot command block processes");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 42, "hot acknowledgement follows the processed block");
+    assert_true(fabsf(output[1022]) > 0.5f && fabsf(output[1022]) < 0.63f,
+        "macro width moves toward its target without an abrupt step");
+    assert_true(dsp_engine_enqueue_hot_update(engine, &next_update), "hot queue accepts a new command after the block");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "second hot command block processes");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 43, "newer generation is acknowledged after its block");
+    dsp_engine_destroy(engine);
+}
+
+static void test_smart_loudness_uses_its_bounded_shelf_gains(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {1, 3.0, 1.5};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) {
+        input[frame * 2] = 0.05f;
+        input[frame * 2 + 1] = 0.05f;
+    }
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "Smart Loudness graph creates");
+    for (size_t block = 0; block < 100; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "Smart Loudness block processes");
+    }
+    assert_true(output[1022] > 0.07f && output[1022] <= 0.05f * 1.42f,
+        "low-frequency compensation reaches the configured shelf ceiling");
+    assert_near(output[1022], output[1023], 1e-6, "Smart Loudness preserves stereo balance");
+    dsp_engine_destroy(engine);
+}
+
+static void test_dynamic_bass_stereo_link_and_boost_ceiling(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {1, 1.0, 3.0, 120.0, -55.0, -25.0, -10.0, 40.0, 250.0};
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) {
+        input[frame * 2] = 0.05f;
+        input[frame * 2 + 1] = 0.025f;
+    }
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "dynamic bass graph creates");
+    for (size_t block = 0; block < 100; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "dynamic bass block processes");
+    }
+    assert_true(output[1022] > 0.05f && output[1022] <= 0.05f * 1.42f,
+        "quiet bass is boosted without exceeding the configured ceiling");
+    assert_near(output[1022] / output[1023], 2.0, 1e-4, "dynamic bass uses a stereo-linked detector");
+    dsp_engine_destroy(engine);
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
@@ -2246,6 +2370,10 @@ int main(void) {
     test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass();
     test_convolver_ir_sizes_and_validation();
     test_convolver_sparse_sentinel_taps_reach_their_output_frames();
+    test_studio_neutral_macro_preserves_exact_samples();
+    test_studio_hot_command_is_acknowledged_after_its_block();
+    test_smart_loudness_uses_its_bounded_shelf_gains();
+    test_dynamic_bass_stereo_link_and_boost_ceiling();
     puts("native DSP tests passed");
     return 0;
 }

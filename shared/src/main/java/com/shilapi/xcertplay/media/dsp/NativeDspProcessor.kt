@@ -19,6 +19,40 @@ internal interface NativeDspBindings {
         convolverSamples: FloatArray,
         harmonicValues: DoubleArray,
     ): Long
+    fun createWithStudio(
+        sampleRate: Int,
+        channels: Int,
+        maxFrames: Int,
+        gainDb: Double,
+        eqCoefficients: DoubleArray,
+        dynamics: DoubleArray,
+        multiband: DoubleArray,
+        dynamicEq: DoubleArray,
+        bassCoefficients: DoubleArray,
+        monoBassCoefficients: DoubleArray,
+        spatial: DoubleArray,
+        convolverConfig: DoubleArray,
+        convolverSamples: FloatArray,
+        harmonicValues: DoubleArray,
+        macroValues: DoubleArray,
+        smartLoudnessValues: DoubleArray,
+        dynamicBassValues: DoubleArray,
+    ): Long = create(
+        sampleRate,
+        channels,
+        maxFrames,
+        gainDb,
+        eqCoefficients,
+        dynamics,
+        multiband,
+        dynamicEq,
+        bassCoefficients,
+        monoBassCoefficients,
+        spatial,
+        convolverConfig,
+        convolverSamples,
+        harmonicValues,
+    )
     fun process(
         handle: Long,
         input: ByteBuffer,
@@ -31,6 +65,8 @@ internal interface NativeDspBindings {
         channels: Int,
     ): Int
     fun reset(handle: Long): Int
+    fun applyHotConfig(handle: Long, update: DspPreparedHotUpdate): Int = -1
+    fun hotAckToken(handle: Long): Int = 0
     fun latencyFrames(handle: Long): Int
     fun interchannelRelativeDelayFrames(handle: Long): Double = 0.0
     fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
@@ -68,7 +104,59 @@ internal object NativeDspJni : NativeDspBindings {
         convolverConfig,
         convolverSamples,
         harmonicValues,
+        doubleArrayOf(0.0, 0.0, 0.0, 0.0, 1.0),
+        doubleArrayOf(0.0, 0.0, 0.0),
+        doubleArrayOf(0.0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0),
     )
+
+    override fun createWithStudio(
+        sampleRate: Int,
+        channels: Int,
+        maxFrames: Int,
+        gainDb: Double,
+        eqCoefficients: DoubleArray,
+        dynamics: DoubleArray,
+        multiband: DoubleArray,
+        dynamicEq: DoubleArray,
+        bassCoefficients: DoubleArray,
+        monoBassCoefficients: DoubleArray,
+        spatial: DoubleArray,
+        convolverConfig: DoubleArray,
+        convolverSamples: FloatArray,
+        harmonicValues: DoubleArray,
+        macroValues: DoubleArray,
+        smartLoudnessValues: DoubleArray,
+        dynamicBassValues: DoubleArray,
+    ): Long = nativeCreate(
+        sampleRate,
+        channels,
+        maxFrames,
+        gainDb,
+        eqCoefficients,
+        dynamics,
+        multiband,
+        dynamicEq,
+        bassCoefficients,
+        monoBassCoefficients,
+        spatial,
+        convolverConfig,
+        convolverSamples,
+        harmonicValues,
+        macroValues,
+        smartLoudnessValues,
+        dynamicBassValues,
+    )
+
+    override fun applyHotConfig(handle: Long, update: DspPreparedHotUpdate): Int = nativeApplyHotConfig(
+        handle,
+        update.generation,
+        update.appliedPreampDb,
+        update.macroValues,
+        update.smartLoudnessValues,
+        update.dynamicBassValues,
+    )
+
+    override fun hotAckToken(handle: Long): Int = nativeGetHotAckToken(handle)
 
     override fun process(
         handle: Long,
@@ -114,7 +202,19 @@ internal object NativeDspJni : NativeDspBindings {
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
         harmonicValues: DoubleArray,
+        macroValues: DoubleArray,
+        smartLoudnessValues: DoubleArray,
+        dynamicBassValues: DoubleArray,
     ): Long
+    private external fun nativeApplyHotConfig(
+        handle: Long,
+        generation: Long,
+        gainDb: Double,
+        macroValues: DoubleArray,
+        smartLoudnessValues: DoubleArray,
+        dynamicBassValues: DoubleArray,
+    ): Int
+    private external fun nativeGetHotAckToken(handle: Long): Int
     private external fun nativeProcess(
         handle: Long,
         input: ByteBuffer,
@@ -231,6 +331,36 @@ internal class NativeDspProcessor internal constructor(
         if (status != NATIVE_OK) localNativeErrors++
     }
 
+    override fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean {
+        val handle = nativeHandle
+        if (handle <= 0L) return false
+        val status = try {
+            bindings.applyHotConfig(handle, update)
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        } catch (_: Exception) {
+            -1
+        }
+        if (status != NATIVE_OK && status != NATIVE_QUEUE_FULL) localNativeErrors++
+        return status == NATIVE_OK
+    }
+
+    override fun hotAcknowledgedToken(): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try {
+            bindings.hotAckToken(handle)
+        } catch (_: SecurityException) {
+            0
+        } catch (_: LinkageError) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
     @Synchronized
     override fun diagnostics(): DspDiagnosticsSnapshot {
         val handle = nativeHandle
@@ -287,6 +417,7 @@ internal class NativeDspProcessor internal constructor(
 
     companion object {
         private const val NATIVE_OK = 0
+        private const val NATIVE_QUEUE_FULL = 5
         private const val DIAGNOSTIC_VALUE_COUNT = 8
         private const val DIAGNOSTIC_COUNTER_COUNT = 5
 
@@ -306,7 +437,7 @@ internal class NativeDspProcessor internal constructor(
             }
             var handle = 0L
             return try {
-                handle = bindings.create(
+                handle = bindings.createWithStudio(
                     sampleRate = format.sampleRate,
                     channels = format.channels,
                     maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
@@ -321,6 +452,9 @@ internal class NativeDspProcessor internal constructor(
                     convolverConfig = prepared.convolverConfig,
                     convolverSamples = prepared.convolverSamples,
                     harmonicValues = prepared.harmonic,
+                    macroValues = prepared.macroTone,
+                    smartLoudnessValues = prepared.smartLoudness,
+                    dynamicBassValues = prepared.dynamicBass,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

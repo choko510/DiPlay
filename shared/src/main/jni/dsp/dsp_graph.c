@@ -18,7 +18,10 @@ int dsp_graph_prepare(
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
     const dsp_convolver_config *convolver_config,
-    const dsp_harmonic_config *harmonic_config) {
+    const dsp_harmonic_config *harmonic_config,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config) {
     if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
@@ -57,8 +60,32 @@ int dsp_graph_prepare(
     if (!dsp_convolver_prepare(&graph->convolver, sample_rate, channels, convolver_config)) {
         return 0;
     }
+    if (!dsp_macro_prepare(&graph->macro, sample_rate, channels, macro_config) ||
+        !dsp_smart_loudness_prepare(&graph->smart_loudness, sample_rate, channels, smart_loudness_config) ||
+        !dsp_dynamic_bass_prepare(&graph->dynamic_bass, sample_rate, channels, dynamic_bass_config)) {
+        return 0;
+    }
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
+    return 1;
+}
+
+int dsp_graph_apply_studio_hot(
+    dsp_graph *graph,
+    double gain_db,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config) {
+    if (graph == NULL || !isfinite(gain_db) || gain_db < -700.0 || gain_db > 24.0 ||
+        macro_config == NULL || smart_loudness_config == NULL || dynamic_bass_config == NULL) {
+        return 0;
+    }
+    if (!dsp_gain_set_db(&graph->gain, gain_db) ||
+        !dsp_macro_apply_hot(&graph->macro, macro_config) ||
+        !dsp_smart_loudness_apply_hot(&graph->smart_loudness, smart_loudness_config) ||
+        !dsp_dynamic_bass_apply_hot(&graph->dynamic_bass, dynamic_bass_config)) {
+        return 0;
+    }
     return 1;
 }
 
@@ -75,6 +102,9 @@ void dsp_graph_reset(dsp_graph *graph) {
     dsp_spatial_reset(&graph->spatial);
     dsp_harmonic_reset(&graph->harmonic);
     dsp_convolver_reset(&graph->convolver);
+    dsp_macro_reset(&graph->macro);
+    dsp_smart_loudness_reset(&graph->smart_loudness);
+    dsp_dynamic_bass_reset(&graph->dynamic_bass);
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
 }
@@ -133,6 +163,9 @@ void dsp_graph_process(
         dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
         dsp_harmonic_process_frame(&graph->harmonic, &output_left, &output_right, (int)channels);
         dsp_convolver_process_frame(&graph->convolver, &output_left, &output_right, (int)channels);
+        dsp_dynamic_bass_process_frame(&graph->dynamic_bass, &output_left, &output_right, (int)channels);
+        dsp_macro_process_frame(&graph->macro, &output_left, &output_right, (int)channels);
+        dsp_smart_loudness_process_frame(&graph->smart_loudness, &output_left, &output_right, (int)channels);
         dsp_dynamics_process_limiter_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
         if (!isfinite(output_left)) {
             output_left = 0.0f;
@@ -160,4 +193,7 @@ void dsp_graph_process(
     dsp_multiband_flush_denormals(&graph->multiband);
     dsp_dynamic_eq_flush_denormals(&graph->dynamic_eq);
     dsp_convolver_flush_denormals(&graph->convolver);
+    dsp_macro_flush_denormals(&graph->macro);
+    dsp_smart_loudness_flush_denormals(&graph->smart_loudness);
+    dsp_dynamic_bass_flush_denormals(&graph->dynamic_bass);
 }

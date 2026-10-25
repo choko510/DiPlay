@@ -161,6 +161,51 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun studioOverlaysArePassedAsSeparateNativeControlBlocks() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                macroTone = DspMacroToneConfig(enabled = true, bassGainDb = 2.0, vocalGainDb = 1.0, airGainDb = 0.5),
+                smartLoudness = DspSmartLoudnessRuntimeConfig(enabled = true, lowGainDb = 1.5, highGainDb = 0.75),
+                dynamicBass = DspDynamicBassRuntimeConfig(enabled = true, strength = 0.5, maxBoostDb = 2.0),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertEquals(listOf(1.0, 2.0, 1.0, 0.5, 1.0), bindings.createdStudioMacro?.toList())
+        assertEquals(listOf(1.0, 1.5, 0.75), bindings.createdStudioLoudness?.toList())
+        assertEquals(9, bindings.createdStudioDynamicBass?.size)
+        assertEquals(0.5, bindings.createdStudioDynamicBass?.get(1) ?: 0.0, 0.0)
+        assertEquals(2.0, bindings.createdStudioDynamicBass?.get(2) ?: 0.0, 0.0)
+        processor?.close()
+    }
+
+    @Test
+    fun nativeHotUpdateAcknowledgementAppearsAfterProcessing() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor(DspAudioFormat(48_000, 2), 7L, bindings, latencyFrames = 0)
+        val update = DspPreparedHotUpdate(
+            generation = 11L,
+            appliedPreampDb = -1.0,
+            macroValues = doubleArrayOf(1.0, 1.0, 0.0, 0.0, 1.0),
+            smartLoudnessValues = doubleArrayOf(0.0, 0.0, 0.0),
+            dynamicBassValues = doubleArrayOf(0.0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0),
+        )
+
+        assertTrue(processor.enqueueHotUpdate(update))
+        assertEquals(0, processor.hotAcknowledgedToken())
+        val result = processor.process(floatBuffer(0.1f, -0.1f), ByteBuffer.allocateDirect(8), frames = 1)
+
+        assertEquals(DspProcessStatus.SUCCESS, result.status)
+        assertEquals(update.generationToken, processor.hotAcknowledgedToken())
+        assertEquals(update.generation, bindings.lastHotGeneration)
+        processor.close()
+    }
+
+    @Test
     fun advancedMidSideSettingsArePassedToNativeAsOneIntegratedSpatialStage() {
         val bindings = FakeNativeDspBindings()
         val advancedMs = DspAdvancedMsConfig(
@@ -359,6 +404,52 @@ class NativeDspProcessorTest {
         var createdConvolverConfig: DoubleArray? = null
         var createdConvolverSamples: FloatArray? = null
         var createdHarmonic: DoubleArray? = null
+        var createdStudioMacro: DoubleArray? = null
+        var createdStudioLoudness: DoubleArray? = null
+        var createdStudioDynamicBass: DoubleArray? = null
+        var lastHotGeneration: Long? = null
+        private var pendingHotToken = 0
+        private var acknowledgedHotToken = 0
+
+        override fun createWithStudio(
+            sampleRate: Int,
+            channels: Int,
+            maxFrames: Int,
+            gainDb: Double,
+            eqCoefficients: DoubleArray,
+            dynamics: DoubleArray,
+            multiband: DoubleArray,
+            dynamicEq: DoubleArray,
+            bassCoefficients: DoubleArray,
+            monoBassCoefficients: DoubleArray,
+            spatial: DoubleArray,
+            convolverConfig: DoubleArray,
+            convolverSamples: FloatArray,
+            harmonicValues: DoubleArray,
+            macroValues: DoubleArray,
+            smartLoudnessValues: DoubleArray,
+            dynamicBassValues: DoubleArray,
+        ): Long {
+            createdStudioMacro = macroValues.copyOf()
+            createdStudioLoudness = smartLoudnessValues.copyOf()
+            createdStudioDynamicBass = dynamicBassValues.copyOf()
+            return create(
+                sampleRate,
+                channels,
+                maxFrames,
+                gainDb,
+                eqCoefficients,
+                dynamics,
+                multiband,
+                dynamicEq,
+                bassCoefficients,
+                monoBassCoefficients,
+                spatial,
+                convolverConfig,
+                convolverSamples,
+                harmonicValues,
+            )
+        }
 
         override fun create(
             sampleRate: Int,
@@ -409,10 +500,20 @@ class NativeDspProcessorTest {
             for (index in 0 until sampleCount) {
                 output.putFloat(outputPosition + index * Float.SIZE_BYTES, input.getFloat(inputPosition + index * Float.SIZE_BYTES))
             }
+            if (pendingHotToken != 0) {
+                acknowledgedHotToken = pendingHotToken
+                pendingHotToken = 0
+            }
             return 0
         }
 
         override fun reset(handle: Long): Int = 0
+        override fun applyHotConfig(handle: Long, update: DspPreparedHotUpdate): Int {
+            lastHotGeneration = update.generation
+            pendingHotToken = update.generationToken
+            return 0
+        }
+        override fun hotAckToken(handle: Long): Int = acknowledgedHotToken
         override fun latencyFrames(handle: Long): Int = 0
         override fun interchannelRelativeDelayFrames(handle: Long): Double = interchannelRelativeDelayFrames
         override fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int = 0

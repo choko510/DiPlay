@@ -214,6 +214,11 @@ internal class DspPcmPipeline(
         startupLatencyRemainingFrames = if (forceInitialLatencySilence) processor.latencyFrames.coerceAtLeast(0) else 0
     }
 
+    internal fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = processor.enqueueHotUpdate(update)
+
+    internal fun hasAcknowledged(update: DspPreparedHotUpdate): Boolean =
+        processor.hotAcknowledgedToken() == update.generationToken
+
     fun diagnostics(): DspDiagnosticsSnapshot {
         val pipelineSnapshot = diagnostics.snapshot()
         val processorSnapshot = processor.diagnostics()

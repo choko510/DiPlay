@@ -42,11 +42,14 @@ import com.shilapi.xcertplay.media.dsp.DspRendererApplyWarning
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspStreamRole
 import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
+import com.shilapi.xcertplay.media.dsp.DspUpdatePlan
+import com.shilapi.xcertplay.media.dsp.DspUpdatePlanner
 import com.shilapi.xcertplay.media.dsp.DspPipelinePreparer
 import com.shilapi.xcertplay.media.dsp.DspSeatAlignmentConfig
 import com.shilapi.xcertplay.media.dsp.failureFallbackPreampDb
 import com.shilapi.xcertplay.media.dsp.createNativePipeline
 import com.shilapi.xcertplay.media.dsp.prepare
+import com.shilapi.xcertplay.media.dsp.prepareHotUpdate
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -1104,6 +1107,7 @@ internal class AudioRenderer(
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
     private data class PreparedRendererDspUpdate(
         val update: DspPreparedUpdate,
+        val graphConfig: DspRuntimeConfig,
         val latencyPreservingBypass: DspLatencyPreservingBypass?,
         val preparedStatus: DspRendererApplyStatus,
         val activeStatus: DspRendererApplyStatus,
@@ -1134,6 +1138,7 @@ internal class AudioRenderer(
     private var track: AudioTrack? = null
     @Volatile internal var dspPipeline: DspPcmPipeline? = null
     private val pendingDspUpdate = AtomicReference<PreparedRendererDspUpdate?>(null)
+    private var pendingHotApply: PreparedRendererDspUpdate? = null
     private val dspUpdatePublicationLock = Any()
     private var liveUpdateController: DspLiveUpdateController? = null
     private val liveUpdateControllerEpoch = AtomicLong()
@@ -2302,7 +2307,7 @@ internal class AudioRenderer(
                     } else {
                         runCatching { afterDspUpdateOwnerCheckForTest?.invoke() }
                         if (update.generation == requestedDspGeneration) livePreparationPending = false
-                        if (update.config.enabled && update.pipeline == null) {
+                        if (update.config.enabled && update.pipeline == null && update.hotUpdate == null) {
                             failedStatus = DspRendererApplyStatus(
                                 update.generation,
                                 DspRendererApplyPhase.FAILED,
@@ -2312,7 +2317,16 @@ internal class AudioRenderer(
                             val warning = convolverApplyWarning(update.format, update.config)
                             val prepared = PreparedRendererDspUpdate(
                                 update = update,
-                                latencyPreservingBypass = prepareLatencyPreservingBypass(update),
+                                graphConfig = if (update.hotUpdate != null) {
+                                    configuredDspGraph(update.format, update.config)
+                                } else {
+                                    effectiveDspGraphConfig(update.format, update.config, update.pipeline)
+                                },
+                                latencyPreservingBypass = if (update.hotUpdate == null) {
+                                    prepareLatencyPreservingBypass(update)
+                                } else {
+                                    null
+                                },
                                 preparedStatus = DspRendererApplyStatus(
                                     update.generation,
                                     DspRendererApplyPhase.PREPARED,
@@ -2388,6 +2402,24 @@ internal class AudioRenderer(
                             updatesBlocked = true,
                         ),
                     )
+                }
+            },
+            hotUpdatePreparer = { candidateFormat, snapshot ->
+                val current = activeDspConfig
+                if (candidateFormat == format && dspPipeline?.format == candidateFormat &&
+                    DspUpdatePlanner.classify(
+                        current = current,
+                        target = snapshot.config,
+                        hasActivePipeline = true,
+                        trackGenerationCommitted = trackGenerationContentCommitted,
+                        currentLatencyFrames = liveUpdateLatencyFrames.get(),
+                        targetLatencyFrames = liveUpdateLatencyFrames.get(),
+                        requiresStateContinuity = false,
+                    ) == DspUpdatePlan.HOT
+                ) {
+                    snapshot.config.prepareHotUpdate(candidateFormat, snapshot.generation)
+                } else {
+                    null
                 }
             },
         )
@@ -2553,17 +2585,48 @@ internal class AudioRenderer(
             if (pendingDspUpdate.compareAndSet(prepared, null)) controller.retire(update.pipeline)
             return
         }
-        if (trackGenerationContentCommitted && deferredDspGeneration == update.generation) return
+        if (trackGenerationContentCommitted && deferredDspGeneration == update.generation &&
+            update.hotUpdate == null
+        ) return
+        val hotUpdate = update.hotUpdate
+        if (hotUpdate != null) {
+            val pipeline = dspPipeline
+            if (pipeline == null || pipeline.format != update.format ||
+                pendingHotApply != null || !pendingDspUpdate.compareAndSet(prepared, null)
+            ) return
+            if (!pipeline.enqueueHotUpdate(hotUpdate)) {
+                pendingDspUpdate.compareAndSet(null, prepared)
+                deferredDspGeneration = update.generation
+                reportDspApplyStatus(prepared.deferredStatus)
+                return
+            }
+            pendingHotApply = prepared
+            return
+        }
         val candidateLatencyFrames = when {
             !trackGenerationContentCommitted -> update.pipeline?.algorithmicLatencyFrames ?: 0
             update.pipeline == null -> trackGenerationLatencyFrames
             else -> update.pipeline.algorithmicLatencyFrames
         }
-        val graphConfig = effectiveDspGraphConfig(update.format, update.config, update.pipeline)
-        if (trackGenerationContentCommitted && graphConfig.requiresStateContinuity()) {
+        val graphConfig = prepared.graphConfig
+        val updatePlan = DspUpdatePlanner.classify(
+            current = activeDspConfig,
+            target = update.config,
+            hasActivePipeline = dspPipeline != null,
+            trackGenerationCommitted = trackGenerationContentCommitted,
+            currentLatencyFrames = trackGenerationLatencyFrames,
+            targetLatencyFrames = candidateLatencyFrames,
+            requiresStateContinuity = graphConfig.requiresStateContinuity(),
+        )
+        if (updatePlan == DspUpdatePlan.DEFERRED) {
             if (deferredDspGeneration != update.generation) {
                 deferredDspGeneration = update.generation
-                reportDsp("DSP update deferred until next AudioTrack generation: stateful graph needs fresh history")
+                val reason = if (graphConfig.requiresStateContinuity()) {
+                    "stateful graph needs fresh history"
+                } else {
+                    "algorithmic latency would change"
+                }
+                reportDsp("DSP update deferred until next AudioTrack generation: $reason")
                 reportDspApplyStatus(prepared.deferredStatus)
             }
             return
@@ -2582,13 +2645,6 @@ internal class AudioRenderer(
             )
             controller.retire(oldPipeline?.takeIf { it !== dspPipeline })
             reportDspApplyStatus(prepared.activeStatus)
-            return
-        }
-        if (candidateLatencyFrames != trackGenerationLatencyFrames) {
-            if (pendingDspUpdate.get() === prepared) {
-                deferredDspGeneration = update.generation
-                reportDspApplyStatus(prepared.deferredStatus)
-            }
             return
         }
         if (!pendingDspUpdate.compareAndSet(prepared, null)) return
@@ -2886,8 +2942,23 @@ internal class AudioRenderer(
             )
             return false
         }
+        acknowledgeHotApply(pipeline)
         if (outputLength > 0) writePcm(pipeline.output, 0, outputLength, sourceSample)
         return true
+    }
+
+    private fun acknowledgeHotApply(pipeline: DspPcmPipeline) {
+        val prepared = pendingHotApply ?: return
+        val update = prepared.update
+        val hotUpdate = update.hotUpdate ?: return
+        if (pipeline !== dspPipeline || !pipeline.hasAcknowledged(hotUpdate)) return
+        pendingHotApply = null
+        activeDspConfig = update.config
+        activeDspGraphConfig = prepared.graphConfig
+        activeDspGeneration = update.generation
+        liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
+        deferredDspGeneration = null
+        reportDspApplyStatus(prepared.activeStatus)
     }
 
     private fun dspPcmEncoding(encoding: Int): DspPcmEncoding? = when {

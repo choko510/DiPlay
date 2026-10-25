@@ -66,5 +66,9 @@ internal interface DspProcessor : Closeable {
 
     fun reset()
 
+    fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = false
+
+    fun hotAcknowledgedToken(): Int = 0
+
     fun diagnostics(): DspDiagnosticsSnapshot
 }

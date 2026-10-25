@@ -10,6 +10,9 @@
 #include "dsp_spatial.h"
 #include "dsp_harmonic.h"
 #include "dsp_convolver.h"
+#include "dsp_macro.h"
+#include "dsp_smart_loudness.h"
+#include "dsp_dynamic_bass.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -24,6 +27,9 @@ typedef struct {
     dsp_spatial spatial;
     dsp_harmonic harmonic;
     dsp_convolver convolver;
+    dsp_macro macro;
+    dsp_smart_loudness smart_loudness;
+    dsp_dynamic_bass dynamic_bass;
     dsp_meter input_meter;
     dsp_meter output_meter;
 } dsp_graph;
@@ -44,7 +50,16 @@ int dsp_graph_prepare(
     int mono_bass_coefficient_count,
     const dsp_spatial_config *spatial_config,
     const dsp_convolver_config *convolver_config,
-    const dsp_harmonic_config *harmonic_config);
+    const dsp_harmonic_config *harmonic_config,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config);
+int dsp_graph_apply_studio_hot(
+    dsp_graph *graph,
+    double gain_db,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config);
 void dsp_graph_reset(dsp_graph *graph);
 void dsp_graph_close(dsp_graph *graph);
 void dsp_graph_process(

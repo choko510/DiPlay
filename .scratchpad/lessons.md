@@ -518,3 +518,5 @@ Pipeline close callbacks precede the reaper's retirement-count decrement, so a c
 For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()` cannot be overridden. Capture the exact specs at the existing pane's `measureChildWithMargins` call, pass those specs to `child.measure()`, and record the child result afterward; do not report a reconstructed probe value or a parent's pre-measure size.
 
 When a test latch runs inside a worker that is deliberately interrupted during shutdown, `await()` can throw before the test releases the gate. Make the test gate interruption-tolerant and rely on explicit cleanup to release it; allow enough time for a separately scheduled assertion thread to run in CI.
+
+Smart Loudness route calibration should use two trusted readings from the same route in increasing volume order. Failed, untrusted, reversed, or cross-route samples must leave the previous calibration intact.

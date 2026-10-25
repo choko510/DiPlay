@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -47,6 +49,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.dsp.DspAudioProfile
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
@@ -306,6 +309,24 @@ internal fun DspSettingsScreen(
     val showEq = (compact && compactSection == DspCompactSection.EQ) || (!compact && advanced)
     val showAdvanced = (compact && compactSection == DspCompactSection.ADVANCED) || (!compact && advanced)
     val compactHeightCap = LocalConfiguration.current.screenHeightDp.coerceAtLeast(1).dp
+    val compactBodyConstraint = if (compact) {
+        Modifier.layout { measurable, constraints ->
+            val capPx = compactHeightCap.roundToPx()
+            if (constraints.maxHeight == Constraints.Infinity) {
+                Log.w(
+                    "xcertplay-usb",
+                    "DSP_SPLIT_BODY_UNBOUNDED minHeight=${constraints.minHeight} capHeight=$capPx",
+                )
+            }
+            val boundedMaxHeight = maxOf(constraints.minHeight, minOf(constraints.maxHeight, capPx))
+            val placeable = measurable.measure(constraints.copy(maxHeight = boundedMaxHeight))
+            layout(placeable.width, placeable.height) {
+                placeable.placeRelative(0, 0)
+            }
+        }
+    } else {
+        Modifier
+    }
 
     Scaffold(
         modifier = if (compact) {
@@ -406,7 +427,7 @@ internal fun DspSettingsScreen(
         },
     ) { insetPadding ->
         Column(
-            modifier = Modifier
+            modifier = compactBodyConstraint
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(insetPadding)

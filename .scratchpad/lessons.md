@@ -496,3 +496,5 @@ When Compose scroll crashes with an infinite maximum height in a local split pan
 For a connection-enabled APK build, verify both packaging layers independently: expected MFi asset entry names inside every ABI APK and the Android APK signature schemes. Successful packaging and signature checks do not prove a new physical head-unit connection.
 
 For a valid but incomplete NCM header, sequence and block length are enough to start bounded no-progress tracking; a later incomplete NDP must not bypass the deadline. For protocol traces, persist a strict stage/byte schema rather than attempting to redact raw serialized headers or bodies.
+
+For Compose scroll exceptions, bound the scroll node's incoming constraints directly; a finite cap on its higher-level Scaffold may not be sufficient on OEM measure paths. Capture both Android View MeasureSpecs and the Compose body's incoming maxHeight, then verify the rendered flow on the affected device.

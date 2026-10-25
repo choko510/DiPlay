@@ -83,6 +83,27 @@ class DspLatencyPreservingBypassTest {
         assertEquals(0.5f * Math.pow(10.0, -6.0 / 20.0).toFloat(), bypass.outputFloats[1], 1e-6f)
     }
 
+    @Test
+    fun failureFallbackSoftLimitsPositiveSeatTrimWithoutHardClipping() {
+        val bypass = DspLatencyPreservingBypass(
+            format = DspAudioFormat(48_000, 2),
+            commonLatencyFrames = 0,
+            seatAlignment = DspSeatAlignmentConfig(
+                enabled = true,
+                leftTrimDb = 6.0,
+                rightTrimDb = 6.0,
+            ),
+            seed = 1L,
+        )
+        val source = floatPcm(floatArrayOf(0.8f, -0.8f))
+
+        assertEquals(0, bypass.process(source, 0, source.size, DspPcmEncoding.PCM_FLOAT, encodeOutput = false))
+        bypass.activateSeatControlsForCurrentOutput()
+
+        assertEquals(0.98f, bypass.outputFloats[0], 1e-6f)
+        assertEquals(-0.98f, bypass.outputFloats[1], 1e-6f)
+    }
+
     private fun floatPcm(samples: FloatArray): ByteArray {
         val bytes = ByteBuffer.allocate(samples.size * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
         samples.forEach(bytes::putFloat)

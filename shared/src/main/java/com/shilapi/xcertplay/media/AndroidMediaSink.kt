@@ -2162,20 +2162,15 @@ internal class AudioRenderer(
     }
 
     private fun failureFallbackPreampDb(format: DspAudioFormat, config: DspRuntimeConfig): Double {
-        if (!config.enabled) return 0.0
+        if (!config.enabled || !config.autoHeadroomEnabled) return 0.0
         val graphConfig = configuredDspGraph(format, config)
-        val preparedPreampDb = graphConfig.prepare(format).appliedPreampDb
         val positiveSeatTrimDb = if (format.channels == 2) {
             graphConfig.seatAlignment.positiveTrimForHeadroomDb
         } else {
             0.0
         }
-        val seatSafePreampDb = if (positiveSeatTrimDb > 0.0) {
-            -positiveSeatTrimDb - maxOf(config.autoHeadroomMarginDb, FAILURE_FALLBACK_HEADROOM_MARGIN_DB)
-        } else {
-            0.0
-        }
-        return minOf(preparedPreampDb, 0.0, seatSafePreampDb)
+        if (positiveSeatTrimDb <= 0.0) return 0.0
+        return graphConfig.prepare(format).appliedPreampDb.coerceAtMost(0.0)
     }
 
     private fun configuredDspGraph(format: DspAudioFormat, config: DspRuntimeConfig): DspRuntimeConfig {
@@ -3468,7 +3463,6 @@ internal class AudioRenderer(
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_POLL_MILLIS = 10L
         const val LIVE_CROSSFADE_DIVISOR = 50
-        const val FAILURE_FALLBACK_HEADROOM_MARGIN_DB = 1.0
         const val AUDIO_WRITE_RETRY_MILLIS = 2L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         // Decoder/render queue for bursts; RTP ordering and its short jitter hold happen upstream.

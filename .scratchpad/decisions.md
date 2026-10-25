@@ -642,6 +642,8 @@ Treat one DSP preparation generation as a single ownership scope: getter/publish
 
 For the DSP Split crash, cap the compact Scaffold with the current window's `screenHeightDp` before constructing a vertical scroll viewport. This is dynamic across orientation/window changes and leaves any smaller finite parent constraints in effect; keep parent MeasureSpec capture and SH-M27 acceptance open rather than treating the guard as device proof.
 
+For failed DSP fallback, keep the legacy delayed output unchanged for low-level/no-Seat cases. Apply the prepared auto-headroom preamp when positive Seat trim is active and auto-headroom is enabled; use a soft limiter as the failure-only guard when the user disabled auto-headroom. Reaper-backed candidate closure is asynchronous, so tests must synchronize on close completion instead of asserting immediately.
+
 For a locally installable CarPlay build without configured release signing, use the Android Debug signing config and package external MFi identity/certificate files as separate runtime-auth assets. The MFi files enable protocol authentication; they do not constitute the Android APK signer or release approval.
 
 For sixth-review source fixes, start no-progress tracking as soon as a valid NTH16 sequence and declared length are known, even when its NDP structure is incomplete; keep VPN revoke scoped to the attachment's transport kind/generation. If a codec candidate cannot release, retain it and stop fallback codec attempts. Native DSP retirement failures must flow to the reaper's FAILED path, while protocol diagnostics retain only allowlisted stage/byte counts and never payload bytes.

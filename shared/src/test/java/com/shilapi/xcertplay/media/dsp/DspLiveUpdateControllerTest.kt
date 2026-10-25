@@ -153,6 +153,7 @@ class DspLiveUpdateControllerTest {
             val provider = MutableConfigProvider()
             val shouldThrow = AtomicBoolean(true)
             val closedCandidates = AtomicInteger()
+            val candidateClosed = CountDownLatch(1)
             val failed = LinkedBlockingQueue<Long>()
             val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
             val controller = DspLiveUpdateController(
@@ -173,6 +174,7 @@ class DspLiveUpdateControllerTest {
                 pipelinePreparer = { format, _ ->
                     trackingPipeline(format, if (failurePoint == "adopt") 128 else 0) {
                         closedCandidates.incrementAndGet()
+                        candidateClosed.countDown()
                     }
                 },
                 preparedLatencyFrames = {
@@ -186,8 +188,7 @@ class DspLiveUpdateControllerTest {
                 val failureGeneration = failed.poll(5, TimeUnit.SECONDS)
                     ?: throw AssertionError("No failure reported for getter=$failurePoint")
                 assertEquals(1L, failureGeneration)
-                assertEquals(1, closedCandidates.get())
-                Thread.sleep(50)
+                assertTrue(candidateClosed.await(5, TimeUnit.SECONDS))
                 assertEquals(1, closedCandidates.get())
 
                 shouldThrow.set(false)

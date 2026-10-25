@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
+import kotlin.math.abs
+
 internal class DspLatencyPreservingBypass(
     private val format: DspAudioFormat,
     private val commonLatencyFrames: Int,
@@ -172,10 +174,21 @@ internal class DspLatencyPreservingBypass(
     }
 
     private fun applySeatControl(sample: Float, channel: Int): Float {
-        if (!hasSeatControls && failurePreampGain == 1.0f) return sample
         val trimGain = if (!hasSeatControls) 1.0f else if (channel == 0) leftTrimGain else rightTrimGain
         val gain = failurePreampGain * trimGain
         val invert = hasSeatControls && if (channel == 0) seatAlignment.invertLeft else seatAlignment.invertRight
-        return if (invert) -sample * gain else sample * gain
+        val adjusted = if (invert) -sample * gain else sample * gain
+        if (!adjusted.isFinite()) return 0.0f
+        val magnitude = abs(adjusted)
+        if (magnitude <= FAILURE_LIMITER_KNEE) return adjusted
+        val amount = ((magnitude - FAILURE_LIMITER_KNEE) / FAILURE_LIMITER_RANGE).coerceIn(0.0f, 1.0f)
+        val limited = FAILURE_LIMITER_KNEE + 0.3f * amount - 0.36f * amount * amount +
+            0.14f * amount * amount * amount
+        return if (adjusted < 0.0f) -limited else limited
+    }
+
+    private companion object {
+        const val FAILURE_LIMITER_KNEE = 0.9f
+        const val FAILURE_LIMITER_RANGE = 0.3f
     }
 }

@@ -2,7 +2,7 @@
 
 Date: 2026-10-26 JST
 
-## Repository and PR state
+## Initial repository and PR state
 
 | Item | Verified value |
 |---|---|
@@ -15,7 +15,7 @@ Date: 2026-10-26 JST
 | Integration branch | codex/dsp-studio-final, created from the verified PR head |
 | Initial source changes | None |
 
-The requested integration PR will target codex/step4-pr-00-test-baseline. The previously checked-out local snapshot was 5d2d0c50, seven commits behind the live PR head; it was clean. Work continued from the live PR head without changing the separate /Users/choko/DiPlay checkout.
+This table records the verified starting point, not the final PR status. The previously checked-out local snapshot was 5d2d0c50, seven commits behind the live PR head; it was clean. Work continued from the live PR head without changing the separate /Users/choko/DiPlay checkout.
 
 ## Environment
 
@@ -62,3 +62,12 @@ Target SHA for all baseline commands: ac4694cf1fbb08e443f53a53158528619ed81940.
 ## Known acceptance gates at baseline
 
 No TS10/K706, Android instrumentation device, sound-pressure measurement rig, or user hardware session was available. Hardware-specific volume calibration, listening/THD, latency, CPU/RAM/soak, CarPlay Split identity, Siri/call/navigation, and A/V tests remain NOT_RUN until evidence is collected on target hardware.
+
+## Final implementation state
+
+- Integration PR: [#52](https://github.com/choko510/DiPlay/pull/52), base `codex/step4-pr-00-test-baseline`, stacked on PR #45. The final head SHA and ready-for-review state are verified in live PR metadata; source/test commit and evidence are recorded in [FINAL_IMPLEMENTATION_REPORT.md](FINAL_IMPLEMENTATION_REPORT.md).
+- Six Luna sub-PRs (#53–#58) are merged into `codex/dsp-studio-final` only; none targets PR #45 or `main`. See [SUBAGENT_PR_LEDGER.md](SUBAGENT_PR_LEDGER.md) for model, branch, SHA, URL, and integration commit.
+- Software implementation is present for Macro, Smart Loudness, Dynamic Bass, Studio workspace/presets, PEQ/advanced UI, and renderer-owned Hot/Warm/Deferred updates. Final-source limitations and evidence are recorded in [TEST_MATRIX.md](TEST_MATRIX.md) and [REVIEW_MATRIX.md](REVIEW_MATRIX.md).
+- `DspStudioFeatureFlags` constants are not referenced by production code and are not effective rollout gates. The remaining source-level rollback is DSP Master OFF plus disabled/default-neutral new controls and DEFERRED adoption for unsupported stateful/latency changes.
+- The exact detailed specification named in the goal, `DiPlay_PR45_Codex_Final_DSP_Studio_Macro_Loudness_DynamicBass_2026-10-26.md`, was not present in the supplied attachment directory or repository. REQ/PKG statuses therefore refer to the accessible goal and initial test matrix; the final report records this input limitation.
+- Android test Kotlin compilation passed for the final screen-test source. Connected instrumentation was blocked by no connected device and host storage exhaustion. No TS10/K706/iPhone, acoustic, CPU/RSS, p99, A/V, call/Siri/navigation, 20-cycle Split, or soak result is claimed. See [RUNBOOK.md](RUNBOOK.md).

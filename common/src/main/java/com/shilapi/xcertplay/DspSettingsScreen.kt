@@ -1329,19 +1329,19 @@ internal fun DspSettingsScreen(
                 ) {
                     Text(stringResource(R.string.dsp_apply))
                 }
-                if (showProfile) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            modifier = Modifier.weight(1f),
-                            enabled = !operationPending,
-                            onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
-                        ) { Text(stringResource(R.string.dsp_save_custom_1)) }
-                        OutlinedButton(
-                            modifier = Modifier.weight(1f),
-                            enabled = !operationPending,
-                            onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
-                        ) { Text(stringResource(R.string.dsp_save_custom_2)) }
-                    }
+            }
+            if (!compact && showStudio) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = !operationPending,
+                        onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
+                    ) { Text(stringResource(R.string.dsp_save_custom_1)) }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        enabled = !operationPending,
+                        onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
+                    ) { Text(stringResource(R.string.dsp_save_custom_2)) }
                 }
             }
         }

@@ -90,6 +90,9 @@ class DspSettingsScreenTest {
 
             presentation.value = DspPresentationMode.FULL
             composeRule.waitForIdle()
+            composeRule.onNodeWithContentDescription("Studio").performClick()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_save_custom_1)).assertExists()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_save_custom_2)).assertExists()
             composeRule.onNodeWithContentDescription("Advanced").performScrollTo().performClick()
             composeRule.onNodeWithContentDescription("Advanced, selected").assertExists()
             composeRule.onNode(isToggleable()).performClick()

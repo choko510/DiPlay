@@ -1372,12 +1372,21 @@ class CarPlayHostActivity : ComponentActivity() {
             val composeWidthSpec = getChildMeasureSpec(parentWidthMeasureSpec, widthPadding, params.width)
             val composeHeightSpec = getChildMeasureSpec(parentHeightMeasureSpec, heightPadding, params.height)
             child.measure(composeWidthSpec, composeHeightSpec)
-            val measurement = "widthMode=${measureMode(composeWidthSpec)} " +
-                "widthSize=${View.MeasureSpec.getSize(composeWidthSpec)} " +
-                "heightMode=${measureMode(composeHeightSpec)} " +
-                "heightSize=${View.MeasureSpec.getSize(composeHeightSpec)} " +
-                "measured=${child.measuredWidth}x${child.measuredHeight}"
-            if (DspSplitMeasureDiagnostics.record(measurement)) {
+            if (
+                DspSplitMeasureDiagnostics.recordViewMeasurement(
+                    View.MeasureSpec.getMode(composeWidthSpec),
+                    View.MeasureSpec.getSize(composeWidthSpec),
+                    View.MeasureSpec.getMode(composeHeightSpec),
+                    View.MeasureSpec.getSize(composeHeightSpec),
+                    child.measuredWidth,
+                    child.measuredHeight,
+                )
+            ) {
+                val measurement = "widthMode=${measureMode(composeWidthSpec)} " +
+                    "widthSize=${View.MeasureSpec.getSize(composeWidthSpec)} " +
+                    "heightMode=${measureMode(composeHeightSpec)} " +
+                    "heightSize=${View.MeasureSpec.getSize(composeHeightSpec)} " +
+                    "measured=${child.measuredWidth}x${child.measuredHeight}"
                 Log.i(TAG, "DSP_SPLIT_COMPOSE_MEASURE $measurement")
             }
         }

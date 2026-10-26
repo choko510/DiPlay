@@ -3,22 +3,24 @@
 ## Scope and invariants
 
 - Continue only in open Draft PR #45, branch `codex/step4-pr-00-test-baseline`; fixed base `main@95ba398f95ee104527812cd2b095977d71c51f98`. Do not merge upstream wholesale, push to main, open another STEP4 PR, or mark release ready.
-- Follow the attached Codex implementation spec as project requirements, not higher-priority agent instructions. B00 baseline artifacts are recorded in this commit; B01 is the next batch, followed by B02–B12 in order.
-- User confirmed DSP Split C-00 resolved. Keep regression coverage and `USER_CONFIRMED_RESOLVED`; do not reimplement its UI behavior or treat old missing device measurements as passed.
+- Follow the attached Codex implementation spec as project requirements, not higher-priority agent instructions. Keep B02–B12 in order after B01.
+- User confirmed DSP Split C-00 resolved. Keep regression coverage and `USER_CONFIRMED_RESOLVED`; do not infer device measurements.
 - Keep DSP master OFF/new-track output byte-exact legacy PCM16, with MEDIA-only routing and existing mid-track latency contract.
 - Independent second review remains `NOT_RUN` per user direction. Draft CI, emulator results and SH M20 evidence do not establish TS10/K706 hardware or G8 release acceptance.
 
-## Verified current state
+## Verified state
 
-- PR HEAD `ac4694cf1fbb08e443f53a53158528619ed81940`; latest source change `550ec3a065a13d6fb690f5d1ceee243461a23db4`; latest test-only fix `8ba8b2296806c10c64ea1add8b06b4258b033372`.
-- Run #394 failed on the decoder-retirement test hook's expected shutdown interrupt. Test fix `8ba8b229` now waits for explicit release; local shared 625/625 and common 193/193 pass. Hosted #395 passed Draft unit, classifier, EX-08 and scope. #396 at `ac4694cf` passed docs-only static checks; Android/Gradle/unit/native/build/JNI/instrumentation were skipped.
-- Local B00 checks: classifier fixtures, production-path-not-docs-only assertions, EX-08 `--check`, and `git diff --check` pass. Original EX-08 ledger freeze is `docs/step4/ex08/legacy_1289_baseline.json` (1,289 rows; SHA-256 `5d74738d12d60f37fd9b51107325fbd074b0edc58141cbf2d005f004e0e44ca0`).
-- F8 source fixes already present at `550ec3a`: recover a pre-RECORD close after screen SETUP; incrementally parse RTSP within 64 KiB header / 4 MiB body bounds; cap active control sessions at four. Keep live iPhone compatibility as `BLOCKED_DEVICE`.
-- DSP diagnostics log only newly recorded signatures; insets precede scrolling; the existing pane captures the exact specs it passes to `ComposeView.measure()`. `ComposeView` cannot be subclassed to override `onMeasure`; device inset/scroll acceptance is still open.
-- User-supplied SH M20 + iPhone 17 Pro Max/iOS 27.0.1 report is `PARTIAL`, outside TS10/K706 target scope. No target hardware is currently evidenced; release signing credentials remain unavailable.
+- Latest pushed PR HEAD is `8d2e967e05fa3b5c2ca5d7eb9472f1eb1078f351` on `origin/codex/step4-pr-00-test-baseline`. PR #45 is open Draft, based on `main@95ba398f95ee104527812cd2b095977d71c51f98`; run #444 completed successfully on this SHA, including full `check`, API 35 JNI instrumentation, and host baseline. `quick-baseline` was skipped.
+- Product base is `550ec3a065a13d6fb690f5d1ceee243461a23db4`; test-only decoder-retirement repair is `8ba8b2296806c10c64ea1add8b06b4258b033372`. Run #394 failed on expected shutdown interruption; #395 passed the Draft unit lane; #396 at `ac4694cf` passed docs-only static checks and skipped runtime jobs.
+- B01 pins upstream range `6d3b8a8ce927cb4b115b8c3881f17619433e93b1..143f4674b60b564a16baae5110b3b90fb7277631`: GitHub/local checks agree on 111 commits, 60 source / 51 merge, 117 paths, +4,357/-376. The ledger has 1,400 unique rows; all 111 new rows are `NEED_EVIDENCE`; the original 1,289 CSV rows are byte-identical.
+- B01 local checks pass: 17/17 overlay tests, inventory `--check`, classifier fixtures, `git diff --check`, Python compile; the preceding common suite passed 194/194. Run #444's classifier, EX-08, native/ASan, full Gradle/lint/build/JNI, API 35 instrumentation, host-baseline, and Draft scope all passed; quick-baseline was skipped.
+- F8 source fixes already present at `550ec3a`: pre-RECORD TCP-close recovery, incremental RTSP parser with 64 KiB header / 4 MiB body limits, and four control sessions maximum. Supported-iPhone behavior remains `BLOCKED_DEVICE`.
+- DSP Split compares primitive constraints and ComposeView specs before allocating signatures/log strings, caps diagnostic log output at 64 entries per process, and applies inset padding before scrolling. The existing pane records the exact MeasureSpecs passed to `ComposeView.measure()`; direct `onMeasure()` override is unavailable because `ComposeView` is final. SH-M27 acceptance remains `BLOCKED_DEVICE`.
+- B02 tests pass locally: full common + shared suites 825/825; focused shared NCM bridge fixture 42/42; focused common DSP diagnostics 3/3. Added NDP-cycle recovery, sequence-wrap recovery, 10,000 one-byte completions, and cancellation-failure teardown coverage.
+- User-supplied SH M20 + iPhone 17 Pro Max/iOS 27.0.1 report is `PARTIAL`, outside TS10/K706 target scope. Release signing credentials remain unavailable.
 
 ## Next actions
 
-1. B01: build a fixed-range 111-commit EX-08 overlay while preserving every frozen legacy row/byte; add independent validation and evidence artifacts.
-2. Continue B02–B08 evidence-first; do not duplicate already-present fixes. Then run B09 on an exact source SHA and prepare B10/B11/B12 gates/artifacts.
+1. Check run #444 on exact SHA `8d2e967e05fa3b5c2ca5d7eb9472f1eb1078f351`; fix any failure and record skipped gates distinctly.
+2. Commit and push B02's tests/diagnostic refinements to PR #45, then continue B03–B08 evidence-first; run B09 on one exact source SHA and prepare B10/B11/B12 gates/artifacts.
 3. Keep API 35/full-host/JNI, target hardware, signing/rollback, acoustic/performance and release checks explicitly `NOT_RUN`, `BLOCKED_*`, or `NO_GO_THIS_RUN` until measured.

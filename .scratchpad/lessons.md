@@ -523,6 +523,8 @@ When a test latch runs inside a worker that is deliberately interrupted during s
 
 Smart Loudness route calibration should use two trusted readings from the same route in increasing volume order. Failed, untrusted, reversed, or cross-route samples must leave the previous calibration intact.
 
+For playback volume monitoring, use the renderer's actual `AudioTrack.routedDevice` callback and reset route-bound samples when the route changes. A route label and Android MUSIC index—even when the index changes—do not prove that an OEM volume control follows it; keep AUTO unavailable until that correspondence is validated on supported hardware.
+
 ## Keep screen instrumentation isolated and classify execution precisely
 
 Give standalone screen tests their own files directory and preference name, and assert draft edits do not change runtime configuration before Preview. Android-test Kotlin compilation proves source/build validity only; a test that cannot run on a connected device remains `BLOCKED_ENV`, and CarPlay host geometry/session/Surface acceptance remains `NOT_RUN` until measured there.

@@ -4177,8 +4177,9 @@ class CarPlayHostActivity : ComponentActivity() {
     ): AndroidMediaSink {
         // Capture this session's log: late decoder shutdown must not write into a new session.
         val diagnosticLog = sessionLog
+        val dspRuntime = DspProfileRuntime.get(this)
         return AndroidMediaSink(
-            dspConfigProvider = DspProfileRuntime.get(this).configProvider,
+            dspConfigProvider = dspRuntime.configProvider,
             surface = null,
             videoWidth = videoWidth,
             videoHeight = videoHeight,
@@ -4201,6 +4202,7 @@ class CarPlayHostActivity : ComponentActivity() {
             onAudioDiagnostic = { message ->
                 diagnosticLog?.append(formattedLogLine(message, System.currentTimeMillis()))
             },
+            onPlaybackRouteChanged = dspRuntime::onPlaybackRouteChanged,
         )
     }
 

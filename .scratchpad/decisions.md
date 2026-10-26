@@ -682,6 +682,8 @@ The decoder-retirement test must keep its stop gate closed until the assertion c
 
 Smart Loudness AUTO trusts only explicit route-bound readings supplied by a platform adapter and user-captured quiet/reference points. The common module does not infer Android stream volume as physical playback volume; MANUAL and FIXED remain independent fallbacks.
 
+Production Android AUTO readings remain untrusted until supported-device evidence proves the hardware volume control follows Android's MUSIC index. Track the active `AudioTrack` route, index and fixed-volume status, but do not infer OEM/MCU correspondence from index changes alone. Keep the raw route address transient; only a SHA-256-derived route token reaches calibration storage.
+
 ## Keep DSP Studio rollback claims tied to production wiring
 
 The schema-v1 workspace remains separate from legacy v7 profile storage. `DspStudioFeatureFlags` has no production call sites, so it is not an operational kill switch; describe rollback as DSP Master OFF, new modules disabled/default-neutral, and unsupported stateful or latency-changing updates deferred.

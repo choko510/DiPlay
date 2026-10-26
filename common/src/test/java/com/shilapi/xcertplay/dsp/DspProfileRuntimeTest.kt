@@ -106,6 +106,47 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun playbackVolumeUpdatesAppliedAutoConfigWhileStudioIsClosed() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+        try {
+            val profile = DspProfilePresets.find("flat")!!
+            val workspace = DspStudioWorkspace(
+                profileSourceId = profile.id,
+                baseProfileSnapshot = profile,
+                smartLoudness = DspSmartLoudnessSettings(
+                    mode = DspSmartLoudnessMode.AUTO_CALIBRATED,
+                    calibration = DspLoudnessCalibration("route-token", 0.0, 1.0),
+                ),
+            )
+            assertEquals(DspWorkspaceSaveResult.SAVED, DspStudioWorkspaceRepository(context.filesDir).save(workspace))
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_DSP_ENABLED, true)
+                .putString(KEY_SELECTED_PROFILE_ID, profile.id)
+                .commit()
+            val runtime = DspProfileRuntime.get(context)
+            assertFalse(runtime.configProvider.snapshot().smartLoudness.enabled)
+
+            runtime.onPlaybackVolumeReadingChanged(
+                DspVolumeReading(routeToken = "route-token", volumeFraction = 0.1, trustworthy = true),
+            )
+            awaitSmartLoudnessState(runtime, enabled = true)
+
+            runtime.onPlaybackVolumeReadingChanged(
+                DspVolumeReading(routeToken = "different-route", volumeFraction = 0.1, trustworthy = true),
+            )
+            awaitSmartLoudnessState(runtime, enabled = false)
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
     fun studioSessionCoordinatorRetainsDraftWhenSettingsScreenIsRecreated() {
         val context: Application = RuntimeEnvironment.getApplication()
         val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
@@ -303,5 +344,14 @@ class DspProfileRuntimeTest {
         }
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue("main-thread callback completed", completed.await(0, TimeUnit.MILLISECONDS))
+    }
+
+    private fun awaitSmartLoudnessState(runtime: DspProfileRuntime, enabled: Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (runtime.configProvider.snapshot().smartLoudness.enabled != enabled && System.nanoTime() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(5)
+        }
+        assertEquals(enabled, runtime.configProvider.snapshot().smartLoudness.enabled)
     }
 }

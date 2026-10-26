@@ -322,9 +322,15 @@ internal fun DspSettingsScreen(
         Modifier.layout { measurable, constraints ->
             val capPx = compactHeightCap.roundToPx()
             if (constraints.maxHeight == Constraints.Infinity) {
-                val measurement = "DSP_SPLIT_BODY_UNBOUNDED " +
-                    "minHeight=${constraints.minHeight} maxHeight=${constraints.maxHeight} capHeight=$capPx"
-                if (DspSplitMeasureDiagnostics.record(measurement)) {
+                if (
+                    DspSplitMeasureDiagnostics.recordUnboundedBody(
+                        constraints.minHeight,
+                        constraints.maxHeight,
+                        capPx,
+                    )
+                ) {
+                    val measurement = "DSP_SPLIT_BODY_UNBOUNDED " +
+                        "minHeight=${constraints.minHeight} maxHeight=${constraints.maxHeight} capHeight=$capPx"
                     Log.w(
                         "xcertplay-usb",
                         "$measurement recentViewMeasures=${DspSplitMeasureDiagnostics.recentMeasurements()}",

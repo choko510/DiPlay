@@ -34,6 +34,8 @@ jobs:
         run: bash scripts/test_android_ci_classifier.sh
       - name: Test instrumentation evidence validator
         run: bash scripts/test_android_instrumentation_evidence.sh
+      - name: Test EX-08 delta-111 inventory
+        run: python3 scripts/test_step4_ex08_delta111.py
       - name: Classify changed files
         id: classify
         env:

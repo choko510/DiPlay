@@ -14,7 +14,7 @@ User status for C-00 is `USER_CONFIRMED_RESOLVED`. Keep its regression coverage;
 
 | Gate | Status | Required evidence to close |
 |---|---|---|
-| B01 / EX-08 delta-111 overlay | `NOT_RUN` | Fixed upstream range, all 111 immutable SHAs and patch metadata, 60 source / 51 Merge classification, 117 final-tree paths, zero overlap with the legacy 1,289 SHA set, exact preservation of the frozen legacy rows, generated `--check`, and review/test artifacts. |
+| B01 / EX-08 delta-111 overlay | `PASS_LOCAL` | GitHub compare and local Git agree on 111 commits, 60 source / 51 Merge, 117 changed paths, +4,357/-376; 17 overlay tests and generated-ledger `--check` pass; all 111 additions remain `NEED_EVIDENCE`, with the frozen legacy CSV prefix unchanged. This is inventory integrity, not semantic review or CI/device acceptance. Hosted B01 checks are pending push. |
 | F8-01 pre-RECORD disconnect on supported hardware | `BLOCKED_DEVICE` | Reproduce MAIN and ALT screen SETUP followed by TCP close before RECORD on supported iPhone hardware; show bounded recovery, current-attempt ownership, and no duplicate/stale session. Existing state-model tests are not iPhone evidence. |
 | F8-02 RTSP receive bound compatibility | `BLOCKED_DEVICE` | Exercise fragmented/coalesced normal RTSP traffic and reconnects with a supported iPhone, including near-cap bodies; confirm the 64 KiB header / 4 MiB body policy does not reject valid traffic. Parser unit tests do not establish device compatibility. |
 | F8-03 concurrent TCP connection pressure | `BLOCKED_DEVICE` | Reconnect/abnormal-input exercise demonstrates the four-session cap, permit release on every close/error path, and recovery of a valid session afterward. |

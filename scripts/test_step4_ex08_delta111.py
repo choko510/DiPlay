@@ -155,7 +155,8 @@ class Delta111InventoryTest(unittest.TestCase):
         self.assertIn("run #396", matrix)
         self.assertIn("unit/native tests", matrix)
         self.assertIn("were skipped by docs-only classification", matrix)
-        self.assertIn("Current #396 intentionally skipped runtime jobs", gates)
+        self.assertIn("Hosted run #396 on docs-only HEAD", gates)
+        self.assertIn("runtime jobs were skipped", gates)
 
     def test_16_changed_source_manifest_without_digest_update_fails(self) -> None:
         temporary = temporary_overlay_copy()

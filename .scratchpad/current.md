@@ -10,7 +10,7 @@
 
 ## Verified state
 
-- Latest pushed PR HEAD is `8d2e967e05fa3b5c2ca5d7eb9472f1eb1078f351` on `origin/codex/step4-pr-00-test-baseline`. PR #45 is open Draft, based on `main@95ba398f95ee104527812cd2b095977d71c51f98`; run #444 completed successfully on this SHA, including full `check`, API 35 JNI instrumentation, and host baseline. `quick-baseline` was skipped.
+- Latest pushed PR HEAD is `fa9b37046f8b5e4bdc5b1caa99ff497e899ddd50` on `origin/codex/step4-pr-00-test-baseline`. PR #45 is open Draft, based on `main@95ba398f95ee104527812cd2b095977d71c51f98`; run #444 completed successfully on B01 SHA `8d2e967e05fa3b5c2ca5d7eb9472f1eb1078f351`. Run #447 failed in `changes` because an EX-08 fixture expected obsolete wording for #396; runtime jobs were skipped. The assertion is corrected locally.
 - Product base is `550ec3a065a13d6fb690f5d1ceee243461a23db4`; test-only decoder-retirement repair is `8ba8b2296806c10c64ea1add8b06b4258b033372`. Run #394 failed on expected shutdown interruption; #395 passed the Draft unit lane; #396 at `ac4694cf` passed docs-only static checks and skipped runtime jobs.
 - B01 pins upstream range `6d3b8a8ce927cb4b115b8c3881f17619433e93b1..143f4674b60b564a16baae5110b3b90fb7277631`: GitHub/local checks agree on 111 commits, 60 source / 51 merge, 117 paths, +4,357/-376. The ledger has 1,400 unique rows; all 111 new rows are `NEED_EVIDENCE`; the original 1,289 CSV rows are byte-identical.
 - B01 local checks pass: 17/17 overlay tests, inventory `--check`, classifier fixtures, `git diff --check`, Python compile; the preceding common suite passed 194/194. Run #444's classifier, EX-08, native/ASan, full Gradle/lint/build/JNI, API 35 instrumentation, host-baseline, and Draft scope all passed; quick-baseline was skipped.
@@ -21,6 +21,6 @@
 
 ## Next actions
 
-1. Check run #444 on exact SHA `8d2e967e05fa3b5c2ca5d7eb9472f1eb1078f351`; fix any failure and record skipped gates distinctly.
-2. Commit and push B02's tests/diagnostic refinements to PR #45, then continue B03–B08 evidence-first; run B09 on one exact source SHA and prepare B10/B11/B12 gates/artifacts.
+1. Re-run EX-08 tests/classifier, commit and push the run #447 fixture repair; verify the next hosted run on exact SHA.
+2. After B02's hosted static gate passes, continue B03–B08 evidence-first; run B09 on one exact source SHA and prepare B10/B11/B12 gates/artifacts.
 3. Keep API 35/full-host/JNI, target hardware, signing/rollback, acoustic/performance and release checks explicitly `NOT_RUN`, `BLOCKED_*`, or `NO_GO_THIS_RUN` until measured.

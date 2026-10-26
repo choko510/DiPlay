@@ -5,7 +5,7 @@
 ## Ordered implementation
 
 - [x] B07: review all 111 fixed-range source/merge SHAs against fixed main, classify all 51 merge relationships, and preserve row-specific evidence gates. No new `ADAPT` candidate met the evidence bar.
-- [x] B08: add Stage3 monotonic timing diagnostics only. Preserve USB transmission and StartSession behavior; keep additional `0x4301` disabled until target-device evidence supports a separate gate. The reproducible CPU/heap differential remains an open evidence gate.
+- [x] B08: add Stage3 monotonic timing diagnostics only. Preserve USB transmission and StartSession behavior; keep additional `0x4301` disabled until target-device evidence supports a separate gate. Host CPU/allocation overhead is measured; target-device causal evidence remains open.
 - [ ] B09: run review-ready host/native, unit, lint/build, JNI/R8 and API 35 instrumentation gates on one exact source SHA; report every skipped job separately.
 - [ ] B10/B11/B12: prepare device, conditional no-go and final gate packages. Keep missing physical and signing evidence blocked; do not mark G8 pass.
 
@@ -22,7 +22,7 @@
 - [ ] Same-device NCM `AUTO` vs `NO_STATUS_POLLING` A/B with first-frame, `SCREEN_STREAM_OPENED`, and timeout evidence; do not change status behavior or add control requests without cause.
 - [ ] Reproduce `queue()==false` / `requestWait()==null` while the USB device is present; preserve persistent USB-request ownership otherwise.
 - [ ] Keep Stage3 diagnostics timing-only and EX05 second StartSession retry disabled until target packet timing proves the need.
-- [ ] Measure Stage3 debug OFF/ON CPU and heap on a reproducible runtime setup; unit-test parity alone is not a performance measurement.
+- [x] Measure Stage3 debug OFF/ON CPU and heap on a reproducible host runtime; target-device profiling remains part of the blocked hardware matrix.
 - [ ] Recompute source patch hashes only for EX-08 candidates selected for adoption; inventory `--check` alone is not semantic review or patch provenance.
 
 ## P2 — Conditional candidates

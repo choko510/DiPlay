@@ -26,8 +26,14 @@ The change does not add a StartSession send, timer, retry, watchdog rule, connec
 ## Verification
 
 - `WiredStartupTimingTest`: exact full/partial OUT, before/after StartSession, attempt and generation separation, all ten milestones, valid/unknown SYN cases, 14.9/15/17/26-second boundaries, the 2-second quiet boundary, and debug-independent collection.
+- `WiredStartupTimingOverheadTest`: 2,000,000 iterations × 5 rounds per lane, with per-thread CPU and allocation counters on macOS arm64 / Eclipse Adoptium JDK 25.0.3+9. Two invocations reported baseline/timing-OFF/timing-ON median CPU of 3.5095/20.123/20.1305 and 4.552/25.9925/24.3475 ns/packet respectively. The added timing path measured 16.6–21.4 ns/packet over baseline. Timing OFF/ON allocation was 0–0.024576 bytes/packet versus 0.024576–0.196584 for baseline; this host run detects no incremental allocation from timing.
 - `NcmUsbBridgeFixtureTest`: NCM send results stay the same; timing is collected with packet diagnostics disabled; partial output does not create a FULL OUT timestamp.
 - `Ipv6NcmBridgeWiredPathDiagnosticsTest`: debug-off timing observes a valid SYN while the exact same IP packet bytes reach TUN.
-- Full local shared suite: 655/655; full local common suite: 206/206; zero failures, errors, or skips.
+- Full local shared suite before the added overhead fixture: 655/655; full local common suite: 206/206; zero failures, errors, or skips. The focused overhead fixture passed 1/1 and emits its measurement line in the Gradle XML `system-out`.
 
-CPU/heap differential measurements and TS10/K706 plus supported-iPhone causal traces have not been captured. B11 remains `CONDITIONAL_NO_GO`; this instrumentation does not establish hardware acceptance.
+The overhead figure is a host-JVM measurement of the allocation-free packet classifier/timing portion and is not an Android device benchmark. TS10/K706 plus supported-iPhone causal traces remain `BLOCKED_DEVICE`; B11 remains `CONDITIONAL_NO_GO`. No production retry or behavior change follows from this measurement.
+
+## Follow-up verification (2026-10-27)
+
+- After adding the overhead fixture, `:shared:testDebugUnitTest :common:testDebugUnitTest` passed 862/862 tests with zero failures, errors, or skips.
+- The full-suite invocation measured baseline/timing-OFF/timing-ON CPU at 4.552/25.9925/24.3475 ns/packet and allocated bytes at 0.196584/0/0.024576 per packet. Combined with the focused invocation above, observed incremental timing CPU was 16.6–21.4 ns/packet. Debug OFF/ON spread and the small baseline allocation reading varied within the host measurement noise; the AVD/device cost is still unmeasured.

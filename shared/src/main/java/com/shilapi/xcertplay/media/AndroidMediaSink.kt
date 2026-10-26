@@ -1598,6 +1598,7 @@ internal class AudioRenderer(
         lastTrackFailureLogNs = 0L
         lastTrackRetryLogNs = null
         track = built
+        dspConfigProvider.reportPlaybackSampleRate(this, effective.sampleRate)
         val trackDspFormat = DspAudioFormat(sampleRate, channels)
         completeLiveCrossfadeForTrackGeneration(trackDspFormat)
         beginTrackGeneration(trackDspFormat)
@@ -3670,6 +3671,7 @@ internal class AudioRenderer(
     private fun releaseTrack() {
         val track = track
         this.track = null
+        dspConfigProvider.reportPlaybackSampleRate(this, null)
         activeDecoderPcmFormat = null
         activeTrackAttributes = null
         playbackRouteLogged = false

@@ -9,8 +9,14 @@ class DspSettingsUiContractTest {
     @Test
     fun studioNavigationExposesTheFiveProductTabsInOrder() {
         assertEquals(
-            listOf("Studio", "EQ", "Spatial", "Dynamics", "Advanced"),
-            dspStudioTabs().map(DspStudioTab::label),
+            listOf(
+                DspStudioTab.STUDIO,
+                DspStudioTab.EQ,
+                DspStudioTab.SPATIAL,
+                DspStudioTab.DYNAMICS,
+                DspStudioTab.ADVANCED,
+            ),
+            dspStudioTabs(),
         )
     }
 

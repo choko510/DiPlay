@@ -124,12 +124,12 @@ internal enum class DspPresentationMode {
 
 private const val RENDERER_APPLY_STATUS_POLL_INTERVAL_MS = 500L
 
-internal enum class DspStudioTab(val label: String) {
-    STUDIO("Studio"),
-    EQ("EQ"),
-    SPATIAL("Spatial"),
-    DYNAMICS("Dynamics"),
-    ADVANCED("Advanced"),
+internal enum class DspStudioTab(val labelRes: Int) {
+    STUDIO(R.string.dsp_studio_tab_studio),
+    EQ(R.string.dsp_studio_tab_eq),
+    SPATIAL(R.string.dsp_studio_tab_spatial),
+    DYNAMICS(R.string.dsp_studio_tab_dynamics),
+    ADVANCED(R.string.dsp_studio_tab_advanced),
 }
 
 internal fun dspStudioTabs(): List<DspStudioTab> = DspStudioTab.values().toList()
@@ -137,23 +137,28 @@ internal fun dspStudioTabs(): List<DspStudioTab> = DspStudioTab.values().toList(
 @Composable
 private fun DspStudioNavigation(
     selected: DspStudioTab,
-    compact: Boolean,
     onSelect: (DspStudioTab) -> Unit,
 ) {
     Row(
-        modifier = if (compact) Modifier.horizontalScroll(rememberScrollState()) else Modifier.fillMaxWidth(),
-        horizontalArrangement = if (compact) Arrangement.spacedBy(4.dp) else Arrangement.SpaceEvenly,
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         dspStudioTabs().forEach { tab ->
             val isSelected = selected == tab
+            val label = stringResource(tab.labelRes)
+            val tabDescription = if (isSelected) {
+                stringResource(R.string.dsp_studio_tab_selected, label)
+            } else {
+                label
+            }
             TextButton(
                 onClick = { onSelect(tab) },
                 modifier = Modifier.semantics {
-                    contentDescription = if (isSelected) "${tab.label}, selected" else tab.label
+                    contentDescription = tabDescription
                 },
             ) {
                 Text(
-                    tab.label,
+                    label,
                     color = if (isSelected) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -242,6 +247,7 @@ internal fun DspSettingsScreen(
         mutableStateOf(DspFactoryPresets.modulePresets().filter { it.moduleKey == "macros" })
     }
     var volumeReading by remember(runtime) { mutableStateOf(runtime.studioVolumeReading()) }
+    var playbackSampleRateHz by remember(runtime) { mutableStateOf(runtime.activePlaybackSampleRateHz()) }
     val calibrationController = remember(studioSession) {
         DspLoudnessCalibrationController(studioSession.preview.smartLoudness.calibration)
     }
@@ -269,6 +275,7 @@ internal fun DspSettingsScreen(
             while (true) {
                 rendererApplyStatus = runtime.configProvider.rendererApplyStatus()
                 volumeReading = runtime.studioVolumeReading()
+                playbackSampleRateHz = runtime.activePlaybackSampleRateHz()
                 delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
             }
         }
@@ -525,7 +532,7 @@ internal fun DspSettingsScreen(
                             })
                         }
                     }
-                    DspStudioNavigation(compactSection, compact = true) { compactSection = it }
+                    DspStudioNavigation(compactSection) { compactSection = it }
                 }
             } else {
                 Column {
@@ -533,7 +540,7 @@ internal fun DspSettingsScreen(
                         title = { Text("DSP Studio") },
                         navigationIcon = { TextButton(onClick = leaveEditor) { Text("‹") } },
                     )
-                    DspStudioNavigation(compactSection, compact = false) { compactSection = it }
+                    DspStudioNavigation(compactSection) { compactSection = it }
                 }
             }
         },
@@ -1160,7 +1167,7 @@ internal fun DspSettingsScreen(
                     }
                 },
                 onEditBandType = { bandTypeDialog = it },
-                sampleRateHz = 44_100,
+                sampleRateHz = playbackSampleRateHz,
                 modifier = Modifier.fillMaxWidth(),
             )
 

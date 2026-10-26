@@ -417,12 +417,22 @@ internal class DspStudioSessionCoordinator(
     }
 
     fun commitSaved(workspace: DspStudioWorkspace) {
-        activeTransaction = null
+        finishActiveTransaction()
         committed = workspace.deepCopy()
-        if (draft == workspace) draft = committed.deepCopy()
+        if (draft == committed) {
+            draft = committed.deepCopy()
+            undo.clear()
+            redo.clear()
+        } else {
+            val savedUndoIndex = undo.indexOfLast { it == committed }
+            if (savedUndoIndex >= 0) {
+                repeat(savedUndoIndex) { undo.removeAt(0) }
+            } else if (redo.none { it == committed }) {
+                undo.clear()
+                pushHistory(undo, committed)
+            }
+        }
         updatePreviewAndDirty()
-        undo.clear()
-        redo.clear()
         generation++
     }
 

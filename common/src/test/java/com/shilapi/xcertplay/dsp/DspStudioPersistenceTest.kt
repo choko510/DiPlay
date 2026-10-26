@@ -273,6 +273,20 @@ class DspStudioPersistenceTest {
         assertEquals(saved.macros.vocalPresence, coordinator.compareA().macros.vocalPresence)
     }
 
+    @Test fun savingOlderWorkspaceKeepsUndoForNewerTransaction() {
+        val initial = workspace()
+        val coordinator = DspStudioSessionCoordinator(initial, DspStudioWorkspaceRepository(temporaryFolder.root))
+        val transaction = requireNotNull(coordinator.beginEditTransaction())
+        assertNotNull(coordinator.edit(transaction) { it.copy(macros = it.macros.copy(bassImpact = 80)) })
+
+        coordinator.commitSaved(initial)
+
+        assertTrue(coordinator.canUndo)
+        assertTrue(coordinator.undo())
+        assertEquals(initial, coordinator.preview)
+        assertFalse(coordinator.isDirty)
+    }
+
     @Test fun disabledFactoryConvolverDoesNotTurnJsonNullIntoAnIrId() {
         val preset = DspFactoryPresets.modulePresets().single { it.moduleKey == "convolver" }
         val profile = DspProfilePresets.find("flat")!!

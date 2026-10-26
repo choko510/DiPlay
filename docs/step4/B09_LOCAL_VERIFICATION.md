@@ -4,6 +4,7 @@
 
 - Product source: `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`.
 - Code/test HEAD: `0f425cdc98fd78e3835350fc614881ecf911b729` (adds only a host measurement fixture and evidence; app/native product sources are unchanged from `b767ed8f`).
+- Docs-only CI HEAD for run #477: `94d2ba35ebdd436ee0f679a606cd5b4a2cadd463` (no product/test source change).
 - Host: macOS arm64, Eclipse Adoptium JDK 25.0.3+9; Android SDK `/Users/choko/Library/Android/sdk`.
 - Emulator: `Medium_Phone_API_35`, Android API 35, ABI `arm64-v8a`. This is not TS10/K706 hardware.
 
@@ -48,7 +49,7 @@ The local helper `scripts/run_android_instrumentation.sh` cannot complete its po
 
 ## Hosted run scope
 
-[Run #476](https://github.com/choko510/DiPlay/actions/runs/40358035639) on `0f425cdc` passed `changes`, static `check`, Draft unit, quick-baseline and Draft scope. It explicitly skipped host/native/sanitizer/full lint/build/JNI/R8 and Android instrumentation because PR #45 remains Draft. It is not a full B09 pass.
+[Run #476](https://github.com/choko510/DiPlay/actions/runs/40358035639) on code/test HEAD `0f425cdc` passed `changes`, static `check`, Draft unit, quick-baseline and Draft scope. The later docs-only [run #477](https://github.com/choko510/DiPlay/actions/runs/40361161687) on `94d2ba35` passed `changes`, static `check` and Draft scope; quick-baseline was skipped. Both runs explicitly skipped host/native/sanitizer/full lint/build/JNI/R8 and Android instrumentation because PR #45 remains Draft. Neither is a full current-head B09 pass.
 
 ## Acceptance boundary
 

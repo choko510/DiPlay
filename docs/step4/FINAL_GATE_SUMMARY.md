@@ -8,7 +8,7 @@
 - Product-source commit: `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`
 - Current code/test head: `0f425cdc98fd78e3835350fc614881ecf911b729` (B08 host-overhead fixture and measurement record; no production code changed from `b767ed8f`)
 - PR: [#45](https://github.com/choko510/DiPlay/pull/45)
-- Latest Draft CI: [run #476](https://github.com/choko510/DiPlay/actions/runs/40358035639)
+- Latest Draft CI: [run #477](https://github.com/choko510/DiPlay/actions/runs/40361161687) on docs-only head `94d2ba35`; run #476 covers code/test head `0f425cdc`.
 
 ## Release gates
 
@@ -20,7 +20,7 @@
 | G3 — RTSP/Surface recovery and stress | `PARTIAL` | RTSP limits, MAIN/ALT pre-RECORD recovery, four-session permits, and Surface ACK/backpressure fixtures pass locally. Supported iPhone traffic and TS10/K706 Surface continuity remain `BLOCKED_DEVICE`. |
 | G4 — DSP OFF/MEDIA/latency/fallback/JNI/native | `PARTIAL` | Host native tests, exact PCM16 regressions, mobile/automotive Debug and Benchmark builds, lint, and JNI mapping pass. The latest API 35 Shared instrumentation run passes 19/19 and its sampled p99 values meet the unchanged budget; retain the earlier same-head p99 failure and crash. Default LeakSanitizer is unsupported locally. Target acoustics/THD/A-V evidence is `BLOCKED_DEVICE`. |
 | G5 — EX-08 fixed 1,289 + 111 overlay | `PASS_LOCAL` | 1,400 unique SHA rows; legacy 1,289-row prefix byte-identical; all 111 source/merge SHAs classified; overlay tests pass 19/19; generator `--check` passes. This is audit/inventory evidence, not device parity. |
-| G6 — Current-head full host/API 35 lane | `PARTIAL` | Local unit, lint, Debug/Benchmark, JNI/R8 mapping, classifier, and native checks passed. The latest API 35 Shared instrumentation repeat passes 19/19; the earlier same-head run exceeded the unchanged 21.332 ms p99 limit and crashed, so retain both. Run #476's Draft unit/check jobs passed, while host/native/sanitizer/lint/build/JNI/instrumentation jobs were explicitly skipped. |
+| G6 — Current-head full host/API 35 lane | `PARTIAL` | Local unit, lint, Debug/Benchmark, JNI/R8 mapping, classifier, and native checks passed. The latest API 35 Shared instrumentation repeat passes 19/19; the earlier same-head run exceeded the unchanged 21.332 ms p99 limit and crashed, so retain both. Run #476's Draft unit/check jobs passed; docs-only run #477 passed `changes`, static `check`, and Draft scope while skipping quick-baseline. Both runs skipped full host/native/sanitizer/lint/build/JNI/instrumentation. |
 | G7 — TS10/K706 + iPhone matrix | `BLOCKED_DEVICE` | No supported target head unit/iPhone attached. See `B10_DEVICE_ACCEPTANCE.md`, HW-01–HW-13. SH M20 evidence remains `PARTIAL`, outside the required target class. |
 | G8 — Signed update, compatibility and rollback | `BLOCKED_ENV` / `NO_GO_THIS_RUN` | Authorized release-signing credentials and installed release rollback evidence are unavailable. Debug signing is not a substitute. |
 | G9 — Independent review | `NOT_RUN` | Remains unrequested; no independent approval is inferred. |

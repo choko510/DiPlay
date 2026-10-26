@@ -6,7 +6,8 @@
 - Fixed base: `main@95ba398f95ee104527812cd2b095977d71c51f98`.
 - Product source commit: `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`.
 - Current code/test evidence head: `0f425cdc98fd78e3835350fc614881ecf911b729`; the added commit is test/measurement/documentation only and does not change product runtime code.
-- PR metadata observed after the push: open, Draft, unmerged, based on the fixed base above.
+- Docs-only CI head for run #477: `94d2ba35ebdd436ee0f679a606cd5b4a2cadd463`; it adds no source/test changes.
+- PR #45 at run #477: open, Draft, unmerged, based on the fixed base above.
 
 **Current decision: `NO_GO_THIS_RUN` for merge/release.** The latest API 35 Shared instrumentation run passes, but an earlier run at the same head exceeded the unchanged DSP p99 budget and crashed; retain both outcomes. Full current-head CI lanes were skipped by Draft scope, target hardware and release signing are unavailable, and independent review is `NOT_RUN`.
 
@@ -50,6 +51,7 @@
 | `python3 scripts/check_jni_mapping.py` | `PASS_LOCAL` | Both mobile and automotive Benchmark R8 mappings retain JNI entry points. This was run on the unchanged product source `b767ed8f`; `0f425cdc` changes tests/docs only. |
 | `ANDROID_HOME=/Users/choko/Library/Android/sdk ./gradlew :shared:connectedDebugAndroidTest` / API 35 emulator | `PASS_EMULATOR` on latest repeat | 19 tests, zero failures/errors/skips. Latest Gain median p99 values are 320 µs (48 kHz stereo), 140 µs (48 kHz mono), 120 µs (44.1 kHz mono), and 180 µs (44.1 kHz stereo), below the unchanged ceilings. A preceding focused 48 kHz stereo run also passed. The earlier same-head full rerun remains a separate failure: three cases failed, including 151,772 µs stereo and 44,053 µs mono; the 44.1 kHz mono method failed before a process crash. The outlier's cause is unconfirmed. Common API 35 passed 1/1. The filtered logcat evidence validator passes. |
 | GitHub Actions [run #476](https://github.com/choko510/DiPlay/actions/runs/40358035639) | `PARTIAL` | `changes` and `check` passed, including Draft unit tests and EX-08 checks; `quick-baseline` and Draft scope passed. Full host/native/sanitizer/lint/build/JNI/R8 and API 35 instrumentation were explicitly skipped because PR #45 remains Draft. |
+| GitHub Actions [run #477](https://github.com/choko510/DiPlay/actions/runs/40361161687) | `PASS_CI` for docs-only Draft scope | On docs-only head `94d2ba35`, `changes`, static `check`, and Draft scope succeeded; quick-baseline, host/native/sanitizer, lint/build/JNI/R8, and Android instrumentation were skipped. This adds no runtime-test evidence. |
 `scripts/run_android_instrumentation.sh` environment note: macOS has neither `timeout` nor `gtimeout`; the post-run capture step reports `timeout: command not found`. The successful Gradle runs were invoked directly, followed by tag-filtered `adb logcat` capture and `check_android_instrumentation_evidence.sh`.
 
 ## Re-entry and rollback

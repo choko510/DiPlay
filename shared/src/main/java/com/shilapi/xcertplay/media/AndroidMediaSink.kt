@@ -2697,8 +2697,8 @@ internal class AudioRenderer(
         }
         val graphConfig = prepared.graphConfig
         val updateDecision = DspUpdatePlanner.decide(
-            current = activeDspConfig,
-            target = update.config,
+            current = activeDspGraphConfig,
+            target = graphConfig,
             hasActivePipeline = dspPipeline != null,
             trackGenerationCommitted = trackGenerationContentCommitted,
             currentLatencyFrames = trackGenerationLatencyFrames,

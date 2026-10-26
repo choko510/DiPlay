@@ -99,26 +99,42 @@ internal object DspUpdatePlanner {
         if (trackGenerationCommitted && currentLatencyFrames != targetLatencyFrames) {
             return DspUpdateDecision(DspUpdatePlan.DEFERRED, "algorithmic latency would change")
         }
-        if (trackGenerationCommitted && DspRuntimeField.CONVOLVER in changed) {
+        if (trackGenerationCommitted && DspRuntimeField.CONVOLVER in changed &&
+            target.convolver.enabled && target.convolver.wet > 0.0
+        ) {
             return DspUpdateDecision(DspUpdatePlan.DEFERRED, "impulse response topology requires a new track")
-        }
-        if (trackGenerationCommitted && requiresStateContinuity && changed.any(::requiresUnprovenStateTransition)) {
-            return DspUpdateDecision(DspUpdatePlan.DEFERRED, "changed stateful stage cannot preserve its required history")
         }
 
         if (mediaRole && hasActivePipeline && current.enabled && target.enabled &&
-            changed.all(::isHotField)
+            changed.all(::isHotField) &&
+            (!requiresStateContinuity || changed.all(::isContinuityIndependentHotField))
         ) {
             return DspUpdateDecision(DspUpdatePlan.HOT)
         }
         if (changed.all(::isLocalWarmField)) {
             return DspUpdateDecision(DspUpdatePlan.LOCAL_WARM)
         }
+        if (trackGenerationCommitted && requiresStateContinuity) {
+            return DspUpdateDecision(
+                DspUpdatePlan.DEFERRED,
+                if (changed.any(::requiresUnprovenStateTransition)) {
+                    "changed stateful stage cannot preserve its required history"
+                } else {
+                    "active stateful graph requires continuity for changed fields"
+                },
+            )
+        }
         return DspUpdateDecision(DspUpdatePlan.WARM, "pipeline replacement required")
     }
 
     private fun isHotField(field: DspRuntimeField): Boolean = field in setOf(
         DspRuntimeField.PREAMP,
+        DspRuntimeField.MACRO_TONE,
+        DspRuntimeField.SMART_LOUDNESS,
+        DspRuntimeField.DYNAMIC_BASS,
+    )
+
+    private fun isContinuityIndependentHotField(field: DspRuntimeField): Boolean = field in setOf(
         DspRuntimeField.MACRO_TONE,
         DspRuntimeField.SMART_LOUDNESS,
         DspRuntimeField.DYNAMIC_BASS,

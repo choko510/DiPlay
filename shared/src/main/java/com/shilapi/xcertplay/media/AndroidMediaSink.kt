@@ -2502,6 +2502,7 @@ internal class AudioRenderer(
                 val current = activeDspConfig
                 if (hotBoundPipeline === dspPipeline && candidateFormat == format &&
                     dspPipeline?.format == candidateFormat &&
+                    dspConfigProvider.studioHotUpdatesEnabled() && current.canApplyStudioHotUpdateTo(snapshot.config) &&
                     DspUpdatePlanner.classify(
                         current = current,
                         target = snapshot.config,
@@ -2765,6 +2766,7 @@ internal class AudioRenderer(
             targetLatencyFrames = candidateLatencyFrames,
             requiresStateContinuity = graphConfig.requiresStateContinuity(),
             mediaRole = classification.dspRole == DspStreamRole.MEDIA,
+            studioHotUpdatesEnabled = dspConfigProvider.studioHotUpdatesEnabled(),
         )
         val unsupportedLocalWarm = updateDecision.plan == DspUpdatePlan.LOCAL_WARM &&
             trackGenerationContentCommitted

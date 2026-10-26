@@ -2607,10 +2607,48 @@ static void test_dynamic_bass_graph_detector_uses_raw_input(void) {
             break;
         }
     }
-    assert_true(output_changed, "upstream compressor and IR still change the audio output");
+    assert_true(output_changed, "downstream compressor and IR still change the audio output");
 
     dsp_graph_close(&processed_graph);
     dsp_graph_close(&unprocessed_graph);
+}
+
+static void test_dynamic_bass_precedes_compressor_processing(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamics_config compressor = {1, -40.0, 10.0, 1.0, 100.0, 0.0, 0.0, 0, -1.0, 60.0};
+    dsp_dynamic_bass_config enabled_bass = dynamic_bass_test_config;
+    dsp_dynamic_bass_config disabled_bass = dynamic_bass_test_config;
+    disabled_bass.enabled = 0;
+    enum { FRAME_COUNT = 4096 };
+    float input[FRAME_COUNT];
+    float enabled_output[FRAME_COUNT] = {0.0f};
+    float disabled_output[FRAME_COUNT] = {0.0f};
+    for (int frame = 0; frame < FRAME_COUNT; frame++) {
+        input[frame] = 0.05f * sinf(2.0f * 3.14159265358979323846f * 80.0f * (float)frame / 48000.0f);
+    }
+    dsp_graph enabled_graph = {0};
+    dsp_graph disabled_graph = {0};
+    assert_true(dsp_graph_prepare(
+            &enabled_graph, 48000, 1, 0.0, NULL, 0, &compressor, &bypass_multiband,
+            &bypass_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver,
+            &bypass_harmonic, &macro, &loudness, &enabled_bass),
+        "Dynamic Bass and compressor graph prepares");
+    assert_true(dsp_graph_prepare(
+            &disabled_graph, 48000, 1, 0.0, NULL, 0, &compressor, &bypass_multiband,
+            &bypass_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver,
+            &bypass_harmonic, &macro, &loudness, &disabled_bass),
+        "compressor-only comparison graph prepares");
+
+    uint64_t non_finite = 0;
+    dsp_graph_process(&enabled_graph, input, enabled_output, FRAME_COUNT, 1, &non_finite, NULL);
+    dsp_graph_process(&disabled_graph, input, disabled_output, FRAME_COUNT, 1, &non_finite, NULL);
+
+    assert_true(enabled_graph.dynamic_bass.current_gain > 1.0, "Dynamic Bass increases the low-frequency stage signal");
+    assert_true(enabled_graph.dynamics.compressor_envelope > disabled_graph.dynamics.compressor_envelope,
+        "compressor detector follows the pre-compressor Dynamic Bass output");
+    dsp_graph_close(&enabled_graph);
+    dsp_graph_close(&disabled_graph);
 }
 
 static void test_dynamic_bass_graph_is_block_boundary_invariant(void) {
@@ -2693,6 +2731,7 @@ int main(void) {
     test_dynamic_bass_attack_release_and_linked_detection();
     test_dynamic_bass_stereo_link_preserves_channel_ratio();
     test_dynamic_bass_graph_detector_uses_raw_input();
+    test_dynamic_bass_precedes_compressor_processing();
     test_dynamic_bass_graph_is_block_boundary_invariant();
     puts("native DSP tests passed");
     return 0;

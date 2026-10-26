@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
+import kotlin.math.log10
+
 data class DspMacroToneConfig(
     val enabled: Boolean = false,
     val bassGainDb: Double = 0.0,
@@ -15,6 +17,15 @@ data class DspMacroToneConfig(
     }
 }
 
+internal fun DspMacroToneConfig.conservativeBoostDb(): Double {
+    if (!enabled) return 0.0
+    fun gain(db: Double) = StrictMath.pow(10.0, db / 20.0)
+    val amplitudeBound = 1.0 + kotlin.math.abs(gain(bassGainDb) - 1.0) +
+        2.0 * kotlin.math.abs(gain(vocalGainDb) - 1.0) +
+        2.0 * kotlin.math.abs(gain(airGainDb) - 1.0)
+    return 20.0 * log10(amplitudeBound)
+}
+
 data class DspSmartLoudnessRuntimeConfig(
     val enabled: Boolean = false,
     val lowGainDb: Double = 0.0,
@@ -24,6 +35,13 @@ data class DspSmartLoudnessRuntimeConfig(
         require(lowGainDb.isFinite() && lowGainDb in 0.0..3.0)
         require(highGainDb.isFinite() && highGainDb in 0.0..1.5)
     }
+}
+
+internal fun DspSmartLoudnessRuntimeConfig.conservativeBoostDb(): Double {
+    if (!enabled) return 0.0
+    val lowGain = StrictMath.pow(10.0, lowGainDb / 20.0)
+    val highGain = StrictMath.pow(10.0, highGainDb / 20.0)
+    return 20.0 * log10(lowGain + highGain - 1.0)
 }
 
 data class DspDynamicBassRuntimeConfig(

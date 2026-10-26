@@ -340,17 +340,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         },
     )
     val dynamicEqNativeValues = rateSafeDynamicEq.toNativeValues()
-    val studioToneBands = buildList {
-        if (macroTone.enabled) {
-            add(DspEqBand(DspEqType.LOW_SHELF, 80.0, gainDb = macroTone.bassGainDb))
-            add(DspEqBand(DspEqType.PEAK, 2_400.0, gainDb = macroTone.vocalGainDb, q = 0.8))
-            add(DspEqBand(DspEqType.HIGH_SHELF, minOf(8_000.0, format.sampleRate * 0.4), gainDb = macroTone.airGainDb))
-        }
-        if (smartLoudness.enabled) {
-            add(DspEqBand(DspEqType.LOW_SHELF, 100.0, gainDb = smartLoudness.lowGainDb))
-            add(DspEqBand(DspEqType.HIGH_SHELF, minOf(8_000.0, format.sampleRate * 0.4), gainDb = smartLoudness.highGainDb))
-        }
-    }
+    val studioToneBoostDb = macroTone.conservativeBoostDb() + smartLoudness.conservativeBoostDb()
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
@@ -366,7 +356,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             } else {
                 0.0
             },
-            dynamicBoostDb = (if (rateSafeDynamicEq.enabled) {
+            dynamicBoostDb = studioToneBoostDb + (if (rateSafeDynamicEq.enabled) {
                 rateSafeDynamicEq.bands.filter { it.enabled && it.mode == DspDynamicEqMode.BOOST }
                     .sumOf(DspDynamicEqBandConfig::maxBoostDb)
             } else {
@@ -378,7 +368,6 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             advancedMsBoostDb = if (format.channels == 2) advancedMs.worstCaseBoostDb else 0.0,
             harmonicBoostDb = harmonic.worstCaseBoostDb,
             marginDb = autoHeadroomMarginDb,
-            studioToneBands = studioToneBands,
             staticBassBands = if (bass.enabled) {
                 listOf(
                     DspEqBand(

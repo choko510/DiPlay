@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.media.dsp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DspUpdatePlannerTest {
@@ -30,6 +32,21 @@ class DspUpdatePlannerTest {
             DspUpdatePlan.DEFERRED,
             DspUpdatePlanner.classify(current, target, true, true, 0, 0, true, mediaRole = false),
         )
+        assertTrue(current.canApplyStudioHotUpdateTo(target))
+        assertFalse(current.canApplyStudioHotUpdateTo(current))
+    }
+
+    @Test
+    fun preampChangesAreNotHotUntilTheNativeGainPathHasASampleRamp() {
+        val current = DspRuntimeConfig(enabled = true, gainDb = 0.0)
+        val target = DspRuntimeConfig(enabled = true, gainDb = -3.0)
+
+        assertEquals(setOf(DspRuntimeField.PREAMP), DspUpdatePlanner.diff(current, target))
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, target, true, true, 0, 0, true),
+        )
+        assertFalse(current.canApplyStudioHotUpdateTo(target))
     }
 
     @Test
@@ -131,6 +148,24 @@ class DspUpdatePlannerTest {
                 "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
             ),
             DspUpdatePlanner.decide(current, preampEdit, true, true, 0, 0, false),
+        )
+    }
+
+    @Test
+    fun disablingStudioHotUpdatesDefersCommittedHotChanges() {
+        val current = DspRuntimeConfig(enabled = true)
+        val target = DspRuntimeConfig(
+            enabled = true,
+            macroTone = DspMacroToneConfig(enabled = true, vocalGainDb = 1.0),
+        )
+
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, target, true, true, 0, 0, true, studioHotUpdatesEnabled = false),
+        )
+        assertEquals(
+            DspUpdatePlan.WARM,
+            DspUpdatePlanner.classify(current, target, true, false, 0, 0, true, studioHotUpdatesEnabled = false),
         )
     }
 

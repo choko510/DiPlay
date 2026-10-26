@@ -169,12 +169,8 @@ void dsp_graph_process(
         }
         output_left = dsp_spatial_process_bass(&graph->spatial, output_left, 0);
         if (channels == 2) output_right = dsp_spatial_process_bass(&graph->spatial, output_right, 1);
-        dsp_dynamics_process_compressor_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
-        dsp_multiband_process_frame(&graph->multiband, &output_left, &output_right, (int)channels);
-        dsp_dynamic_eq_process_frame(&graph->dynamic_eq, &output_left, &output_right, (int)channels);
-        dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
-        dsp_harmonic_process_frame(&graph->harmonic, &output_left, &output_right, (int)channels);
-        dsp_convolver_process_frame(&graph->convolver, &output_left, &output_right, (int)channels);
+        dsp_macro_process_frame(&graph->macro, &output_left, &output_right, (int)channels);
+        dsp_smart_loudness_process_frame(&graph->smart_loudness, &output_left, &output_right, (int)channels);
         dsp_dynamic_bass_process_frame_with_detector(
             &graph->dynamic_bass,
             detector_input_left,
@@ -182,8 +178,12 @@ void dsp_graph_process(
             &output_left,
             &output_right,
             (int)channels);
-        dsp_macro_process_frame(&graph->macro, &output_left, &output_right, (int)channels);
-        dsp_smart_loudness_process_frame(&graph->smart_loudness, &output_left, &output_right, (int)channels);
+        dsp_dynamics_process_compressor_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
+        dsp_multiband_process_frame(&graph->multiband, &output_left, &output_right, (int)channels);
+        dsp_dynamic_eq_process_frame(&graph->dynamic_eq, &output_left, &output_right, (int)channels);
+        dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
+        dsp_harmonic_process_frame(&graph->harmonic, &output_left, &output_right, (int)channels);
+        dsp_convolver_process_frame(&graph->convolver, &output_left, &output_right, (int)channels);
         dsp_dynamics_process_limiter_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
         if (!isfinite(output_left)) {
             output_left = 0.0f;

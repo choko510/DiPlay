@@ -56,11 +56,13 @@ class DspRuntimeConfig(
         dynamicBass = dynamicBass,
     )
 
-    internal fun canApplyStudioHotUpdateTo(other: DspRuntimeConfig): Boolean = enabled && other.enabled &&
-        DspUpdatePlanner.diff(this, other).all {
+    internal fun canApplyStudioHotUpdateTo(other: DspRuntimeConfig): Boolean {
+        val changed = DspUpdatePlanner.diff(this, other)
+        return enabled && other.enabled && changed.isNotEmpty() && changed.all {
             it == DspRuntimeField.MACRO_TONE || it == DspRuntimeField.SMART_LOUDNESS ||
                 it == DspRuntimeField.DYNAMIC_BASS
         }
+    }
 
     init {
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)
@@ -115,12 +117,7 @@ internal fun DspRuntimeConfig.failureFallbackPreampDb(format: DspAudioFormat): D
     }
     val combinedWidth = stereoWidth * if (macroTone.enabled) macroTone.relativeWidth else 1.0
     val stereoWidthDb = if (advancedMs.enabled) 0.0 else 20.0 * log10(maxOf(1.0, combinedWidth))
-    val studioToneBoostDb = (if (macroTone.enabled) {
-        macroTone.bassGainDb.coerceAtLeast(0.0) + macroTone.vocalGainDb.coerceAtLeast(0.0) +
-            macroTone.airGainDb.coerceAtLeast(0.0)
-    } else {
-        0.0
-    }) + (if (smartLoudness.enabled) smartLoudness.lowGainDb + smartLoudness.highGainDb else 0.0)
+    val studioToneBoostDb = macroTone.conservativeBoostDb() + smartLoudness.conservativeBoostDb()
     val dynamicBassBoostDb = if (dynamicBass.enabled) dynamicBass.maxBoostDb * dynamicBass.strength else 0.0
     val advancedMsBoostDb = advancedMs.worstCaseBoostDb
     val harmonicBoostDb = harmonic.worstCaseBoostDb.coerceAtLeast(0.0)

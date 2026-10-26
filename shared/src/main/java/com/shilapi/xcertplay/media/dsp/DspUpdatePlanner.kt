@@ -68,6 +68,7 @@ internal object DspUpdatePlanner {
         targetLatencyFrames: Int,
         requiresStateContinuity: Boolean,
         mediaRole: Boolean = true,
+        studioHotUpdatesEnabled: Boolean = true,
     ): DspUpdatePlan = decide(
         current = current,
         target = target,
@@ -77,6 +78,7 @@ internal object DspUpdatePlanner {
         targetLatencyFrames = targetLatencyFrames,
         requiresStateContinuity = requiresStateContinuity,
         mediaRole = mediaRole,
+        studioHotUpdatesEnabled = studioHotUpdatesEnabled,
     ).plan
 
     fun decide(
@@ -88,6 +90,7 @@ internal object DspUpdatePlanner {
         targetLatencyFrames: Int,
         requiresStateContinuity: Boolean,
         mediaRole: Boolean = true,
+        studioHotUpdatesEnabled: Boolean = true,
     ): DspUpdateDecision {
         val changed = diff(current, target)
         if (changed.isEmpty()) return DspUpdateDecision(DspUpdatePlan.HOT)
@@ -109,6 +112,14 @@ internal object DspUpdatePlanner {
                 DspUpdatePlan.DEFERRED,
                 "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
             )
+        }
+
+        if (changed.all(::isHotField) && !studioHotUpdatesEnabled) {
+            return if (trackGenerationCommitted) {
+                DspUpdateDecision(DspUpdatePlan.DEFERRED, "Native HOT updates are disabled")
+            } else {
+                DspUpdateDecision(DspUpdatePlan.WARM, "Native HOT updates are disabled before track commit")
+            }
         }
 
         if (mediaRole && hasActivePipeline && current.enabled && target.enabled &&

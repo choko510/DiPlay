@@ -85,6 +85,20 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun studioToneHeadroomUsesConservativeNativeStageBounds() {
+        val macro = DspMacroToneConfig(enabled = true, bassGainDb = 4.0, vocalGainDb = 2.5, airGainDb = 2.0)
+        val loudness = DspSmartLoudnessRuntimeConfig(enabled = true, lowGainDb = 3.0, highGainDb = 1.5)
+        val config = DspRuntimeConfig(enabled = true, macroTone = macro, smartLoudness = loudness)
+
+        val prepared = config.prepare(DspAudioFormat(48_000, 2))
+        val expected = 1.0 + macro.conservativeBoostDb() + loudness.conservativeBoostDb()
+
+        assertEquals(expected, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-expected, prepared.appliedPreampDb, 0.02)
+        assertTrue(macro.conservativeBoostDb() > macro.bassGainDb + macro.vocalGainDb + macro.airGainDb)
+    }
+
+    @Test
     fun enabledMultibandMakeupUsesTheLargestPositiveBandGainForHeadroom() {
         val config = DspRuntimeConfig(
             enabled = true,

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -79,8 +80,9 @@ class DspSettingsScreenTest {
 
             presentation.value = DspPresentationMode.FULL
             composeRule.waitForIdle()
-            composeRule.onNodeWithContentDescription("Profile").performClick()
-            composeRule.onNodeWithContentDescription("Profile, selected").assertExists()
+            composeRule.onNodeWithContentDescription("More").performClick()
+            composeRule.onNodeWithContentDescription("More, selected").assertExists()
+            composeRule.onNode(isToggleable()).performClick()
             composeRule.onNodeWithText(context.getString(R.string.dsp_renderer_apply_status)).performScrollTo()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()

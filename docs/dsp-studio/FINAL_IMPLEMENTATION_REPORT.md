@@ -4,7 +4,7 @@
 
 **Integration PR:** [#52](https://github.com/choko510/DiPlay/pull/52), base `codex/step4-pr-00-test-baseline`, stacked on PR #45. PR #52 is open and unmerged. PR #45 and `main` remain unmerged.
 
-**PR #52 base-sync head:** `6a1ec65e189838febef2607a6f77335f362eac9b`. The current source and documentation changes are still uncommitted in `codex/dsp52-base-sync`; CI #472 is stale for these changes. Do not use PR #60 CI #438 as final-head evidence. Record an immutable source SHA and a new hosted run after the reviewed changes are committed and pushed.
+**Implementation/test snapshot:** `da7f89ac1adf2ac94aa82a9549ca007ea7f65933` on `codex/dsp52-base-sync`, six commits ahead of `origin/codex/dsp-studio-final`. This includes PR #64's accessibility merge and the current remediation commits; it has not yet been pushed. Production-code gates passed at parent `8513275490d6c299084337cffdf58859a9cdeb3c`; the latest test commits add and pass selected-module Factory Reset and delete-fallback screen assertions. The report and matrix changes are docs-only updates for this snapshot. PR #52 CI #472 is stale. Do not use PR #60 CI #438 as final-head evidence; a hosted run is required after the branch update.
 
 ## Implementation summary
 
@@ -22,7 +22,7 @@ The task-supplied PR #52 implementation specification is preserved in [REMEDIATI
 | Requirement | Status | Evidence and remaining work |
 |---|---|---|
 | REQ-001 — Non-destructive sound macros | COMPLETE | 0–100 controls, 50 neutral defaults, resolver/native path, UI and persistence tests. |
-| REQ-002 — DSP Studio, PEQ, module presets, A/B/history, preview/save separation | PARTIAL | Five-tab navigation and graph editing are implemented; user preset deletion/Factory Reset and module-scoped A/B UI remain open. CarPlay host and physical geometry/session behavior are NOT_RUN. |
+| REQ-002 — DSP Studio, PEQ, module presets, A/B/history, preview/save separation | PARTIAL | Five-tab navigation, graph editing, module preset deletion, and module Factory Reset are implemented. Module-scoped A/B/level-match UI and CarPlay host geometry/session behavior remain open or NOT_RUN. |
 | REQ-003 — Smart Loudness | PARTIAL | Android playback-volume monitoring is wired into the runtime with route identity checks and MANUAL/FIXED alternatives. Target route calibration and OEM trust validation are NOT_RUN. |
 | REQ-004 — Dynamic Bass 2.0 | PARTIAL | Native detector now uses a sanitized raw-input tap, with gate, smoothing, stereo link, and bounded gain coverage. Target listening, THD, and performance are NOT_RUN. |
 | REQ-005 — Shared gain budget and signal safety | COMPLETE | Resolver and Native tests cover bounded additional bass boost, validation, and finite output. Hardware listening/true-peak evidence remains NOT_RUN. |
@@ -31,7 +31,7 @@ The task-supplied PR #52 implementation specification is preserved in [REMEDIATI
 | REQ-008 — Full and compact UI accessibility/behavior | PARTIAL | FULL/COMPACT_SPLIT and five-tab navigation are implemented; API 35 screen instrumentation passed locally 1/1. Actual CarPlay 55:45 geometry/touch evidence is NOT_RUN. |
 | REQ-009 — Master OFF, MEDIA-only, PCM formats, shared PEQ capacity | COMPLETE | Software stream-policy, PCM, bypass, capacity, Native, and JNI suites pass. Device proof is NOT_RUN. |
 | REQ-010 — v0–v7 profile compatibility and persistence | COMPLETE | Migration, future-schema preservation, workspace restore, preset, and IR-reference unit coverage passes. |
-| REQ-011 — Final host and hardware acceptance | BLOCKED | No connected device or TS10/K706/iPhone test setup was available; run the gates in [RUNBOOK.md](RUNBOOK.md). |
+| REQ-011 — Final host and hardware acceptance | PARTIAL | API 35 emulator UI tests pass. TS10/K706/iPhone physical route, geometry, listening, latency, and continuity acceptance remain NOT_RUN; use [RUNBOOK.md](RUNBOOK.md). |
 | REQ-012 — Reviewable evidence, rollback, and release decision | PARTIAL | Feature flags are now persisted and connected to runtime gates, with apply-failure rollback tests. The 170 T-ID/PH-ID catalog still lacks complete method/command/SHA/artifact mapping. |
 
 ## Phase and known-CR disposition
@@ -40,13 +40,13 @@ These dispositions are provisional until the current changes have an immutable c
 
 | ID | Disposition | Current evidence | Remaining gate |
 |---|---|---|---|
-| Phase 01 — Presets and persistence | PARTIAL | Workspace and module preset repositories, validation, scoped apply, migration and persistence suites. | User-preset deletion, Factory Reset, and exact per-ID method evidence. |
+| Phase 01 — Presets and persistence | PARTIAL | Workspace and module preset repositories, validation, scoped apply, migration, user-preset delete with Factory fallback, and selected-module Factory Reset are implemented and tested. | One-to-one evidence for all Phase 01 IDs and remaining save/restart/race assertions. |
 | Phase 02 — Five-tab UI | PARTIAL | `DspStudioTab` defines Studio/EQ/Spatial/Dynamics/Advanced; standalone screen instrumentation. | Legacy-feature reachability, host geometry and interaction evidence. |
 | Phase 03 — Graphical EQ | PARTIAL | Pointer-down selection and drag editing; API 35 EQ graph instrumentation previously passed 3/3. | Q/type/numeric and overlap-specific mapping, exact frequency tolerance, final-head run. |
 | Phase 04 — Preview and persistence separation | PARTIAL | Macro drag updates runtime preview; commit/restore path and isolated screen tests. | Activity recreation/process-death and final-value ACK mapping. |
 | Phase 05 — A/B, undo and status | PARTIAL | Whole-workspace A/B, edit transactions, renderer apply status. | Module-scoped A/B UI, level-match comparison, 100-drag evidence. |
 | Phase 07 — Live DSP | PARTIAL | HOT for supported overlay fields; stop-flag check before enqueue; unsupported PREAMP/stateful/latency changes report DEFERRED. | Stage-local PEQ/Bass warm-up and complete field-by-field ID/test mapping. |
-| CR-001 — Screen instrumentation failure | PARTIAL | API 35 `DspSettingsScreenTest` passed 1/1 locally after test isolation changes. | Rerun on final PR #52 head and hosted CI. |
+| CR-001 — Screen instrumentation failure | PARTIAL | API 35 `DspSettingsScreenTest` passed 3/3 locally with isolated preferences/files, draft restore, Factory Reset scope, and selected-delete fallback assertions. | Hosted CI on the pushed PR #52 head remains pending. |
 | CR-002 — Macro drag audio preview | PARTIAL | Macro changes trigger runtime preview; pointer-up commits one edit transaction and flushes latest workspace. | Final-value audio ACK assertion on final head. |
 | CR-003 — Production loudness source | PARTIAL | `AndroidPlaybackVolumeMonitor` is installed as the runtime volume source; untrusted route readings remain unavailable. | TS10/K706 calibration and OEM behavior. |
 | CR-004 — Volume changes after UI close | PARTIAL | Runtime monitor subscribes to Android volume broadcasts and route changes independently of the screen. | Hardware route behavior. |
@@ -56,10 +56,10 @@ These dispositions are provisional until the current changes have an immutable c
 | CR-008 — Five-tab navigation | PARTIAL | Five navigation tabs are implemented. | Direct reachability/accessibility assertions and host interaction. |
 | CR-009 — Interactive EQ editor | PARTIAL | Graph supports touch selection/edit and numeric controls; PR #62 fixed pointer-down selection. | Frequency, overlap, Q/type and final-head assertions. |
 | CR-010 — Scoped A/B and level match | PARTIAL | Session has a scoped comparison snapshot API. | UI does not yet expose complete module A/B and comparison level-match behavior. |
-| CR-011 — Preset delete/reset and IR references | PARTIAL | Scoped preset save/apply and IR repository protections exist. | User preset deletion and per-module Factory Reset UI/API. |
+| CR-011 — Preset delete/reset and IR references | PARTIAL | Persistence tests verify user deletion, future-schema preservation, and factory-ID protection. API 35 `DspModulePresetPaneTest` passes 4/4; screen tests directly verify selected-module Factory Reset and delete-to-Factory fallback without changing other draft fields. | Full IR-reference race/missing-file coverage and exact per-ID evidence. |
 | CR-012 — Safe live update fields | PARTIAL | Planner classifies overlay HOT fields and defers unsupported PREAMP/state changes. | Existing DSP HOT/local-warm requirements and per-field tests. |
 | CR-013 — Stage-local warm-up | PARTIAL | Unsupported committed-track changes defer with reasons. | PEQ/Bass history transfer and stage-local warm path remain unimplemented. |
-| CR-014 — Macro factory presets | PARTIAL | Four macro presets and macro save/load repository are present. | Six required stable factory presets and complete user preset UI. |
+| CR-014 — Macro factory presets | PARTIAL | Six stable factory macro presets (`macro_neutral_v1`, `macro_vocal_v1`, `macro_punch_v1`, `macro_clearwide_v1`, `macro_warm_v1`, `macro_night_v1`) and macro save/load repository are present. | Full per-ID controls/persistence/UI assertions and exact artifacts remain open. |
 | CR-015 — EQ preview response | PARTIAL | Graph receives active playback sample rate when available and labels fallback rate. | Native-equivalent combined Macro/Loudness/Bass response proof. |
 | CR-016 — Apply status separation | PARTIAL | Save and renderer status are distinct; renderer reports generation-scoped ACTIVE/DEFERRED/FAILED. | NO_MEDIA and full owner/status matrix. |
 | CR-017 — Runtime feature flags | PARTIAL | Persisted UI/runtime flags gate workspace/audio features and native HOT updates; failed apply restores prior flags. | Full rollback matrix on final head and verify behavior of already-enqueued Native commands. |
@@ -108,24 +108,24 @@ The [child PR ledger](SUBAGENT_PR_LEDGER.md) has the dispatch evidence, tests, f
 
 | Gate | Result |
 |---|---|
-| Shared + Common unit tests | Historical PASS at `9e026e55d75f0c4f6d89cdaf66727bfbd023f40a`: 866 total, Shared 639 and Common 227, 0 failures/errors/skips. Current implementation has focused planner/renderer tests passing; final full run is pending. |
-| Shared Native debug link | PASS for arm64-v8a, armeabi-v7a, x86_64. |
-| `bash scripts/test_dsp_native.sh` | PASS. |
-| ASan/UBSan Native tests | PASS with `detect_leaks=0`; LeakSanitizer is unsupported on this host. |
-| Android-test Kotlin compilation | PASS for Shared and Common, including isolated `DspSettingsScreenTest`. |
-| Public-tree, EX-08 `--check`, Android CI classifier, `git diff --check` | PASS; EX-08 catalog has 1,289 rows. |
-| Mobile/Automotive Debug, lint, Benchmark, and JNI mapping gates | PASS in the earlier integrated source gate; not rerun after the final instrumentation-test isolation helper due host disk constraints. |
-| Connected Android instrumentation | Historical PASS in API 35 CI #438. Current API 35 standalone screen test passed 1/1 locally; final-head hosted rerun is pending. |
-| PR #52 hosted CI | Latest known run [#472](https://github.com/choko510/DiPlay/actions) was on stale base-sync head `6a1ec65e189838febef2607a6f77335f362eac9b`; no hosted result exists for current pending source changes. |
+| Shared + Common unit tests | PASS at local source head `8513275490d6c299084337cffdf58859a9cdeb3c`: 935 total (Shared 668, Common 267), 0 failures/errors/skips. Shared results were up-to-date from `6b294ff29693fb60fd7364be4e3b0302a619bca7`; no Shared inputs changed afterward. |
+| Shared Native debug link | PASS at `8513275490d6c299084337cffdf58859a9cdeb3c` for arm64-v8a, armeabi-v7a, x86_64 via the mobile/automotive builds. |
+| `bash scripts/test_dsp_native.sh` | PASS at `8513275490d6c299084337cffdf58859a9cdeb3c`. |
+| ASan/UBSan Native tests | PASS at `8513275490d6c299084337cffdf58859a9cdeb3c` with `detect_leaks=0`; the default `detect_leaks=1` aborts because Apple Clang's LeakSanitizer is unsupported on this host. CI Linux sanitizer result is still required. |
+| Android-test Kotlin compilation | PASS at `8513275490d6c299084337cffdf58859a9cdeb3c` for `:common:compileDebugAndroidTestKotlin`. |
+| Public-tree, EX-08 `--check`, Android CI classifier/evidence, JNI mapping, and inventory fixtures | PASS at `8513275490d6c299084337cffdf58859a9cdeb3c`; EX-08 inventory is 1,400 unique rows. |
+| Mobile/Automotive Debug, lint, and Benchmark gates | PASS at `8513275490d6c299084337cffdf58859a9cdeb3c` in the CI-equivalent Gradle command. |
+| Connected Android instrumentation | API 35 PASS at test head `da7f89ac1adf2ac94aa82a9549ca007ea7f65933`: `DspModulePresetPaneTest` 4/4 and `DspSettingsScreenTest` 3/3. Console logs: `common/build/reports/dsp-studio/DspModulePresetPaneTest-api35.txt`, `DspSettingsScreenTest-api35.txt`, and focused Factory Reset/delete-fallback logs. |
+| PR #52 hosted CI | PENDING for local head `da7f89ac1adf2ac94aa82a9549ca007ea7f65933`; latest known remote run [#472](https://github.com/choko510/DiPlay/actions) was on stale base-sync head `6a1ec65e189838febef2607a6f77335f362eac9b`. |
 | TS10/K706/iPhone physical acceptance | NOT_RUN. |
 
 The command ledger and environment limitations are in [TEST_MATRIX.md](TEST_MATRIX.md). The detailed per-ID catalog is in [TEST_MATRIX_DETAILED.md](TEST_MATRIX_DETAILED.md).
 
 ## Independent reviews and remaining risks
 
-- Independent reviews covered Native algorithms, Kotlin/JNI synchronization, UI/saved data, QA/integration, runtime flags, and evidence. The UI review found no P0–P2 issue. The latest audio review's HOT-stop-flag finding was fixed and covered by `disablingHotUpdatesAfterPreparationDefersWithoutEnqueueing`; an independent follow-up review is pending. The evidence review's stale-SHA/readiness and CR/Phase-ledger findings have been recorded here; exact per-ID method/command/SHA/artifact mappings remain open.
+- Independent reviews covered Native algorithms, Kotlin/JNI synchronization, UI/saved data, QA/integration, runtime flags, and evidence. The UI review found no P0–P2 issue. The audio review's HOT-stop-flag finding was fixed and covered by `disablingHotUpdatesAfterPreparationDefersWithoutEnqueueing`; its follow-up found no remaining P0–P2 issue. The evidence review's stale-SHA/readiness findings have been corrected; exact per-ID method/command/SHA/artifact mapping remains open.
 - The Native generation-token mismatch and stale ACK after context rebind are fixed and covered. UI preference isolation and pre-Preview checks are covered by the standalone screen test. Five-tab navigation, playback-volume monitoring, runtime feature flags, and Macro drag transactions are implemented in the current source diff.
-- Remaining source gaps include user-preset deletion/Factory Reset, module-scoped A/B and level-match comparison, six required stable Macro presets, and stage-local PEQ/Bass warm-up/history transfer. Evidence gaps include exact 170 per-ID test-method/command/SHA/artifact mapping and final-head CI. Hardware gaps include actual CarPlay 55:45 geometry/session/Surface/touch continuity, route calibration, acoustic/performance measurements, A/V, Siri/call/navigation, 20 Split cycles, and soak. No hardware result is inferred from a standalone composable test.
+- Six versioned Macro factory presets already exist. Remaining source gaps include module-scoped A/B and level-match comparison and stage-local PEQ/Bass warm-up/history transfer. Evidence gaps include exact 170 per-ID test-method/command/SHA/artifact mapping and final-head hosted CI. Hardware gaps include actual CarPlay 55:45 geometry/session/Surface/touch continuity, route calibration, acoustic/performance measurements, A/V, Siri/call/navigation, 20 Split cycles, and soak. No hardware result is inferred from emulator instrumentation.
 
 ## Human follow-up
 

@@ -565,3 +565,7 @@ For an upstream range with many merge commits, keep source and merge decisions s
 For wired startup timing, use one monotonic origin per attempt and exact successful full-size NCM transfers. Generation-fence callbacks, retain only bounded numeric milestones, and keep packet diagnostics independently opt-in; model tests do not replace CPU/heap measurements or device traces.
 
 For a receive-path performance comparison, warm each mode, interleave the measurement order, and use per-thread CPU/allocation counters over enough iterations to rise above timer resolution. Record the host architecture/JDK and keep the result distinct from Android target-device profiling.
+
+Treat performance instrumentation as a distribution gate: retain both passing and failing runs at the exact SHA, do not average away a p99 breach, and do not claim a Draft workflow passed jobs it skipped. On macOS, run Android tests directly when the helper's GNU `timeout` dependency is unavailable, then capture the required filtered logcat separately.
+
+2026-10-27 B09: an API 35 Shared p99 failure can be followed by a full 19/19 pass on the same code/test head without source changes. Preserve both; a repeat establishes the current run result, not the cause or stability of the earlier outlier.

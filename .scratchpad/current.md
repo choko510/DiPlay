@@ -1,6 +1,6 @@
-# Current Work — DiPlay DSP Studio PR #52 (2026-10-26)
+# Current Work — DiPlay DSP Studio PR #52 and STEP4 PR #45 (2026-10-27)
 
-> Active goal: complete the PR #52 implementation, tracked tests, independent reviews, and latest-head CI. PR #52 must remain unmerged until the user approves it. Do not modify or merge PR #45 or main.
+> Active goal: complete PR #52 from `docs/dsp-studio/REMEDIATION_SPEC.md`. Keep PR #52 open and unmerged until user approval. Do not modify PR #45 or `main`; PR #45 remains a separate Draft workstream.
 
 ## Scope and invariants
 
@@ -53,10 +53,12 @@
 - B06 test commit `686516f5a3fbd220822c89e394c5c12222a24eb8` adds a production capture-loop regression: three scripted zero reads emit no packet, and one positive 640-byte PCM read resumes one packet. Initial DSP-OFF exact PCM16/no-prepare/zero-latency behavior is now checked for 44.1/48 kHz mono/stereo. Shared suite: 646/646, zero failures/errors/skips. No production behavior changed. The latest DSP Split check confirms duplicate signatures do not log, insets precede scrolling, and the exact child MeasureSpecs are passed to ComposeView.measure(); SH-M27 acceptance remains blocked.
 - B07 reviews all 111 source/merge SHAs against fixed main. Overlay dispositions are 2 `FORK_SUPERIOR`, 16 `SKIP_OEM`, 56 `REJECT_UNSAFE`, 37 `NEED_EVIDENCE`, 0 `ADAPT`; all 51 merges are classified. EX-08 tests pass 19/19, inventory `--check` passes at 1,400 rows, and the legacy 1,289-row prefix is unchanged. No new source met the adaptation evidence threshold.
 - B08 adds fixed-size, attempt-relative Stage3 timing with attach-generation checks, exact successful FULL OUT accounting, conservative SYN classification, and a three-line in-memory report. Full shared/common suites pass 862/862; two host per-thread measurements found 16.6–21.4 ns/packet incremental CPU and no incremental timing allocation. No transmission, retry, timer, watchdog, or phase behavior changed. TS10/K706 causal timing remains `BLOCKED_DEVICE`.
+- B09 local verification at code/test head `0f425cdc`: 862/862 JVM/Robolectric tests, overlay checks, unsanitized native, ASan/UBSan with LSan disabled, both app lint/Debug/Benchmark builds, both JNI mappings, Common API 35 (1/1), and the latest Shared API 35 repeat (19/19) pass. The earlier same-head Shared run failed three p99 cases and crashed; the outlier was not reproduced and its cause is unconfirmed. Run #476 passes its static/unit jobs but skips the full-host and instrumentation lanes; docs-only run #477 passes `changes`/`check`/Draft scope and skips quick-baseline/runtime lanes. LSan remains unavailable locally. B09 is `PARTIAL`.
+- B10 HW-01–HW-13 procedures and explicit blocked statuses are in `docs/step4/B10_DEVICE_ACCEPTANCE.md`; B11 conditional no-go decisions are in `docs/step4/B11_CONDITIONAL_NO_GO.md`. `CODEX_IMPLEMENTATION_RESULT.md` and `FINAL_GATE_SUMMARY.md` record the current no-go decision. Release signing and independent review remain unavailable/not run.
 - User-supplied SH M20 + iPhone 17 Pro Max/iOS 27.0.1 report is `PARTIAL`, outside TS10/K706 target scope. Release signing credentials remain unavailable.
 
 ## Next actions
 
-1. Run B09's full local host/native/unit/lint/build/JNI/R8 and API 35 gates against one exact B08 source SHA; report unsupported or skipped gates separately.
-2. Prepare B10/B11/B12 device, conditional no-go, and final-gate records without converting blocked physical/signing evidence into a pass.
-3. Keep API 35/full-host/JNI, target hardware, signing/rollback, acoustic/performance and release checks explicitly `NOT_RUN`, `BLOCKED_*`, or `NO_GO_THIS_RUN` until measured.
+1. Keep B09 `PARTIAL`: retain both API 35 Shared outcomes, with the latest 19/19 pass, and record that full hosted lanes remain skipped under Draft scope and LSan is unavailable locally.
+2. Run HW-01–HW-13 only after supported TS10/K706 + iPhone hardware is available; obtain authorized release signing credentials for HW-11.
+3. Keep the PR Draft and G8 `NO_GO_THIS_RUN` until the API 35 lane, hardware matrix, signed rollback, and independent review have evidence.

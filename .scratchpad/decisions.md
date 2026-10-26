@@ -704,6 +704,10 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-27 B08 performance evidence: measure the added allocation-free classifier/timing hot path with per-thread CPU/allocation counters and a fixed packet/iteration matrix. Host measurements do not substitute for TS10/K706 profiling; preserve `0x4301` retry as zero until the device trace proves its cause.
 
+2026-10-27 B09/B11: keep the 21.332 ms API 35 p99 limit unchanged after local reruns fail; a passing first run does not erase later failed evidence. Keep additional StartSession sends and all other conditional features off without the specified device reproduction and A/B proof.
+
+2026-10-27 B09 follow-up: the exact-head focused 48 kHz stereo case and full API 35 Shared suite subsequently passed 19/19 below the unchanged budget. Keep the earlier p99 failure/crash as separate evidence; the transient cause is unknown. The full hosted lane remains skipped under Draft scope, so B09 stays partial.
+
 2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
 
 2026-10-26 B03: validate generation, attachment and server identity together before accepting sessions or processing VPN revocation; keep ownership validation and the session start atomic under the service monitor. Serialize wired release/error callbacks with replacement and reject stale attempts.

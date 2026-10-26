@@ -8,17 +8,25 @@ import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntimeConfig.disabled()) : DspConfigProvider {
     private val current = AtomicReference(DspConfigSnapshot(0L, initialConfig))
+    private val studioHotUpdatesAllowed = AtomicBoolean(true)
     private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
     private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
     private val playbackSampleRates = ConcurrentHashMap<Any, PlaybackSampleRate>()
     private val nextPlaybackSampleRateRevision = AtomicLong()
 
     override fun snapshot(): DspRuntimeConfig = current.get().config
+
+    override fun studioHotUpdatesEnabled(): Boolean = studioHotUpdatesAllowed.get()
+
+    fun setStudioHotUpdatesEnabled(enabled: Boolean) {
+        studioHotUpdatesAllowed.set(enabled)
+    }
 
     override fun versionedSnapshot(): DspConfigSnapshot = current.get()
 

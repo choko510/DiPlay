@@ -24,6 +24,7 @@ import com.shilapi.xcertplay.media.dsp.DspSeatNearSpeaker
 import com.shilapi.xcertplay.media.dsp.DspSeatPreset
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -135,6 +136,44 @@ class DspProfileRepositoryTest {
             profile,
             repository.decodeDraftFromSavedState(repository.encodeDraftForSavedState(profile)),
         )
+    }
+
+    @Test
+    fun impulseResponseReferenceScanIncludesSavedCustomProfiles() {
+        val repository = repository()
+        val impulseId = "custom_profile_ir"
+        val profile = DspProfilePresets.customProfile("custom1").copy(
+            convolver = DspConvolverConfig(enabled = true, impulseResponseId = impulseId),
+        )
+
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(profile))
+        assertTrue(repository.referencesImpulseResponse(impulseId))
+        assertFalse(repository.referencesImpulseResponse("other_ir"))
+    }
+
+    @Test
+    fun oversizedCustomProfileIsRejectedWithoutReplacingItsFile() {
+        val repository = repository()
+        val target = requireNotNull(repository.profileFileForTesting("custom1"))
+        target.parentFile!!.mkdirs()
+        val original = ByteArray(1_048_577) { (it % 251).toByte() }
+        target.writeBytes(original)
+
+        assertEquals(DspProfileReadResult.Invalid, repository.load("custom1"))
+        assertEquals(DspProfileSaveResult.WRITE_FAILED, repository.save(DspProfilePresets.customProfile("custom1")))
+        assertTrue(target.readBytes().contentEquals(original))
+    }
+
+    @Test
+    fun profileStoreRejectsSymlinkedDirectoryOutsideAppFiles() {
+        val root = temporaryFolder.newFolder("profile-root")
+        val repository = DspProfileRepository(root)
+        val outside = temporaryFolder.newFolder("outside-profile-store")
+        repository.profilesDirectory.parentFile!!.mkdirs()
+        Files.createSymbolicLink(repository.profilesDirectory.toPath(), outside.toPath())
+
+        assertEquals(null, repository.profileFileForTesting("custom1"))
+        assertEquals(DspProfileSaveResult.INVALID_PROFILE_ID, repository.save(DspProfilePresets.customProfile("custom1")))
     }
 
     @Test

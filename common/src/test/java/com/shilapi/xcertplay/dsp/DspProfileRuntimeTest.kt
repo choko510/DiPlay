@@ -11,10 +11,12 @@ import com.shilapi.xcertplay.media.dsp.DspEqType
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,6 +30,19 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class DspProfileRuntimeTest {
     @Test
+    fun emergencyDisableNeutralizesStudioFeaturesButKeepsHotTransportAvailable() {
+        val disabled = DspStudioFeatureFlags().disableEnhancedDsp()
+
+        assertFalse(disabled.workspaceUiEnabled)
+        assertFalse(disabled.macroOverlayEnabled)
+        assertFalse(disabled.smartLoudnessEnabled)
+        assertFalse(disabled.dynamicBassEnabled)
+        assertTrue(disabled.nativeHotUpdatesEnabled)
+        assertFalse(disabled.localWarmEnabled)
+        assertFalse(disabled.irWarmBudgetEnabled)
+    }
+
+    @Test
     fun missingGlobalMasterPreferenceKeepsDspDisabled() {
         val context: Application = RuntimeEnvironment.getApplication()
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
@@ -38,6 +53,236 @@ class DspProfileRuntimeTest {
         assertFalse(runtime.isDspEnabled())
         assertFalse(runtime.configProvider.snapshot().enabled)
         DspProfileRuntime.resetForTesting()
+    }
+
+    @Test
+    fun studioFeatureFlagsPersistWithSafeDefaultsForUnimplementedWarmPaths() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+
+        val defaults = DspStudioFeatureFlags.load(preferences)
+        assertTrue(defaults.workspaceUiEnabled)
+        assertTrue(defaults.macroOverlayEnabled)
+        assertTrue(defaults.smartLoudnessEnabled)
+        assertTrue(defaults.dynamicBassEnabled)
+        assertTrue(defaults.nativeHotUpdatesEnabled)
+        assertFalse(defaults.localWarmEnabled)
+        assertFalse(defaults.irWarmBudgetEnabled)
+
+        val persisted = defaults.copy(macroOverlayEnabled = false, nativeHotUpdatesEnabled = false)
+        preferences.edit().also(persisted::writeTo).commit()
+
+        assertEquals(persisted, DspStudioFeatureFlags.load(preferences))
+        preferences.edit().clear().commit()
+    }
+
+    @Test
+    fun disablingEnhancedStagesRollsBackAudioAndReenableLeavesDraftUncommitted() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+        val profile = DspProfilePresets.find("flat")!!
+        val committedWorkspace = DspStudioWorkspace(
+            profileSourceId = profile.id,
+            baseProfileSnapshot = profile,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 100),
+            smartLoudness = DspSmartLoudnessSettings(mode = DspSmartLoudnessMode.FIXED),
+            dynamicBass = DspDynamicBassSettings(enabled = true),
+        )
+        assertEquals(DspWorkspaceSaveResult.SAVED, DspStudioWorkspaceRepository(context.filesDir).save(committedWorkspace))
+        val savedContents = workspaceFile.readText()
+        preferences.edit()
+            .putBoolean(KEY_DSP_ENABLED, true)
+            .putString(KEY_SELECTED_PROFILE_ID, profile.id)
+            .commit()
+        val runtime = DspProfileRuntime.get(context)
+
+        try {
+            val session = runtime.createStudioSessionCoordinator()
+            session.edit { it.copy(macros = it.macros.copy(bassImpact = 0)) }
+            val previewResult = AtomicReference<Boolean?>()
+            val previewComplete = CountDownLatch(1)
+            runtime.previewStudioWorkspaceAsync(session.preview, enabled = true) {
+                previewResult.set(it)
+                previewComplete.countDown()
+            }
+            drainMainLooperUntil(previewComplete)
+            assertEquals(true, previewResult.get())
+            assertEquals(-2.0, runtime.configProvider.snapshot().macroTone.bassGainDb, 0.0)
+
+            val disabled = runtime.currentStudioFeatureFlags().copy(
+                macroOverlayEnabled = false,
+                smartLoudnessEnabled = false,
+                dynamicBassEnabled = false,
+                nativeHotUpdatesEnabled = false,
+            )
+            val disableResult = AtomicReference<Boolean?>()
+            val disableComplete = CountDownLatch(1)
+            runtime.updateStudioFeatureFlagsAsync(disabled) {
+                disableResult.set(it)
+                disableComplete.countDown()
+            }
+            drainMainLooperUntil(disableComplete)
+            assertEquals(true, disableResult.get())
+            assertFalse(runtime.configProvider.snapshot().macroTone.enabled)
+            assertFalse(runtime.configProvider.snapshot().smartLoudness.enabled)
+            assertFalse(runtime.configProvider.snapshot().dynamicBass.enabled)
+            assertFalse(runtime.configProvider.studioHotUpdatesEnabled())
+
+            val reenabled = disabled.copy(
+                macroOverlayEnabled = true,
+                smartLoudnessEnabled = true,
+                dynamicBassEnabled = true,
+                nativeHotUpdatesEnabled = true,
+            )
+            val enableResult = AtomicReference<Boolean?>()
+            val enableComplete = CountDownLatch(1)
+            runtime.updateStudioFeatureFlagsAsync(reenabled) {
+                enableResult.set(it)
+                enableComplete.countDown()
+            }
+            drainMainLooperUntil(enableComplete)
+
+            assertEquals(true, enableResult.get())
+            assertEquals(4.0, runtime.configProvider.snapshot().macroTone.bassGainDb, 0.0)
+            assertTrue(runtime.configProvider.snapshot().smartLoudness.enabled)
+            assertTrue(runtime.configProvider.snapshot().dynamicBass.enabled)
+            assertTrue(runtime.configProvider.studioHotUpdatesEnabled())
+            assertEquals(0, session.preview.macros.bassImpact)
+            assertTrue(session.isDirty)
+            assertEquals(savedContents, workspaceFile.readText())
+            assertEquals(reenabled, DspStudioFeatureFlags.load(preferences))
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
+    fun rapidFeatureFlagDisableThenEnableDoesNotLeaveAudioDisabled() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-feature-flag-race-${System.nanoTime()}").apply { mkdirs() }
+        val preferencesName = "dsp-feature-flag-race-${System.nanoTime()}"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        val profile = DspProfilePresets.find("flat")!!
+        val workspace = DspStudioWorkspace(
+            profileSourceId = profile.id,
+            baseProfileSnapshot = profile,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 90),
+            smartLoudness = DspSmartLoudnessSettings(mode = DspSmartLoudnessMode.FIXED, fixedAmount = 1.0),
+            dynamicBass = DspDynamicBassSettings(enabled = true),
+        )
+        assertEquals(DspWorkspaceSaveResult.SAVED, DspStudioWorkspaceRepository(filesDirectory).save(workspace))
+        preferences.edit()
+            .putBoolean(KEY_DSP_ENABLED, true)
+            .putString(KEY_SELECTED_PROFILE_ID, profile.id)
+            .commit()
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName)
+        val blockFirst = AtomicBoolean(true)
+        val disabledComplete = CountDownLatch(1)
+        val enabledComplete = CountDownLatch(1)
+        val disabledResult = AtomicReference<Boolean?>()
+        val enabledResult = AtomicReference<Boolean?>()
+
+        try {
+            val enabledFlags = runtime.currentStudioFeatureFlags()
+            val disabledFlags = enabledFlags.copy(
+                macroOverlayEnabled = false,
+                smartLoudnessEnabled = false,
+                dynamicBassEnabled = false,
+            )
+            runtime.afterStudioFeatureFlagRuntimeApplyForTest = {
+                if (blockFirst.compareAndSet(true, false)) {
+                    runtime.updateStudioFeatureFlagsAsync(enabledFlags) {
+                        enabledResult.set(it)
+                        enabledComplete.countDown()
+                    }
+                }
+            }
+            runtime.updateStudioFeatureFlagsAsync(disabledFlags) {
+                disabledResult.set(it)
+                disabledComplete.countDown()
+            }
+            drainMainLooperUntil(disabledComplete)
+            drainMainLooperUntil(enabledComplete)
+
+            assertEquals(false, disabledResult.get())
+            assertEquals(true, enabledResult.get())
+            assertEquals(enabledFlags, runtime.currentStudioFeatureFlags())
+            assertTrue(runtime.configProvider.snapshot().macroTone.enabled)
+            assertTrue(runtime.configProvider.snapshot().smartLoudness.enabled)
+            assertTrue(runtime.configProvider.snapshot().dynamicBass.enabled)
+            assertEquals(enabledFlags, DspStudioFeatureFlags.load(preferences))
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun newerPreviewDuringWorkspaceActivationPreventsStaleSave() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-workspace-save-race-${System.nanoTime()}").apply { mkdirs() }
+        val preferencesName = "dsp-workspace-save-race-${System.nanoTime()}"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        val profile = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(
+            profileSourceId = profile.id,
+            baseProfileSnapshot = profile,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 40),
+        )
+        val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+        val workspaceFile = File(filesDirectory, "dsp/workspace/current.json")
+        assertEquals(DspWorkspaceSaveResult.SAVED, workspaceRepository.save(committed))
+        preferences.edit()
+            .putBoolean(KEY_DSP_ENABLED, true)
+            .putString(KEY_SELECTED_PROFILE_ID, profile.id)
+            .commit()
+        val savedBytes = workspaceFile.readBytes()
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName)
+        val staleCandidate = committed.copy(macros = committed.macros.copy(bassImpact = 92))
+        val newerPreview = committed.copy(macros = committed.macros.copy(bassImpact = 68))
+        val saveResult = AtomicReference<DspWorkspaceSaveResult?>()
+        val previewResult = AtomicReference<Boolean?>()
+        val saveComplete = CountDownLatch(1)
+        val previewComplete = CountDownLatch(1)
+
+        try {
+            runtime.afterStudioWorkspaceApplyForTest = {
+                runtime.previewStudioWorkspaceAsync(newerPreview, enabled = true) {
+                    previewResult.set(it)
+                    previewComplete.countDown()
+                }
+            }
+            runtime.saveStudioWorkspaceAsync(staleCandidate, enabled = true) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            drainMainLooperUntil(saveComplete)
+            drainMainLooperUntil(previewComplete)
+
+            assertEquals(DspWorkspaceSaveResult.STALE, saveResult.get())
+            assertEquals(true, previewResult.get())
+            assertTrue(savedBytes.contentEquals(workspaceFile.readBytes()))
+            val expectedTone = DspTuningResolver.resolve(
+                profile = profile,
+                masterEnabled = true,
+                macros = newerPreview.macros,
+                loudness = newerPreview.smartLoudness,
+                dynamicBass = newerPreview.dynamicBass,
+            ).runtimeConfig.macroTone
+            assertEquals(expectedTone, runtime.configProvider.snapshot().macroTone)
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
     }
 
     @Test
@@ -264,6 +509,52 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun deletingSelectedModulePresetClearsReferencesWithoutChangingModuleValues() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-preset-delete-${System.nanoTime()}").apply { mkdirs() }
+        val preferencesName = "dsp-preset-delete-${System.nanoTime()}"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        val profile = DspProfilePresets.find("flat")!!
+        val presetId = "user_delete_selection"
+        val workspace = DspStudioWorkspace(
+            profileSourceId = profile.id,
+            baseProfileSnapshot = profile,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 77),
+            selectedModulePresetIds = mapOf("macros" to presetId),
+        )
+        val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+        val presetRepository = DspModulePresetRepository(filesDirectory)
+        assertEquals(DspWorkspaceSaveResult.SAVED, workspaceRepository.save(workspace))
+        assertEquals(DspPresetStoreResult.SAVED, presetRepository.saveCurrent(workspace, "macros", presetId, "Saved macro"))
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName)
+        val session = runtime.createStudioSessionCoordinator()
+
+        try {
+            val result = AtomicReference<DspPresetStoreResult?>()
+            val completed = CountDownLatch(1)
+            runtime.deleteModulePresetAsync("macros", presetId) {
+                result.set(it)
+                completed.countDown()
+            }
+            drainMainLooperUntil(completed)
+
+            assertEquals(DspPresetStoreResult.DELETED, result.get())
+            val saved = workspaceRepository.load() as DspWorkspaceReadResult.Loaded
+            assertFalse(saved.workspace.selectedModulePresetIds.containsKey("macros"))
+            assertFalse(session.preview.selectedModulePresetIds.containsKey("macros"))
+            assertFalse(session.compareA().selectedModulePresetIds.containsKey("macros"))
+            assertEquals(77, session.preview.macros.bassImpact)
+            assertEquals(77, session.compareA().macros.bassImpact)
+            assertNull(presetRepository.load("macros", presetId))
+            assertFalse(session.isDirty)
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun restoringCommittedStudioWorkspaceRestoresSelectedProfileAcrossRuntimeRecreation() {
         val context: Application = RuntimeEnvironment.getApplication()
         val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -373,6 +664,63 @@ class DspProfileRuntimeTest {
             referencedId?.let(repository::delete)
             context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
             DspProfileRuntime.resetForTesting()
+        }
+    }
+
+    @Test
+    fun discardingImportedImpulsePreservesSessionWorkspaceAndPresetReferences() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-ir-reference-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences("dsp_ir_reference_test", Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, "dsp_ir_reference_test")
+        val impulseRepository = DspImpulseResponseRepository(filesDirectory)
+        val ids = listOf("session_${System.nanoTime()}", "workspace_${System.nanoTime()}", "preset_${System.nanoTime()}")
+        val files = ids.map { id -> id to createImpulseFile(impulseRepository, id) }
+        val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+        val presetRepository = DspModulePresetRepository(filesDirectory, irReferenceExists = { it == ids[2] })
+
+        try {
+            val coordinator = runtime.createStudioSessionCoordinator()
+            coordinator.edit {
+                it.copy(baseProfileSnapshot = it.baseProfileSnapshot.copy(
+                    convolver = DspConvolverConfig(enabled = true, impulseResponseId = ids[0]),
+                ))
+            }
+            assertEquals(
+                DspWorkspaceSaveResult.SAVED,
+                workspaceRepository.save(
+                    DspStudioWorkspace(
+                        profileSourceId = runtime.selectedProfile().id,
+                        baseProfileSnapshot = runtime.selectedProfile().copy(
+                            convolver = DspConvolverConfig(enabled = true, impulseResponseId = ids[1]),
+                        ),
+                    ),
+                ),
+            )
+            assertEquals(
+                DspPresetStoreResult.SAVED,
+                presetRepository.save(
+                    DspModulePreset(
+                        id = "test_${System.nanoTime()}",
+                        moduleKey = "convolver",
+                        name = "Test IR reference",
+                        payload = JSONObject().put("enabled", true).put("impulseResponseId", ids[2]).put("wet", 0.5),
+                    ),
+                ),
+            )
+
+            ids.forEach(runtime::discardImportedImpulseResponse)
+
+            files.forEach { (id, file) -> assertTrue("$id should stay referenced", file.isFile) }
+        } finally {
+            files.forEach { (id, _) -> impulseRepository.delete(id) }
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
         }
     }
 

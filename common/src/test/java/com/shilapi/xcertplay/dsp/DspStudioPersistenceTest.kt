@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.dsp
 
 import java.io.File
+import java.nio.file.Files
+import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -55,6 +57,18 @@ class DspStudioPersistenceTest {
         assertEquals(future, target.readText())
     }
 
+    @Test fun invalidCurrentWorkspaceIsPreservedOnSave() {
+        val target = File(temporaryFolder.root, "dsp/workspace/current.json")
+        val repo = DspStudioWorkspaceRepository(temporaryFolder.root)
+        assertEquals(DspWorkspaceSaveResult.SAVED, repo.save(workspace()))
+        target.writeText(JSONObject(target.readText()).put("smartLoudness", JSONObject().put("mode", "UNKNOWN")).toString())
+        val invalid = target.readText()
+
+        assertEquals(DspWorkspaceReadResult.Invalid, repo.load())
+        assertEquals(DspWorkspaceSaveResult.INVALID, repo.save(workspace()))
+        assertEquals(invalid, target.readText())
+    }
+
     @Test fun failedAtomicWriteDoesNotReportSuccess() {
         val repo = DspStudioWorkspaceRepository(temporaryFolder.root) { _, _ -> error("disk full") }
         assertEquals(DspWorkspaceSaveResult.WRITE_FAILED, repo.save(workspace()))
@@ -107,9 +121,9 @@ class DspStudioPersistenceTest {
         val workspace = workspace()
         val profile = workspace.baseProfileSnapshot
         val presets = DspFactoryPresets.modulePresets()
-        assertEquals(14, presets.size)
+        assertEquals(19, presets.size)
         presets.forEach { factory ->
-            val userPreset = factory.copy(id = "user-${factory.moduleKey}", factory = false)
+            val userPreset = factory.copy(id = "user-${factory.id}", factory = false)
             assertEquals("${factory.moduleKey} store", DspPresetStoreResult.SAVED, repo.save(userPreset))
             val loaded = repo.load(factory.moduleKey, userPreset.id)
             assertNotNull("${factory.moduleKey} load", loaded)
@@ -149,6 +163,28 @@ class DspStudioPersistenceTest {
                 assertEquals(workspace.selectedModulePresetIds, workspaceApplied.selectedModulePresetIds)
             }
         }
+    }
+
+    @Test fun macroFactoryPresetIdsAreStableAndModuleResetTargetsNeutralFactoryValues() {
+        assertEquals(
+            setOf(
+                "macro_neutral_v1",
+                "macro_vocal_v1",
+                "macro_punch_v1",
+                "macro_clearwide_v1",
+                "macro_warm_v1",
+                "macro_night_v1",
+            ),
+            DspFactoryPresets.macroPresets.keys,
+        )
+        assertEquals(
+            DspSoundMacroSettings(),
+            DspFactoryPresets.modulePresets().single { it.id == "macro_neutral_v1" }
+                .let { requireNotNull(DspModulePresetRepository(temporaryFolder.root).applyTo(workspace(), it)).macros },
+        )
+        assertEquals("macro_neutral_v1", DspFactoryPresets.neutralModulePreset("macros")?.id)
+        assertEquals("factory-limiter-safe", DspFactoryPresets.neutralModulePreset("limiter")?.id)
+        assertNull(DspFactoryPresets.neutralModulePreset("unknown"))
     }
 
     @Test fun previewCancelUndoAndSaveRemainSeparate() {
@@ -205,6 +241,117 @@ class DspStudioPersistenceTest {
         assertTrue(coordinator.canRedo)
         assertTrue(coordinator.redo())
         assertEquals(80, coordinator.preview.macros.bassImpact)
+    }
+
+    @Test fun impulseResponseReferencesIncludeUndoAndRedoSnapshots() {
+        val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
+        val impulseId = "session_ir"
+        assertFalse(coordinator.referencesImpulseResponse(impulseId))
+
+        coordinator.edit {
+            it.copy(baseProfileSnapshot = it.baseProfileSnapshot.copy(
+                convolver = DspConvolverConfig(enabled = true, impulseResponseId = impulseId),
+            ))
+        }
+        assertTrue(coordinator.referencesImpulseResponse(impulseId))
+        assertTrue(coordinator.undo())
+
+        assertTrue(coordinator.referencesImpulseResponse(impulseId))
+        coordinator.cancelPreview()
+        assertFalse(coordinator.referencesImpulseResponse(impulseId))
+    }
+
+    @Test fun editingModuleValuesClearsStalePresetSelectionButApplyingPresetKeepsNewSelection() {
+        val initial = workspace().copy(
+            selectedModulePresetIds = mapOf("bass" to "old-bass-preset"),
+        )
+        val coordinator = DspStudioSessionCoordinator(initial, DspStudioWorkspaceRepository(temporaryFolder.root))
+
+        coordinator.edit {
+            it.copy(baseProfileSnapshot = it.baseProfileSnapshot.copy(
+                bass = it.baseProfileSnapshot.bass.copy(gainDb = 4.0),
+            ))
+        }
+        assertNull(coordinator.preview.selectedModulePresetIds["bass"])
+
+        coordinator.edit {
+            it.copy(
+                baseProfileSnapshot = it.baseProfileSnapshot.copy(
+                    bass = it.baseProfileSnapshot.bass.copy(gainDb = 2.0),
+                ),
+                selectedModulePresetIds = it.selectedModulePresetIds + ("bass" to "new-bass-preset"),
+            )
+        }
+        assertEquals("new-bass-preset", coordinator.preview.selectedModulePresetIds["bass"])
+    }
+
+    @Test fun convolverPresetsAreScannedForImpulseResponseReferences() {
+        val root = temporaryFolder.root
+        val directory = File(root, "dsp/modules/convolver").apply { mkdirs() }
+        File(directory, "user-ir.json").writeText(
+            JSONObject()
+                .put("schemaVersion", DspModulePresetRepository.SCHEMA)
+                .put("id", "user-ir")
+                .put("moduleKey", "convolver")
+                .put("origin", "USER")
+                .put("payloadVersion", 1)
+                .put("payload", JSONObject().put("enabled", true).put("impulseResponseId", "preset_ir"))
+                .toString(),
+        )
+        val repository = DspModulePresetRepository(root)
+
+        assertTrue(repository.referencesImpulseResponse("preset_ir"))
+        assertFalse(repository.referencesImpulseResponse("other_ir"))
+
+        val futureSchemaFile = File(directory, "future.json").apply { writeText("{\"schemaVersion\":99}") }
+        assertTrue(repository.referencesImpulseResponse("unknown_future_ir"))
+
+        futureSchemaFile.delete()
+        val futurePayload = File(directory, "future-payload.json")
+        val futurePayloadContents = JSONObject()
+            .put("schemaVersion", DspModulePresetRepository.SCHEMA)
+            .put("id", "future-payload")
+            .put("moduleKey", "convolver")
+            .put("origin", "USER")
+            .put("payloadVersion", 2)
+            .put("payload", JSONObject().put("enabled", true).put("impulseResponseId", "future_payload_ir"))
+            .toString()
+        futurePayload.writeText(futurePayloadContents)
+
+        assertTrue(repository.referencesImpulseResponse("future_payload_ir"))
+        assertEquals(
+            DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED,
+            repository.deleteUserPreset("convolver", "future-payload"),
+        )
+        assertEquals(futurePayloadContents, futurePayload.readText())
+    }
+
+    @Test fun macroPresetStoreRejectsOutsideSymlinksAndOversizedFiles() {
+        val linkedRoot = temporaryFolder.newFolder("macro-linked-root")
+        val outside = temporaryFolder.newFolder("macro-outside")
+        File(linkedRoot, "dsp").mkdirs()
+        Files.createSymbolicLink(File(linkedRoot, "dsp/macros").toPath(), outside.toPath())
+        val linkedRepository = DspMacroPresetRepository(linkedRoot)
+        assertEquals(
+            DspPresetStoreResult.INVALID,
+            linkedRepository.save("custom_macro", "Custom", DspSoundMacroSettings()),
+        )
+        assertFalse(File(outside, "custom_macro.json").exists())
+
+        val oversizedRoot = temporaryFolder.newFolder("macro-oversized-root")
+        val oversizedFile = File(oversizedRoot, "dsp/macros/large.json").apply {
+            parentFile!!.mkdirs()
+            writeBytes(ByteArray(16_385) { (it % 251).toByte() })
+        }
+        val original = oversizedFile.readBytes()
+        val oversizedRepository = DspMacroPresetRepository(oversizedRoot)
+
+        assertNull(oversizedRepository.load("large"))
+        assertEquals(
+            DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED,
+            oversizedRepository.save("large", "Replacement", DspSoundMacroSettings()),
+        )
+        assertTrue(original.contentEquals(oversizedFile.readBytes()))
     }
 
     @Test fun staleEditTransactionCannotChangeTheDraft() {
@@ -330,5 +477,80 @@ class DspStudioPersistenceTest {
         assertEquals(8.0, applied.baseProfileSnapshot.bass.gainDb, 0.0)
         assertEquals(-3.0, applied.baseProfileSnapshot.preampDb, 0.0)
         assertEquals(initial.macros, applied.macros)
+    }
+
+    @Test fun userPresetDeletionPreservesFactoryAndFutureSchemaFiles() {
+        val repository = DspModulePresetRepository(temporaryFolder.root)
+        val userPreset = DspModulePreset(
+            id = "user_bass_test",
+            moduleKey = "bass",
+            name = "Saved bass",
+            payload = JSONObject().put("enabled", true).put("gainDb", 2.0).put("frequencyHz", 80.0),
+        )
+        assertEquals(DspPresetStoreResult.SAVED, repository.save(userPreset))
+        assertEquals(DspPresetStoreResult.DELETED, repository.deleteUserPreset("bass", userPreset.id))
+        assertNull(repository.load("bass", userPreset.id))
+
+        assertEquals(
+            DspPresetStoreResult.INVALID,
+            repository.deleteUserPreset("bass", "factory-bass-neutral"),
+        )
+
+        val futureFile = File(temporaryFolder.root, "dsp/modules/bass/user_future.json")
+        assertTrue(futureFile.parentFile!!.let { it.mkdirs() || it.isDirectory })
+        futureFile.writeText(
+            JSONObject()
+                .put("schemaVersion", 99)
+                .put("id", "user_future")
+                .put("moduleKey", "bass")
+                .put("origin", "USER")
+                .toString(),
+        )
+        assertEquals(
+            DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED,
+            repository.deleteUserPreset("bass", "user_future"),
+        )
+        assertTrue(futureFile.isFile)
+    }
+
+    @Test fun deletingSelectedPresetClearsOnlyItsReferenceInEveryUndoSnapshot() {
+        val selectedWorkspace = workspace().copy(selectedModulePresetIds = mapOf("bass" to "user_bass_test"))
+        val session = DspStudioSessionCoordinator(selectedWorkspace, DspStudioWorkspaceRepository(temporaryFolder.root))
+        session.edit { it.copy(macros = it.macros.copy(vocalPresence = 80)) }
+
+        assertTrue(session.clearSelectedPresetReference("bass", "user_bass_test"))
+        assertNull(session.preview.selectedModulePresetIds["bass"])
+        assertEquals(80, session.preview.macros.vocalPresence)
+        assertTrue(session.isDirty)
+        assertTrue(session.undo())
+        assertNull(session.preview.selectedModulePresetIds["bass"])
+        assertEquals(workspace().macros.vocalPresence, session.preview.macros.vocalPresence)
+    }
+
+    @Test fun moduleComparisonKeepsAnImmutableScopeAndResetsWhenTheDraftChanges() {
+        val session = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
+        session.edit {
+            it.copy(
+                baseProfileSnapshot = it.baseProfileSnapshot.copy(
+                    bass = it.baseProfileSnapshot.bass.copy(enabled = true, gainDb = 7.0),
+                    compressor = it.baseProfileSnapshot.compressor.copy(thresholdDb = -12.0),
+                ),
+            )
+        }
+
+        val comparison = requireNotNull(session.beginModuleComparison("bass"))
+        val sideA = requireNotNull(session.selectComparisonSide(DspStudioComparisonSide.A))
+        assertEquals("bass", comparison.scopeKey)
+        assertEquals(DspStudioComparisonSide.A, session.comparisonSide)
+        assertEquals(0.0, sideA.baseProfileSnapshot.bass.gainDb, 0.0)
+        assertEquals(-12.0, sideA.baseProfileSnapshot.compressor.thresholdDb, 0.0)
+        val sideB = requireNotNull(session.selectComparisonSide(DspStudioComparisonSide.B))
+        assertEquals(7.0, sideB.baseProfileSnapshot.bass.gainDb, 0.0)
+        assertEquals(DspStudioComparisonSide.B, session.comparisonSide)
+
+        session.edit { it.copy(macros = it.macros.copy(airDetail = 70)) }
+
+        assertEquals(DspStudioComparisonSide.DRAFT, session.comparisonSide)
+        assertNull(session.selectComparisonSide(DspStudioComparisonSide.A))
     }
 }

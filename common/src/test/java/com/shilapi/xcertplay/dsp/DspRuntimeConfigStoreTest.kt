@@ -5,11 +5,24 @@ import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.Closeable
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DspRuntimeConfigStoreTest {
+    @Test
+    fun studioHotUpdateKillSwitchDoesNotChangeTheActiveAudioSnapshot() {
+        val config = DspRuntimeConfig(enabled = true)
+        val store = DspRuntimeConfigStore(config)
+
+        assertTrue(store.studioHotUpdatesEnabled())
+        store.setStudioHotUpdatesEnabled(false)
+
+        assertFalse(store.studioHotUpdatesEnabled())
+        assertSame(config, store.snapshot())
+    }
+
     @Test
     fun existingRendererSnapshotStaysStableWhileNewSnapshotsSeeTheUpdatedConfig() {
         val configA = DspRuntimeConfig(enabled = true, gainDb = -3.0)

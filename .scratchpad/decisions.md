@@ -690,6 +690,10 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-27 B09 follow-up: the focused 48 kHz stereo case and full API 35 Shared suite subsequently passed 19/19 below the unchanged budget. At that point the full hosted lane was still skipped under Draft scope, so B09 remained partial. Later workflow-sensitive run #486 passed the full host and API 35 gates; retain the earlier p99 failure/crash and passing repeats separately because the transient cause is unknown.
 
+## Retain Gradle test result XML in CI artifacts
+
+2026-10-27 B09: upload unit-test XML and connected AndroidTest XML/HTML with `if: always()` so a failed test remains diagnosable from the run artifact. Run #490 verified that the configured paths produce 865 unit-test and 20 instrumentation-test results; artifact retention itself does not change test scope or release status.
+
 2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
 
 2026-10-26 B03: validate generation, attachment and server identity together before accepting sessions or processing VPN revocation; keep ownership validation and the session start atomic under the service monitor. Serialize wired release/error callbacks with replacement and reject stale attempts.

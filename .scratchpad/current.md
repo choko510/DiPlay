@@ -8,12 +8,9 @@
 
 ## State
 
-- F8-01/02/03 production fixes and MAIN/ALT, RTSP-bound, and four-session regression tests are already in PR #45. Supported-iPhone compatibility remains `BLOCKED_DEVICE`.
-- DSP Split duplicate-log suppression, inset-before-scroll ordering, and exact MeasureSpecs passed to `ComposeView.measure()` are already present. The ComposeView dependency is final; SH-M27 acceptance remains `BLOCKED_DEVICE`.
-- Added the explicit F-05 regression for a target SYN after eight unrelated destination ports. Local shared/common suites pass 865/865; CI classifier fixtures and EX-08 tests pass, and inventory remains 1,400 unique rows.
-- Added VIDEO-02 release-failure injection and retained-owner regression; the default release delegates directly to `MediaCodec.release()`. Workflow-sensitive run #486 passed host/native/sanitizer/lint/build/JNI/R8/API 35; Shared was 19/19 and Common 1/1.
-- The implementation result, final summary, remaining-gate register, and test matrix record current-head evidence; `TEST_MATRIX.md` maps all 98 v4 case IDs. B09 is `PASS_CI`. Preserve the earlier API 35 p99 failure beside later passes; its cause remains unconfirmed. Local macOS LeakSanitizer is unavailable, while hosted Linux sanitizer passed.
-- TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
+- Workflow-sensitive run #490 passed all required host, sanitizer, build, JNI/R8 and API 35 jobs on PR #45. Retained reports confirm 865 unit tests (659 Shared + 206 Common) and 20 API 35 tests (19 Shared + 1 Common), all passing; code/test HEAD remains `52799604`.
+- F8-01/02/03, DSP Split measurement fixes and VIDEO-02 regression are recorded in `completed.md` and the Step4 result package. Preserve the earlier API 35 p99 failure beside later passes; its cause remains unconfirmed. Local macOS LeakSanitizer is unavailable, while hosted Linux sanitizer passed.
+- The test matrix maps all 98 v4 case IDs. TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
 
 ## Next
 

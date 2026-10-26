@@ -548,3 +548,5 @@ For a receive-path performance comparison, warm each mode, interleave the measur
 Treat performance instrumentation as a distribution gate: retain both passing and failing runs at the exact SHA, do not average away a p99 breach, and do not claim a Draft workflow passed jobs it skipped. On macOS, run Android tests directly when the helper's GNU `timeout` dependency is unavailable, then capture the required filtered logcat separately.
 
 2026-10-27 B09: an API 35 Shared p99 failure can be followed by a full 19/19 pass on the same code/test head without source changes. Preserve both; a repeat establishes the current run result, not the cause or stability of the earlier outlier.
+
+2026-10-27 B09: verify CI report artifacts by opening the uploaded ZIP and checking that expected JUnit XML files and suite counts are present; a passing job alone does not prove reports needed to diagnose future failures were retained. Run #490 confirmed 865 unit-test and 20 connected-instrumentation results were archived.

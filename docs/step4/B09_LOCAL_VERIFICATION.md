@@ -59,6 +59,14 @@ The local helper `scripts/run_android_instrumentation.sh` cannot complete its po
 - [Run #481](https://github.com/choko510/DiPlay/actions/runs/40366764979) passed the same full hosted gates on the preceding code/test head. The earlier API 35 Shared p99 failure/crash remains recorded separately from both passing repeats. No performance limit changed; the earlier outlier's cause is unconfirmed. Local macOS LeakSanitizer remains unavailable; hosted Linux sanitizer passed.
 - PR #45 remains Draft and run #486 reports `DRAFT_ONLY_NOT_RELEASE_READY`; TS10/K706+iPhone, signed update/rollback, and independent review gates remain open.
 
+## CI test-report artifact verification
+
+[Workflow-sensitive run #490](https://github.com/choko510/DiPlay/actions/runs/40377747090) on workflow/artifact HEAD `06e4fcf472677d34ae7878d2378e15b47b309aa9` passed `changes`, host/native/sanitizer/unit/lint/build/JNI/R8, API 35 instrumentation, `host-baseline`, and Draft scope. `quick-baseline` was skipped because the full host lane ran. Product code/test HEAD remains `52799604c5810ea97b2c7b5e685cf1c2155de773`.
+
+- `test-reports-check` contains 157 JUnit XML files: Shared 659 tests across 112 suites and Common 206 tests across 45 suites (865 total; zero failures, errors, or skipped tests). The artifact also contains the unit-test HTML reports.
+- `test-reports-android-instrumentation` contains the Shared 19/19 and Common 1/1 connected-test XML files (20 total; zero failures, errors, or skipped tests), both modules' AndroidTest HTML reports, and the DSP benchmark logcat capture.
+- The upload steps use `if: always()` so failed test runs should archive reports too; this successful run confirms the configured XML/report files are generated and included. It does not add TS10/K706+iPhone evidence or resolve the earlier p99 outlier.
+
 ## Acceptance boundary
 
 These host/emulator results do not prove TS10/K706 USB endpoint behavior, supported-iPhone RTSP compatibility, DSP acoustic quality, target CPU/memory/soak, release signing, update/rollback, or independent review. Keep those gates `BLOCKED_DEVICE`, `BLOCKED_ENV` or `NOT_RUN` as recorded in `REMAINING_GATES.md`.

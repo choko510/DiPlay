@@ -89,7 +89,7 @@ fun DspEqEditorPane(
                 rateDescription,
             ),
         )
-        AccessibleSlider("Preamp", profile.preampDb.toFloat(), -24f..12f, "dB") {
+        AccessibleSlider(stringResource(R.string.dsp_preamp), profile.preampDb.toFloat(), -24f..12f, "dB") {
             onProfileChange(profile.copy(preampDb = it.toDouble()))
         }
         EqResponseGraph(
@@ -105,8 +105,10 @@ fun DspEqEditorPane(
         profile.eqBands.forEachIndexed { index, band ->
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val bandTitle = stringResource(R.string.dsp_eq_band_title, index + 1)
+                    val enableDescription = stringResource(R.string.dsp_eq_band_enable, index + 1)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("PEQ band ${index + 1}", Modifier.weight(1f))
+                        Text(bandTitle, Modifier.weight(1f))
                         Switch(
                             checked = band.enabled,
                             onCheckedChange = { enabled ->
@@ -116,31 +118,43 @@ fun DspEqEditorPane(
                                     onProfileChange(profile.copy(eqBands = next))
                                 }
                             },
-                            modifier = Modifier.semantics { contentDescription = "Enable PEQ band ${index + 1}" },
+                            modifier = Modifier.semantics { contentDescription = enableDescription },
                         )
                     }
-                    TextButton(onClick = { onEditBandType(index) }) {
-                        Text("Type · ${band.type.name.replace('_', ' ')}")
+                    val filterTypeLabel = when (band.type) {
+                        DspEqType.PEAK -> R.string.dsp_eq_filter_peak
+                        DspEqType.LOW_SHELF -> R.string.dsp_eq_filter_low_shelf
+                        DspEqType.HIGH_SHELF -> R.string.dsp_eq_filter_high_shelf
+                        DspEqType.HIGH_PASS -> R.string.dsp_eq_filter_high_pass
+                        DspEqType.LOW_PASS -> R.string.dsp_eq_filter_low_pass
+                        DspEqType.NOTCH -> R.string.dsp_eq_filter_notch
+                        DspEqType.ALL_PASS -> R.string.dsp_eq_filter_all_pass
                     }
-                    AccessibleSlider("Band ${index + 1} frequency", band.frequencyHz.toFloat(), 20f..maxFrequencyHz, "Hz") {
+                    TextButton(onClick = { onEditBandType(index) }) {
+                        Text(stringResource(R.string.dsp_eq_filter_type_summary, stringResource(filterTypeLabel)))
+                    }
+                    val frequencyLabel = stringResource(R.string.dsp_eq_band_frequency, index + 1)
+                    AccessibleSlider(frequencyLabel, band.frequencyHz.toFloat(), 20f..maxFrequencyHz, "Hz") {
                         updateBand(profile, index, band.copy(frequencyHz = it.toDouble()), onProfileChange)
                     }
-                    NumericValueField("Band ${index + 1} frequency (Hz)", band.frequencyHz, 20.0..maxFrequencyHz.toDouble()) {
+                    NumericValueField(stringResource(R.string.dsp_eq_band_frequency_numeric, index + 1), band.frequencyHz, 20.0..maxFrequencyHz.toDouble()) {
                         updateBand(profile, index, band.copy(frequencyHz = it), onProfileChange)
                     }
                     if (band.type in setOf(DspEqType.PEAK, DspEqType.LOW_SHELF, DspEqType.HIGH_SHELF)) {
-                        AccessibleSlider("Band ${index + 1} gain", band.gainDb.toFloat(), -18f..18f, "dB") {
+                        val gainLabel = stringResource(R.string.dsp_eq_band_gain, index + 1)
+                        AccessibleSlider(gainLabel, band.gainDb.toFloat(), -18f..18f, "dB") {
                             updateBand(profile, index, band.copy(gainDb = it.toDouble()), onProfileChange)
                         }
-                        NumericValueField("Band ${index + 1} gain (dB)", band.gainDb, -18.0..18.0) {
+                        NumericValueField(stringResource(R.string.dsp_eq_band_gain_numeric, index + 1), band.gainDb, -18.0..18.0) {
                             updateBand(profile, index, band.copy(gainDb = it), onProfileChange)
                         }
                     }
                     if (band.type in setOf(DspEqType.PEAK, DspEqType.HIGH_PASS, DspEqType.LOW_PASS, DspEqType.NOTCH)) {
-                        AccessibleSlider("Band ${index + 1} Q", band.q.toFloat(), 0.1f..20f, "Q") {
+                        val qLabel = stringResource(R.string.dsp_eq_band_q, index + 1)
+                        AccessibleSlider(qLabel, band.q.toFloat(), 0.1f..20f, "Q") {
                             updateBand(profile, index, band.copy(q = it.toDouble()), onProfileChange)
                         }
-                        NumericValueField("Band ${index + 1} Q", band.q, 0.1..20.0) {
+                        NumericValueField(qLabel, band.q, 0.1..20.0) {
                             updateBand(profile, index, band.copy(q = it), onProfileChange)
                         }
                     }
@@ -299,6 +313,7 @@ private fun EqResponseGraph(
     val currentOnBandEdit by rememberUpdatedState(onBandEdit)
     val currentEditableBandCount by rememberUpdatedState(editableBandCount)
     val currentSelectedBandIndex by rememberUpdatedState(selectedBandIndex)
+    val graphDescription = stringResource(R.string.dsp_eq_graph_description)
     val hitRadiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 32.dp.toPx() }
     val graphInputModifier = Modifier
         .pointerInput(sampleRateHz, hitRadiusPx) {
@@ -331,7 +346,7 @@ private fun EqResponseGraph(
             }
         }
     Canvas(modifier.then(graphInputModifier).semantics {
-        contentDescription = "Equalizer frequency response graph. Tap or drag a band handle to edit frequency and gain."
+        contentDescription = graphDescription
     }) {
         val lowDb = -18f
         val highDb = 18f
@@ -442,6 +457,7 @@ private fun NumericValueField(
     onChange: (Double) -> Unit,
 ) {
     val decimalSeparator = DecimalFormatSymbols.getInstance().decimalSeparator
+    val toggleSignDescription = stringResource(R.string.dsp_eq_toggle_sign, label)
     var text by remember(label) { mutableStateOf(formatEqNumericValue(value, decimalSeparator)) }
     var focused by remember(label) { mutableStateOf(false) }
     LaunchedEffect(value, focused) {
@@ -463,7 +479,7 @@ private fun NumericValueField(
                         text = formatEqNumericValue(next, decimalSeparator)
                         onChange(next)
                     },
-                    modifier = Modifier.semantics { contentDescription = "Toggle sign for $label" },
+                    modifier = Modifier.semantics { contentDescription = toggleSignDescription },
                 ) { Text("±") }
             }
         } else null,

@@ -681,3 +681,5 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 2026-10-26 B04: keep the existing F8 source fixes and add state-path regressions through actual `AirPlaySession` SETUP/RECORD handling. A control socket close after accepted MAIN/ALT SETUP and before RECORD is a recovery trigger; after RECORD it ends only the active session. Retain bounded four-session permits and verify release/reuse.
 
 The decoder-retirement test must keep its stop gate closed until the assertion completes even though `VideoDecoder.close()` interrupts the worker to wake its queue. The test hook absorbs that expected interrupt while waiting, then restores the thread interrupt flag after explicit release.
+
+2026-10-26 B05: bound TextureView surface ownership at the generation boundary, where new Surface wrappers can still be deferred safely. Count pending retirements plus the current Surface against an eight-pair ceiling; keep only the newest deferred Texture and resume it after ACKs. Retire same-Texture Surface wrappers only after decoder ACK and release the Texture only after its destroyed generation's owners complete.

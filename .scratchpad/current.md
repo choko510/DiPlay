@@ -18,10 +18,11 @@
 - DSP Split compares primitive constraints and ComposeView specs before allocating signatures/log strings, caps diagnostic log output at 64 entries per process, and applies inset padding before scrolling. The existing pane records the exact MeasureSpecs passed to `ComposeView.measure()`; direct `onMeasure()` override is unavailable because `ComposeView` is final. SH-M27 acceptance remains `BLOCKED_DEVICE`.
 - B02 tests pass locally: full common + shared suites 825/825; focused shared NCM bridge fixture 42/42; focused common DSP diagnostics 3/3. Hosted #450 passes the Draft unit lane. Added NDP-cycle recovery, sequence-wrap recovery, 10,000 one-byte completions, and cancellation-failure teardown coverage. Physical USB endpoint and supported-device behavior remain `BLOCKED_DEVICE`.
 - B03 commit `9f499afb` closes stale listener/session ownership races; hosted run #455 passed. B04 test commits `aaedf0e5` and `2070b215` cover actual MAIN/ALT SETUP→pre-RECORD close recovery, post-RECORD close semantics, RTSP size/fragmentation including the production 4 MiB+1 rejection, and four-session permit return/reuse. Current full shared/common result: 845/845, zero failures/errors/skips. Target iPhone traffic and SH-M27 rendering remain `BLOCKED_DEVICE`.
+- B05 code commit `ae63a36566871e1197cf9c736c411307aa0bbef7` bounds active/retiring Surface generations to eight, reserves the live generation, and defers only the newest Texture under ACK pressure. A pre-fix 10,000-notice probe reproduced unbounded retention at `d274435`. Gate tests cover 1/100/1,000/10,000 churn, duplicate destroy, MAIN/ALT ACK, and same-Texture replacement without early Texture release. Full common/shared suites at exact B05 SHA pass 849/849, zero failures/errors/skips; hosted CI pending.
 - User-supplied SH M20 + iPhone 17 Pro Max/iOS 27.0.1 report is `PARTIAL`, outside TS10/K706 target scope. Release signing credentials remain unavailable.
 
 ## Next actions
 
-1. Record B04 local and hosted results on their exact SHAs; keep supported-device F8 and DSP Split checks `BLOCKED_DEVICE`.
-2. Continue B05–B08 evidence-first; run B09 on one exact source SHA and prepare B10/B11/B12 gates/artifacts.
+1. Push B05 code/evidence commits to PR #45 and record the hosted Draft run, including every skipped job.
+2. Continue B06–B08 evidence-first; run B09 on one exact source SHA and prepare B10/B11/B12 gates/artifacts.
 3. Keep API 35/full-host/JNI, target hardware, signing/rollback, acoustic/performance and release checks explicitly `NOT_RUN`, `BLOCKED_*`, or `NO_GO_THIS_RUN` until measured.

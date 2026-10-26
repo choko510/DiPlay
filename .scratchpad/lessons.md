@@ -528,3 +528,5 @@ When a test latch runs inside a worker that is deliberately interrupted during s
 For wired startup, state-helper tests do not prove callback routing: exercise the real AirPlay session listener with MAIN and ALT SETUP, then close the control socket before RECORD and assert the active attempt requests recovery. Also verify RECORD closure follows the normal active-session end path.
 
 For semaphore-limited socket handlers, test both rejection at capacity and permit return after session close/detach; a cap-only test misses leaked permits that prevent later valid reconnects.
+
+For Surface churn, gate new Surface creation before handing a wrapper to decoder workers. Include the current live Surface in the outstanding budget, keep one latest generation pending, and never release a Surface or Texture until its specific decoder ownership ACKs have completed.

@@ -30,6 +30,7 @@ class DspEqEditorGraphTest {
             MaterialTheme {
                 DspEqEditorPane(
                     profile = profile.value,
+                    sampleRateHz = 48_000,
                     onProfileChange = {
                         callbackProfile.value = it
                         profile.value = it
@@ -74,6 +75,7 @@ class DspEqEditorGraphTest {
             MaterialTheme {
                 DspEqEditorPane(
                     profile = profile.value,
+                    sampleRateHz = 48_000,
                     onProfileChange = {
                         callbackProfile.value = it
                         profile.value = it

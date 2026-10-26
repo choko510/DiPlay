@@ -519,6 +519,12 @@ For repeated UI diagnostics, a string-based dedupe API still allocates the candi
 
 Keep log-volume limits separate from bounded recent-history storage: an evicted signature can otherwise be emitted again indefinitely. A process-wide emission counter provides a hard cap while retaining the rolling history for diagnostics.
 
+CI evidence tests should assert the meaning of a historical status record rather than an exact phrase that later becomes stale. Keep the run SHA and skipped job scope explicit when updating those records.
+
 2026-10-26: A successful docs-only workflow run validates only its static checks. Record the workflow HEAD and each job/step's `success`, `failure`, or `skipped` result separately from the last passing source-test SHA; also exercise representative production paths through the current classifier.
 
 When a test latch runs inside a worker that is deliberately interrupted during shutdown, `await()` can throw before the test releases the gate. Make the test gate interruption-tolerant and rely on explicit cleanup to release it; allow enough time for a separately scheduled assertion thread to run in CI.
+
+For wired startup, state-helper tests do not prove callback routing: exercise the real AirPlay session listener with MAIN and ALT SETUP, then close the control socket before RECORD and assert the active attempt requests recovery. Also verify RECORD closure follows the normal active-session end path.
+
+For semaphore-limited socket handlers, test both rejection at capacity and permit return after session close/detach; a cap-only test misses leaked permits that prevent later valid reconnects.

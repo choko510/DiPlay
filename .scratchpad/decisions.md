@@ -676,4 +676,8 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
 
+2026-10-26 B03: validate generation, attachment and server identity together before accepting sessions or processing VPN revocation; keep ownership validation and the session start atomic under the service monitor. Serialize wired release/error callbacks with replacement and reject stale attempts.
+
+2026-10-26 B04: keep the existing F8 source fixes and add state-path regressions through actual `AirPlaySession` SETUP/RECORD handling. A control socket close after accepted MAIN/ALT SETUP and before RECORD is a recovery trigger; after RECORD it ends only the active session. Retain bounded four-session permits and verify release/reuse.
+
 The decoder-retirement test must keep its stop gate closed until the assertion completes even though `VideoDecoder.close()` interrupts the worker to wake its queue. The test hook absorbs that expected interrupt while waiting, then restores the thread interrupt flag after explicit release.

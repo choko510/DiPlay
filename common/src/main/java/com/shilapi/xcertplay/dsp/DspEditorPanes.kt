@@ -89,7 +89,7 @@ fun DspEqEditorPane(
                 rateDescription,
             ),
         )
-        AccessibleSlider("Preamp", profile.preampDb.toFloat(), -24f..12f, "dB") {
+        AccessibleSlider(stringResource(R.string.dsp_preamp), profile.preampDb.toFloat(), -24f..12f, "dB") {
             onProfileChange(profile.copy(preampDb = it.toDouble()))
         }
         EqResponseGraph(

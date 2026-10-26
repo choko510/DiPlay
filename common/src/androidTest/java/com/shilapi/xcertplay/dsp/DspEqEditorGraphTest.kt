@@ -46,6 +46,7 @@ class DspEqEditorGraphTest {
         val graph = composeRule.onNodeWithContentDescription(
             context.getString(R.string.dsp_eq_graph_description),
         )
+        composeRule.onNodeWithContentDescription(context.getString(R.string.dsp_preamp)).assertExists()
         composeRule.onNodeWithContentDescription(context.getString(R.string.dsp_eq_band_enable, 1)).assertExists()
         composeRule.onNodeWithContentDescription(context.getString(R.string.dsp_eq_band_frequency, 1)).assertExists()
         composeRule.onNodeWithContentDescription(context.getString(R.string.dsp_eq_band_gain, 1)).assertExists()

@@ -41,6 +41,114 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun studioFeatureFlagsPersistWithSafeDefaultsForUnimplementedWarmPaths() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+
+        val defaults = DspStudioFeatureFlags.load(preferences)
+        assertTrue(defaults.workspaceUiEnabled)
+        assertTrue(defaults.macroOverlayEnabled)
+        assertTrue(defaults.smartLoudnessEnabled)
+        assertTrue(defaults.dynamicBassEnabled)
+        assertTrue(defaults.nativeHotUpdatesEnabled)
+        assertFalse(defaults.localWarmEnabled)
+        assertFalse(defaults.irWarmBudgetEnabled)
+
+        val persisted = defaults.copy(macroOverlayEnabled = false, nativeHotUpdatesEnabled = false)
+        preferences.edit().also(persisted::writeTo).commit()
+
+        assertEquals(persisted, DspStudioFeatureFlags.load(preferences))
+        preferences.edit().clear().commit()
+    }
+
+    @Test
+    fun disablingEnhancedStagesRollsBackAudioAndReenableLeavesDraftUncommitted() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+        val profile = DspProfilePresets.find("flat")!!
+        val committedWorkspace = DspStudioWorkspace(
+            profileSourceId = profile.id,
+            baseProfileSnapshot = profile,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 100),
+            smartLoudness = DspSmartLoudnessSettings(mode = DspSmartLoudnessMode.FIXED),
+            dynamicBass = DspDynamicBassSettings(enabled = true),
+        )
+        assertEquals(DspWorkspaceSaveResult.SAVED, DspStudioWorkspaceRepository(context.filesDir).save(committedWorkspace))
+        val savedContents = workspaceFile.readText()
+        preferences.edit()
+            .putBoolean(KEY_DSP_ENABLED, true)
+            .putString(KEY_SELECTED_PROFILE_ID, profile.id)
+            .commit()
+        val runtime = DspProfileRuntime.get(context)
+
+        try {
+            val session = runtime.createStudioSessionCoordinator()
+            session.edit { it.copy(macros = it.macros.copy(bassImpact = 0)) }
+            val previewResult = AtomicReference<Boolean?>()
+            val previewComplete = CountDownLatch(1)
+            runtime.previewStudioWorkspaceAsync(session.preview, enabled = true) {
+                previewResult.set(it)
+                previewComplete.countDown()
+            }
+            drainMainLooperUntil(previewComplete)
+            assertEquals(true, previewResult.get())
+            assertEquals(-2.0, runtime.configProvider.snapshot().macroTone.bassGainDb, 0.0)
+
+            val disabled = runtime.currentStudioFeatureFlags().copy(
+                macroOverlayEnabled = false,
+                smartLoudnessEnabled = false,
+                dynamicBassEnabled = false,
+                nativeHotUpdatesEnabled = false,
+            )
+            val disableResult = AtomicReference<Boolean?>()
+            val disableComplete = CountDownLatch(1)
+            runtime.updateStudioFeatureFlagsAsync(disabled) {
+                disableResult.set(it)
+                disableComplete.countDown()
+            }
+            drainMainLooperUntil(disableComplete)
+            assertEquals(true, disableResult.get())
+            assertFalse(runtime.configProvider.snapshot().macroTone.enabled)
+            assertFalse(runtime.configProvider.snapshot().smartLoudness.enabled)
+            assertFalse(runtime.configProvider.snapshot().dynamicBass.enabled)
+            assertFalse(runtime.configProvider.studioHotUpdatesEnabled())
+
+            val reenabled = disabled.copy(
+                macroOverlayEnabled = true,
+                smartLoudnessEnabled = true,
+                dynamicBassEnabled = true,
+                nativeHotUpdatesEnabled = true,
+            )
+            val enableResult = AtomicReference<Boolean?>()
+            val enableComplete = CountDownLatch(1)
+            runtime.updateStudioFeatureFlagsAsync(reenabled) {
+                enableResult.set(it)
+                enableComplete.countDown()
+            }
+            drainMainLooperUntil(enableComplete)
+
+            assertEquals(true, enableResult.get())
+            assertEquals(4.0, runtime.configProvider.snapshot().macroTone.bassGainDb, 0.0)
+            assertTrue(runtime.configProvider.snapshot().smartLoudness.enabled)
+            assertTrue(runtime.configProvider.snapshot().dynamicBass.enabled)
+            assertTrue(runtime.configProvider.studioHotUpdatesEnabled())
+            assertEquals(0, session.preview.macros.bassImpact)
+            assertTrue(session.isDirty)
+            assertEquals(savedContents, workspaceFile.readText())
+            assertEquals(reenabled, DspStudioFeatureFlags.load(preferences))
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
     fun globalMasterPreferenceEnablesLegacyDisabledCustomProfileAfterRuntimeRecreation() {
         val context: Application = RuntimeEnvironment.getApplication()
         val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)

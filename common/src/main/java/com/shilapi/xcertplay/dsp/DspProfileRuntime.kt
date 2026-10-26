@@ -32,6 +32,7 @@ internal class DspProfileRuntime private constructor(
     private val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
     private val modulePresetRepository = DspModulePresetRepository(filesDirectory)
     private val impulseRepository = DspImpulseResponseRepository(filesDirectory)
+    private val studioFeatureFlags = AtomicReference(DspStudioFeatureFlags.load(preferences))
     private val impulseCache = ConcurrentHashMap<String, DspImpulseResponse>()
     private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "dsp-profile-io").apply { isDaemon = true }
@@ -75,6 +76,7 @@ internal class DspProfileRuntime private constructor(
         dspEnabled = AtomicBoolean(initialEnabled)
         playbackVolumeMonitor.start()
         volumeSource.set(playbackVolumeMonitor)
+        runtimeConfig.setStudioHotUpdatesEnabled(studioFeatureFlags.get().nativeHotUpdatesEnabled)
         cachedVolumeReading.set(readVolumeSource())
         runtimeConfig.update(resolveStudioWorkspace(initialWorkspace, initialEnabled, impulseResponseFor(initialWorkspace.baseProfileSnapshot)))
     }
@@ -86,6 +88,56 @@ internal class DspProfileRuntime private constructor(
     fun activePlaybackSampleRateHz(): Int? = runtimeConfig.activePlaybackSampleRateHz()
 
     fun createStudioSessionCoordinator(): DspStudioSessionCoordinator = studioSessionCoordinator
+
+    fun currentStudioFeatureFlags(): DspStudioFeatureFlags = studioFeatureFlags.get()
+
+    fun updateStudioFeatureFlagsAsync(
+        flags: DspStudioFeatureFlags,
+        onComplete: (Boolean) -> Unit,
+    ) {
+        if (flags.localWarmEnabled || flags.irWarmBudgetEnabled) {
+            Handler(Looper.getMainLooper()).post { onComplete(false) }
+            return
+        }
+        val previousFlags = studioFeatureFlags.get()
+        val audioFeaturesChanged = previousFlags.macroOverlayEnabled != flags.macroOverlayEnabled ||
+            previousFlags.smartLoudnessEnabled != flags.smartLoudnessEnabled ||
+            previousFlags.dynamicBassEnabled != flags.dynamicBassEnabled
+        val generation = if (audioFeaturesChanged) {
+            studioApplyGeneration.incrementAndGet()
+        } else {
+            studioApplyGeneration.get()
+        }
+        ioExecutor.execute {
+            val previous = previousFlags
+            val enablingAudioFeature = (!previous.macroOverlayEnabled && flags.macroOverlayEnabled) ||
+                (!previous.smartLoudnessEnabled && flags.smartLoudnessEnabled) ||
+                (!previous.dynamicBassEnabled && flags.dynamicBassEnabled)
+            val workspace = if (enablingAudioFeature) {
+                committedStudioWorkspace.get().deepCopy()
+            } else {
+                activeStudioWorkspace.get().deepCopy()
+            }
+            val applied = if (generation != studioApplyGeneration.get()) {
+                false
+            } else {
+                studioFeatureFlags.set(flags)
+                runtimeConfig.setStudioHotUpdatesEnabled(flags.nativeHotUpdatesEnabled)
+                val runtimeApplied = !audioFeaturesChanged || runCatching {
+                    applyStudioWorkspace(workspace, dspEnabled.get(), impulseResponseFor(workspace.baseProfileSnapshot))
+                }.getOrDefault(false)
+                if (!runtimeApplied && studioApplyGeneration.get() == generation) {
+                    studioFeatureFlags.set(previous)
+                    runtimeConfig.setStudioHotUpdatesEnabled(previous.nativeHotUpdatesEnabled)
+                }
+                runtimeApplied && studioApplyGeneration.get() == generation
+            }
+            if (applied) {
+                preferences.edit().also(flags::writeTo).apply()
+            }
+            Handler(Looper.getMainLooper()).post { onComplete(applied) }
+        }
+    }
 
     fun applyStudioModulePreset(workspace: DspStudioWorkspace, preset: DspModulePreset): DspStudioWorkspace? =
         modulePresetRepository.applyTo(workspace, preset)
@@ -365,15 +417,18 @@ internal class DspProfileRuntime private constructor(
         workspace: DspStudioWorkspace,
         enabled: Boolean,
         impulse: DspImpulseResponse?,
-    ): DspRuntimeConfig = DspTuningResolver.resolve(
-        profile = workspace.baseProfileSnapshot,
-        masterEnabled = enabled,
-        macros = workspace.macros,
-        loudness = workspace.smartLoudness,
-        volumeReading = cachedVolumeReading.get(),
-        dynamicBass = workspace.dynamicBass,
-        impulseResponse = impulse,
-    ).runtimeConfig
+    ): DspRuntimeConfig {
+        val flags = studioFeatureFlags.get()
+        return DspTuningResolver.resolve(
+            profile = workspace.baseProfileSnapshot,
+            masterEnabled = enabled,
+            macros = if (flags.macroOverlayEnabled) workspace.macros else DspSoundMacroSettings(),
+            loudness = if (flags.smartLoudnessEnabled) workspace.smartLoudness else DspSmartLoudnessSettings(),
+            volumeReading = cachedVolumeReading.get(),
+            dynamicBass = if (flags.dynamicBassEnabled) workspace.dynamicBass else DspDynamicBassSettings(),
+            impulseResponse = impulse,
+        ).runtimeConfig
+    }
 
     private fun readVolumeSource(): DspVolumeReading = try {
         volumeSource.get().read()

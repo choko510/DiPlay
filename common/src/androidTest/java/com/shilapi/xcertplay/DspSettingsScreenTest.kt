@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -12,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
@@ -87,7 +89,28 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithText("Bass Impact").assertExists()
             composeRule.onNodeWithContentDescription("Macro Power").performClick()
             assertMacroPowerEnabled(expectedMacroPowerEnabled)
-            assertEquals("draft edits must not reach runtime before Preview", initialConfig, runtime.configProvider.snapshot())
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.configProvider.snapshot().macroTone.enabled == expectedMacroPowerEnabled
+            }
+            val beforeDrag = runtime.configProvider.snapshot()
+            composeRule.onNodeWithContentDescription("Bass Impact")
+                .performScrollTo()
+                .performSemanticsAction(SemanticsActions.SetProgress) { setProgress -> setProgress(80f) }
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.configProvider.snapshot().macroTone.bassGainDb > beforeDrag.macroTone.bassGainDb
+            }
+            composeRule.onNodeWithText("Undo").performScrollTo().assertIsEnabled().performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.configProvider.snapshot().macroTone.bassGainDb == beforeDrag.macroTone.bassGainDb
+            }
+            configStore.reportRendererApplyStatus(
+                DspRendererApplyStatus(
+                    generation = runtime.configProvider.versionedSnapshot().generation,
+                    phase = DspRendererApplyPhase.DEFERRED,
+                    activeGeneration = 0L,
+                    reason = deferredReason,
+                ),
+            )
 
             presentation.value = DspPresentationMode.FULL
             composeRule.waitForIdle()

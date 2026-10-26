@@ -39,6 +39,7 @@ internal fun DspMacroStudio(
     settings: DspSoundMacroSettings,
     enabled: Boolean = true,
     onSettingsChange: (DspSoundMacroSettings) -> Unit,
+    onSettingsChangeFinished: () -> Unit = {},
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -62,23 +63,26 @@ internal fun DspMacroStudio(
                 Switch(
                     checked = settings.enabled,
                     enabled = enabled,
-                    onCheckedChange = { onSettingsChange(settings.copy(enabled = it)) },
+                    onCheckedChange = {
+                        onSettingsChange(settings.copy(enabled = it))
+                        onSettingsChangeFinished()
+                    },
                     modifier = Modifier.semantics {
                         contentDescription = "Macro Power"
                         stateDescription = if (settings.enabled) "On" else "Off"
                     },
                 )
             }
-            MacroSlider("Bass Impact", settings.bassImpact, enabled) {
+            MacroSlider("Bass Impact", settings.bassImpact, enabled, onSettingsChangeFinished) {
                 onSettingsChange(updateDspMacro(settings, DspMacroControl.BASS_IMPACT, it))
             }
-            MacroSlider("Vocal Presence", settings.vocalPresence, enabled) {
+            MacroSlider("Vocal Presence", settings.vocalPresence, enabled, onSettingsChangeFinished) {
                 onSettingsChange(updateDspMacro(settings, DspMacroControl.VOCAL_PRESENCE, it))
             }
-            MacroSlider("Air Detail", settings.airDetail, enabled) {
+            MacroSlider("Air Detail", settings.airDetail, enabled, onSettingsChangeFinished) {
                 onSettingsChange(updateDspMacro(settings, DspMacroControl.AIR_DETAIL, it))
             }
-            MacroSlider("Soundstage Width", settings.soundstageWidth, enabled) {
+            MacroSlider("Soundstage Width", settings.soundstageWidth, enabled, onSettingsChangeFinished) {
                 onSettingsChange(updateDspMacro(settings, DspMacroControl.SOUNDSTAGE_WIDTH, it))
             }
         }
@@ -86,7 +90,13 @@ internal fun DspMacroStudio(
 }
 
 @Composable
-private fun MacroSlider(label: String, value: Int, enabled: Boolean, onValueChange: (Int) -> Unit) {
+private fun MacroSlider(
+    label: String,
+    value: Int,
+    enabled: Boolean,
+    onValueChangeFinished: () -> Unit,
+    onValueChange: (Int) -> Unit,
+) {
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -98,6 +108,7 @@ private fun MacroSlider(label: String, value: Int, enabled: Boolean, onValueChan
         Slider(
             value = value.toFloat(),
             onValueChange = { onValueChange(it.toInt().coerceIn(0, 100)) },
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = 0f..100f,
             steps = 99,
             enabled = enabled,

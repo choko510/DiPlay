@@ -1,0 +1,25 @@
+<resources>
+    <string name="dsp_studio_workspace_disabled">DSP Studio のワークスペース操作は無効です。既存のプロファイル操作は引き続き使えます。</string>
+    <string name="dsp_macro_overlay_disabled">Macro overlay は無効です。保存済みの値は保持されます。</string>
+    <string name="dsp_smart_loudness_disabled">Smart Loudness は無効です。保存済みの設定は保持されます。</string>
+    <string name="dsp_dynamic_bass_disabled">Dynamic Bass は無効です。保存済みの設定は保持されます。</string>
+    <string name="dsp_rollout_title">DSP 機能の公開設定</string>
+    <string name="dsp_rollout_description">設定はこの端末に保存されます。音声機能を再度有効にすると保存済みワークスペースを適用します。未保存の編集内容は下書きに残ります。</string>
+    <string name="dsp_rollout_workspace_ui">Studio ワークスペース操作</string>
+    <string name="dsp_rollout_workspace_ui_description">Macro とモジュールプリセットの操作を表示します。</string>
+    <string name="dsp_rollout_macro_overlay">Macro overlay</string>
+    <string name="dsp_rollout_macro_overlay_description">保存済みのサウンド Macro 設定を再生へ適用します。</string>
+    <string name="dsp_rollout_smart_loudness">Smart Loudness</string>
+    <string name="dsp_rollout_smart_loudness_description">保存済みの Smart Loudness 設定を適用します。信頼できるルート情報を確認するまで AUTO は利用できません。</string>
+    <string name="dsp_rollout_dynamic_bass">Dynamic Bass</string>
+    <string name="dsp_rollout_dynamic_bass_description">保存済みの Dynamic Bass 設定を再生へ適用します。</string>
+    <string name="dsp_rollout_native_hot">Native HOT 更新</string>
+    <string name="dsp_rollout_native_hot_description">MEDIA 再生中に対応する Macro、Loudness、Bass の変更を適用します。</string>
+    <string name="dsp_rollout_local_warm">ステージ単位の Warm-up</string>
+    <string name="dsp_rollout_local_warm_unavailable">未実装のため利用できません。対応するまで無効のままです。</string>
+    <string name="dsp_rollout_ir_warm">IR Warm-up と予算</string>
+    <string name="dsp_rollout_ir_warm_unavailable">IR の Warm 切替は未実装のため利用できません。無効のままです。</string>
+    <string name="dsp_rollout_disable_all">拡張 DSP を無効化</string>
+    <string name="dsp_rollout_restore_saved">保存済みプロファイルを復元</string>
+    <string name="dsp_rollout_update_failed">機能設定を適用できませんでした</string>
+</resources>

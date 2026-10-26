@@ -56,11 +56,13 @@ class DspRuntimeConfig(
         dynamicBass = dynamicBass,
     )
 
-    internal fun canApplyStudioHotUpdateTo(other: DspRuntimeConfig): Boolean = enabled && other.enabled &&
-        DspUpdatePlanner.diff(this, other).all {
+    internal fun canApplyStudioHotUpdateTo(other: DspRuntimeConfig): Boolean {
+        val changed = DspUpdatePlanner.diff(this, other)
+        return enabled && other.enabled && changed.isNotEmpty() && changed.all {
             it == DspRuntimeField.MACRO_TONE || it == DspRuntimeField.SMART_LOUDNESS ||
                 it == DspRuntimeField.DYNAMIC_BASS
         }
+    }
 
     init {
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)

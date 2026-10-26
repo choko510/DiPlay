@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.dsp
 
+import android.content.SharedPreferences
+
 data class DspSoundMacroSettings(
     val enabled: Boolean = false,
     val bassImpact: Int = 50,
@@ -125,12 +127,77 @@ data class DspStudioWorkspace(
     }
 }
 
-internal object DspStudioFeatureFlags {
-    const val UI_ENABLED = false
-    const val MACRO_OVERLAY_ENABLED = false
-    const val HOT_UPDATES_ENABLED = false
-    const val SMART_LOUDNESS_ENABLED = false
-    const val DYNAMIC_BASS_V2_ENABLED = false
-    const val LIVE_LATENCY_BUDGET_ENABLED = false
-    const val IR_WARM_SWITCH_ENABLED = false
+internal enum class DspStudioFeature {
+    WORKSPACE_UI,
+    MACRO_OVERLAY,
+    SMART_LOUDNESS,
+    DYNAMIC_BASS,
+    NATIVE_HOT_UPDATES,
+    LOCAL_WARM,
+    IR_WARM_BUDGET,
+}
+
+internal data class DspStudioFeatureFlags(
+    val workspaceUiEnabled: Boolean = true,
+    val macroOverlayEnabled: Boolean = true,
+    val smartLoudnessEnabled: Boolean = true,
+    val dynamicBassEnabled: Boolean = true,
+    val nativeHotUpdatesEnabled: Boolean = true,
+    val localWarmEnabled: Boolean = false,
+    val irWarmBudgetEnabled: Boolean = false,
+) {
+    fun isEnabled(feature: DspStudioFeature): Boolean = when (feature) {
+        DspStudioFeature.WORKSPACE_UI -> workspaceUiEnabled
+        DspStudioFeature.MACRO_OVERLAY -> macroOverlayEnabled
+        DspStudioFeature.SMART_LOUDNESS -> smartLoudnessEnabled
+        DspStudioFeature.DYNAMIC_BASS -> dynamicBassEnabled
+        DspStudioFeature.NATIVE_HOT_UPDATES -> nativeHotUpdatesEnabled
+        DspStudioFeature.LOCAL_WARM -> localWarmEnabled
+        DspStudioFeature.IR_WARM_BUDGET -> irWarmBudgetEnabled
+    }
+
+    fun withEnabled(feature: DspStudioFeature, enabled: Boolean): DspStudioFeatureFlags = when (feature) {
+        DspStudioFeature.WORKSPACE_UI -> copy(workspaceUiEnabled = enabled)
+        DspStudioFeature.MACRO_OVERLAY -> copy(macroOverlayEnabled = enabled)
+        DspStudioFeature.SMART_LOUDNESS -> copy(smartLoudnessEnabled = enabled)
+        DspStudioFeature.DYNAMIC_BASS -> copy(dynamicBassEnabled = enabled)
+        DspStudioFeature.NATIVE_HOT_UPDATES -> copy(nativeHotUpdatesEnabled = enabled)
+        DspStudioFeature.LOCAL_WARM -> copy(localWarmEnabled = enabled)
+        DspStudioFeature.IR_WARM_BUDGET -> copy(irWarmBudgetEnabled = enabled)
+    }
+
+    internal fun writeTo(editor: SharedPreferences.Editor) {
+        editor.putBoolean(KEY_WORKSPACE_UI, workspaceUiEnabled)
+            .putBoolean(KEY_MACRO_OVERLAY, macroOverlayEnabled)
+            .putBoolean(KEY_SMART_LOUDNESS, smartLoudnessEnabled)
+            .putBoolean(KEY_DYNAMIC_BASS, dynamicBassEnabled)
+            .putBoolean(KEY_NATIVE_HOT_UPDATES, nativeHotUpdatesEnabled)
+            .putBoolean(KEY_LOCAL_WARM, localWarmEnabled)
+            .putBoolean(KEY_IR_WARM_BUDGET, irWarmBudgetEnabled)
+    }
+
+    companion object {
+        private const val KEY_WORKSPACE_UI = "dsp_studio_flag_workspace_ui"
+        private const val KEY_MACRO_OVERLAY = "dsp_studio_flag_macro_overlay"
+        private const val KEY_SMART_LOUDNESS = "dsp_studio_flag_smart_loudness"
+        private const val KEY_DYNAMIC_BASS = "dsp_studio_flag_dynamic_bass"
+        private const val KEY_NATIVE_HOT_UPDATES = "dsp_studio_flag_native_hot_updates"
+        private const val KEY_LOCAL_WARM = "dsp_studio_flag_local_warm"
+        private const val KEY_IR_WARM_BUDGET = "dsp_studio_flag_ir_warm_budget"
+
+        fun load(preferences: SharedPreferences): DspStudioFeatureFlags {
+            fun read(key: String, defaultValue: Boolean): Boolean =
+                runCatching { preferences.getBoolean(key, defaultValue) }.getOrDefault(defaultValue)
+
+            return DspStudioFeatureFlags(
+                workspaceUiEnabled = read(KEY_WORKSPACE_UI, true),
+                macroOverlayEnabled = read(KEY_MACRO_OVERLAY, true),
+                smartLoudnessEnabled = read(KEY_SMART_LOUDNESS, true),
+                dynamicBassEnabled = read(KEY_DYNAMIC_BASS, true),
+                nativeHotUpdatesEnabled = read(KEY_NATIVE_HOT_UPDATES, true),
+                localWarmEnabled = read(KEY_LOCAL_WARM, false),
+                irWarmBudgetEnabled = read(KEY_IR_WARM_BUDGET, false),
+            )
+        }
+    }
 }

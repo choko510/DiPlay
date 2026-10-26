@@ -1,6 +1,6 @@
 # DSP Studio target-hardware runbook
 
-Use this runbook on a TS10/K706 head unit and the supported iPhone/CarPlay combination. It is a procedure only; no results are recorded here. Do not mark a gate PASS until the collected evidence has been reviewed against the missing detailed specification or an approved acceptance threshold.
+Use this runbook on a TS10/K706 head unit and the supported iPhone/CarPlay combination. It is a procedure only; no results are recorded here. Do not mark a gate PASS until the collected evidence has been reviewed against [the remediation specification](REMEDIATION_SPEC.md) or an approved acceptance threshold.
 
 ## 1. Build and install
 

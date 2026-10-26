@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.media.dsp
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DspUpdatePlannerTest {
@@ -30,6 +32,21 @@ class DspUpdatePlannerTest {
             DspUpdatePlan.DEFERRED,
             DspUpdatePlanner.classify(current, target, true, true, 0, 0, true, mediaRole = false),
         )
+        assertTrue(current.canApplyStudioHotUpdateTo(target))
+        assertFalse(current.canApplyStudioHotUpdateTo(current))
+    }
+
+    @Test
+    fun preampChangesWaitForANewTrackUntilNativeRampingIsAvailable() {
+        val current = DspRuntimeConfig(enabled = true, gainDb = 0.0)
+        val target = DspRuntimeConfig(enabled = true, gainDb = -3.0)
+
+        assertEquals(setOf(DspRuntimeField.PREAMP), DspUpdatePlanner.diff(current, target))
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, target, true, true, 0, 0, true),
+        )
+        assertFalse(current.canApplyStudioHotUpdateTo(target))
     }
 
     @Test

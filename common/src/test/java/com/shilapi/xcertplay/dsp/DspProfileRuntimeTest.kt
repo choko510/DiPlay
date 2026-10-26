@@ -373,6 +373,73 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun runtimeRecreationRestoresPersistedWorkspaceAndDiscardsPreviewDraft() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-studio-process-recreation-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_studio_process_recreation_test"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val profile = DspProfilePresets.find("flat")!!
+        val persistedWorkspace = DspStudioWorkspace(
+            profileSourceId = profile.id,
+            baseProfileSnapshot = profile,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 67),
+        )
+        val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+        assertEquals(DspWorkspaceSaveResult.SAVED, workspaceRepository.save(persistedWorkspace))
+        val workspaceFile = File(filesDirectory, "dsp/workspace/current.json")
+        val persistedFileContents = workspaceFile.readText()
+        preferences.edit()
+            .putBoolean(KEY_DSP_ENABLED, true)
+            .putString(KEY_SELECTED_PROFILE_ID, profile.id)
+            .commit()
+
+        var firstRuntime: DspProfileRuntime? = null
+        var secondRuntime: DspProfileRuntime? = null
+        try {
+            val initialRuntime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName)
+            firstRuntime = initialRuntime
+            val initialSession = initialRuntime.createStudioSessionCoordinator()
+            initialSession.edit { workspace ->
+                workspace.copy(macros = workspace.macros.copy(bassImpact = 99))
+            }
+            assertTrue(initialSession.isDirty)
+
+            val previewResult = AtomicReference<Boolean?>()
+            val previewComplete = CountDownLatch(1)
+            initialRuntime.previewStudioWorkspaceAsync(initialSession.preview, enabled = true) {
+                previewResult.set(it)
+                previewComplete.countDown()
+            }
+            drainMainLooperUntil(previewComplete)
+
+            assertEquals(true, previewResult.get())
+            assertEquals(3.92, initialRuntime.configProvider.snapshot().macroTone.bassGainDb, 1.0e-9)
+            assertEquals(persistedFileContents, workspaceFile.readText())
+            initialRuntime.closeForTesting()
+            firstRuntime = null
+
+            val restoredRuntime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName)
+            secondRuntime = restoredRuntime
+            val restoredSession = restoredRuntime.createStudioSessionCoordinator()
+
+            assertFalse(restoredSession.isDirty)
+            assertEquals(persistedWorkspace, restoredSession.preview)
+            assertEquals(67, restoredSession.preview.macros.bassImpact)
+            assertEquals(1.36, restoredRuntime.configProvider.snapshot().macroTone.bassGainDb, 1.0e-9)
+            assertEquals(persistedFileContents, workspaceFile.readText())
+        } finally {
+            firstRuntime?.closeForTesting()
+            secondRuntime?.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun deletingSelectedModulePresetClearsSavedAndSessionReferences() {
         val context: Application = RuntimeEnvironment.getApplication()
         val filesDirectory = File(context.cacheDir, "dsp-delete-module-preset-runtime-test").apply {

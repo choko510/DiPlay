@@ -629,7 +629,13 @@ internal fun DspSettingsScreen(
                 DspMacroStudio(
                     settings = macroSettings,
                     enabled = !operationPending,
-                    onSettingsChange = { macroSettings = it },
+                    onSettingsChange = { settings ->
+                        macroSettings = settings
+                        if (settings != studioSession.preview.macros) {
+                            studioSession.edit { workspace -> workspace.copy(macros = settings) }
+                            studioUiRevision += 1
+                        }
+                    },
                 )
                 Card(modifier = Modifier.fillMaxWidth()) {
                     DspSmartLoudnessPane(

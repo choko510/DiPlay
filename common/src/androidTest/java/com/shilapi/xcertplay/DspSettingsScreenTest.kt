@@ -80,7 +80,7 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithContentDescription("Dynamics").performScrollTo().performClick()
             composeRule.onNodeWithContentDescription("Dynamics, selected").assertExists()
             composeRule.onNodeWithText("Dynamic Bass").assertExists()
-            composeRule.onNodeWithContentDescription("Advanced").performScrollTo().performClick()
+            composeRule.onNodeWithContentDescription("Advanced").performClick()
             composeRule.onNodeWithContentDescription("Advanced, selected").assertExists()
             composeRule.onNodeWithContentDescription("Studio").performClick()
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()

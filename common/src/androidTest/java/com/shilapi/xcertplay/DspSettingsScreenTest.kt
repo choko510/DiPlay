@@ -320,6 +320,13 @@ class DspSettingsScreenTest {
             restoreCommittedWorkspace(runtime)
             val studioSession = runtime.createStudioSessionCoordinator()
             val presetId = "user_bass_delete"
+            studioSession.edit { workspace ->
+                workspace.copy(
+                    baseProfileSnapshot = workspace.baseProfileSnapshot.copy(
+                        bass = workspace.baseProfileSnapshot.bass.copy(enabled = true, gainDb = 8.0),
+                    ),
+                )
+            }
             val saveResult = AtomicReference<DspPresetStoreResult?>()
             runtime.saveModulePresetAsync(studioSession.preview, "bass", presetId, "Night") {
                 saveResult.set(it)
@@ -330,6 +337,7 @@ class DspSettingsScreenTest {
                 workspace.copy(selectedModulePresetIds = workspace.selectedModulePresetIds + ("bass" to presetId))
             }
             val beforeDelete = studioSession.preview
+            runtime.editorSession.restoreDraft(beforeDelete.baseProfileSnapshot)
 
             composeRule.setContent {
                 MaterialTheme {
@@ -346,15 +354,27 @@ class DspSettingsScreenTest {
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText("Night · User ▾").fetchSemanticsNodes().isNotEmpty()
             }
+            val committedBassGainDb = studioSession.compareA().baseProfileSnapshot.bass.gainDb
+            composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_a))
+                .performScrollTo().performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.selectedProfile().bass.gainDb == committedBassGainDb
+            }
+            assertEquals(DspStudioComparisonSide.A, studioSession.comparisonSide)
+
             composeRule.onNodeWithText("Delete user preset").performScrollTo().performClick()
             composeRule.onNodeWithText("Delete").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 "bass" !in studioSession.preview.selectedModulePresetIds
             }
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.selectedProfile().bass.gainDb == beforeDelete.baseProfileSnapshot.bass.gainDb
+            }
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
             }
 
+            assertEquals(DspStudioComparisonSide.DRAFT, studioSession.comparisonSide)
             assertEquals(
                 beforeDelete.copy(selectedModulePresetIds = beforeDelete.selectedModulePresetIds - "bass"),
                 studioSession.preview,

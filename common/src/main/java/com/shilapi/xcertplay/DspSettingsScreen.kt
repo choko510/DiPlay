@@ -735,6 +735,7 @@ internal fun DspSettingsScreen(
                     },
                     onDelete = { presetId ->
                         val moduleKey = selectedModulePresetModule
+                        val restoreDraftPreview = studioSession.comparisonSide != DspStudioComparisonSide.DRAFT
                         studioOperationPending = true
                         runtime.deleteModulePresetAsync(moduleKey, presetId) { result ->
                             studioOperationPending = false
@@ -742,6 +743,7 @@ internal fun DspSettingsScreen(
                             if (result == DspPresetStoreResult.DELETED) {
                                 syncStudioDraftToScreen(studioSession.preview)
                                 selectedModulePresetId = null
+                                if (restoreDraftPreview) previewStudioWorkspace(studioSession.preview)
                                 runtime.loadModulePresetsAsync(moduleKey) {
                                     if (selectedModulePresetModule == moduleKey) modulePresets = it
                                 }

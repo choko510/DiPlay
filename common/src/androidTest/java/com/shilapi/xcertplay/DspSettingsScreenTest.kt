@@ -308,13 +308,13 @@ class DspSettingsScreenTest {
 
             composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
             composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
-            }
             composeRule.onNodeWithText("Factory reset module").performScrollTo().performClick()
             composeRule.onNodeWithText("Reset module").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 studioSession.preview.selectedModulePresetIds["bass"] == factoryPreset.id
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
             }
 
             assertEquals(expected, studioSession.preview)
@@ -373,7 +373,7 @@ class DspSettingsScreenTest {
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText("Night · User ▾").fetchSemanticsNodes().isNotEmpty()
             }
-            composeRule.onNodeWithText("Delete user preset").performScrollTo().performClick()
+            composeRule.onNodeWithText("Delete User preset").performScrollTo().performClick()
             composeRule.onNodeWithText("Delete").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 "bass" !in studioSession.preview.selectedModulePresetIds

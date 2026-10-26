@@ -820,12 +820,16 @@ internal fun DspSettingsScreen(
                         }
                     },
                     onDelete = { preset ->
+                        val selectedPresetWasDeleted = selectedModulePresetId == preset.id ||
+                            studioSession.preview.selectedModulePresetIds[preset.moduleKey] == preset.id
                         studioOperationPending = true
                         runtime.deleteModulePresetAsync(preset.moduleKey, preset.id) { result ->
                             studioOperationPending = false
                             studioUiRevision += 1
                             if (result == DspPresetStoreResult.DELETED) {
-                                if (selectedModulePresetId == preset.id) selectedModulePresetId = null
+                                if (selectedPresetWasDeleted) {
+                                    selectedModulePresetId = DspFactoryPresets.neutralModulePreset(preset.moduleKey)?.id
+                                }
                                 runtime.loadModulePresetsAsync(preset.moduleKey) {
                                     if (selectedModulePresetModule == preset.moduleKey) modulePresets = it
                                 }

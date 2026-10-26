@@ -10,7 +10,7 @@
 
 ## Current integration state
 
-- PR #52 base `codex/step4-pr-00-test-baseline` is at `15fa5e06bd96af855aa168605f2ac4b7ad2e1b6d`. Latest PR branch and tested code source head is `6439a5b94e21da3bb5e2b921a2ac035c8d969079`.
+- PR #52 base `codex/step4-pr-00-test-baseline` is at `15fa5e06bd96af855aa168605f2ac4b7ad2e1b6d`. The PR branch has documentation-only commits after the latest tested code source head `6439a5b94e21da3bb5e2b921a2ac035c8d969079`.
 - `f9c9f56e` adds module-scoped A/B preview while keeping the editor draft intact. `ce3c87d7` restores draft audio preview after deleting the selected preset during active A/B; independent follow-up review closed the P2 finding.
 - The screen test initially exposed a missing assertion import and an A/B preview path that overwrote draft state. Both were corrected. The follow-up screen test now also guards against leaving the renderer on an obsolete comparison snapshot after deletion.
 
@@ -24,7 +24,8 @@
 
 ## Next actions
 
-1. Commit and push the refreshed test evidence, then update PR #52's body with the latest tested source head and run #487.
-2. Continue remaining per-ID test evidence and hardware runbook gates; keep them open in the final report.
+1. Update PR #52's body with the current branch head, tested source head `6439a5b9`, and run #487 evidence.
+2. Confirm whether the docs-only PR head receives a hosted workflow run; if GitHub starts one, verify it completes successfully.
+3. Continue remaining per-ID test evidence and hardware runbook gates; keep them open in the final report.
 3. Rerun the relevant checks if any production source changes; do not count skips as passes.
 4. Keep PR #52 unmerged and PR #45/`main` untouched.

@@ -4,6 +4,7 @@
 
 ## 2026-10-26
 
+- Fixed CR-007 on the PR #52 child branch by feeding Dynamic Bass a sanitized raw-input detector tap while retaining its existing output-stage position. Native graph test, native DSP suite, and ASan/UBSan passed; LeakSanitizer is unsupported on this host.
 - Added isolated DSP Studio workspace schema-v1, module/macro preset persistence, and draft/preview/commit session coordination. Kotlin compilation passed; focused Robolectric tests were blocked by `No space left on device` while initializing the native runtime.
 - Completed the DSP Studio source and review evidence on `codex/dsp-studio-final`. The 860 Shared/Common unit tests, Native suite and sanitizers, and static checks pass; connected instrumentation and TS10/K706 hardware gates remain blocked or not run.
 

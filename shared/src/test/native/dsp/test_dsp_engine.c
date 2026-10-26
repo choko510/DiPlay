@@ -2565,6 +2565,54 @@ static void test_dynamic_bass_stereo_link_preserves_channel_ratio(void) {
     assert_near(left / right, 2.0, 1e-4, "linked detector does not alter the channel level ratio");
 }
 
+static void test_dynamic_bass_graph_detector_uses_raw_input(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = dynamic_bass_test_config;
+    const dsp_dynamics_config compressed = {1, -35.0, 8.0, 10.0, 100.0, 0.0, 0.0, 0, -1.0, 60.0};
+    const float impulse[] = {0.0f, 1.0f, 0.0f};
+    const dsp_convolver_config convolver = {1, 48000, 1, 3, 3, 1.0f, impulse};
+    enum { FRAME_COUNT = 512 };
+    float input[FRAME_COUNT];
+    float unprocessed_output[FRAME_COUNT] = {0.0f};
+    float processed_output[FRAME_COUNT] = {0.0f};
+    for (int frame = 0; frame < FRAME_COUNT; frame++) {
+        input[frame] = 0.1f * sinf((float)frame * 0.017f);
+    }
+
+    dsp_graph unprocessed_graph = {0};
+    dsp_graph processed_graph = {0};
+    assert_true(dsp_graph_prepare(
+            &unprocessed_graph, 48000, 1, 0.0, NULL, 0, &bypass_dynamics, &bypass_multiband,
+            &bypass_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver,
+            &bypass_harmonic, &macro, &loudness, &dynamic_bass),
+        "raw-tap reference graph prepares");
+    assert_true(dsp_graph_prepare(
+            &processed_graph, 48000, 1, 0.0, NULL, 0, &compressed, &bypass_multiband,
+            &bypass_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial, &convolver,
+            &bypass_harmonic, &macro, &loudness, &dynamic_bass),
+        "compressor and IR graph prepares");
+
+    uint64_t non_finite = 0;
+    dsp_graph_process(&unprocessed_graph, input, unprocessed_output, FRAME_COUNT, 1, &non_finite, NULL);
+    dsp_graph_process(&processed_graph, input, processed_output, FRAME_COUNT, 1, &non_finite, NULL);
+    assert_near(processed_graph.dynamic_bass.envelope, unprocessed_graph.dynamic_bass.envelope, 1e-12,
+        "compressor and IR changes do not alter raw-input detector envelope");
+    assert_near(processed_graph.dynamic_bass.current_gain, unprocessed_graph.dynamic_bass.current_gain, 1e-12,
+        "compressor and IR changes do not alter raw-input Dynamic Bass gain");
+    int output_changed = 0;
+    for (int frame = 0; frame < FRAME_COUNT; frame++) {
+        if (fabsf(processed_output[frame] - unprocessed_output[frame]) > 1e-4f) {
+            output_changed = 1;
+            break;
+        }
+    }
+    assert_true(output_changed, "upstream compressor and IR still change the audio output");
+
+    dsp_graph_close(&processed_graph);
+    dsp_graph_close(&unprocessed_graph);
+}
+
 static void test_dynamic_bass_graph_is_block_boundary_invariant(void) {
     const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
     const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
@@ -2644,6 +2692,7 @@ int main(void) {
     test_dynamic_bass_threshold_curve_and_boost_ceiling();
     test_dynamic_bass_attack_release_and_linked_detection();
     test_dynamic_bass_stereo_link_preserves_channel_ratio();
+    test_dynamic_bass_graph_detector_uses_raw_input();
     test_dynamic_bass_graph_is_block_boundary_invariant();
     puts("native DSP tests passed");
     return 0;

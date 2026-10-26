@@ -2303,14 +2303,19 @@ internal class AudioRenderer(
                     )
                 }
             },
-            onDeferred = { generation ->
+            onDeferred = { generation, reason ->
                 if (isCurrentLiveUpdateController(controllerEpoch, format) &&
                     requestedDspGeneration == generation
                 ) {
                     livePreparationPending = false
                     deferredDspGeneration = generation
                     reportDspApplyStatus(
-                        DspRendererApplyStatus(generation, DspRendererApplyPhase.DEFERRED, activeDspGeneration),
+                        DspRendererApplyStatus(
+                            generation,
+                            DspRendererApplyPhase.DEFERRED,
+                            activeDspGeneration,
+                            reason = reason,
+                        ),
                     )
                 }
             },
@@ -2683,7 +2688,11 @@ internal class AudioRenderer(
             if (!pipeline.enqueueHotUpdate(hotUpdate)) {
                 pendingDspUpdate.compareAndSet(null, prepared)
                 deferredDspGeneration = update.generation
-                reportDspApplyStatus(prepared.deferredStatus)
+                reportDspApplyStatus(
+                    prepared.deferredStatus.copy(
+                        reason = "native DSP processor rejected the hot update; retrying on the next PCM block while keeping the active pipeline",
+                    ),
+                )
                 return
             }
             pendingHotApply.set(PendingRendererHotApply(prepared, pipeline, hotUpdate.hotContextToken))
@@ -2696,9 +2705,9 @@ internal class AudioRenderer(
             else -> update.pipeline.algorithmicLatencyFrames
         }
         val graphConfig = prepared.graphConfig
-        val updatePlan = DspUpdatePlanner.classify(
-            current = activeDspConfig,
-            target = update.config,
+        val updateDecision = DspUpdatePlanner.decide(
+            current = activeDspGraphConfig,
+            target = graphConfig,
             hasActivePipeline = dspPipeline != null,
             trackGenerationCommitted = trackGenerationContentCommitted,
             currentLatencyFrames = trackGenerationLatencyFrames,
@@ -2706,16 +2715,18 @@ internal class AudioRenderer(
             requiresStateContinuity = graphConfig.requiresStateContinuity(),
             mediaRole = classification.dspRole == DspStreamRole.MEDIA,
         )
-        if (updatePlan == DspUpdatePlan.DEFERRED) {
+        val unsupportedLocalWarm = updateDecision.plan == DspUpdatePlan.LOCAL_WARM &&
+            trackGenerationContentCommitted
+        if (updateDecision.plan == DspUpdatePlan.DEFERRED || unsupportedLocalWarm) {
             if (deferredDspGeneration != update.generation) {
                 deferredDspGeneration = update.generation
-                val reason = if (graphConfig.requiresStateContinuity()) {
-                    "stateful graph needs fresh history"
+                val reason = if (unsupportedLocalWarm) {
+                    "stage-local warm-up is unavailable; keeping the active pipeline until the next AudioTrack generation"
                 } else {
-                    "algorithmic latency would change"
+                    updateDecision.reason ?: "update is not safe for the committed track"
                 }
                 reportDsp("DSP update deferred until next AudioTrack generation: $reason")
-                reportDspApplyStatus(prepared.deferredStatus)
+                reportDspApplyStatus(prepared.deferredStatus.copy(reason = reason))
             }
             return
         }

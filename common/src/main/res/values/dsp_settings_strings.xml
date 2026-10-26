@@ -94,6 +94,7 @@
     <string name="dsp_renderer_apply_prepared">グラフ準備済み。安全に切り替えられる時点を待機中（世代 %1$d）</string>
     <string name="dsp_renderer_apply_active">MEDIAレンダラーで最後に採用した世代: %1$d</string>
     <string name="dsp_renderer_apply_deferred">次の音声トラックまで保留（要求世代 %1$d、現在の世代 %2$s）</string>
+    <string name="dsp_renderer_apply_deferred_with_reason">保留中（要求世代 %1$d、現在の世代 %2$s）。理由: %3$s</string>
     <string name="dsp_renderer_apply_failed">世代 %1$d の準備に失敗。現在の出力を維持します。</string>
     <string name="dsp_renderer_apply_retirement_failed">退役世代 %1$s（pipeline %2$s）の解放に失敗。現在の世代 %3$s は継続中で、DSP更新は停止されています。</string>
     <string name="dsp_renderer_apply_no_active">なし</string>

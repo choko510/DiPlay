@@ -2,9 +2,15 @@ package com.shilapi.xcertplay.media.dsp
 
 internal enum class DspUpdatePlan {
     HOT,
+    LOCAL_WARM,
     WARM,
     DEFERRED,
 }
+
+internal data class DspUpdateDecision(
+    val plan: DspUpdatePlan,
+    val reason: String? = null,
+)
 
 internal enum class DspRuntimeField {
     MASTER_ENABLED,
@@ -62,15 +68,95 @@ internal object DspUpdatePlanner {
         targetLatencyFrames: Int,
         requiresStateContinuity: Boolean,
         mediaRole: Boolean = true,
-    ): DspUpdatePlan {
-        if (mediaRole && hasActivePipeline && current.canApplyStudioHotUpdateTo(target)) {
-            return DspUpdatePlan.HOT
+    ): DspUpdatePlan = decide(
+        current = current,
+        target = target,
+        hasActivePipeline = hasActivePipeline,
+        trackGenerationCommitted = trackGenerationCommitted,
+        currentLatencyFrames = currentLatencyFrames,
+        targetLatencyFrames = targetLatencyFrames,
+        requiresStateContinuity = requiresStateContinuity,
+        mediaRole = mediaRole,
+    ).plan
+
+    fun decide(
+        current: DspRuntimeConfig,
+        target: DspRuntimeConfig,
+        hasActivePipeline: Boolean,
+        trackGenerationCommitted: Boolean,
+        currentLatencyFrames: Int,
+        targetLatencyFrames: Int,
+        requiresStateContinuity: Boolean,
+        mediaRole: Boolean = true,
+    ): DspUpdateDecision {
+        val changed = diff(current, target)
+        if (changed.isEmpty()) return DspUpdateDecision(DspUpdatePlan.HOT)
+
+        if (!mediaRole) {
+            return DspUpdateDecision(DspUpdatePlan.DEFERRED, "DSP updates are restricted to MEDIA streams")
         }
-        if (trackGenerationCommitted &&
-            (currentLatencyFrames != targetLatencyFrames || requiresStateContinuity)
+
+        if (trackGenerationCommitted && currentLatencyFrames != targetLatencyFrames) {
+            return DspUpdateDecision(DspUpdatePlan.DEFERRED, "algorithmic latency would change")
+        }
+        if (trackGenerationCommitted && DspRuntimeField.CONVOLVER in changed &&
+            target.convolver.enabled && target.convolver.wet > 0.0
         ) {
-            return DspUpdatePlan.DEFERRED
+            return DspUpdateDecision(DspUpdatePlan.DEFERRED, "impulse response topology requires a new track")
         }
-        return DspUpdatePlan.WARM
+        if (trackGenerationCommitted && changed == setOf(DspRuntimeField.PREAMP)) {
+            return DspUpdateDecision(
+                DspUpdatePlan.DEFERRED,
+                "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
+            )
+        }
+
+        if (mediaRole && hasActivePipeline && current.enabled && target.enabled &&
+            changed.all(::isHotField) &&
+            (!requiresStateContinuity || changed.all(::isContinuityIndependentHotField))
+        ) {
+            return DspUpdateDecision(DspUpdatePlan.HOT)
+        }
+        if (changed.all(::isLocalWarmField)) {
+            return DspUpdateDecision(DspUpdatePlan.LOCAL_WARM)
+        }
+        if (trackGenerationCommitted && requiresStateContinuity) {
+            return DspUpdateDecision(
+                DspUpdatePlan.DEFERRED,
+                if (changed.any(::requiresUnprovenStateTransition)) {
+                    "changed stateful stage cannot preserve its required history"
+                } else {
+                    "active stateful graph requires continuity for changed fields"
+                },
+            )
+        }
+        return DspUpdateDecision(DspUpdatePlan.WARM, "pipeline replacement required")
     }
+
+    private fun isHotField(field: DspRuntimeField): Boolean = field in setOf(
+        DspRuntimeField.MACRO_TONE,
+        DspRuntimeField.SMART_LOUDNESS,
+        DspRuntimeField.DYNAMIC_BASS,
+    )
+
+    private fun isContinuityIndependentHotField(field: DspRuntimeField): Boolean = field in setOf(
+        DspRuntimeField.MACRO_TONE,
+        DspRuntimeField.SMART_LOUDNESS,
+        DspRuntimeField.DYNAMIC_BASS,
+    )
+
+    private fun isLocalWarmField(field: DspRuntimeField): Boolean = field in setOf(
+        DspRuntimeField.PEQ,
+        DspRuntimeField.BASS,
+        DspRuntimeField.CABIN_CORRECTION,
+    )
+
+    private fun requiresUnprovenStateTransition(field: DspRuntimeField): Boolean = field in setOf(
+        DspRuntimeField.CONVOLVER,
+        DspRuntimeField.MULTIBAND,
+        DspRuntimeField.DYNAMIC_EQ,
+        DspRuntimeField.SEAT_ALIGNMENT,
+        DspRuntimeField.ADVANCED_MS,
+        DspRuntimeField.HARMONIC,
+    )
 }

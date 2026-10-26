@@ -28,7 +28,7 @@ internal class DspLiveUpdateController(
     private val onPrepared: (DspPreparedUpdate) -> Unit,
     private val onPreparing: (DspConfigSnapshot) -> Unit = { },
     private val onFailed: (DspConfigSnapshot, Throwable) -> Unit = { _, _ -> },
-    private val onDeferred: (Long) -> Unit = { },
+    private val onDeferred: (Long, String) -> Unit = { _, _ -> },
     private val canAdoptLatencyChange: () -> Boolean = { false },
     private val pipelinePreparer: DspPipelinePreparer =
         { targetFormat, config -> createNativePipeline(role, targetFormat, config) },
@@ -88,7 +88,12 @@ internal class DspLiveUpdateController(
                         retire(candidate)
                         candidate = null
                         lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
-                        runCatching { onDeferred(snapshot.generation) }
+                        runCatching {
+                            onDeferred(
+                                snapshot.generation,
+                                "prepared DSP pipeline format does not match the active PCM format",
+                            )
+                        }
                         continue
                     }
                     val latencyFrames = if (hotUpdate != null) activeLatencyFrames().coerceAtLeast(0)
@@ -123,7 +128,14 @@ internal class DspLiveUpdateController(
                         retire(candidate)
                         candidate = null
                     }
-                    if (transferred && deferLatencyChange) runCatching { onDeferred(snapshot.generation) }
+                    if (transferred && deferLatencyChange) {
+                        runCatching {
+                            onDeferred(
+                                snapshot.generation,
+                                "DSP latency change is deferred until the next AudioTrack generation",
+                            )
+                        }
+                    }
                 } catch (error: Throwable) {
                     val failedCandidate = candidate
                     candidate = null

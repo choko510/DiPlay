@@ -56,8 +56,10 @@ internal class DspProfileRuntime private constructor(
         val selectedId = preferences.getString(KEY_SELECTED_PROFILE_ID, DEFAULT_PROFILE_ID) ?: DEFAULT_PROFILE_ID
         val loadedProfile = loadProfile(selectedId) ?: DspProfilePresets.find(DEFAULT_PROFILE_ID)!!
         val loadedWorkspace = (workspaceRepository.load() as? DspWorkspaceReadResult.Loaded)?.workspace
-            ?.takeIf { it.profileSourceId == selectedId && it.baseProfileSnapshot.id == selectedId }
         val initialWorkspace = loadedWorkspace ?: DspStudioWorkspace(loadedProfile.id, loadedProfile)
+        if (loadedWorkspace != null && selectedId != loadedWorkspace.profileSourceId) {
+            preferences.edit().putString(KEY_SELECTED_PROFILE_ID, loadedWorkspace.profileSourceId).apply()
+        }
         val initialEnabled = preferences.getBoolean(KEY_DSP_ENABLED, false)
         activeStudioWorkspace = AtomicReference(initialWorkspace)
         committedStudioWorkspace = AtomicReference(initialWorkspace.deepCopy())

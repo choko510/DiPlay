@@ -224,6 +224,27 @@ internal fun DspSettingsScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val closeSettingsDescription = stringResource(R.string.dsp_close_settings)
+    val customProfile1Name = stringResource(R.string.dsp_preset_custom_1)
+    val customProfile2Name = stringResource(R.string.dsp_preset_custom_2)
+    val cabinMeasurementImportedFormat = stringResource(R.string.dsp_cabin_measurement_imported)
+    val studioSaveSuccessText = stringResource(R.string.dsp_studio_save_success)
+    val studioSaveStaleText = stringResource(R.string.dsp_studio_save_stale)
+    val studioSaveFutureText = stringResource(R.string.dsp_studio_save_future)
+    val studioSaveInvalidText = stringResource(R.string.dsp_studio_save_invalid)
+    val studioSaveFailedText = stringResource(R.string.dsp_studio_save_failed)
+    val modulePresetSaveInvalidText = stringResource(R.string.dsp_module_preset_save_invalid)
+    val modulePresetDeleteSuccessText = stringResource(R.string.dsp_module_preset_delete_success)
+    val modulePresetSaveFutureText = stringResource(R.string.dsp_module_preset_save_future)
+    val modulePresetSaveFailedText = stringResource(R.string.dsp_module_preset_save_failed)
+    val modulePresetNotFoundText = stringResource(R.string.dsp_module_preset_not_found)
+    val modulePresetSavedText = stringResource(R.string.dsp_module_preset_saved)
+    val modulePresetDeleteNotFoundText = stringResource(R.string.dsp_module_preset_delete_not_found)
+    val modulePresetDeleteInvalidText = stringResource(R.string.dsp_module_preset_delete_invalid)
+    val modulePresetDeleteFutureText = stringResource(R.string.dsp_module_preset_delete_future)
+    val modulePresetDeleteFailedText = stringResource(R.string.dsp_module_preset_delete_failed)
+    val unexpectedPresetResultText = stringResource(R.string.dsp_module_preset_unexpected_result)
+    val impulseResponseNoneLabel = stringResource(R.string.dsp_ir_none)
     val screenActive = remember { AtomicBoolean(true) }
     DisposableEffect(screenActive) {
         onDispose { screenActive.set(false) }
@@ -460,7 +481,7 @@ internal fun DspSettingsScreen(
                                 profile = profile.copy(cabinCorrection = result.correction)
                                 Toast.makeText(
                                     context,
-                                    context.getString(R.string.dsp_cabin_measurement_imported, result.suggestedNotchCount),
+                                    String.format(Locale.getDefault(), cabinMeasurementImportedFormat, result.suggestedNotchCount),
                                     Toast.LENGTH_LONG,
                                 ).show()
                             }
@@ -474,8 +495,8 @@ internal fun DspSettingsScreen(
         }
     }
 
-    val saveCustomProfile: (String, Int) -> Unit = { id, nameResource ->
-        val custom = profile.copy(id = id, name = context.getString(nameResource))
+    val saveCustomProfile: (String, String) -> Unit = { id, name ->
+        val custom = profile.copy(id = id, name = name)
         val operation = editorSession.beginOperation(DspEditorOperationKind.SAVE)
         if (operation != null) {
             runtime.saveCustomAsync(custom, dspEnabled) { result ->
@@ -505,11 +526,11 @@ internal fun DspSettingsScreen(
             editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             val message = when (result) {
-                DspWorkspaceSaveResult.SAVED -> context.getString(R.string.dsp_studio_save_success)
-                DspWorkspaceSaveResult.STALE -> context.getString(R.string.dsp_studio_save_stale)
-                DspWorkspaceSaveResult.FUTURE_SCHEMA_PRESERVED -> context.getString(R.string.dsp_studio_save_future)
-                DspWorkspaceSaveResult.INVALID -> context.getString(R.string.dsp_studio_save_invalid)
-                DspWorkspaceSaveResult.WRITE_FAILED -> context.getString(R.string.dsp_studio_save_failed)
+                DspWorkspaceSaveResult.SAVED -> studioSaveSuccessText
+                DspWorkspaceSaveResult.STALE -> studioSaveStaleText
+                DspWorkspaceSaveResult.FUTURE_SCHEMA_PRESERVED -> studioSaveFutureText
+                DspWorkspaceSaveResult.INVALID -> studioSaveInvalidText
+                DspWorkspaceSaveResult.WRITE_FAILED -> studioSaveFailedText
             }
             if (screenActive.get()) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             if (leaveAfterSave) {
@@ -650,7 +671,7 @@ internal fun DspSettingsScreen(
                         )
                         TextButton(onClick = leaveEditor) {
                             Text("×", modifier = Modifier.semantics {
-                                contentDescription = context.getString(R.string.dsp_close_settings)
+                                contentDescription = closeSettingsDescription
                             })
                         }
                     }
@@ -682,12 +703,12 @@ internal fun DspSettingsScreen(
                             OutlinedButton(
                                 enabled = !operationPending,
                                 modifier = Modifier.weight(1f),
-                                onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
+                                onClick = { saveCustomProfile(CUSTOM_PROFILE_1, customProfile1Name) },
                             ) { Text(stringResource(R.string.dsp_save_custom_1)) }
                             OutlinedButton(
                                 enabled = !operationPending,
                                 modifier = Modifier.weight(1f),
-                                onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
+                                onClick = { saveCustomProfile(CUSTOM_PROFILE_2, customProfile2Name) },
                             ) { Text(stringResource(R.string.dsp_save_custom_2)) }
                         }
                     }
@@ -784,15 +805,15 @@ internal fun DspSettingsScreen(
                                 runtime.loadModulePresetsAsync(moduleKey) {
                                     if (selectedModulePresetModule == moduleKey) modulePresets = it
                                 }
-                                if (screenActive.get()) Toast.makeText(context, R.string.dsp_module_preset_saved, Toast.LENGTH_SHORT).show()
+                                if (screenActive.get()) Toast.makeText(context, modulePresetSavedText, Toast.LENGTH_SHORT).show()
                             } else if (screenActive.get()) {
                                 val message = when (result) {
-                                    DspPresetStoreResult.INVALID -> context.getString(R.string.dsp_module_preset_save_invalid)
-                                    DspPresetStoreResult.DELETED -> context.getString(R.string.dsp_module_preset_delete_success)
-                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> context.getString(R.string.dsp_module_preset_save_future)
-                                    DspPresetStoreResult.WRITE_FAILED -> context.getString(R.string.dsp_module_preset_save_failed)
-                                    DspPresetStoreResult.NOT_FOUND -> context.getString(R.string.dsp_module_preset_not_found)
-                                    DspPresetStoreResult.SAVED -> context.getString(R.string.dsp_module_preset_saved)
+                                    DspPresetStoreResult.INVALID -> modulePresetSaveInvalidText
+                                    DspPresetStoreResult.DELETED -> modulePresetDeleteSuccessText
+                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> modulePresetSaveFutureText
+                                    DspPresetStoreResult.WRITE_FAILED -> modulePresetSaveFailedText
+                                    DspPresetStoreResult.NOT_FOUND -> modulePresetNotFoundText
+                                    DspPresetStoreResult.SAVED -> modulePresetSavedText
                                 }
                                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                             }
@@ -809,16 +830,16 @@ internal fun DspSettingsScreen(
                                     if (selectedModulePresetModule == preset.moduleKey) modulePresets = it
                                 }
                                 if (screenActive.get()) {
-                                    Toast.makeText(context, R.string.dsp_module_preset_delete_success, Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, modulePresetDeleteSuccessText, Toast.LENGTH_SHORT).show()
                                 }
                             } else if (screenActive.get()) {
                                 val message = when (result) {
-                                    DspPresetStoreResult.DELETED -> context.getString(R.string.dsp_module_preset_delete_success)
-                                    DspPresetStoreResult.NOT_FOUND -> context.getString(R.string.dsp_module_preset_delete_not_found)
-                                    DspPresetStoreResult.INVALID -> context.getString(R.string.dsp_module_preset_delete_invalid)
-                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> context.getString(R.string.dsp_module_preset_delete_future)
-                                    DspPresetStoreResult.WRITE_FAILED -> context.getString(R.string.dsp_module_preset_delete_failed)
-                                    DspPresetStoreResult.SAVED -> context.getString(R.string.dsp_module_preset_unexpected_result)
+                                    DspPresetStoreResult.DELETED -> modulePresetDeleteSuccessText
+                                    DspPresetStoreResult.NOT_FOUND -> modulePresetDeleteNotFoundText
+                                    DspPresetStoreResult.INVALID -> modulePresetDeleteInvalidText
+                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> modulePresetDeleteFutureText
+                                    DspPresetStoreResult.WRITE_FAILED -> modulePresetDeleteFailedText
+                                    DspPresetStoreResult.SAVED -> unexpectedPresetResultText
                                 }
                                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                             }
@@ -1565,7 +1586,7 @@ internal fun DspSettingsScreen(
                         choices = listOf(stringResource(R.string.dsp_ir_none)) + impulseResponseIds,
                         enabled = !operationPending,
                         onSelect = { selected ->
-                            val id = selected.takeUnless { it == context.getString(R.string.dsp_ir_none) }
+                            val id = selected.takeUnless { it == impulseResponseNoneLabel }
                             profile = profile.copy(
                                 convolver = profile.convolver.copy(
                                     enabled = id != null,
@@ -1616,12 +1637,12 @@ internal fun DspSettingsScreen(
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
                         enabled = !operationPending,
-                        onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
+                        onClick = { saveCustomProfile(CUSTOM_PROFILE_1, customProfile1Name) },
                     ) { Text(stringResource(R.string.dsp_save_custom_1)) }
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
                         enabled = !operationPending,
-                        onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
+                        onClick = { saveCustomProfile(CUSTOM_PROFILE_2, customProfile2Name) },
                     ) { Text(stringResource(R.string.dsp_save_custom_2)) }
                 }
             }

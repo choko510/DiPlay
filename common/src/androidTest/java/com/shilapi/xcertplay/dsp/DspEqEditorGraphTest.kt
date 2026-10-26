@@ -49,6 +49,12 @@ class DspEqEditorGraphTest {
             "Equalizer frequency response graph. Tap or drag a band handle to edit frequency and gain.",
             englishContext.getString(R.string.dsp_eq_graph_description),
         )
+        assertEquals("DSP Studio を終了しますか？", japaneseContext.getString(R.string.dsp_studio_leave_title))
+        assertEquals("Leave DSP Studio?", englishContext.getString(R.string.dsp_studio_leave_title))
+        assertEquals("最大持ち上げ量", japaneseContext.getString(R.string.dsp_db_max_lift))
+        assertEquals("Maximum lift", englishContext.getString(R.string.dsp_db_max_lift))
+        assertEquals("50%", japaneseContext.getString(R.string.dsp_smart_percent, 50))
+        assertEquals("50%", englishContext.getString(R.string.dsp_smart_percent, 50))
     }
 
     @Test

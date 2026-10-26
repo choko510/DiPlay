@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.edit
 import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
 import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementCsv
 import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementParseResult
@@ -309,10 +310,10 @@ internal class DspProfileRuntime private constructor(
                         val saveResult = workspaceRepository.save(candidate)
                         if (saveResult == DspWorkspaceSaveResult.SAVED) {
                             committedStudioWorkspace.set(candidate)
-                            preferences.edit()
-                                .putBoolean(KEY_DSP_ENABLED, enabled)
-                                .putString(KEY_SELECTED_PROFILE_ID, candidate.profileSourceId)
-                                .apply()
+                            preferences.edit {
+                                putBoolean(KEY_DSP_ENABLED, enabled)
+                                putString(KEY_SELECTED_PROFILE_ID, candidate.profileSourceId)
+                            }
                         }
                         saveResult
                     }
@@ -330,10 +331,10 @@ internal class DspProfileRuntime private constructor(
                 applyStudioWorkspace(workspace, enabled, impulseResponseFor(workspace.baseProfileSnapshot))
             }.getOrDefault(false)
             if (restored) {
-                preferences.edit()
-                    .putBoolean(KEY_DSP_ENABLED, enabled)
-                    .putString(KEY_SELECTED_PROFILE_ID, workspace.profileSourceId)
-                    .apply()
+                preferences.edit {
+                    putBoolean(KEY_DSP_ENABLED, enabled)
+                    putString(KEY_SELECTED_PROFILE_ID, workspace.profileSourceId)
+                }
             }
             Handler(Looper.getMainLooper()).post { onComplete(restored) }
         }

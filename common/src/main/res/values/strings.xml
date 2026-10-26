@@ -39,5 +39,9 @@
     <string name="dsp_module_factory_reset">Factory reset module</string>
     <string name="dsp_module_factory_reset_message">Replace the current %1$s draft values with its factory preset? Other modules stay unchanged.</string>
     <string name="dsp_module_factory_reset_confirm">Reset module</string>
+    <string name="dsp_module_compare_a">Compare module A</string>
+    <string name="dsp_module_compare_b">Compare module B</string>
+    <string name="dsp_module_compare_status">Module %1$s comparison side: %2$s. Renderer state follows.</string>
+    <string name="dsp_module_compare_level_match_unavailable">Level match unavailable: no same-source measurement window is available.</string>
     <string name="dsp_cancel">Cancel</string>
 </resources>

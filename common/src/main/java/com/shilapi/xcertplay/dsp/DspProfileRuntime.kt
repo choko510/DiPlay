@@ -170,8 +170,46 @@ internal class DspProfileRuntime private constructor(
         onComplete: (DspPresetStoreResult) -> Unit,
     ) {
         ioExecutor.execute {
-            val result = modulePresetRepository.deleteUserPreset(moduleKey, presetId)
-            Handler(Looper.getMainLooper()).post { onComplete(result) }
+            val workspaceRead = workspaceRepository.load()
+            val savedWorkspace = (workspaceRead as? DspWorkspaceReadResult.Loaded)?.workspace
+            val sanitizedSavedWorkspace = savedWorkspace?.takeIf {
+                it.selectedModulePresetIds[moduleKey] == presetId
+            }?.copy(selectedModulePresetIds = savedWorkspace.selectedModulePresetIds - moduleKey)
+            val result = when (workspaceRead) {
+                is DspWorkspaceReadResult.FutureSchema -> DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+                DspWorkspaceReadResult.Invalid -> DspPresetStoreResult.WRITE_FAILED
+                is DspWorkspaceReadResult.Loaded, DspWorkspaceReadResult.NotFound -> {
+                    val referenceCleared = sanitizedSavedWorkspace == null ||
+                        workspaceRepository.save(sanitizedSavedWorkspace) == DspWorkspaceSaveResult.SAVED
+                    if (referenceCleared) modulePresetRepository.deleteUserPreset(moduleKey, presetId)
+                    else DspPresetStoreResult.WRITE_FAILED
+                }
+            }
+            if (result == DspPresetStoreResult.DELETED) {
+                sanitizedSavedWorkspace?.let { committedStudioWorkspace.set(it.deepCopy()) }
+                activeStudioWorkspace.updateAndGet { workspace ->
+                    if (workspace.selectedModulePresetIds[moduleKey] == presetId) {
+                        workspace.copy(selectedModulePresetIds = workspace.selectedModulePresetIds - moduleKey)
+                    } else {
+                        workspace
+                    }
+                }
+                committedStudioWorkspace.updateAndGet { workspace ->
+                    if (workspace.selectedModulePresetIds[moduleKey] == presetId) {
+                        workspace.copy(selectedModulePresetIds = workspace.selectedModulePresetIds - moduleKey)
+                    } else {
+                        workspace
+                    }
+                }
+            } else if (sanitizedSavedWorkspace != null) {
+                workspaceRepository.save(savedWorkspace)
+            }
+            Handler(Looper.getMainLooper()).post {
+                if (result == DspPresetStoreResult.DELETED) {
+                    studioSessionCoordinator.clearSelectedPresetReference(moduleKey, presetId)
+                }
+                onComplete(result)
+            }
         }
     }
 

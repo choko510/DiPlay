@@ -325,6 +325,12 @@ internal data class DspStudioComparisonSnapshot(
     val b: DspStudioWorkspace,
 )
 
+internal enum class DspStudioComparisonSide(val label: String) {
+    DRAFT("Draft"),
+    A("A"),
+    B("B"),
+}
+
 internal class DspStudioSessionCoordinator(
     initial: DspStudioWorkspace,
     private val repository: DspStudioWorkspaceRepository,
@@ -336,10 +342,13 @@ internal class DspStudioSessionCoordinator(
     private var generation = 0L
     private var nextTransactionId = 0L
     private var activeTransaction: ActiveTransaction? = null
+    private var comparisonSnapshot: DspStudioComparisonSnapshot? = null
 
     var preview: DspStudioWorkspace = draft.deepCopy()
         private set
     var isDirty: Boolean = false
+        private set
+    var comparisonSide: DspStudioComparisonSide = DspStudioComparisonSide.DRAFT
         private set
 
     val canUndo: Boolean get() = undo.isNotEmpty()
@@ -380,6 +389,7 @@ internal class DspStudioSessionCoordinator(
         val active = activeTransaction?.takeIf { it.token == transaction } ?: return false
         activeTransaction = null
         if (draft != active.before) {
+            resetComparison()
             draft = active.before.deepCopy()
             updatePreviewAndDirty()
             generation++
@@ -390,6 +400,7 @@ internal class DspStudioSessionCoordinator(
     fun undo(): Boolean {
         finishActiveTransaction()
         if (undo.isEmpty()) return false
+        resetComparison()
         pushHistory(redo, draft)
         draft = undo.removeAt(undo.lastIndex).deepCopy()
         updatePreviewAndDirty()
@@ -400,6 +411,7 @@ internal class DspStudioSessionCoordinator(
     fun redo(): Boolean {
         finishActiveTransaction()
         if (redo.isEmpty()) return false
+        resetComparison()
         pushHistory(undo, draft)
         draft = redo.removeAt(redo.lastIndex).deepCopy()
         updatePreviewAndDirty()
@@ -408,6 +420,7 @@ internal class DspStudioSessionCoordinator(
     }
 
     fun cancelPreview(): Long {
+        resetComparison()
         activeTransaction = null
         draft = committed.deepCopy()
         undo.clear()
@@ -437,10 +450,63 @@ internal class DspStudioSessionCoordinator(
         )
     }
 
+    fun beginModuleComparison(moduleKey: String): DspStudioComparisonSnapshot? =
+        compareModule(moduleKey)?.also { snapshot ->
+            comparisonSnapshot = snapshot
+            comparisonSide = DspStudioComparisonSide.DRAFT
+        }
+
+    fun selectComparisonSide(side: DspStudioComparisonSide): DspStudioWorkspace? {
+        if (side == DspStudioComparisonSide.DRAFT) {
+            resetComparison()
+            return draft.deepCopy()
+        }
+        val snapshot = comparisonSnapshot ?: return null
+        comparisonSide = side
+        return when (side) {
+            DspStudioComparisonSide.A -> snapshot.a.deepCopy()
+            DspStudioComparisonSide.B -> snapshot.b.deepCopy()
+            DspStudioComparisonSide.DRAFT -> draft.deepCopy()
+        }
+    }
+
+    fun resetComparison() {
+        comparisonSnapshot = null
+        comparisonSide = DspStudioComparisonSide.DRAFT
+    }
+
+    fun clearSelectedPresetReference(moduleKey: String, presetId: String): Boolean {
+        resetComparison()
+        fun clear(workspace: DspStudioWorkspace): DspStudioWorkspace =
+            if (workspace.selectedModulePresetIds[moduleKey] == presetId) {
+                workspace.copy(selectedModulePresetIds = workspace.selectedModulePresetIds - moduleKey)
+            } else {
+                workspace
+            }
+
+        val previousCommitted = committed
+        committed = clear(committed)
+        var changed = committed != previousCommitted
+        val nextDraft = clear(draft)
+        if (nextDraft != draft) {
+            draft = nextDraft
+            changed = true
+        }
+        for (index in undo.indices) undo[index] = clear(undo[index])
+        for (index in redo.indices) redo[index] = clear(redo[index])
+        activeTransaction = activeTransaction?.let { ActiveTransaction(it.token, clear(it.before)) }
+        if (changed) {
+            updatePreviewAndDirty()
+            generation++
+        }
+        return changed
+    }
+
     fun save(): DspWorkspaceSaveResult {
         finishActiveTransaction()
         val result = repository.save(draft)
         if (result == DspWorkspaceSaveResult.SAVED) {
+            resetComparison()
             committed = draft.deepCopy()
             updatePreviewAndDirty()
             undo.clear()
@@ -450,6 +516,7 @@ internal class DspStudioSessionCoordinator(
     }
 
     fun commitSaved(workspace: DspStudioWorkspace) {
+        resetComparison()
         finishActiveTransaction()
         committed = workspace.deepCopy()
         if (draft == committed) {
@@ -477,6 +544,7 @@ internal class DspStudioSessionCoordinator(
     ): Long {
         val candidate = transform(draft).deepCopy()
         if (candidate == draft) return generation
+        resetComparison()
         if (recordUndo) {
             pushHistory(undo, draft)
             redo.clear()

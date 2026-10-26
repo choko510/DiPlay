@@ -508,6 +508,10 @@ internal fun DspModulePresetPane(
     onSave: (String) -> Unit,
     onDelete: (String) -> Unit,
     onFactoryReset: () -> Unit,
+    onCompareA: () -> Unit = {},
+    onCompareB: () -> Unit = {},
+    comparisonSide: DspStudioComparisonSide = DspStudioComparisonSide.DRAFT,
+    rendererStatusText: String = "",
 ) {
     var moduleMenuExpanded by remember { mutableStateOf(false) }
     var presetMenuExpanded by remember { mutableStateOf(false) }
@@ -591,6 +595,29 @@ internal fun DspModulePresetPane(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(stringResource(R.string.dsp_module_factory_reset))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onCompareA, enabled = enabled, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.dsp_module_compare_a))
+                }
+                OutlinedButton(onClick = onCompareB, enabled = enabled, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.dsp_module_compare_b))
+                }
+            }
+            Text(
+                stringResource(
+                    R.string.dsp_module_compare_status,
+                    modulePresetLabel(moduleKey),
+                    comparisonSide.label,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                stringResource(R.string.dsp_module_compare_level_match_unavailable),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (rendererStatusText.isNotBlank()) {
+                Text(rendererStatusText, style = MaterialTheme.typography.bodySmall)
             }
             Text(
                 "Applying changes only this module in the draft. Preview and Save are separate.",

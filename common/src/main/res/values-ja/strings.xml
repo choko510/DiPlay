@@ -29,5 +29,9 @@
     <string name="dsp_module_factory_reset">モジュールを初期化</string>
     <string name="dsp_module_factory_reset_message">%1$s の下書きをFactoryプリセットで置き換えます。他のモジュールは変更しません。</string>
     <string name="dsp_module_factory_reset_confirm">モジュールを初期化</string>
+    <string name="dsp_module_compare_a">モジュールAを比較</string>
+    <string name="dsp_module_compare_b">モジュールBを比較</string>
+    <string name="dsp_module_compare_status">%1$sの比較側: %2$s。Renderer状態を確認してください。</string>
+    <string name="dsp_module_compare_level_match_unavailable">Level Matchは未測定です。同一音源の測定区間がありません。</string>
     <string name="dsp_cancel">キャンセル</string>
 </resources>

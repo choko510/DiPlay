@@ -22,6 +22,7 @@ import com.shilapi.xcertplay.dsp.DspFactoryPresets
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.dsp.DspPresetStoreResult
 import com.shilapi.xcertplay.dsp.DspRuntimeConfigStore
+import com.shilapi.xcertplay.dsp.DspStudioComparisonSide
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
@@ -213,6 +214,83 @@ class DspSettingsScreenTest {
             }
 
             assertEquals(expected, studioSession.preview)
+        } finally {
+            try {
+                restoreCommittedWorkspace(runtime)
+            } finally {
+                runtime.closeForTesting()
+                preferences.edit().clear().commit()
+                filesDirectory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun moduleComparisonPreviewsOnlyItsModuleAndKeepsTheDraftUnchanged() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-module-comparison-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            val studioSession = runtime.createStudioSessionCoordinator()
+            val committed = studioSession.compareA()
+            studioSession.edit { workspace ->
+                workspace.copy(
+                    baseProfileSnapshot = workspace.baseProfileSnapshot.copy(
+                        bass = workspace.baseProfileSnapshot.bass.copy(enabled = true, gainDb = 8.0),
+                        compressor = workspace.baseProfileSnapshot.compressor.copy(thresholdDb = -12.0),
+                    ),
+                    macros = workspace.macros.copy(enabled = true, bassImpact = 100),
+                )
+            }
+            val draft = studioSession.preview
+            assertTrue(draft.baseProfileSnapshot.bass.gainDb != committed.baseProfileSnapshot.bass.gainDb)
+            runtime.editorSession.restoreDraft(draft.baseProfileSnapshot)
+
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        presentation = DspPresentationMode.COMPACT_SPLIT,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
+            composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_b))
+                .performScrollTo().performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.selectedProfile().bass.gainDb == draft.baseProfileSnapshot.bass.gainDb
+            }
+            assertEquals(DspStudioComparisonSide.B, studioSession.comparisonSide)
+            val draftMacroTone = runtime.configProvider.snapshot().macroTone
+            assertEquals(draft, studioSession.preview)
+
+            composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_a))
+                .performScrollTo().performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.selectedProfile().bass.gainDb == committed.baseProfileSnapshot.bass.gainDb
+            }
+
+            assertEquals(DspStudioComparisonSide.A, studioSession.comparisonSide)
+            assertEquals(committed.baseProfileSnapshot.bass.gainDb, runtime.selectedProfile().bass.gainDb, 0.0)
+            assertEquals(draft.baseProfileSnapshot.compressor.thresholdDb, runtime.selectedProfile().compressor.thresholdDb, 0.0)
+            assertEquals(draftMacroTone, runtime.configProvider.snapshot().macroTone)
+            assertEquals(draft, studioSession.preview)
         } finally {
             try {
                 restoreCommittedWorkspace(runtime)

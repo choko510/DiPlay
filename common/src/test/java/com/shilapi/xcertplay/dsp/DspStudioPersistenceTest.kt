@@ -299,6 +299,48 @@ class DspStudioPersistenceTest {
         assertEquals(90, comparison.b.macros.bassImpact)
     }
 
+    @Test fun selectingModuleComparisonSidesUsesFrozenWorkspacesAndEditingReturnsToDraft() {
+        val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
+        coordinator.edit {
+            it.copy(baseProfileSnapshot = it.baseProfileSnapshot.copy(bass = it.baseProfileSnapshot.bass.copy(gainDb = 6.0)))
+        }
+        val frozenDraft = coordinator.preview
+        val comparison = requireNotNull(coordinator.beginModuleComparison("bass"))
+
+        assertEquals(DspStudioComparisonSide.DRAFT, coordinator.comparisonSide)
+        assertEquals(comparison.a, coordinator.selectComparisonSide(DspStudioComparisonSide.A))
+        assertEquals(DspStudioComparisonSide.A, coordinator.comparisonSide)
+        assertEquals(comparison.b, coordinator.selectComparisonSide(DspStudioComparisonSide.B))
+        assertEquals(DspStudioComparisonSide.B, coordinator.comparisonSide)
+        assertEquals(frozenDraft, comparison.b)
+
+        coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 41)) }
+
+        assertEquals(DspStudioComparisonSide.DRAFT, coordinator.comparisonSide)
+        assertNull(coordinator.selectComparisonSide(DspStudioComparisonSide.A))
+        assertEquals(41, coordinator.preview.macros.bassImpact)
+    }
+
+    @Test fun clearingDeletedPresetReferenceAlsoCleansUndoRedoAndTransactionSnapshots() {
+        val presetId = "user_bass_deleted"
+        val initial = workspace().copy(selectedModulePresetIds = mapOf("bass" to presetId))
+        val coordinator = DspStudioSessionCoordinator(initial, DspStudioWorkspaceRepository(temporaryFolder.root))
+        coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 80)) }
+        val transaction = requireNotNull(coordinator.beginEditTransaction())
+        coordinator.edit(transaction) { it.copy(macros = it.macros.copy(bassImpact = 90)) }
+
+        assertTrue(coordinator.clearSelectedPresetReference("bass", presetId))
+        assertNull(coordinator.compareA().selectedModulePresetIds["bass"])
+        assertNull(coordinator.preview.selectedModulePresetIds["bass"])
+        assertTrue(coordinator.commitEditTransaction(transaction))
+
+        assertTrue(coordinator.undo())
+        assertNull(coordinator.preview.selectedModulePresetIds["bass"])
+        assertTrue(coordinator.redo())
+        assertNull(coordinator.preview.selectedModulePresetIds["bass"])
+        assertFalse(coordinator.clearSelectedPresetReference("bass", presetId))
+    }
+
     @Test fun cancelPreviewClearsRedoHistory() {
         val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
         coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 80)) }

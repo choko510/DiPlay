@@ -62,6 +62,7 @@ import com.shilapi.xcertplay.dsp.DspStudioEditTransaction
 import com.shilapi.xcertplay.dsp.DspStudioFeature
 import com.shilapi.xcertplay.dsp.DspStudioFeatureFlags
 import com.shilapi.xcertplay.dsp.DspStudioSessionCoordinator
+import com.shilapi.xcertplay.dsp.DspStudioComparisonSide
 import com.shilapi.xcertplay.dsp.DspSoundMacroSettings
 import com.shilapi.xcertplay.dsp.DspSmartLoudnessSettings
 import com.shilapi.xcertplay.dsp.DspDynamicBassSettings
@@ -373,7 +374,7 @@ internal fun DspSettingsScreen(
         studioOperationPending = true
         runtime.previewStudioWorkspaceAsync(workspace, dspEnabled) { applied ->
             studioOperationPending = false
-            if (applied) editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
+            if (applied) editorSession.refreshAppliedStateFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             if (!applied && screenActive.get()) {
                 Toast.makeText(context, "Could not preview DSP Studio settings", Toast.LENGTH_LONG).show()
@@ -681,9 +682,13 @@ internal fun DspSettingsScreen(
                         ?: studioSession.preview.selectedModulePresetIds[selectedModulePresetModule],
                     enabled = !operationPending,
                     onModuleKeyChange = { moduleKey ->
+                        val restoreDraftPreview = studioSession.comparisonSide != DspStudioComparisonSide.DRAFT
+                        studioSession.resetComparison()
+                        if (restoreDraftPreview) previewStudioWorkspace(studioSession.preview)
                         selectedModulePresetModule = moduleKey
                         selectedModulePresetId = studioSession.preview.selectedModulePresetIds[moduleKey]
                         modulePresets = emptyList()
+                        studioUiRevision += 1
                     },
                     onPresetSelect = { selectedModulePresetId = it },
                     onApply = { preset ->
@@ -735,11 +740,6 @@ internal fun DspSettingsScreen(
                             studioOperationPending = false
                             studioUiRevision += 1
                             if (result == DspPresetStoreResult.DELETED) {
-                                studioSession.edit { workspace ->
-                                    workspace.copy(
-                                        selectedModulePresetIds = workspace.selectedModulePresetIds - moduleKey,
-                                    )
-                                }
                                 syncStudioDraftToScreen(studioSession.preview)
                                 selectedModulePresetId = null
                                 runtime.loadModulePresetsAsync(moduleKey) {
@@ -774,6 +774,26 @@ internal fun DspSettingsScreen(
                             selectedModulePresetId = factoryPreset.id
                         }
                     },
+                    onCompareA = {
+                        macroEditTransaction?.let(studioSession::commitEditTransaction)
+                        macroEditTransaction = null
+                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
+                            studioSession.beginModuleComparison(selectedModulePresetModule)
+                        }
+                        studioSession.selectComparisonSide(DspStudioComparisonSide.A)?.let(previewStudioWorkspace)
+                        studioUiRevision += 1
+                    },
+                    onCompareB = {
+                        macroEditTransaction?.let(studioSession::commitEditTransaction)
+                        macroEditTransaction = null
+                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
+                            studioSession.beginModuleComparison(selectedModulePresetModule)
+                        }
+                        studioSession.selectComparisonSide(DspStudioComparisonSide.B)?.let(previewStudioWorkspace)
+                        studioUiRevision += 1
+                    },
+                    comparisonSide = studioSession.comparisonSide,
+                    rendererStatusText = rendererApplyStatusText(rendererApplyStatus),
                     )
                     if (studioFeatureFlags.macroOverlayEnabled) {
                         DspMacroStudio(
@@ -792,19 +812,25 @@ internal fun DspSettingsScreen(
                         OutlinedButton(enabled = !operationPending, onClick = {
                             macroEditTransaction?.let(studioSession::commitEditTransaction)
                             macroEditTransaction = null
+                            studioSession.resetComparison()
                             previewStudioWorkspace(studioSession.compareA())
+                            studioUiRevision += 1
                         }) { Text("A") }
                         OutlinedButton(enabled = !operationPending, onClick = {
                             macroEditTransaction?.let(studioSession::commitEditTransaction)
                             macroEditTransaction = null
+                            studioSession.resetComparison()
                             previewStudioWorkspace(studioSession.compareB())
+                            studioUiRevision += 1
                         }) { Text("B") }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(enabled = !operationPending, onClick = {
                             macroEditTransaction?.let(studioSession::commitEditTransaction)
                             macroEditTransaction = null
+                            studioSession.resetComparison()
                             previewStudioWorkspace(studioSession.preview)
+                            studioUiRevision += 1
                         }) { Text("Preview") }
                         Button(enabled = !operationPending, onClick = saveStudioWorkspace) { Text("Save") }
                         OutlinedButton(enabled = !operationPending, onClick = cancelStudioChanges) { Text("Cancel preview") }

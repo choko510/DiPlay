@@ -1,5 +1,7 @@
 # Lessons
 
+- Compact navigation can expose five destinations in a narrow Split pane with a horizontally scrollable tab row; Compose UI tests should call `performScrollTo()` before clicking off-screen tabs. Compile Android-test Kotlin separately from connected instrumentation, since compilation alone is not interaction evidence.
+
 For graph-level detector tests, vary upstream processing while feeding identical PCM, then compare detector state and audio output separately. The detector should remain stable even when the processed output changes.
 
 ## Topic guide

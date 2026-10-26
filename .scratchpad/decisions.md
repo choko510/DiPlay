@@ -1,5 +1,11 @@
 # Decisions
 
+## Keep the five DSP Studio tabs aligned with their editing domains
+
+- **Decision:** Use Studio for macros and legacy profile/basic controls, EQ for PEQ, Spatial for legacy width/mono bass plus Seat and M/S, Dynamics for Smart Loudness/Dynamic Bass and compressor-family stages, and Advanced for headroom, cabin, Harmonic, Convolver, and diagnostics.
+- **Reason:** This satisfies the product tab contract while keeping every existing editor reachable and all edits bound to the screen's existing profile/editor and studio session owners.
+- **Status:** Implemented on the PR #52 Phase 02 child branch; connected host geometry and session continuity remain unverified.
+
 ## Topic guide
 
 The decisions below are retained with their full rationale; earlier choices may require validation against a newer PR head.

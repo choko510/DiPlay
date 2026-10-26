@@ -161,6 +161,93 @@ class DspStudioPersistenceTest {
         assertEquals(62, (repo.load() as DspWorkspaceReadResult.Loaded).workspace.macros.bassImpact)
     }
 
+    @Test fun oneEditTransactionCreatesOneUndoEntryForManyUpdates() {
+        val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
+        val transaction = requireNotNull(coordinator.beginEditTransaction())
+
+        repeat(100) { index ->
+            assertNotNull(
+                coordinator.edit(transaction) {
+                    it.copy(macros = it.macros.copy(bassImpact = index + 1))
+                },
+            )
+        }
+        assertFalse(coordinator.canUndo)
+        assertEquals(100, coordinator.preview.macros.bassImpact)
+
+        assertTrue(coordinator.commitEditTransaction(transaction))
+        assertTrue(coordinator.canUndo)
+        assertTrue(coordinator.undo())
+        assertEquals(67, coordinator.preview.macros.bassImpact)
+        assertFalse(coordinator.canUndo)
+    }
+
+    @Test fun noOpEditDoesNotCreateHistoryOrClearRedo() {
+        val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
+        coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 80)) }
+        assertTrue(coordinator.undo())
+
+        val generation = coordinator.generation()
+        coordinator.edit { it }
+
+        assertEquals(generation, coordinator.generation())
+        assertFalse(coordinator.canUndo)
+        assertTrue(coordinator.canRedo)
+        assertTrue(coordinator.redo())
+        assertEquals(80, coordinator.preview.macros.bassImpact)
+    }
+
+    @Test fun staleEditTransactionCannotChangeTheDraft() {
+        val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
+        val stale = requireNotNull(coordinator.beginEditTransaction())
+        assertTrue(coordinator.commitEditTransaction(stale))
+        val current = requireNotNull(coordinator.beginEditTransaction())
+
+        assertNull(coordinator.edit(stale) { it.copy(macros = it.macros.copy(bassImpact = 20)) })
+        assertFalse(coordinator.commitEditTransaction(stale))
+        assertEquals(67, coordinator.preview.macros.bassImpact)
+        assertTrue(coordinator.commitEditTransaction(current))
+    }
+
+    @Test fun moduleComparisonFreezesOnlyThatModuleAgainstTheCurrentDraftBase() {
+        val saved = workspace().copy(
+            baseProfileSnapshot = workspace().baseProfileSnapshot.copy(
+                bass = workspace().baseProfileSnapshot.bass.copy(enabled = true, gainDb = 2.0),
+                compressor = workspace().baseProfileSnapshot.compressor.copy(thresholdDb = -24.0),
+                preampDb = 1.0,
+            ),
+            selectedModulePresetIds = mapOf("bass" to "saved-bass", "compressor" to "saved-compressor"),
+        )
+        val coordinator = DspStudioSessionCoordinator(saved, DspStudioWorkspaceRepository(temporaryFolder.root))
+        coordinator.edit {
+            it.copy(
+                baseProfileSnapshot = it.baseProfileSnapshot.copy(
+                    bass = it.baseProfileSnapshot.bass.copy(gainDb = 8.0),
+                    compressor = it.baseProfileSnapshot.compressor.copy(thresholdDb = -12.0),
+                    preampDb = 3.0,
+                ),
+                macros = it.macros.copy(bassImpact = 90),
+                selectedModulePresetIds = mapOf("bass" to "draft-bass", "compressor" to "draft-compressor"),
+            )
+        }
+
+        val comparison = requireNotNull(coordinator.compareModule("bass"))
+
+        assertEquals("bass", comparison.scopeKey)
+        assertEquals(2.0, comparison.a.baseProfileSnapshot.bass.gainDb, 0.0)
+        assertEquals(8.0, comparison.b.baseProfileSnapshot.bass.gainDb, 0.0)
+        assertEquals(-12.0, comparison.a.baseProfileSnapshot.compressor.thresholdDb, 0.0)
+        assertEquals(90, comparison.a.macros.bassImpact)
+        assertEquals(3.0, comparison.a.baseProfileSnapshot.preampDb, 0.0)
+        assertEquals(3.0, comparison.b.baseProfileSnapshot.preampDb, 0.0)
+        assertEquals("saved-bass", comparison.a.selectedModulePresetIds["bass"])
+        assertEquals("draft-compressor", comparison.a.selectedModulePresetIds["compressor"])
+        assertNull(coordinator.compareModule("unknown"))
+
+        coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 40)) }
+        assertEquals(90, comparison.b.macros.bassImpact)
+    }
+
     @Test fun cancelPreviewClearsRedoHistory() {
         val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
         coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 80)) }
@@ -184,6 +271,20 @@ class DspStudioPersistenceTest {
         assertFalse(coordinator.canRedo)
         assertEquals(80, coordinator.compareA().macros.bassImpact)
         assertEquals(saved.macros.vocalPresence, coordinator.compareA().macros.vocalPresence)
+    }
+
+    @Test fun savingOlderWorkspaceKeepsUndoForNewerTransaction() {
+        val initial = workspace()
+        val coordinator = DspStudioSessionCoordinator(initial, DspStudioWorkspaceRepository(temporaryFolder.root))
+        val transaction = requireNotNull(coordinator.beginEditTransaction())
+        assertNotNull(coordinator.edit(transaction) { it.copy(macros = it.macros.copy(bassImpact = 80)) })
+
+        coordinator.commitSaved(initial)
+
+        assertTrue(coordinator.canUndo)
+        assertTrue(coordinator.undo())
+        assertEquals(initial, coordinator.preview)
+        assertFalse(coordinator.isDirty)
     }
 
     @Test fun disabledFactoryConvolverDoesNotTurnJsonNullIntoAnIrId() {

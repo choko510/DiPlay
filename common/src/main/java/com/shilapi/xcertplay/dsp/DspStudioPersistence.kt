@@ -284,37 +284,228 @@ internal fun DspStudioWorkspace.deepCopy(): DspStudioWorkspace = copy(
     selectedModulePresetIds = selectedModulePresetIds.toMap(),
 )
 
-internal class DspStudioSessionCoordinator(initial: DspStudioWorkspace, private val repository: DspStudioWorkspaceRepository) {
+internal class DspStudioEditTransaction internal constructor(val id: Long)
+
+internal data class DspStudioComparisonSnapshot(
+    val scopeKey: String,
+    val a: DspStudioWorkspace,
+    val b: DspStudioWorkspace,
+)
+
+internal class DspStudioSessionCoordinator(
+    initial: DspStudioWorkspace,
+    private val repository: DspStudioWorkspaceRepository,
+) {
     private var committed = initial.deepCopy()
     private var draft = initial.deepCopy()
-    private var undo = mutableListOf<DspStudioWorkspace>()
-    private var redo = mutableListOf<DspStudioWorkspace>()
+    private val undo = mutableListOf<DspStudioWorkspace>()
+    private val redo = mutableListOf<DspStudioWorkspace>()
     private var generation = 0L
-    var preview: DspStudioWorkspace = draft.deepCopy(); private set
-    var isDirty: Boolean = false; private set
+    private var nextTransactionId = 0L
+    private var activeTransaction: ActiveTransaction? = null
+
+    var preview: DspStudioWorkspace = draft.deepCopy()
+        private set
+    var isDirty: Boolean = false
+        private set
+
     val canUndo: Boolean get() = undo.isNotEmpty()
     val canRedo: Boolean get() = redo.isNotEmpty()
-    fun edit(transform: (DspStudioWorkspace) -> DspStudioWorkspace): Long { undo.add(draft.deepCopy()); if (undo.size > 100) undo.removeAt(0); draft = transform(draft).deepCopy(); redo.clear(); isDirty = draft != committed; generation++; preview = draft.deepCopy(); return generation }
-    fun undo(): Boolean { if (undo.isEmpty()) return false; redo.add(draft); draft = undo.removeAt(undo.lastIndex); isDirty = draft != committed; generation++; preview = draft.deepCopy(); return true }
-    fun redo(): Boolean { if (redo.isEmpty()) return false; undo.add(draft); draft = redo.removeAt(redo.lastIndex); isDirty = draft != committed; generation++; preview = draft.deepCopy(); return true }
-    fun cancelPreview(): Long { draft = committed.deepCopy(); undo.clear(); redo.clear(); isDirty = false; generation++; preview = draft.deepCopy(); return generation }
-    fun compareA(): DspStudioWorkspace = committed.deepCopy()
-    fun compareB(): DspStudioWorkspace = draft.deepCopy()
-    fun save(): DspWorkspaceSaveResult { val result = repository.save(draft); if (result == DspWorkspaceSaveResult.SAVED) { committed = draft.deepCopy(); isDirty = false; undo.clear(); redo.clear() }; return result }
-    fun commitSaved(workspace: DspStudioWorkspace) {
-        committed = workspace.deepCopy()
-        if (draft == workspace) {
-            draft = committed.deepCopy()
-            isDirty = false
-        } else {
-            isDirty = draft != committed
+
+    fun beginEditTransaction(): DspStudioEditTransaction? {
+        if (activeTransaction != null) return null
+        nextTransactionId += 1
+        val transaction = DspStudioEditTransaction(nextTransactionId)
+        activeTransaction = ActiveTransaction(transaction, draft.deepCopy())
+        return transaction
+    }
+
+    fun edit(transform: (DspStudioWorkspace) -> DspStudioWorkspace): Long {
+        finishActiveTransaction()
+        return updateDraft(transform, recordUndo = true)
+    }
+
+    fun edit(
+        transaction: DspStudioEditTransaction,
+        transform: (DspStudioWorkspace) -> DspStudioWorkspace,
+    ): Long? {
+        if (activeTransaction?.token != transaction) return null
+        return updateDraft(transform, recordUndo = false)
+    }
+
+    fun commitEditTransaction(transaction: DspStudioEditTransaction): Boolean {
+        val active = activeTransaction?.takeIf { it.token == transaction } ?: return false
+        activeTransaction = null
+        if (draft != active.before) {
+            pushHistory(undo, active.before)
+            redo.clear()
         }
+        return true
+    }
+
+    fun cancelEditTransaction(transaction: DspStudioEditTransaction): Boolean {
+        val active = activeTransaction?.takeIf { it.token == transaction } ?: return false
+        activeTransaction = null
+        if (draft != active.before) {
+            draft = active.before.deepCopy()
+            updatePreviewAndDirty()
+            generation++
+        }
+        return true
+    }
+
+    fun undo(): Boolean {
+        finishActiveTransaction()
+        if (undo.isEmpty()) return false
+        pushHistory(redo, draft)
+        draft = undo.removeAt(undo.lastIndex).deepCopy()
+        updatePreviewAndDirty()
+        generation++
+        return true
+    }
+
+    fun redo(): Boolean {
+        finishActiveTransaction()
+        if (redo.isEmpty()) return false
+        pushHistory(undo, draft)
+        draft = redo.removeAt(redo.lastIndex).deepCopy()
+        updatePreviewAndDirty()
+        generation++
+        return true
+    }
+
+    fun cancelPreview(): Long {
+        activeTransaction = null
+        draft = committed.deepCopy()
         undo.clear()
         redo.clear()
+        updatePreviewAndDirty()
         generation++
+        return generation
+    }
+
+    fun compareA(): DspStudioWorkspace = committed.deepCopy()
+
+    fun compareB(): DspStudioWorkspace = draft.deepCopy()
+
+    fun compareWorkspace(): DspStudioComparisonSnapshot = DspStudioComparisonSnapshot(
+        scopeKey = WORKSPACE_SCOPE,
+        a = committed.deepCopy(),
+        b = draft.deepCopy(),
+    )
+
+    fun compareModule(moduleKey: String): DspStudioComparisonSnapshot? {
+        val currentDraft = draft.deepCopy()
+        val fromCommitted = currentDraft.copyModuleValuesFrom(committed, moduleKey)?.deepCopy() ?: return null
+        return DspStudioComparisonSnapshot(
+            scopeKey = moduleKey,
+            a = fromCommitted,
+            b = currentDraft,
+        )
+    }
+
+    fun save(): DspWorkspaceSaveResult {
+        finishActiveTransaction()
+        val result = repository.save(draft)
+        if (result == DspWorkspaceSaveResult.SAVED) {
+            committed = draft.deepCopy()
+            updatePreviewAndDirty()
+            undo.clear()
+            redo.clear()
+        }
+        return result
+    }
+
+    fun commitSaved(workspace: DspStudioWorkspace) {
+        finishActiveTransaction()
+        committed = workspace.deepCopy()
+        if (draft == committed) {
+            draft = committed.deepCopy()
+            undo.clear()
+            redo.clear()
+        } else {
+            val savedUndoIndex = undo.indexOfLast { it == committed }
+            if (savedUndoIndex >= 0) {
+                repeat(savedUndoIndex) { undo.removeAt(0) }
+            } else if (redo.none { it == committed }) {
+                undo.clear()
+                pushHistory(undo, committed)
+            }
+        }
+        updatePreviewAndDirty()
+        generation++
+    }
+
+    fun generation(): Long = generation
+
+    private fun updateDraft(
+        transform: (DspStudioWorkspace) -> DspStudioWorkspace,
+        recordUndo: Boolean,
+    ): Long {
+        val candidate = transform(draft).deepCopy()
+        if (candidate == draft) return generation
+        if (recordUndo) {
+            pushHistory(undo, draft)
+            redo.clear()
+        }
+        draft = candidate
+        updatePreviewAndDirty()
+        generation++
+        return generation
+    }
+
+    private fun finishActiveTransaction() {
+        val active = activeTransaction ?: return
+        commitEditTransaction(active.token)
+    }
+
+    private fun updatePreviewAndDirty() {
+        isDirty = draft != committed
         preview = draft.deepCopy()
     }
-    fun generation(): Long = generation
+
+    private fun pushHistory(history: MutableList<DspStudioWorkspace>, workspace: DspStudioWorkspace) {
+        history.add(workspace.deepCopy())
+        if (history.size > MAX_HISTORY) history.removeAt(0)
+    }
+
+    private data class ActiveTransaction(
+        val token: DspStudioEditTransaction,
+        val before: DspStudioWorkspace,
+    )
+
+    private companion object {
+        const val MAX_HISTORY = 100
+        const val WORKSPACE_SCOPE = "workspace"
+    }
+}
+
+private fun DspStudioWorkspace.copyModuleValuesFrom(
+    source: DspStudioWorkspace,
+    moduleKey: String,
+): DspStudioWorkspace? {
+    val targetProfile = baseProfileSnapshot
+    val sourceProfile = source.baseProfileSnapshot
+    val merged = when (moduleKey) {
+        "peq" -> copy(baseProfileSnapshot = targetProfile.copy(eqBands = sourceProfile.eqBands))
+        "bass" -> copy(baseProfileSnapshot = targetProfile.copy(bass = sourceProfile.bass))
+        "seat" -> copy(baseProfileSnapshot = targetProfile.copy(seatAlignment = sourceProfile.seatAlignment))
+        "advanced_ms" -> copy(baseProfileSnapshot = targetProfile.copy(advancedMs = sourceProfile.advancedMs))
+        "compressor" -> copy(baseProfileSnapshot = targetProfile.copy(compressor = sourceProfile.compressor))
+        "multiband" -> copy(baseProfileSnapshot = targetProfile.copy(multiband = sourceProfile.multiband))
+        "dynamic_eq" -> copy(baseProfileSnapshot = targetProfile.copy(dynamicEq = sourceProfile.dynamicEq))
+        "harmonic" -> copy(baseProfileSnapshot = targetProfile.copy(harmonic = sourceProfile.harmonic))
+        "limiter" -> copy(baseProfileSnapshot = targetProfile.copy(limiter = sourceProfile.limiter))
+        "convolver" -> copy(baseProfileSnapshot = targetProfile.copy(convolver = sourceProfile.convolver))
+        "cabin" -> copy(baseProfileSnapshot = targetProfile.copy(cabinCorrection = sourceProfile.cabinCorrection))
+        "macros" -> copy(macros = source.macros)
+        "smart_loudness" -> copy(smartLoudness = source.smartLoudness)
+        "dynamic_bass" -> copy(dynamicBass = source.dynamicBass)
+        else -> return null
+    }
+    val presetIds = selectedModulePresetIds.toMutableMap()
+    source.selectedModulePresetIds[moduleKey]?.let { presetIds[moduleKey] = it } ?: presetIds.remove(moduleKey)
+    return merged.copy(selectedModulePresetIds = presetIds)
 }
 
 private fun DspSmartLoudnessSettings.toJson() = JSONObject().put("mode", mode.name).put("strength", strength).put("maxLowBoostDb", maxLowBoostDb).put("maxHighBoostDb", maxHighBoostDb).put("calibration", calibration?.let { JSONObject().put("routeToken", it.routeToken).put("quietVolumeFraction", it.quietVolumeFraction).put("referenceVolumeFraction", it.referenceVolumeFraction) }).put("quietListeningLevel", quietListeningLevel).put("referenceListeningLevel", referenceListeningLevel).put("manualListeningLevel", manualListeningLevel).put("fixedAmount", fixedAmount)

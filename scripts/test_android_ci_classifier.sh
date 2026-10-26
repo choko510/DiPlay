@@ -5,7 +5,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/android_ci_classifier.sh"
 
 is_ci_docs_only_path "docs/step4/TEST_MATRIX.md"
 is_ci_docs_only_path ".scratchpad/current.md"
+is_ci_docs_only_path "scripts/generate_step4_ex08_delta111_source.py"
+is_ci_docs_only_path "scripts/step4_ex08_delta111.py"
+is_ci_docs_only_path "scripts/test_step4_ex08_delta111.py"
 ! is_ci_docs_only_path "scripts/test_android_ci_classifier.sh"
+! is_ci_docs_only_path "common/src/main/java/com/shilapi/xcertplay/DspSettingsScreen.kt"
+! is_ci_docs_only_path "shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlaySession.kt"
 
 is_ci_workflow_sensitive_path ".github/workflows/android.yml"
 is_ci_workflow_sensitive_path "scripts/run_android_instrumentation.sh"

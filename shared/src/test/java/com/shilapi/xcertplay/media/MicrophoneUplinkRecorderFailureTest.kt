@@ -7,10 +7,18 @@ import android.media.MediaRecorder
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import java.net.InetAddress
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.net.InetSocketAddress
+import java.net.SocketTimeoutException
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -34,6 +42,7 @@ class MicrophoneUplinkRecorderFailureTest {
         RecorderBuilder.built.clear()
         RecorderBuilder.rejectedSources = emptySet()
         RecorderBuilder.uninitializedSources = emptySet()
+        RecorderBuilder.scriptedRecorder = null
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(android.Manifest.permission.RECORD_AUDIO)
     }
 
@@ -90,6 +99,53 @@ class MicrophoneUplinkRecorderFailureTest {
         }
     }
 
+    @Test
+    fun zeroReadsSendNoPacketsAndCaptureResumesAfterPositiveRead() {
+        val receiver = DatagramSocket(null).apply {
+            reuseAddress = true
+            bind(InetSocketAddress(InetAddress.getLoopbackAddress(), 0))
+            soTimeout = 100
+        }
+        val scripted = ScriptedCaptureRecorder()
+        RecorderBuilder.scriptedRecorder = scripted
+        val uplink = MicrophoneUplink(
+            config("default").copy(
+                host = InetAddress.getLoopbackAddress(),
+                port = receiver.localPort,
+            ),
+        )
+
+        try {
+            assertTrue(uplink.start())
+            uplink.activate()
+            assertTrue(scripted.zeroReadsReturned.await(2, TimeUnit.SECONDS))
+            assertNoPacket(receiver)
+
+            scripted.allowPositiveRead.countDown()
+            receiver.soTimeout = 2_000
+            val received = DatagramPacket(ByteArray(2_048), 2_048)
+            receiver.receive(received)
+            assertEquals(12 + 640 + 16 + 8, received.length)
+
+            receiver.soTimeout = 100
+            assertNoPacket(receiver)
+        } finally {
+            scripted.allowPositiveRead.countDown()
+            uplink.close()
+            receiver.close()
+            RecorderBuilder.scriptedRecorder = null
+        }
+    }
+
+    private fun assertNoPacket(receiver: DatagramSocket) {
+        try {
+            receiver.receive(DatagramPacket(ByteArray(2_048), 2_048))
+            fail("A microphone packet was sent without a positive AudioRecord read")
+        } catch (_: SocketTimeoutException) {
+            // No captured frame is available for transmission.
+        }
+    }
+
     private fun config(audioType: String) = MicrophoneConfig(
         audioType = audioType,
         sampleRate = 16_000,
@@ -113,7 +169,7 @@ class MicrophoneUplinkRecorderFailureTest {
             val source = ReflectionHelpers.callInstanceMethod<Int>(attributes, "getCapturePreset")
             attempts += source
             if (source in rejectedSources) throw UnsupportedOperationException("Unsupported test capture source")
-            return (if (source in uninitializedSources) RejectedRecorder(source)
+            return (scriptedRecorder ?: if (source in uninitializedSources) RejectedRecorder(source)
             else Shadow.directlyOn<AudioRecord>(builder, AudioRecord.Builder::class.java.name, "build")).also {
                 built += it
             }
@@ -124,7 +180,45 @@ class MicrophoneUplinkRecorderFailureTest {
             val built = CopyOnWriteArrayList<AudioRecord>()
             var rejectedSources = emptySet<Int>()
             var uninitializedSources = emptySet<Int>()
+            @Volatile var scriptedRecorder: AudioRecord? = null
         }
+    }
+
+    class ScriptedCaptureRecorder : AudioRecord(
+        MediaRecorder.AudioSource.MIC,
+        16_000,
+        AudioFormat.CHANNEL_IN_MONO,
+        AudioFormat.ENCODING_PCM_16BIT,
+        4_096,
+    ) {
+        val zeroReadsReturned = CountDownLatch(1)
+        val allowPositiveRead = CountDownLatch(1)
+        private val reads = AtomicInteger()
+        private val frameSent = AtomicInteger()
+
+        override fun getState(): Int = STATE_INITIALIZED
+
+        override fun startRecording() = Unit
+
+        override fun stop() = Unit
+
+        override fun read(audioData: ByteArray, offsetInBytes: Int, sizeInBytes: Int, readMode: Int): Int {
+            when (reads.incrementAndGet()) {
+                in 1..3 -> {
+                    if (reads.get() == 3) zeroReadsReturned.countDown()
+                    return 0
+                }
+                else -> {
+                    if (!allowPositiveRead.await(2, TimeUnit.SECONDS)) return -1
+                    if (frameSent.getAndIncrement() > 0) return 0
+                    val frameBytes = minOf(sizeInBytes, 640)
+                    audioData.fill(0x11, offsetInBytes, offsetInBytes + frameBytes)
+                    return frameBytes
+                }
+            }
+        }
+
+        override fun release() = Unit
     }
 
     class RejectedRecorder(source: Int) : AudioRecord(

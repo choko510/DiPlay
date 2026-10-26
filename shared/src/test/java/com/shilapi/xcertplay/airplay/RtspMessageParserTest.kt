@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.airplay
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -72,6 +73,119 @@ class RtspMessageParserTest {
     }
 
     @Test
+    fun acceptsHeaderAndBodyAtTheirLimitsAndRejectsOneByteOver() {
+        val maxHeaderBytes = 64
+        val headerPrefix = "OPTIONS * RTSP/1.0\r\nX: "
+        val maximumHeader =
+            headerPrefix + "a".repeat(maxHeaderBytes - headerPrefix.length) + "\r\n\r\n"
+        val oneByteOverHeader =
+            headerPrefix + "a".repeat(maxHeaderBytes + 1 - headerPrefix.length) + "\r\n\r\n"
+
+        assertEquals(
+            1,
+            parseAll(
+                maximumHeader.toByteArray(Charsets.US_ASCII),
+                maxHeaderBytes = maxHeaderBytes,
+                maxBodyBytes = 8,
+                chunkBytes = 7,
+            ).size,
+        )
+        assertIllegalArgument {
+            parseAll(
+                oneByteOverHeader.toByteArray(Charsets.US_ASCII),
+                maxHeaderBytes = maxHeaderBytes,
+                maxBodyBytes = 8,
+                chunkBytes = 7,
+            )
+        }
+
+        val maxBodyBytes = 64
+        for (bodySize in maxBodyBytes - 1..maxBodyBytes) {
+            val body = ByteArray(bodySize) { 'x'.code.toByte() }
+            val header = "POST /body RTSP/1.0\r\nContent-Length: $bodySize\r\n\r\n"
+                .toByteArray(Charsets.US_ASCII)
+            val messages = parseAll(
+                header + body,
+                maxHeaderBytes = 128,
+                maxBodyBytes = maxBodyBytes,
+                chunkBytes = 16,
+            )
+
+            assertEquals(1, messages.size)
+            assertArrayEquals(body, messages.single().body)
+        }
+
+        val tooLargeBodyHeader = "POST /body RTSP/1.0\r\nContent-Length: ${maxBodyBytes + 1}\r\n\r\n"
+            .toByteArray(Charsets.US_ASCII)
+        assertIllegalArgument {
+            parseAll(
+                tooLargeBodyHeader,
+                maxHeaderBytes = 128,
+                maxBodyBytes = maxBodyBytes,
+                chunkBytes = 16,
+            )
+        }
+    }
+
+    @Test
+    fun handlesMissingAndMalformedContentLengthValues() {
+        val missingLength = parseAll(
+            "OPTIONS * RTSP/1.0\r\n\r\n".toByteArray(Charsets.US_ASCII),
+        )
+        assertEquals(1, missingLength.size)
+        assertTrue(missingLength.single().body.isEmpty())
+
+        for (contentLength in listOf("-1", "9223372036854775808")) {
+            val header = "POST /body RTSP/1.0\r\nContent-Length: $contentLength\r\n\r\n"
+                .toByteArray(Charsets.US_ASCII)
+            assertIllegalArgument { parseAll(header, maxBodyBytes = 64) }
+        }
+    }
+
+    @Test
+    fun rejectsOneByteOverTheProductionBodyLimitBeforeReceivingTheBody() {
+        val parser = RtspMessage.Parser()
+        val header = "POST /large RTSP/1.0\r\nContent-Length: ${RtspMessage.MAX_BODY_BYTES + 1}\r\n\r\n"
+            .toByteArray(Charsets.US_ASCII)
+
+        assertIllegalArgument { parser.append(header) }
+    }
+
+    @Test
+    fun retainsOneMiBOfAnIncompleteBodyWithinTheConfiguredMessageLimit() {
+        val header = "POST /slow RTSP/1.0\r\nContent-Length: 4194304\r\n\r\n"
+            .toByteArray(Charsets.US_ASCII)
+        val parser = RtspMessage.Parser()
+        val chunk = ByteArray(RtspMessage.MAX_INPUT_CHUNK_BYTES) { 'x'.code.toByte() }
+        val partialBodyBytes = 1024 * 1024
+
+        assertTrue(parser.append(header).isEmpty())
+        repeat(partialBodyBytes / chunk.size) {
+            assertTrue(parser.append(chunk).isEmpty())
+        }
+
+        assertEquals(header.size + partialBodyBytes, parser.pendingBytes().size)
+        assertFalse(parser.pendingBytes().isEmpty())
+    }
+
+    @Test
+    fun parsesTenThousandCoalescedAndOneByteFragmentedRequests() {
+        val request = "OPTIONS * RTSP/1.0\r\n\r\n"
+        val wire = request.repeat(10_000).toByteArray(Charsets.US_ASCII)
+
+        assertEquals(10_000, parseAll(wire).size)
+
+        val parser = RtspMessage.Parser()
+        var parsedCount = 0
+        for (offset in wire.indices) {
+            parsedCount += parser.append(wire, offset, 1).size
+        }
+
+        assertEquals(10_000, parsedCount)
+        assertTrue(parser.pendingBytes().isEmpty())
+    }
+
+    @Test
     fun decryptsFragmentedFramesWithoutRetainingPreviousInputArrays() {
         val key = ByteArray(32) { it.toByte() }
         val plaintext = "POST /command RTSP/1.0\r\nContent-Length: 4\r\n\r\ntest"
@@ -92,5 +206,27 @@ class RtspMessageParserTest {
             return
         }
         throw AssertionError("Expected IllegalArgumentException")
+    }
+
+    private fun parseAll(
+        wire: ByteArray,
+        maxHeaderBytes: Int = RtspMessage.MAX_HEADER_BYTES,
+        maxBodyBytes: Int = RtspMessage.MAX_BODY_BYTES,
+        chunkBytes: Int = RtspMessage.MAX_INPUT_CHUNK_BYTES,
+    ): List<RtspMessage.Request> {
+        val parser = RtspMessage.Parser(
+            maxHeaderBytes = maxHeaderBytes,
+            maxBodyBytes = maxBodyBytes,
+            maxInputChunkBytes = chunkBytes,
+        )
+        val messages = ArrayList<RtspMessage.Request>()
+        var offset = 0
+        while (offset < wire.size) {
+            val length = minOf(chunkBytes, wire.size - offset)
+            messages += parser.append(wire, offset, length)
+            offset += length
+        }
+        assertTrue(parser.pendingBytes().isEmpty())
+        return messages
     }
 }

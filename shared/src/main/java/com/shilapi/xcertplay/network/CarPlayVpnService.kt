@@ -29,6 +29,14 @@ import java.net.Socket
 import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal class AirPlayServerStartupHooks(
+    val createServerSocket: () -> ServerSocket = { ServerSocket() },
+    val prepareListener: (WiredPathDiagnostics?, Long, ServerSocket) -> Unit = { diagnostics, generation, _ ->
+        diagnostics?.record(WiredPathEvent.LISTENER_BOUND, generation)
+    },
+    val startAcceptThread: (Thread) -> Unit = { it.start() },
+)
+
 /**
  * Hosts the AirPlay TCP listener for both NCM/VPN and local-only Wi-Fi transports.
  *
@@ -58,6 +66,12 @@ class CarPlayVpnService : VpnService() {
         val usesVpn: Boolean,
     )
 
+    private data class VpnRevocationOwner(
+        val generation: Int,
+        val attachment: AirPlayAttachment,
+        val serverSocket: ServerSocket?,
+    )
+
     private val binder = LocalBinder()
     private val active = AtomicBoolean(false)
     private val sessionsLock = Any()
@@ -68,14 +82,19 @@ class CarPlayVpnService : VpnService() {
     private var bridge: Ipv6NcmBridge? = null
     private var tun: ParcelFileDescriptor? = null
     @Volatile private var attachGeneration = 0
+    internal var serverStartupHooks = AirPlayServerStartupHooks()
 
     override fun onBind(intent: Intent?): IBinder? =
         if (intent?.action == VpnService.SERVICE_INTERFACE) super.onBind(intent) else binder
 
     override fun onRevoke() {
-        val revokedGeneration = attachGeneration
+        val revokedOwner = synchronized(this) {
+            val current = attachment ?: return
+            if (!active.get() || !current.usesVpn) return
+            VpnRevocationOwner(attachGeneration, current, serverSocket)
+        }
         Thread(
-            { releaseRevokedGeneration(revokedGeneration) },
+            { releaseRevokedGeneration(revokedOwner) },
             "carplay-vpn-revoke",
         ).apply {
             isDaemon = true
@@ -83,31 +102,28 @@ class CarPlayVpnService : VpnService() {
         }
     }
 
-    private fun releaseRevokedGeneration(generation: Int) {
-        val revoked = synchronized(this) {
-            if (generation != attachGeneration || attachment?.usesVpn != true) {
-                null
-            } else {
-                val revokedListener = attachment?.listener
-                if (active.get()) releaseLocked()
-                revokedListener to attachGeneration
+    private fun releaseRevokedGeneration(owner: VpnRevocationOwner) {
+        synchronized(this) {
+            if (
+                owner.generation != attachGeneration || attachment !== owner.attachment ||
+                serverSocket !== owner.serverSocket || !active.get() || !owner.attachment.usesVpn
+            ) {
+                return
             }
-        } ?: return
-        val (revokedListener, releasedGeneration) = revoked
-        revokedListener?.let { listener ->
+            releaseLocked()
+            val releasedGeneration = attachGeneration
             val message = "CarPlay VPN permission was revoked"
             try {
-                listener.onTransportStopping(message)
+                owner.attachment.listener.onTransportStopping(message)
             } catch (error: Exception) {
                 Log.w(TAG, "VPN revoke stopping callback failed error=${error.javaClass.simpleName}")
             }
+            if (attachGeneration != releasedGeneration || active.get()) return
             try {
-                listener.onTransportError(message)
+                owner.attachment.listener.onTransportError(message)
             } catch (error: Exception) {
                 Log.w(TAG, "VPN revoke error callback failed error=${error.javaClass.simpleName}")
             }
-        }
-        synchronized(this) {
             if (attachGeneration == releasedGeneration && !active.get()) {
                 stopSelf()
             }
@@ -249,14 +265,11 @@ class CarPlayVpnService : VpnService() {
         generation: Int,
         replacement: AirPlayAttachment,
     ) {
-        val server = ServerSocket()
+        val server = serverStartupHooks.createServerSocket()
         var ownershipTransferred = false
         try {
             server.bind(InetSocketAddress(replacement.address, replacement.config.port))
-            replacement.wiredPathDiagnostics?.record(
-                WiredPathEvent.LISTENER_BOUND,
-                generation.toLong(),
-            )
+            serverStartupHooks.prepareListener(replacement.wiredPathDiagnostics, generation.toLong(), server)
             val acceptThread = Thread(
                 { acceptLoop(generation, server) },
                 "airplay-accept",
@@ -264,7 +277,7 @@ class CarPlayVpnService : VpnService() {
             attachment = replacement
             serverSocket = server
             ownershipTransferred = true
-            acceptThread.start()
+            serverStartupHooks.startAcceptThread(acceptThread)
         } finally {
             if (!ownershipTransferred) {
                 runCatching { server.close() }
@@ -334,21 +347,17 @@ class CarPlayVpnService : VpnService() {
                         wiredPathDiagnostics = current.wiredPathDiagnostics,
                         attachGeneration = generation.toLong(),
                     )
-                    val accepted = synchronized(this) {
-                        if (!active.get() || generation != attachGeneration || server !== serverSocket ||
-                            attachment !== current
-                        ) {
-                            false
-                        } else {
-                            addSession(session)
-                            true
-                        }
-                    }
+                    val accepted = startAcceptedSessionIfCurrent(
+                        generation = generation,
+                        server = server,
+                        expectedAttachment = current,
+                        session = session,
+                        startSession = AirPlaySession::start,
+                    )
                     if (!accepted) {
                         session.close()
                         return
                     }
-                    session.start()
                     permitTransferredToSession = true
                 } catch (error: Exception) {
                     session?.let { acceptedSession ->
@@ -365,6 +374,25 @@ class CarPlayVpnService : VpnService() {
             if (active.get()) {
                 attachment?.listener?.let { onTransportError(generation, it, error) }
             }
+        }
+    }
+
+    private fun startAcceptedSessionIfCurrent(
+        generation: Int,
+        server: ServerSocket,
+        expectedAttachment: AirPlayAttachment,
+        session: AirPlaySession,
+        startSession: (AirPlaySession) -> Unit,
+    ): Boolean = synchronized(this) {
+        if (
+            !active.get() || generation != attachGeneration || server !== serverSocket ||
+            attachment !== expectedAttachment
+        ) {
+            false
+        } else {
+            addSession(session)
+            startSession(session)
+            true
         }
     }
 
@@ -403,17 +431,22 @@ class CarPlayVpnService : VpnService() {
         )
         Thread(
             {
-                val current = synchronized(this) { generation == attachGeneration }
-                if (!current) return@Thread
-                runCatching { listener.onTransportStopping(message) }
                 synchronized(this) {
-                    if (generation != attachGeneration) return@Thread
+                    if (generation != attachGeneration || attachment?.listener !== listener || !active.get()) {
+                        return@synchronized
+                    }
+                    runCatching { listener.onTransportStopping(message) }
+                    if (
+                        generation != attachGeneration || attachment?.listener !== listener || !active.get()
+                    ) {
+                        return@synchronized
+                    }
                     releaseLocked()
-                }
-                try {
-                    listener.onTransportError(message)
-                } catch (error: Exception) {
-                    Log.w(TAG, "AirPlay transport error callback failed error=${error.javaClass.simpleName}")
+                    try {
+                        listener.onTransportError(message)
+                    } catch (error: Exception) {
+                        Log.w(TAG, "AirPlay transport error callback failed error=${error.javaClass.simpleName}")
+                    }
                 }
             },
             "airplay-teardown",

@@ -674,7 +674,7 @@ For AirPlay listener startup, keep the newly created ServerSocket locally owned 
 
 For Surface retirement, keep every release acknowledgement until decoder ownership is safe, but store callbacks separately from coalesced surface-control jobs so rapid surface changes do not repeatedly copy the accumulated callback list. Emit bounded count/age diagnostics; do not invent a cap that would discard required acknowledgements or force unsafe Surface release.
 
-For DSP Split measurement diagnostics, retain the most recent 64 distinct measurement signatures and include the latest 16 in the unbounded-body diagnostic. Keep this ring bounded and continue to treat SH-M27 rendering/scroll acceptance as a separate device gate.
+For DSP Split measurement diagnostics, retain the most recent 64 distinct measurement signatures, include the latest 16 in the unbounded-body diagnostic, and cap emitted measurement logs at 64 per process. Compare primitive MeasureSpec and Compose constraint fields before formatting log strings. Because this dependency's `ComposeView` is final, capture the exact child specs at the existing pane's `measureChildWithMargins` call and pass those same values to `child.measure()`; keep SH-M27 rendering/scroll acceptance as a separate device gate.
 
 For a retired DSP pipeline close failure, bind the failure to that pipeline's configuration generation and identity. Keep the status phase ACTIVE for the current graph, attach the old pipeline failure as separate metadata, and report that further updates are blocked; never mark the latest configured generation as a preparation failure for an older pipeline.
 
@@ -690,6 +690,16 @@ The reaper's close callback can signal before its `finally` decrements the retir
 
 Keep the wired startup watchdog's existing completion signal on an accepted MAIN or ALT screen SETUP. After that point, treat control TCP closure before RECORD as a separate startup failure and route it through the existing transport teardown/retry policy. Bound RTSP headers to 64 KiB, bodies to 4 MiB, and simultaneous control sessions to four; verify these limits against supported-device traffic before treating hardware acceptance as complete.
 
+2026-10-26 B00: treat C-00 as `USER_CONFIRMED_RESOLVED` for product behavior, while preserving any older `NOT_RUN` device measurements as such. Freeze the full current 1,289-row EX-08 CSV bytes and SHA-256 before building a separate 111-commit overlay; generated inventory consistency is not semantic review or device evidence.
+
+2026-10-26 B01: preserve the fixed EX-08 111-commit range as a separate metadata/patch overlay and keep every new row `NEED_EVIDENCE` until per-SHA semantic review. Protect the existing 1,289 CSV rows as a byte-identical prefix; do not treat compare stats, patch digests, or inventory checks as adoption or parity proof.
+
+2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
+
+2026-10-26 B03: validate generation, attachment and server identity together before accepting sessions or processing VPN revocation; keep ownership validation and the session start atomic under the service monitor. Serialize wired release/error callbacks with replacement and reject stale attempts.
+
+2026-10-26 B04: keep the existing F8 source fixes and add state-path regressions through actual `AirPlaySession` SETUP/RECORD handling. A control socket close after accepted MAIN/ALT SETUP and before RECORD is a recovery trigger; after RECORD it ends only the active session. Retain bounded four-session permits and verify release/reuse.
+
 The decoder-retirement test must keep its stop gate closed until the assertion completes even though `VideoDecoder.close()` interrupts the worker to wake its queue. The test hook absorbs that expected interrupt while waiting, then restores the thread interrupt flag after explicit release.
 
 Smart Loudness AUTO trusts only explicit route-bound readings supplied by a platform adapter and user-captured quiet/reference points. The common module does not infer Android stream volume as physical playback volume; MANUAL and FIXED remain independent fallbacks.
@@ -704,3 +714,8 @@ The schema-v1 workspace remains separate from legacy v7 profile storage. `DspStu
 
 Host `DspEqEditorPane` directly and inject touch coordinates relative to the graph Canvas bounds so the test covers the production pointer handlers, callback mapping, and filter-specific gain behavior without adding test-only production APIs.
 Select a draggable band from the original pointer-down coordinate; Compose's simple drag-start position is at touch-slop recognition and can be too far from the small handle hit target after a single large movement.
+2026-10-26 B05: bound TextureView surface ownership at the generation boundary, where new Surface wrappers can still be deferred safely. Count pending retirements plus the current Surface against an eight-pair ceiling; keep only the newest deferred Texture and resume it after ACKs. Retire same-Texture Surface wrappers only after decoder ACK and release the Texture only after its destroyed generation's owners complete.
+
+2026-10-26 B06: keep the microphone zero-read backoff and send-only-after-positive-read behavior unchanged because the production capture loop already implements the contract; exercise it end-to-end with a scripted AudioRecord and loopback UDP receiver. Extend only the OFF_INITIAL regression matrix to the four supported rate/channel combinations; do not change sample-clock or live-OFF latency behavior.
+
+2026-10-26: Integrate the latest PR #45 base through a merge commit on the PR #52 branch, preserving both branches' Working Memory history. Keep PR #45 and main unchanged, and keep PR #52 open pending user approval.

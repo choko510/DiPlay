@@ -120,7 +120,6 @@ import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Collections
 import java.util.Date
-import java.util.IdentityHashMap
 import java.util.Locale
 import java.util.UUID
 import java.util.WeakHashMap
@@ -424,8 +423,11 @@ class CarPlayHostActivity : ComponentActivity() {
     private var controller: CarPlayController? = null
     private var currentSurface: Surface? = null
     private var currentSurfaceTexture: SurfaceTexture? = null
+    private var deferredSurfaceTexture: SurfaceTexture? = null
+    private var surfaceGenerationBackpressureLogged = false
     private val surfaceRetirementLock = Any()
-    private val pendingSurfaceRetirements = IdentityHashMap<SurfaceTexture, IdentityHashMap<Surface, Boolean>>()
+    private val surfaceRetirementGate =
+        SurfaceRetirementGate<SurfaceTexture, Surface>(MAX_RETAINED_SURFACE_GENERATIONS)
     private val releasedSurfaceTextures = Collections.newSetFromMap(WeakHashMap<SurfaceTexture, Boolean>())
     private var activeDisplaySize: DisplaySize? = null
     private var localViewportSize: DisplaySize? = null
@@ -648,17 +650,33 @@ class CarPlayHostActivity : ComponentActivity() {
                 existing.isValid
             ) {
                 existing
+            } else if (!canAcceptSurfaceGeneration()) {
+                deferredSurfaceTexture = texture
+                null
             } else {
                 Surface(texture).also {
                     existing?.let { oldSurface ->
-                        retireTextureSurface(oldSurface, existingTexture?.takeIf { it !== texture })
+                        retireTextureSurface(
+                            oldSurface,
+                            existingTexture,
+                            releaseTexture = existingTexture !== texture,
+                        )
                     }
                     currentSurface = it
                     currentSurfaceTexture = texture
+                    deferredSurfaceTexture = null
                 }
             }
-            appendLog(if (existing === surface) "Texture surface reused" else "Texture surface created")
-            attachSurface(surface)
+            if (surface == null) {
+                if (!surfaceGenerationBackpressureLogged) {
+                    surfaceGenerationBackpressureLogged = true
+                    appendLog("Texture surface deferred while prior surfaces retire")
+                }
+            } else {
+                surfaceGenerationBackpressureLogged = false
+                appendLog(if (existing === surface) "Texture surface reused" else "Texture surface created")
+                attachSurface(surface)
+            }
             scheduleCurrentCarPlayViewportSize(
                 width,
                 height,
@@ -678,13 +696,15 @@ class CarPlayHostActivity : ComponentActivity() {
         override fun onSurfaceTextureDestroyed(texture: SurfaceTexture): Boolean {
             if (currentSurfaceTexture !== texture) {
                 return synchronized(surfaceRetirementLock) {
+                    if (deferredSurfaceTexture === texture) deferredSurfaceTexture = null
                     when {
-                        pendingSurfaceRetirements.containsKey(texture) -> false
+                        surfaceRetirementGate.hasPendingTexture(texture) -> false
                         releasedSurfaceTextures.remove(texture) -> false
                         else -> true
                     }
                 }
             }
+            if (deferredSurfaceTexture === texture) deferredSurfaceTexture = null
             val surface = currentSurface
             currentSurface = null
             currentSurfaceTexture = null
@@ -1100,6 +1120,7 @@ class CarPlayHostActivity : ComponentActivity() {
         currentSurface?.let { surface -> retireTextureSurface(surface, currentSurfaceTexture) }
         currentSurface = null
         currentSurfaceTexture = null
+        deferredSurfaceTexture = null
         sessionLog?.append("Activity destroyed")
         sessionLog?.close()
         sessionLog = null
@@ -1372,12 +1393,21 @@ class CarPlayHostActivity : ComponentActivity() {
             val composeWidthSpec = getChildMeasureSpec(parentWidthMeasureSpec, widthPadding, params.width)
             val composeHeightSpec = getChildMeasureSpec(parentHeightMeasureSpec, heightPadding, params.height)
             child.measure(composeWidthSpec, composeHeightSpec)
-            val measurement = "widthMode=${measureMode(composeWidthSpec)} " +
-                "widthSize=${View.MeasureSpec.getSize(composeWidthSpec)} " +
-                "heightMode=${measureMode(composeHeightSpec)} " +
-                "heightSize=${View.MeasureSpec.getSize(composeHeightSpec)} " +
-                "measured=${child.measuredWidth}x${child.measuredHeight}"
-            if (DspSplitMeasureDiagnostics.record(measurement)) {
+            if (
+                DspSplitMeasureDiagnostics.recordViewMeasurement(
+                    View.MeasureSpec.getMode(composeWidthSpec),
+                    View.MeasureSpec.getSize(composeWidthSpec),
+                    View.MeasureSpec.getMode(composeHeightSpec),
+                    View.MeasureSpec.getSize(composeHeightSpec),
+                    child.measuredWidth,
+                    child.measuredHeight,
+                )
+            ) {
+                val measurement = "widthMode=${measureMode(composeWidthSpec)} " +
+                    "widthSize=${View.MeasureSpec.getSize(composeWidthSpec)} " +
+                    "heightMode=${measureMode(composeHeightSpec)} " +
+                    "heightSize=${View.MeasureSpec.getSize(composeHeightSpec)} " +
+                    "measured=${child.measuredWidth}x${child.measuredHeight}"
                 Log.i(TAG, "DSP_SPLIT_COMPOSE_MEASURE $measurement")
             }
         }
@@ -5084,17 +5114,15 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
-    private fun retireTextureSurface(surface: Surface, texture: SurfaceTexture?) {
+    private fun retireTextureSurface(
+        surface: Surface,
+        texture: SurfaceTexture?,
+        releaseTexture: Boolean = true,
+    ) {
         if (texture != null) {
             val shouldSchedule = synchronized(surfaceRetirementLock) {
-                val retiringSurfaces = pendingSurfaceRetirements.getOrPut(texture) {
-                    IdentityHashMap()
-                }
-                if (retiringSurfaces.containsKey(surface)) false
-                else {
-                    retiringSurfaces[surface] = false
-                    true
-                }
+                if (releasedSurfaceTextures.contains(texture)) false
+                else surfaceRetirementGate.begin(texture, surface, releaseTexture)
             }
             if (!shouldSchedule) return
         }
@@ -5117,17 +5145,43 @@ class CarPlayHostActivity : ComponentActivity() {
             runCatching { surface.release() }
             return
         }
-        val surfacesToRelease = synchronized(surfaceRetirementLock) {
-            val retiringSurfaces = pendingSurfaceRetirements[texture] ?: return@synchronized null
-            if (retiringSurfaces[surface] != false) return@synchronized null
-            retiringSurfaces[surface] = true
-            if (retiringSurfaces.values.any { !it }) return@synchronized null
-            pendingSurfaceRetirements.remove(texture)
-            releasedSurfaceTextures.add(texture)
-            retiringSurfaces.keys.toList()
+        val retirement = synchronized(surfaceRetirementLock) {
+            surfaceRetirementGate.complete(texture, surface)?.also { batch ->
+                if (batch.releaseTexture) releasedSurfaceTextures.add(texture)
+            }
         } ?: return
-        surfacesToRelease.forEach { retired -> runCatching { retired.release() } }
-        runCatching { texture.release() }
+        retirement.surfaces.forEach { retired -> runCatching { retired.release() } }
+        if (retirement.releaseTexture) runCatching { texture.release() }
+        mainHandler.post(::resumeDeferredSurfaceIfReady)
+    }
+
+    private fun canAcceptSurfaceGeneration(): Boolean = synchronized(surfaceRetirementLock) {
+        surfaceRetirementGate.canAcceptSurface(activeSurface = currentSurface != null)
+    }
+
+    private fun resumeDeferredSurfaceIfReady() {
+        val texture = deferredSurfaceTexture ?: return
+        if (videoView?.surfaceTexture !== texture) {
+            deferredSurfaceTexture = null
+            return
+        }
+        if (!canAcceptSurfaceGeneration() || deferredSurfaceTexture !== texture) return
+        val existing = currentSurface
+        val existingTexture = currentSurfaceTexture
+        val surface = Surface(texture)
+        deferredSurfaceTexture = null
+        currentSurface = surface
+        currentSurfaceTexture = texture
+        existing?.let { oldSurface ->
+            retireTextureSurface(
+                oldSurface,
+                existingTexture,
+                releaseTexture = existingTexture !== texture,
+            )
+        }
+        attachSurface(surface)
+        surfaceGenerationBackpressureLogged = false
+        appendLog("Deferred texture surface attached after retirement")
     }
 
     private fun attachSurface(surface: Surface) {

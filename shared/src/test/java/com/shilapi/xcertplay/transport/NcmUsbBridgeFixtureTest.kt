@@ -297,6 +297,61 @@ class NcmUsbBridgeFixtureTest {
     }
 
     @Test
+    fun ndpPointerLoopIsRejectedAndTheFollowingNtbCanBeDelivered() {
+        val loopFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x13)
+        val recoveredFrame = Step4TestFixtures.ethernetFrame(length = 72, seed = 0x24)
+        val loopingBlock = Ntb16Codec.build(loopFrame, sequence = 40).apply {
+            writeU16(this, 18, 12)
+        }
+        val followingBlock = Ntb16Codec.build(recoveredFrame, sequence = 41)
+        val (bridge, script) = newBridge()
+        script.enqueueRead(UsbRequestWaitFixture.Completed(Step4TestFixtures.coalesced(loopingBlock, followingBlock)))
+
+        bridge.use {
+            assertArrayEquals(recoveredFrame, it.recv(100))
+            assertNull(it.recv(2))
+        }
+    }
+
+    @Test
+    fun overMtuRecoveryAcceptsTheSequencePairAcrossU16Wrap() {
+        val rejectedFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x35)
+        val firstRecoveredFrame = Step4TestFixtures.ethernetFrame(length = 72, seed = 0x46)
+        val secondRecoveredFrame = Step4TestFixtures.ethernetFrame(length = 80, seed = 0x57)
+        val rejectedBlock = Ntb16Codec.build(rejectedFrame, sequence = 0xffff).apply {
+            writeU16(this, 22, EthernetIpv6Codec.MAX_UNTAGGED_ETHERNET_FRAME_BYTES + 1)
+        }
+        val firstFollowingBlock = Ntb16Codec.build(firstRecoveredFrame, sequence = 0)
+        val secondFollowingBlock = Ntb16Codec.build(secondRecoveredFrame, sequence = 1)
+        val (bridge, script) = newBridge()
+        script.enqueueRead(UsbRequestWaitFixture.Completed(
+            Step4TestFixtures.coalesced(rejectedBlock, firstFollowingBlock, secondFollowingBlock),
+        ))
+
+        bridge.use {
+            assertArrayEquals(firstRecoveredFrame, it.recv(100))
+            assertArrayEquals(secondRecoveredFrame, it.recv(100))
+        }
+    }
+
+    @Test
+    fun tenThousandOneByteCompletionsDeliverNtbFramesInOrder() {
+        val frames = (0 until 100).map { index ->
+            Step4TestFixtures.ethernetFrame(length = 72, seed = index)
+        }
+        val blocks = frames.mapIndexed { sequence, frame -> Ntb16Codec.build(frame, sequence) }
+        val input = Step4TestFixtures.coalesced(*blocks.toTypedArray())
+        assertEquals(10_000, input.size)
+        val (bridge, script) = newBridge()
+        input.forEach { byte -> script.enqueueRead(UsbRequestWaitFixture.Completed(byteArrayOf(byte))) }
+
+        bridge.use {
+            frames.forEach { frame -> assertArrayEquals(frame, it.recv(5_000)) }
+            assertEquals(10_000L, it.diagnosticSnapshot().readCompletions)
+        }
+    }
+
+    @Test
     fun validIncompleteNtbWithCandidateAtProtectedEndWaitsForDeclaredBlock() {
         val originalFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x31)
         val fakeFrame = Step4TestFixtures.ethernetFrame(length = 60, seed = 0x42)
@@ -725,6 +780,38 @@ class NcmUsbBridgeFixtureTest {
     }
 
     @Test
+    fun closeReleasesTheRequestEvenWhenCancelReturnsFalse() {
+        val (bridge, script) = newBridge()
+        val result = AtomicReference<ByteArray?>(null)
+        val error = AtomicReference<Throwable?>(null)
+        val finished = CountDownLatch(1)
+        script.cancelResult = false
+        val reader = Thread({
+            try {
+                result.set(bridge.recv(60_000))
+            } catch (caught: Throwable) {
+                error.set(caught)
+            } finally {
+                finished.countDown()
+            }
+        })
+        reader.start()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (bridge.diagnosticSnapshot().readQueues == 0L && System.nanoTime() < deadline) Thread.sleep(1)
+        assertEquals(1L, bridge.diagnosticSnapshot().readQueues)
+
+        bridge.close()
+
+        assertTrue(finished.await(2, TimeUnit.SECONDS))
+        reader.join(2_000)
+        assertNull(error.get())
+        assertNull(result.get())
+        assertEquals(1, script.requestCancelCount)
+        assertTrue(script.connectionClosed)
+        assertEquals(1, script.requestCloseCount)
+    }
+
+    @Test
     fun overOneMiBOfGarbageStopsAtTheBoundedResyncLimit() {
         val (bridge, script) = newBridge()
         val garbageChunk = ByteArray(32_768) { 0x55 }
@@ -980,6 +1067,9 @@ internal class ScriptedUsbDeviceConnectionShadow {
         private set
     var requestCloseCount: Int = 0
         private set
+    var requestCancelCount: Int = 0
+        private set
+    var cancelResult: Boolean = true
     var lastQueuedBufferCapacity: Int = 0
         private set
     val outgoingBlocks = ArrayList<ByteArray>()
@@ -1017,6 +1107,11 @@ internal class ScriptedUsbDeviceConnectionShadow {
 
     internal fun recordRequestClose() {
         requestCloseCount++
+    }
+
+    internal fun cancelRequest(): Boolean {
+        requestCancelCount++
+        return cancelResult
     }
 
     @Implementation
@@ -1076,7 +1171,8 @@ internal class ScriptedUsbRequestShadow {
             ?: false
 
     @Implementation
-    protected fun cancel(): Boolean = true
+    protected fun cancel(): Boolean =
+        initializedConnection?.let { Shadow.extract<ScriptedUsbDeviceConnectionShadow>(it).cancelRequest() } ?: false
 
     @Implementation
     protected fun close() {

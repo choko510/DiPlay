@@ -1,0 +1,12 @@
+{
+  "captured_at": "2026-10-26",
+  "captured_at_head": "ac4694cf1fbb08e443f53a53158528619ed81940",
+  "path": "docs/step4/EX08_COMMIT_LEDGER.csv",
+  "format": "UTF-8 CSV, including header and LF line endings",
+  "data_rows": 1289,
+  "physical_lines": 1290,
+  "sha256": "5d74738d12d60f37fd9b51107325fbd074b0edc58141cbf2d005f004e0e44ca0",
+  "git_blob_sha": "edc142d365f36a20bb6ccc49f7638540b4ce7157",
+  "generator_check": "PASS at captured_at_head; 1232 base + 57 delta; 1289 unique commit SHA",
+  "preservation_rule": "Keep all 1289 original row dictionaries, order, decisions, evidence, and bytes unchanged when adding the 111-row overlay."
+}

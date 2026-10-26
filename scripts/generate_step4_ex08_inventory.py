@@ -19,6 +19,13 @@ import sys
 import tarfile
 from collections import Counter
 from pathlib import Path
+from step4_ex08_delta111 import (
+    build_overlay_rows,
+    load_and_validate_inputs,
+    require_legacy_prefix,
+    serialize_rows,
+    sha256,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,9 +35,13 @@ BASE_CANDIDATES = "upstream-audit-1232/reviewed_candidates_stage2.csv"
 DELTA_BUNDLE = "upstream-audit-1232/incremental-20261018/all_57_patches_and_pass16_evidence.tar.gz"
 DELTA_REVIEW = "pass15/all_57_delta_review_matrix.csv"
 OUTPUT = ROOT / "docs/step4/EX08_COMMIT_LEDGER.csv"
+LEGACY_BASELINE = ROOT / "docs/step4/ex08/legacy_1289_baseline.json"
 _audit_commit_ready = False
 EXPECTED_BASE_COUNT = 1232
 EXPECTED_DELTA_COUNT = 57
+EXPECTED_LEGACY_COUNT = 1289
+EXPECTED_OVERLAY_COUNT = 111
+EXPECTED_TOTAL_COUNT = EXPECTED_LEGACY_COUNT + EXPECTED_OVERLAY_COUNT
 EX02_ADAPTED_SHA = {
     "b6c2db846cdcd81f33e34e9b6af34aaf279c9267",
     "fd004ac51eafbede846660d3bc290601b9170978",
@@ -10744,7 +10755,7 @@ def read_delta_rows() -> list[dict[str, str]]:
     return rows
 
 
-def build_rows() -> list[dict[str, str]]:
+def build_legacy_rows() -> list[dict[str, str]]:
     base = read_base_rows(read_base_candidates())
     delta = read_delta_rows()
     if len(base) != EXPECTED_BASE_COUNT or len(delta) != EXPECTED_DELTA_COUNT:
@@ -10766,42 +10777,68 @@ def build_rows() -> list[dict[str, str]]:
     return rows
 
 
+def build_rows(legacy_rows: list[dict[str, str]] | None = None) -> list[dict[str, str]]:
+    legacy = build_legacy_rows() if legacy_rows is None else legacy_rows
+    legacy_shas = {row["commit_sha"] for row in legacy}
+    meta, commits, overrides = load_and_validate_inputs(ROOT, legacy_shas)
+    overlay = build_overlay_rows(meta, commits, overrides, FIELDNAMES)
+    rows = legacy + overlay
+    shas = [row["commit_sha"] for row in rows]
+    if len(overlay) != EXPECTED_OVERLAY_COUNT:
+        raise RuntimeError(f"Expected 111 delta overlay rows, found {len(overlay)}")
+    if len(rows) != EXPECTED_TOTAL_COUNT or len(set(shas)) != len(rows):
+        raise RuntimeError(f"Expected 1,400 unique commits, found {len(rows)} rows and {len(set(shas))} unique SHAs")
+    missing = [
+        f"{row['commit_sha']}:{field}"
+        for row in rows
+        for field in REQUIRED_ROW_FIELDS
+        if not row.get(field, "").strip()
+    ]
+    if missing:
+        raise RuntimeError(f"Required EX-08 ledger fields are empty: {', '.join(missing[:10])}")
+    return rows
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="validate sources and generated ledger without writing")
     args = parser.parse_args()
     try:
-        rows = build_rows()
-    except (KeyError, OSError, subprocess.CalledProcessError, tarfile.TarError, ValueError) as error:
+        legacy_rows = build_legacy_rows()
+        legacy_bytes = serialize_rows(legacy_rows, FIELDNAMES)
+        baseline = json.loads(LEGACY_BASELINE.read_text(encoding="utf-8"))
+        if len(legacy_rows) != baseline.get("data_rows") or sha256(legacy_bytes) != baseline.get("sha256"):
+            raise RuntimeError("the generated legacy 1,289-row CSV differs from its B00 freeze")
+        rows = build_rows(legacy_rows)
+        combined_bytes = serialize_rows(rows, FIELDNAMES)
+        require_legacy_prefix(legacy_bytes, combined_bytes)
+    except (KeyError, OSError, subprocess.CalledProcessError, tarfile.TarError, ValueError, RuntimeError) as error:
         print(f"EX-08 inventory source error: {error}", file=sys.stderr)
         return 1
     counts = Counter(row["disposition"] for row in rows)
     print(f"Source audit commit: {AUDIT_COMMIT}")
-    print(f"Inventory rows: {len(rows)} (1232 base + 57 delta, all unique)")
+    print(f"Inventory rows: {len(rows)} (1232 base + 57 delta + 111 overlay, all unique)")
     print(f"Current dispositions: {dict(sorted(counts.items()))}")
     print("Note: NEED_EVIDENCE is an explicit pending decision, not semantic review or parity proof.")
     if args.check:
         if not OUTPUT.is_file():
             print(f"Generated EX-08 ledger is missing: {OUTPUT.relative_to(ROOT)}", file=sys.stderr)
             return 1
-        expected_stream = io.StringIO(newline="")
-        writer = csv.DictWriter(expected_stream, fieldnames=FIELDNAMES, lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
-        if OUTPUT.read_bytes() != expected_stream.getvalue().encode("utf-8"):
+        output_bytes = OUTPUT.read_bytes()
+        if not output_bytes.startswith(legacy_bytes):
+            print("Generated EX-08 ledger does not preserve the frozen 1,289-row byte prefix", file=sys.stderr)
+            return 1
+        if output_bytes != combined_bytes:
             print(
                 f"Generated EX-08 ledger is stale: regenerate {OUTPUT.relative_to(ROOT)}",
                 file=sys.stderr,
             )
             return 1
-        for row in rows[:2] + rows[-2:]:
+        for row in rows[:2] + rows[EXPECTED_LEGACY_COUNT:EXPECTED_LEGACY_COUNT + 2] + rows[-2:]:
             print(f"{row['inventory_group']} {row['source_index']} {row['commit_sha']} {row['disposition']} {row['subject']}")
         return 0
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    with OUTPUT.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=FIELDNAMES, lineterminator="\n")
-        writer.writeheader()
-        writer.writerows(rows)
+    OUTPUT.write_bytes(combined_bytes)
     print(f"Wrote {OUTPUT.relative_to(ROOT)}")
     return 0
 

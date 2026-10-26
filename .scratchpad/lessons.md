@@ -527,6 +527,16 @@ When initial hardware state and an asynchronous change listener can race, serial
 
 For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()` cannot be overridden. Capture the exact specs at the existing pane's `measureChildWithMargins` call, pass those specs to `child.measure()`, and record the child result afterward; do not report a reconstructed probe value or a parent's pre-measure size.
 
+For repeated UI diagnostics, a string-based dedupe API still allocates the candidate string before it can reject a duplicate. Compare primitive signature fields first, then allocate the retained signature and formatted log only when the value is new.
+
+For microphone zero-read coverage, inject a scripted initialized `AudioRecord` through the existing Builder shadow and exercise the real capture worker plus a loopback UDP receiver. Hold the recorder before its first positive frame so a timeout proves zero reads never synthesize or transmit silence; then assert exactly one packet follows the positive frame.
+
+Keep log-volume limits separate from bounded recent-history storage: an evicted signature can otherwise be emitted again indefinitely. A process-wide emission counter provides a hard cap while retaining the rolling history for diagnostics.
+
+CI evidence tests should assert the meaning of a historical status record rather than an exact phrase that later becomes stale. Keep the run SHA and skipped job scope explicit when updating those records.
+
+2026-10-26: A successful docs-only workflow run validates only its static checks. Record the workflow HEAD and each job/step's `success`, `failure`, or `skipped` result separately from the last passing source-test SHA; also exercise representative production paths through the current classifier.
+
 When a test latch runs inside a worker that is deliberately interrupted during shutdown, `await()` can throw before the test releases the gate. Make the test gate interruption-tolerant and rely on explicit cleanup to release it; allow enough time for a separately scheduled assertion thread to run in CI.
 
 Smart Loudness route calibration should use two trusted readings from the same route in increasing volume order. Failed, untrusted, reversed, or cross-route samples must leave the previous calibration intact.
@@ -539,3 +549,12 @@ Give standalone screen tests their own files directory and preference name, and 
 
 For Compose graph drag tests, compute touch points from the node's measured Canvas bounds and then inject in node-local coordinates; separately assert the emitted editor model so a successful pointer dispatch cannot mask a mapping error.
 When a Compose drag can begin with a single movement beyond touch slop, retain the original down position for target selection and use post-slop positions only for editing; selecting from the detector's simple drag-start position may miss the handle.
+For wired startup, state-helper tests do not prove callback routing: exercise the real AirPlay session listener with MAIN and ALT SETUP, then close the control socket before RECORD and assert the active attempt requests recovery. Also verify RECORD closure follows the normal active-session end path.
+
+For semaphore-limited socket handlers, test both rejection at capacity and permit return after session close/detach; a cap-only test misses leaked permits that prevent later valid reconnects.
+
+For Surface churn, gate new Surface creation before handing a wrapper to decoder workers. Include the current live Surface in the outstanding budget, keep one latest generation pending, and never release a Surface or Texture until its specific decoder ownership ACKs have completed.
+
+For drag tests that cross touch slop in one movement, band hit-testing must use the original pointer-down coordinate; the detector's drag-start coordinate is only valid for the post-slop edit position.
+
+If a benchmark threshold miss is rerun, keep the threshold fixed and record both the first failure and the same-revision retry outcome. Final CI evidence must name the exact head SHA.

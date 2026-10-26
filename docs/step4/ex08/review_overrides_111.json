@@ -1,0 +1,1778 @@
+[
+  {
+    "commit_sha": "83a397c666f70baff518efb171c3d47b3d191b9e",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'feat(vehicle): Geely/Lynk instrument cluster map on the geely_fx11 head unit' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/main/java/com/shilapi/xcertplay/ClusterMapPresentation.kt, common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/java/com/shilapi/xcertplay/GeelyClusterDisplay.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 83a397c666f70baff518efb171c3d47b3d191b9e against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "5506897e0c210b474d5ffbf32df16d299f294445",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'feat(vehicle): keep the Geely cluster projection when the stock map takes it over' (common/src/main/java/com/shilapi/xcertplay/ClusterMapPresentation.kt, common/src/main/java/com/shilapi/xcertplay/ClusterProjectionWatchdog.kt, common/src/main/java/com/shilapi/xcertplay/GeelyClusterProjection.kt, common/src/test/java/com/shilapi/xcertplay/ClusterProjectionWatchdogTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 5506897e0c210b474d5ffbf32df16d299f294445 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "7d09d82347037ac9086204c6dd32c0916fe6685d",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'fix(vehicle): gate the Geely cluster route on the car and hand the projection back only when DiPlay holds it' (common/src/main/java/com/shilapi/xcertplay/ClusterMapPresentation.kt, common/src/main/java/com/shilapi/xcertplay/ClusterProjectionWatchdog.kt, common/src/main/java/com/shilapi/xcertplay/GeelyClusterDisplay.kt, common/src/test/java/com/shilapi/xcertplay/ClusterProjectionWatchdogTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 7d09d82347037ac9086204c6dd32c0916fe6685d against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "48c971711f2413403121c11f573490c84ef976f6",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Keep each finger in its touch slot and release it where it was' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayHid.kt, shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlaySession.kt, shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayTouchSlots.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 48c971711f2413403121c11f573490c84ef976f6 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "40236083afc6b8bc94771708521fd93bc9e818e4",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Retry at once when Bluetooth turns on' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/test/java/com/shilapi/xcertplay/WirelessStartupRecoveryTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 40236083afc6b8bc94771708521fd93bc9e818e4 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "798f1b6d14d73de8c1ad70eb55e72c27ff8a5624",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Wait for the group info answer while reclaiming a retained group' (common/src/test/java/com/shilapi/xcertplay/WifiP2pGroupManagerTest.kt, shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 798f1b6d14d73de8c1ad70eb55e72c27ff8a5624 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "7d860fd2b2162cc12bf76ba83d3266e488604a74",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Ask for ADB approval when the hotspot import switch is turned on' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, shared/src/main/java/com/shilapi/xcertplay/adb/LocalAdb.kt, shared/src/main/java/com/shilapi/xcertplay/network/CarHotspotConfigRead.kt, shared/src/test/java/com/shilapi/xcertplay/adb/FakeAdbd.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 7d860fd2b2162cc12bf76ba83d3266e488604a74 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "cea03ba70ec73e6fca614fc34d17d19bcdc73e7f",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Do not warn about overwriting the car with details just read from it' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/CarHotspotImportSaveTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for cea03ba70ec73e6fca614fc34d17d19bcdc73e7f against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "0a0bb8ae906d7e1cebd58c8365d333daa84796de",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Keep a new touch back until the settings swipe can no longer start' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayHostSettingsTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 0a0bb8ae906d7e1cebd58c8365d333daa84796de against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "1c88f20e6fa00f1ca44a0165f7381d73df40bdd3",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Keep the hotspot details in the quick menu after the screen is recreated' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayHostDisplaySizeTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 1c88f20e6fa00f1ca44a0165f7381d73df40bdd3 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "7f2a01277e649263cc72114b4cf92014fcc38a12",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Show the phone page in Italian' (common/src/main/assets/settings-backup.html, common/src/main/assets/settings-code.html). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 7f2a01277e649263cc72114b4cf92014fcc38a12 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "9448b9ed651258221eece4d810c742831cecfcba",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Show the requested size and the menu's language in the display summary' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 9448b9ed651258221eece4d810c742831cecfcba against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "d0fc8d9a3a16183f2ded59f5c9065b8d9cff99c1",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Keep the hotspot details when the quick menu closes' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayHostSettingsTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for d0fc8d9a3a16183f2ded59f5c9065b8d9cff99c1 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "d0a67cea820845c6032307dfb3425f3f5a053e6e",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Back up the resolution percentage and the settings added since the backup list' (common/src/main/java/com/shilapi/xcertplay/backup/SettingsBackupCodec.kt, common/src/test/java/com/shilapi/xcertplay/backup/SettingsBackupCodecTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for d0a67cea820845c6032307dfb3425f3f5a053e6e against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "7e13365550b40caee1609bb7feda4bfd0f1920e2",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Leave the unknown car out of the setup guide's features line' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 7e13365550b40caee1609bb7feda4bfd0f1920e2 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "12c612cd0d9f5e174cdbee9459228b1fd13af9de",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Keep the home-screen bubble where a touch can reach it' (common/src/main/java/com/shilapi/xcertplay/LauncherBubble.kt, common/src/main/java/com/shilapi/xcertplay/LauncherBubbleLayout.kt, common/src/test/java/com/shilapi/xcertplay/LauncherBubbleLayoutTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 12c612cd0d9f5e174cdbee9459228b1fd13af9de against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "3b4ba7362b5af76e8a91c66207ff19cb01d81f39",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Offer Wi-Fi Direct in the CarPlay menu before Android 10' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 3b4ba7362b5af76e8a91c66207ff19cb01d81f39 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "119aa8671718272d0f0f8281b04e091ffc9d99dc",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Keep the bands played between two rhythm sends' (shared/src/main/java/com/shilapi/xcertplay/media/AmbientMusicController.kt, shared/src/test/java/com/shilapi/xcertplay/media/AmbientMusicTickingTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 119aa8671718272d0f0f8281b04e091ffc9d99dc against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "0f7b17897762dc4533b1d2c27fc313d687c47d50",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Leave the car's rhythm off when its switch went off during the check' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/AmbientMusicSettingsUiTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 0f7b17897762dc4533b1d2c27fc313d687c47d50 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "364d41cb0f38570c9a169f8fd70e713de4cdf7d8",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Show a frame rate set in the CarPlay menu in Settings' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/FrameRateSettingTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 364d41cb0f38570c9a169f8fd70e713de4cdf7d8 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "ee96bcbbe1283690acd1542ce99c5978a46a83c4",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Keep an unobservable tether set unobservable' (shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotInterfaces.kt, shared/src/test/java/com/shilapi/xcertplay/network/ManualHotspotOwnershipTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for ee96bcbbe1283690acd1542ce99c5978a46a83c4 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "5438e80f3f1da17497e438c9ecba83b3d0008f69",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Give a recreated CarPlay screen the running AirPlay session' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayHostDisplaySizeTest.kt, common/src/test/java/com/shilapi/xcertplay/DashboardContentDeliveryTest.kt, shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 5438e80f3f1da17497e438c9ecba83b3d0008f69 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "4288b0e7a1fdf0b8f4fe23b2194721b59f32a9a0",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Let the phone page's listener be gone when stop() returns' (common/src/main/java/com/shilapi/xcertplay/backup/SettingsBackupServer.kt, common/src/test/java/com/shilapi/xcertplay/backup/SettingsBackupServerTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 4288b0e7a1fdf0b8f4fe23b2194721b59f32a9a0 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "1a52868e36590ffaaa6249b7333c90f6bcfd2885",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Let Settings search find slider rows' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/AdaptiveSettingsUiTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 1a52868e36590ffaaa6249b7333c90f6bcfd2885 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "42fe9277657e216a65f0cefcc4018049fc2799d4",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Show an update the background check found when Home comes back' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/UpdateHomeAvailabilityTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 42fe9277657e216a65f0cefcc4018049fc2799d4 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "d7a113681bf120146cb7048f35e4ed69ab146bd9",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Leave mobile-data interfaces out of the hotspot carrier search' (shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotInterfaces.kt, shared/src/test/java/com/shilapi/xcertplay/network/ManualHotspotMobileDataTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for d7a113681bf120146cb7048f35e4ed69ab146bd9 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "bb10c8d4e808a85fee2307cbe9649479c0f71356",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Let the DiLink 3 cluster show the dashboard map full screen' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-ja/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for bb10c8d4e808a85fee2307cbe9649479c0f71356 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "2ba83a04153a8b6aedff5529b951a8598a7dc0e8",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Support the 2023 Han's stopAudioOutput(String) for the car's own music rhythm' (shared/src/main/java/com/shilapi/xcertplay/hud/BydCarMusicRhythm.kt, shared/src/test/java/com/shilapi/xcertplay/hud/BydCarMusicRhythmTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 2ba83a04153a8b6aedff5529b951a8598a7dc0e8 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "e63b7b3d27cdde7944aee8273fa63b3be310be21",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Ask the iPhone again once the USB network opens late' (shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt, shared/src/main/java/com/shilapi/xcertplay/orchestration/WiredStartAgain.kt, shared/src/main/java/com/shilapi/xcertplay/orchestration/WiredStartWatchdog.kt, shared/src/main/java/com/shilapi/xcertplay/transport/Iap2WiredControlClient.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for e63b7b3d27cdde7944aee8273fa63b3be310be21 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "3000daa8e8c0a0818e597973ef0e7963e52a57ee",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Keep the first start request when the link was already open' (shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt, shared/src/main/java/com/shilapi/xcertplay/orchestration/WiredStartAgain.kt, shared/src/test/java/com/shilapi/xcertplay/orchestration/WiredStartAgainTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 3000daa8e8c0a0818e597973ef0e7963e52a57ee against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "79eeec9df752f6ec316b2df5dface3ae9736882b",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Report the clock the microphone timestamps count in' (shared/src/main/java/com/shilapi/xcertplay/airplay/CarPlayMediaEngine.kt, shared/src/main/java/com/shilapi/xcertplay/airplay/MicrophonePacketizer.kt, shared/src/test/java/com/shilapi/xcertplay/airplay/MicrophonePacketizerTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 79eeec9df752f6ec316b2df5dface3ae9736882b against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "63764597e19c3c4564ec5627d5e84f5276ed2cb8",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Name HEVC in the Efficient video title so Settings search finds it' (common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml, common/src/main/res/values-ja/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 63764597e19c3c4564ec5627d5e84f5276ed2cb8 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "83d629a09556b378f5bac1f15b26e702be82fa55",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Report media buttons that CarPlay does not use' (common/src/main/java/com/shilapi/xcertplay/CarPlayMediaKeys.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayMediaCallbackTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 83d629a09556b378f5bac1f15b26e702be82fa55 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "88e847ec865f7d8b4ad2cf36e0a4999fd00c8aed",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Avoid reverse DNS lookups during wireless Bonjour startup' (common/src/test/java/com/shilapi/xcertplay/CarPlayBonjourDualStackTest.kt, shared/src/main/java/com/shilapi/xcertplay/network/CarPlayBonjour.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 88e847ec865f7d8b4ad2cf36e0a4999fd00c8aed against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "f05bca3c4b8d70daa38daeb5964288b6f1e98b4f",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Simulate the iPhone's wireless bursts in the music clock trim test' (shared/src/test/java/com/shilapi/xcertplay/media/MediaClockTrimTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for f05bca3c4b8d70daa38daeb5964288b6f1e98b4f against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "6e9c530b234d5ac3d86539e66cde6ac4b6e270c9",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Average the music level over time in the clock trim' (shared/src/main/java/com/shilapi/xcertplay/media/MediaClockTrim.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 6e9c530b234d5ac3d86539e66cde6ac4b6e270c9 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "da94865ee8736f9603311b16f58c6c2ed073d650",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Name the microphone's real source, and what else records while it is silent' (shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt, shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneCaptureStats.kt, shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt, shared/src/test/java/com/shilapi/xcertplay/media/MicrophoneCaptureStatsTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for da94865ee8736f9603311b16f58c6c2ed073d650 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "fafa2d8ce54aec1d70e605d76dc93a06a567ea01",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Withdraw DiPlay's audio mode request when a call ends' (shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt, shared/src/test/java/com/shilapi/xcertplay/media/MicrophoneSourceFallbackTest.kt, shared/src/test/java/com/shilapi/xcertplay/media/ShadowAudioModeRequests.kt, shared/src/test/java/com/shilapi/xcertplay/media/TelephonyMicrophoneTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for fafa2d8ce54aec1d70e605d76dc93a06a567ea01 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "f541dd07f65082cc1c9df1372052e932ec91150f",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Say what the wheel-speed reads returned when a minute sent no speed' (shared/src/main/java/com/shilapi/xcertplay/hud/BydWheelSpeed.kt, shared/src/main/java/com/shilapi/xcertplay/transport/VehicleSpeedNmea.kt, shared/src/test/java/com/shilapi/xcertplay/hud/BydWheelSpeedTest.kt, shared/src/test/java/com/shilapi/xcertplay/transport/VehicleSpeedNmeaTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for f541dd07f65082cc1c9df1372052e932ec91150f against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "fe939547ce93c9203e7eddc6622e1da57ac52625",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'fix(vehicle): hand back a Geely cluster projection a killed run left on' (common/src/main/java/com/shilapi/xcertplay/AirPlayPersistence.kt, common/src/main/java/com/shilapi/xcertplay/ClusterMapPresentation.kt, common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/java/com/shilapi/xcertplay/GeelyClusterProjection.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for fe939547ce93c9203e7eddc6622e1da57ac52625 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "afbfefbb1240f63288f61564ba240e0634ee3c3f",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge remote-tracking branch 'upstream/main' into feat/geely-cluster-map' (AGENTS.md, CHANGELOG.md, README.md, README.zh-CN.md). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for afbfefbb1240f63288f61564ba240e0634ee3c3f against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "f9d104c897daaa22610b33b3ee6946e4ddcf079c",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Add the Italian strings for the dashboard map shape' (common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for f9d104c897daaa22610b33b3ee6946e4ddcf079c against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "0f48b9459152e466d7db657fcc50cd391136370e",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge remote-tracking branch 'origin/main' into main-lrc' (.github/workflows/android.yml, CHANGELOG.md, README.md, README.zh-CN.md). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 0f48b9459152e466d7db657fcc50cd391136370e against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "c60ad8309d3d943553c9a2b59d63280d5339f3f0",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge branch 'main' into main-lrc' (CHANGELOG.md, README.md, README.zh-CN.md, common/build.gradle.kts). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for c60ad8309d3d943553c9a2b59d63280d5339f3f0 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "0eeae53faa844ded1d718f1e62803acf8b6321e3",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge branch 'main' into main-lrc' (AGENTS.md, README.md, README.zh-CN.md, README.zh-TW.md). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 0eeae53faa844ded1d718f1e62803acf8b6321e3 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "db7e04cd93c3bceffda1be26a50b442876891a74",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge branch 'main' into main-lrc' (CHANGELOG.md, README.md, README.zh-CN.md, README.zh-TW.md). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for db7e04cd93c3bceffda1be26a50b442876891a74 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "dc744381121d67132448e684af40720ecb9a5627",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for '[add] Auto-activate music card,fix BydClusterSong' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-ja/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for dc744381121d67132448e684af40720ecb9a5627 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "d67a29aa96c963b0831f707f2eb8ce150669320a",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge branch 'main' into main-lrc' (AGENTS.md, CHANGELOG.md, README.md, README.zh-CN.md). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for d67a29aa96c963b0831f707f2eb8ce150669320a against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "bd540390f73ce8e7c155e075776657179bc4d46f",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for '1、自动激活音乐卡片 默认值设置为false 2、多语言：意大利语修复 3、ensureGateOpen 优先返回CarPlayHostActivity界面（触发写歌词一定连接上了carplay，并且车机确实api无法获取到当前的活动画面）' (common/src/main/res/values-it/strings.xml, shared/src/main/java/com/shilapi/xcertplay/hud/BydClusterSong.kt, shared/src/main/java/com/shilapi/xcertplay/hud/BydOutputSettings.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for bd540390f73ce8e7c155e075776657179bc4d46f against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "ea220bbc6e1548f03350aa0ddf3b8cb508c30e4e",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for '单元测试gateSwitchShowsOnlyWhenClusterSongIsOn' (common/src/test/java/com/shilapi/xcertplay/BydVehicleDataSettingsTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for ea220bbc6e1548f03350aa0ddf3b8cb508c30e4e against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "84d52f2b3c989f2d11a918c4245bc65179720eb2",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'test(backup): ask whether the page answers after the server stops' (common/src/test/java/com/shilapi/xcertplay/backup/SettingsBackupServerTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 84d52f2b3c989f2d11a918c4245bc65179720eb2 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "3c1b04f25ae42f20ac2dd8a9d92aced7d362efa7",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Test that a key only the settings window sees is learnt while the service runs' (common/src/test/java/com/shilapi/xcertplay/WheelSiriWindowTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 3c1b04f25ae42f20ac2dd8a9d92aced7d362efa7 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "497190772a2e89e61d5d60377908c01c473af667",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Learn the Siri and play/pause keys in the window while the service runs' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/WheelSiriWindowTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 497190772a2e89e61d5d60377908c01c473af667 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "4f65778cdebc9770ab34d7612dd8be12de07cf0d",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Move the physical length in 5 mm steps' (shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayDisplaySettings.kt, shared/src/test/java/com/shilapi/xcertplay/airplay/CarPlaySizeTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 4f65778cdebc9770ab34d7612dd8be12de07cf0d against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "d1ebfcb206f95619fc7f120361d9bf885f8b1933",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Show the saved CarPlay size as it is in Settings' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/java/com/shilapi/xcertplay/LocalizedOptions.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for d1ebfcb206f95619fc7f120361d9bf885f8b1933 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "d335b666b0bd315ec2d35e55e258e5ba2e2e9448",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Set the CarPlay length in Settings with a slider' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/java/com/shilapi/xcertplay/LocalizedOptions.kt, common/src/test/java/com/shilapi/xcertplay/AdaptiveSettingsUiTest.kt, common/src/test/java/com/shilapi/xcertplay/CarPlaySizeSettingsTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for d335b666b0bd315ec2d35e55e258e5ba2e2e9448 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "ecdaffd934d33bb8a8fbd6de2293aa50fb9cfc3d",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Show that Android 9 units get no TCP peer health tuning' (shared/src/test/java/com/shilapi/xcertplay/network/TcpLivenessTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for ecdaffd934d33bb8a8fbd6de2293aa50fb9cfc3d against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "1bfd23a918b07e5104139cd5cd2bdc2cf6eb39d9",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Tune TCP peer health on Android 8 and 9 head units' (shared/src/main/java/com/shilapi/xcertplay/network/TcpLiveness.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 1bfd23a918b07e5104139cd5cd2bdc2cf6eb39d9 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "d0e5eb424e5833f2fd32e2a1dcd340cffaf7c570",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Keep cluster artwork stable and fade music card updates' (common/src/main/java/com/shilapi/xcertplay/CarPlayMediaKeys.kt, common/src/main/java/com/shilapi/xcertplay/ClusterMusicSettings.kt, common/src/main/java/com/shilapi/xcertplay/ClusterMusicState.kt, common/src/main/java/com/shilapi/xcertplay/ClusterMusicView.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for d0e5eb424e5833f2fd32e2a1dcd340cffaf7c570 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "b0b44faa1cc8cb8a4362c0bf7bb9abfe3508ccab",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Tint a slimmer album frame and make the speed card square' (common/src/main/java/com/shilapi/xcertplay/ClusterMusicView.kt, common/src/test/java/com/shilapi/xcertplay/ClusterSpeedometerSettingsTest.kt, shared/src/main/java/com/shilapi/xcertplay/airplay/ClusterSpeedometerOverlay.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for b0b44faa1cc8cb8a4362c0bf7bb9abfe3508ccab against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "fa69dfd18727da04514a195d08e9177426fde236",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'fix(settings): give the launcher bubble its own line icon' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/drawable/ic_dp_bubble.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for fa69dfd18727da04514a195d08e9177426fde236 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "860282d87e2b61b0c5a48799299bf3f20715fd7a",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'fix(settings): align the ambient note with its control' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 860282d87e2b61b0c5a48799299bf3f20715fd7a against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "a311c7e8a48c1758a1f0749142a49fd2aa4b4366",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Add opt-in album color for the speedometer background' (common/src/main/java/com/shilapi/xcertplay/AirPlayPersistence.kt, common/src/main/java/com/shilapi/xcertplay/ClusterMusicView.kt, common/src/main/java/com/shilapi/xcertplay/ClusterSpeedometerView.kt, common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for a311c7e8a48c1758a1f0749142a49fd2aa4b4366 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "e6f66cba118154ba1af8af4a83009e36d783781b",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Test that an unreachable network ADB with USB debugging on says it does not answer' (common/src/main/res/values/strings.xml, common/src/test/java/com/shilapi/xcertplay/BydVehicleDataSettingsTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for e6f66cba118154ba1af8af4a83009e36d783781b against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "bb146f1f0e045637e35f695f97431f5487e05211",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Say network ADB does not answer when USB debugging is already on' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for bb146f1f0e045637e35f695f97431f5487e05211 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "288dd6620b68134b45336f15729f12b214bfd7a2",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #936 from Boring206/hotspot-unobservable-stays-unobservable' (shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotInterfaces.kt, shared/src/test/java/com/shilapi/xcertplay/network/ManualHotspotOwnershipTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 288dd6620b68134b45336f15729f12b214bfd7a2 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "cb0da602d336971c7a016aeb9165770665244983",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #950 from Boring206/hotspot-skip-mobile-data' (shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotInterfaces.kt, shared/src/test/java/com/shilapi/xcertplay/network/ManualHotspotMobileDataTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for cb0da602d336971c7a016aeb9165770665244983 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "e321203c31dee7722521aea431e3a96e141cfbb5",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #993 from Boring206/music-trim-time-average' (shared/src/main/java/com/shilapi/xcertplay/media/MediaClockTrim.kt, shared/src/test/java/com/shilapi/xcertplay/media/MediaClockTrimTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for e321203c31dee7722521aea431e3a96e141cfbb5 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "6cce97d96137e8df3f8d19f7589616e3e2f4046b",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #963 from Boring206/mic-clock-log' (shared/src/main/java/com/shilapi/xcertplay/airplay/CarPlayMediaEngine.kt, shared/src/main/java/com/shilapi/xcertplay/airplay/MicrophonePacketizer.kt, shared/src/test/java/com/shilapi/xcertplay/airplay/MicrophonePacketizerTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 6cce97d96137e8df3f8d19f7589616e3e2f4046b against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "4cc932909ed245ba66bbe972911955c799568418",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #939 from Boring206/car-rhythm-switch-turned-off' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/AmbientMusicSettingsUiTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 4cc932909ed245ba66bbe972911955c799568418 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "7751882617949723ac06598cc15bce12926096d2",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #935 from Boring206/search-finds-sliders' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/AdaptiveSettingsUiTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 7751882617949723ac06598cc15bce12926096d2 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "3731a06fbdd8c458d9630160bffe053f682ec3e6",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #947 from Boring206/update-notice-on-resume' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/UpdateHomeAvailabilityTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 3731a06fbdd8c458d9630160bffe053f682ec3e6 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "cdbf51417f86ab7b55a511277e4980a061feca97",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #932 from Boring206/backup-server-stop-waits' (common/src/main/java/com/shilapi/xcertplay/backup/SettingsBackupServer.kt, common/src/test/java/com/shilapi/xcertplay/backup/SettingsBackupServerTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for cdbf51417f86ab7b55a511277e4980a061feca97 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "bad21129d68a9fa17d3df1c87a7fbb73327fda94",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #925 from Boring206/phone-page-italian' (common/src/main/assets/settings-backup.html, common/src/main/assets/settings-code.html). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for bad21129d68a9fa17d3df1c87a7fbb73327fda94 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "a99618e2f60e31b51b15e7433c8493544045de8a",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #928 from Boring206/backup-missing-settings' (common/src/main/java/com/shilapi/xcertplay/backup/SettingsBackupCodec.kt, common/src/test/java/com/shilapi/xcertplay/backup/SettingsBackupCodecTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for a99618e2f60e31b51b15e7433c8493544045de8a against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "ca2f8a8f4887a8ed28a86622cb51fba797d8fae4",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #933 from Boring206/adopted-session-day-night' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayHostDisplaySizeTest.kt, common/src/test/java/com/shilapi/xcertplay/DashboardContentDeliveryTest.kt, shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for ca2f8a8f4887a8ed28a86622cb51fba797d8fae4 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "f306a78b0799d4ca0d4c89f83eda2fb6be202ab9",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #915 from Boring206/wifi-direct-reclaim-wait' (common/src/test/java/com/shilapi/xcertplay/WifiP2pGroupManagerTest.kt, shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for f306a78b0799d4ca0d4c89f83eda2fb6be202ab9 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "dc2f870d748e73bf86331cf0c421439da0668a66",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #930 from Boring206/launcher-bubble-stays-reachable' (common/src/main/java/com/shilapi/xcertplay/LauncherBubble.kt, common/src/main/java/com/shilapi/xcertplay/LauncherBubbleLayout.kt, common/src/test/java/com/shilapi/xcertplay/LauncherBubbleLayoutTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for dc2f870d748e73bf86331cf0c421439da0668a66 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "70ee46e2e84c5d55ef2f966b00904c6944257d50",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #934 from Boring206/settings-frame-rate-steps' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/FrameRateSettingTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 70ee46e2e84c5d55ef2f966b00904c6944257d50 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "4d157711cf69421b1e2b86276414e0627068f918",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #938 from Boring206/car-rhythm-band-peaks' (shared/src/main/java/com/shilapi/xcertplay/media/AmbientMusicController.kt, shared/src/test/java/com/shilapi/xcertplay/media/AmbientMusicTickingTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 4d157711cf69421b1e2b86276414e0627068f918 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "3afd528b3e33b6b862652a886d8d8e80fbc158c4",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #924 from Boring206/quick-menu-hotspot-status' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayHostDisplaySizeTest.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayHostSettingsTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 3afd528b3e33b6b862652a886d8d8e80fbc158c4 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "16f04c203f86abb8eab36e705e18e3090e81fdf2",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #937 from Boring206/quick-menu-wifi-direct-android9' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 16f04c203f86abb8eab36e705e18e3090e81fdf2 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "a04f69f060fc7e31c21791218ce3bf40b591a7f5",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #914 from Boring206/bluetooth-on-retry-now' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/test/java/com/shilapi/xcertplay/WirelessStartupRecoveryTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for a04f69f060fc7e31c21791218ce3bf40b591a7f5 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "bf4fcfb2a1979f04bb9616791af50ab12591efc7",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #929 from Boring206/setup-features-unknown-car' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for bf4fcfb2a1979f04bb9616791af50ab12591efc7 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "dd2e8d0f9b10a7a4d5490bf568254e885c69907a",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #923 from Boring206/quick-menu-display-summary' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for dd2e8d0f9b10a7a4d5490bf568254e885c69907a against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "4bf5216572b5ff75b6c03666b6f0ed2bf893a15a",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #922 from Boring206/settings-swipe-no-tap' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayHostSettingsTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 4bf5216572b5ff75b6c03666b6f0ed2bf893a15a against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "ee952b6d85f4eb72541857182146bb30991c53ca",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #912 from Boring206/multi-touch-slots' (common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayHid.kt, shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlaySession.kt, shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayTouchSlots.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for ee952b6d85f4eb72541857182146bb30991c53ca against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "fc03524bc49a3f81b5727e69050f0ec47bdc63db",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #919 from Boring206/hotspot-import-asks-for-adb' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/CarHotspotImportSaveTest.kt, shared/src/main/java/com/shilapi/xcertplay/adb/LocalAdb.kt, shared/src/main/java/com/shilapi/xcertplay/network/CarHotspotConfigRead.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for fc03524bc49a3f81b5727e69050f0ec47bdc63db against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "078ee0d7799095b0addd78be693aa5aec99f4224",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #962 from Boring206/wired-start-again' (shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt, shared/src/main/java/com/shilapi/xcertplay/orchestration/WiredStartAgain.kt, shared/src/main/java/com/shilapi/xcertplay/orchestration/WiredStartWatchdog.kt, shared/src/main/java/com/shilapi/xcertplay/transport/Iap2WiredControlClient.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 078ee0d7799095b0addd78be693aa5aec99f4224 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "5f5543ee6137728d1ec3d143797831494607659e",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #957 from sa3eedo12/fix/car-rhythm-han-stop-signature' (shared/src/main/java/com/shilapi/xcertplay/hud/BydCarMusicRhythm.kt, shared/src/test/java/com/shilapi/xcertplay/hud/BydCarMusicRhythmTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 5f5543ee6137728d1ec3d143797831494607659e against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "1d1cb7f7c76dbdc841b53c99306fde429e5128f5",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #994 from Boring206/release-call-audio-mode' (shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt, shared/src/test/java/com/shilapi/xcertplay/media/MicrophoneSourceFallbackTest.kt, shared/src/test/java/com/shilapi/xcertplay/media/ShadowAudioModeRequests.kt, shared/src/test/java/com/shilapi/xcertplay/media/TelephonyMicrophoneTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 1d1cb7f7c76dbdc841b53c99306fde429e5128f5 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "09e987bb325caa89df9e80894bbf0dc14dde1683",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #969 from Boring206/efficient-video-hevc-title' (common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml, common/src/main/res/values-ja/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 09e987bb325caa89df9e80894bbf0dc14dde1683 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "b482ed2bf18f60859c30e1303c729449df317bc9",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #970 from Boring206/media-key-not-used-log' (common/src/main/java/com/shilapi/xcertplay/CarPlayMediaKeys.kt, common/src/test/java/com/shilapi/xcertplay/CarPlayMediaCallbackTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for b482ed2bf18f60859c30e1303c729449df317bc9 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "e3ce4fb8408aef210064669fe0af583a5ef77fab",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #972 from lpcheng1208/fix/bonjour-reverse-dns' (common/src/test/java/com/shilapi/xcertplay/CarPlayBonjourDualStackTest.kt, shared/src/main/java/com/shilapi/xcertplay/network/CarPlayBonjour.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for e3ce4fb8408aef210064669fe0af583a5ef77fab against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "ce807ca98ce3648f6ca2222a9d98e67d5e32e8d1",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #995 from Boring206/microphone-silence-report' (shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt, shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneCaptureStats.kt, shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt, shared/src/test/java/com/shilapi/xcertplay/media/MicrophoneCaptureStatsTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for ce807ca98ce3648f6ca2222a9d98e67d5e32e8d1 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "68c9af6490ae9465f992462d5beed0ccea7ef88b",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #996 from Boring206/wheel-speed-report' (shared/src/main/java/com/shilapi/xcertplay/hud/BydWheelSpeed.kt, shared/src/main/java/com/shilapi/xcertplay/transport/VehicleSpeedNmea.kt, shared/src/test/java/com/shilapi/xcertplay/hud/BydWheelSpeedTest.kt, shared/src/test/java/com/shilapi/xcertplay/transport/VehicleSpeedNmeaTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 68c9af6490ae9465f992462d5beed0ccea7ef88b against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "2f3a0f51c81d82a142e794f26dce313ac6ee64f6",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #1025 from Boring206/learn-key-in-window-with-service' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/test/java/com/shilapi/xcertplay/WheelSiriWindowTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 2f3a0f51c81d82a142e794f26dce313ac6ee64f6 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "591c931046199a13c81f34ae2401cc9fb7d2b24b",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #1042 from Boring206/tcp-liveness-before-29' (shared/src/main/java/com/shilapi/xcertplay/network/TcpLiveness.kt, shared/src/test/java/com/shilapi/xcertplay/network/TcpLivenessTest.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 591c931046199a13c81f34ae2401cc9fb7d2b24b against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "dc01240c619ae277aab0aa03b7da4395db56aefc",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #1045 from Boring206/adb-switch-on-not-answering' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for dc01240c619ae277aab0aa03b7da4395db56aefc against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "2c30f65e63b2bea2f3fa94beea3ab8f0c19b6511",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #956 from Proselyte-M/feat/cluster-projection-shape' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 2c30f65e63b2bea2f3fa94beea3ab8f0c19b6511 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "0f4dabadc104243fb14e297cb62bf8fb270d3957",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #1034 from macheteHot/fix/settings-bubble-icon' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/drawable/ic_dp_bubble.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 0f4dabadc104243fb14e297cb62bf8fb270d3957 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "827b3dfff2eab101f067bdefc240a74408cd702a",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #1035 from macheteHot/fix/ambient-note-padding' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 827b3dfff2eab101f067bdefc240a74408cd702a against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "555352d87b81a602687942fb2f8b69e763b741cc",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #959 from wdubaiyu/main-lrc' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml, common/src/main/res/values-it/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 555352d87b81a602687942fb2f8b69e763b741cc against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "8416909cb5dec8d41549f23321d19491be17c255",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge main into physical-size-in-settings' (common/src/main/assets/settings-backup.html, common/src/main/assets/settings-code.html, common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/main/java/com/shilapi/xcertplay/CarPlayMediaKeys.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 8416909cb5dec8d41549f23321d19491be17c255 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "e5ece65232554f5bc9257303bc7c833e0ea23730",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #1032 from Boring206/physical-size-in-settings' (common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt, common/src/main/java/com/shilapi/xcertplay/LocalizedOptions.kt, common/src/main/res/values-ar/strings.xml, common/src/main/res/values-es/strings.xml). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for e5ece65232554f5bc9257303bc7c833e0ea23730 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "4b5fd21e58fb9fbb3ad7de7e6a0864a1adb30cec",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge main into fix/cluster-artwork-stability-021' (common/src/main/assets/settings-backup.html, common/src/main/assets/settings-code.html, common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/main/java/com/shilapi/xcertplay/CarPlayMediaKeys.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 4b5fd21e58fb9fbb3ad7de7e6a0864a1adb30cec against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "6f20a5cf14f0793a4f19a36c3439d932bd497935",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #1033 from LuisCav29/fix/cluster-artwork-stability-021' (common/src/main/java/com/shilapi/xcertplay/AirPlayPersistence.kt, common/src/main/java/com/shilapi/xcertplay/CarPlayMediaKeys.kt, common/src/main/java/com/shilapi/xcertplay/ClusterMusicSettings.kt, common/src/main/java/com/shilapi/xcertplay/ClusterMusicState.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 6f20a5cf14f0793a4f19a36c3439d932bd497935 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "d7f247a7cc3e2febf08eb02d9bbf26401beb08c8",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge main into feat/geely-cluster-map' (common/src/main/assets/settings-backup.html, common/src/main/assets/settings-code.html, common/src/main/java/com/shilapi/xcertplay/AirPlayPersistence.kt, common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for d7f247a7cc3e2febf08eb02d9bbf26401beb08c8 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "5948f8baa901bc63320d4f48df5a42295b54bceb",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #843 from macheteHot/feat/geely-cluster-map' (common/src/main/java/com/shilapi/xcertplay/AirPlayPersistence.kt, common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt, common/src/main/java/com/shilapi/xcertplay/ClusterMapPresentation.kt, common/src/main/java/com/shilapi/xcertplay/ClusterProjectionWatchdog.kt). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 5948f8baa901bc63320d4f48df5a42295b54bceb against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "91083d196ddf528897bd3ce7d9d03cbab5f05dba",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Release notes for the 2026-10-21 merges' (docs/RELEASE-NOTES-NEXT.md). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 91083d196ddf528897bd3ce7d9d03cbab5f05dba against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  },
+  {
+    "commit_sha": "143f4674b60b564a16baae5110b3b90fb7277631",
+    "current_review_state": "NEED_EVIDENCE",
+    "decision_reason": "Metadata-only record for 'Merge pull request #1054 from shihabal3amri/docs/release-notes-20261021' (docs/RELEASE-NOTES-NEXT.md). The first-parent patch is archived, but its behavior has not been semantically compared with fixed main; no code adoption is proposed.",
+    "disposition": "NEED_EVIDENCE",
+    "fork_owner_file": "PENDING_SOURCE_REVIEW",
+    "missing_evidence": [
+      "Review the first-parent patch for 143f4674b60b564a16baae5110b3b90fb7277631 against fixed main and identify the actual owner and behavior.",
+      "Determine whether an existing fork contract conflicts and add a fixed-main regression test before any adaptation.",
+      "Collect target-device evidence for any protocol, timing, audio, display, or OEM-specific claim before adoption."
+    ],
+    "proof": [],
+    "related_step4": "EX-08; exact PR/EX mapping pending semantic review",
+    "rollback_plan": "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit with its matching regression test.",
+    "test_evidence": "NOT_RUN_PER_COMMIT: no fixed-main semantic comparison or commit-specific regression has been completed"
+  }
+]

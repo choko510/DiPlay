@@ -1,8 +1,9 @@
 package com.shilapi.xcertplay.dsp
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -301,38 +302,33 @@ private fun EqResponseGraph(
     val hitRadiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 32.dp.toPx() }
     val graphInputModifier = Modifier
         .pointerInput(sampleRateHz, hitRadiusPx) {
-            detectTapGestures { position ->
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
                 val index = nearestEditableBand(
-                    currentBands, currentEditableBandCount, position, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, hitRadiusPx,
+                    currentBands, currentEditableBandCount, down.position, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, hitRadiusPx,
                 )
-                if (index >= 0) currentOnSelectBand(index)
+                if (index >= 0) {
+                    currentOnSelectBand(index)
+                    val dragStart = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
+                    if (dragStart != null) {
+                        editGraphBandAt(
+                            index, dragStart.position, currentBands, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, currentOnBandEdit,
+                        )
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (change.pressed) {
+                                change.consume()
+                                editGraphBandAt(
+                                    index, change.position, currentBands, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, currentOnBandEdit,
+                                )
+                            } else {
+                                break
+                            }
+                        }
+                    }
+                }
             }
-        }
-        .pointerInput(sampleRateHz, hitRadiusPx) {
-            var draggingIndex = -1
-            detectDragGestures(
-                onDragStart = { position ->
-                    draggingIndex = nearestEditableBand(
-                        currentBands, currentEditableBandCount, position, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, hitRadiusPx,
-                    )
-                    if (draggingIndex >= 0) {
-                        currentOnSelectBand(draggingIndex)
-                        editGraphBandAt(
-                            draggingIndex, position, currentBands, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, currentOnBandEdit,
-                        )
-                    }
-                },
-                onDrag = { change, _ ->
-                    change.consume()
-                    if (draggingIndex >= 0) {
-                        editGraphBandAt(
-                            draggingIndex, change.position, currentBands, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, currentOnBandEdit,
-                        )
-                    }
-                },
-                onDragEnd = { draggingIndex = -1 },
-                onDragCancel = { draggingIndex = -1 },
-            )
         }
     Canvas(modifier.then(graphInputModifier).semantics {
         contentDescription = "Equalizer frequency response graph. Tap or drag a band handle to edit frequency and gain."

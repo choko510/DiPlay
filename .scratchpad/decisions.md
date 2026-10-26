@@ -695,3 +695,4 @@ The schema-v1 workspace remains separate from legacy v7 profile storage. `DspStu
 ## Exercise the production EQ graph in Compose instrumentation
 
 Host `DspEqEditorPane` directly and inject touch coordinates relative to the graph Canvas bounds so the test covers the production pointer handlers, callback mapping, and filter-specific gain behavior without adding test-only production APIs.
+Select a draggable band from the original pointer-down coordinate; Compose's simple drag-start position is at touch-slop recognition and can be too far from the small handle hit target after a single large movement.

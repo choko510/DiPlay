@@ -17,6 +17,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.dsp.DspSoundMacroSettings
 
 internal enum class DspMacroControl {
@@ -39,46 +41,53 @@ internal fun DspMacroStudio(
     settings: DspSoundMacroSettings,
     enabled: Boolean = true,
     onSettingsChange: (DspSoundMacroSettings) -> Unit,
+    onSettingsChangeFinished: () -> Unit = {},
 ) {
+    val macroPowerLabel = stringResource(R.string.dsp_macro_power)
+    val onLabel = stringResource(R.string.dsp_on)
+    val offLabel = stringResource(R.string.dsp_off)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Sound macros", style = MaterialTheme.typography.titleMedium)
-            Text("50 is neutral. Turning Macro Power off keeps your values.", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.dsp_macro_title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.dsp_macro_neutral_hint), style = MaterialTheme.typography.bodySmall)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Macro Power")
+                    Text(stringResource(R.string.dsp_macro_power))
                     Text(
-                        if (settings.enabled) "Enabled" else "Disabled",
+                        stringResource(if (settings.enabled) R.string.dsp_macro_enabled else R.string.dsp_macro_disabled),
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
                 Switch(
                     checked = settings.enabled,
                     enabled = enabled,
-                    onCheckedChange = { onSettingsChange(settings.copy(enabled = it)) },
+                    onCheckedChange = {
+                        onSettingsChange(settings.copy(enabled = it))
+                        onSettingsChangeFinished()
+                    },
                     modifier = Modifier.semantics {
-                        contentDescription = "Macro Power"
-                        stateDescription = if (settings.enabled) "On" else "Off"
+                        contentDescription = macroPowerLabel
+                        stateDescription = if (settings.enabled) onLabel else offLabel
                     },
                 )
             }
-            MacroSlider("Bass Impact", settings.bassImpact, enabled) {
+            MacroSlider(stringResource(R.string.dsp_macro_bass_impact), settings.bassImpact, enabled, onSettingsChangeFinished) {
                 onSettingsChange(updateDspMacro(settings, DspMacroControl.BASS_IMPACT, it))
             }
-            MacroSlider("Vocal Presence", settings.vocalPresence, enabled) {
+            MacroSlider(stringResource(R.string.dsp_macro_vocal_presence), settings.vocalPresence, enabled, onSettingsChangeFinished) {
                 onSettingsChange(updateDspMacro(settings, DspMacroControl.VOCAL_PRESENCE, it))
             }
-            MacroSlider("Air Detail", settings.airDetail, enabled) {
+            MacroSlider(stringResource(R.string.dsp_macro_air_detail), settings.airDetail, enabled, onSettingsChangeFinished) {
                 onSettingsChange(updateDspMacro(settings, DspMacroControl.AIR_DETAIL, it))
             }
-            MacroSlider("Soundstage Width", settings.soundstageWidth, enabled) {
+            MacroSlider(stringResource(R.string.dsp_macro_soundstage_width), settings.soundstageWidth, enabled, onSettingsChangeFinished) {
                 onSettingsChange(updateDspMacro(settings, DspMacroControl.SOUNDSTAGE_WIDTH, it))
             }
         }
@@ -86,7 +95,14 @@ internal fun DspMacroStudio(
 }
 
 @Composable
-private fun MacroSlider(label: String, value: Int, enabled: Boolean, onValueChange: (Int) -> Unit) {
+private fun MacroSlider(
+    label: String,
+    value: Int,
+    enabled: Boolean,
+    onValueChangeFinished: () -> Unit,
+    onValueChange: (Int) -> Unit,
+) {
+    val neutralDescription = stringResource(R.string.dsp_macro_value_neutral, value)
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -98,12 +114,13 @@ private fun MacroSlider(label: String, value: Int, enabled: Boolean, onValueChan
         Slider(
             value = value.toFloat(),
             onValueChange = { onValueChange(it.toInt().coerceIn(0, 100)) },
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = 0f..100f,
             steps = 99,
             enabled = enabled,
             modifier = Modifier.semantics {
                 contentDescription = label
-                stateDescription = if (value == 50) "50, neutral" else value.toString()
+                stateDescription = if (value == 50) neutralDescription else value.toString()
             },
         )
     }

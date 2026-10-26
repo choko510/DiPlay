@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -32,6 +33,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,6 +45,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.shilapi.xcertplay.host.R
@@ -67,13 +70,17 @@ fun DspEqEditorPane(
     onEditBandType: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
     sampleRateHz: Int? = null,
+    onEditFinished: () -> Unit = {},
 ) {
     val effectiveSampleRateHz = sampleRateHz ?: DEFAULT_EQ_PREVIEW_SAMPLE_RATE_HZ
     require(effectiveSampleRateHz in 8_000..192_000)
     val cabinBands = cabinCorrection.approvedEqBands()
     val activeTotal = activeEqBandCount(profile.eqBands, cabinBands)
     val maxFrequencyHz = minOf(20_000f, effectiveSampleRateHz * 0.45f)
-    var selectedBandIndex by remember { mutableStateOf(0) }
+    var selectedBandIndex by rememberSaveable { mutableStateOf(0) }
+    LaunchedEffect(profile.eqBands.size) {
+        selectedBandIndex = selectedBandIndex.coerceIn(0, (profile.eqBands.lastIndex).coerceAtLeast(0))
+    }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val rateDescription = if (sampleRateHz == null) {
             stringResource(R.string.dsp_eq_playback_rate_unknown, effectiveSampleRateHz)
@@ -89,7 +96,7 @@ fun DspEqEditorPane(
                 rateDescription,
             ),
         )
-        AccessibleSlider(stringResource(R.string.dsp_preamp), profile.preampDb.toFloat(), -24f..12f, "dB") {
+        AccessibleSlider(stringResource(R.string.dsp_preamp), profile.preampDb.toFloat(), -24f..12f, "dB", onEditFinished) {
             onProfileChange(profile.copy(preampDb = it.toDouble()))
         }
         EqResponseGraph(
@@ -101,8 +108,28 @@ fun DspEqEditorPane(
             modifier = Modifier.fillMaxWidth().height(150.dp),
             onSelectBand = { selectedBandIndex = it },
             onBandEdit = { index, band -> updateBand(profile, index, band, onProfileChange) },
+            onEditFinished = onEditFinished,
         )
-        profile.eqBands.forEachIndexed { index, band ->
+        if (profile.eqBands.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                profile.eqBands.indices.forEach { index ->
+                    val selected = index == selectedBandIndex
+                    val modifier = Modifier.semantics {
+                        contentDescription = "Select PEQ band ${index + 1}"
+                        stateDescription = if (selected) "Selected" else "Not selected"
+                    }
+                    if (selected) Button(onClick = { selectedBandIndex = index }, modifier = modifier) {
+                        Text("${index + 1}")
+                    } else OutlinedButton(onClick = { selectedBandIndex = index }, modifier = modifier) {
+                        Text("${index + 1}")
+                    }
+                }
+            }
+            val index = selectedBandIndex.coerceIn(profile.eqBands.indices)
+            val band = profile.eqBands[index]
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     val bandTitle = stringResource(R.string.dsp_eq_band_title, index + 1)
@@ -116,6 +143,7 @@ fun DspEqEditorPane(
                                 next[index] = band.copy(enabled = enabled)
                                 if (activeEqBandCount(next, cabinBands) <= DspAudioProfile.MAX_EQ_BANDS) {
                                     onProfileChange(profile.copy(eqBands = next))
+                                    onEditFinished()
                                 }
                             },
                             modifier = Modifier.semantics { contentDescription = enableDescription },
@@ -134,27 +162,37 @@ fun DspEqEditorPane(
                         Text(stringResource(R.string.dsp_eq_filter_type_summary, stringResource(filterTypeLabel)))
                     }
                     val frequencyLabel = stringResource(R.string.dsp_eq_band_frequency, index + 1)
-                    AccessibleSlider(frequencyLabel, band.frequencyHz.toFloat(), 20f..maxFrequencyHz, "Hz") {
+                    AccessibleSlider(frequencyLabel, band.frequencyHz.toFloat(), 20f..maxFrequencyHz, "Hz", onEditFinished) {
                         updateBand(profile, index, band.copy(frequencyHz = it.toDouble()), onProfileChange)
                     }
-                    NumericValueField(stringResource(R.string.dsp_eq_band_frequency_numeric, index + 1), band.frequencyHz, 20.0..maxFrequencyHz.toDouble()) {
+                    NumericValueField(
+                        stringResource(R.string.dsp_eq_band_frequency_numeric, index + 1),
+                        band.frequencyHz,
+                        20.0..maxFrequencyHz.toDouble(),
+                        onEditFinished,
+                    ) {
                         updateBand(profile, index, band.copy(frequencyHz = it), onProfileChange)
                     }
                     if (band.type in setOf(DspEqType.PEAK, DspEqType.LOW_SHELF, DspEqType.HIGH_SHELF)) {
                         val gainLabel = stringResource(R.string.dsp_eq_band_gain, index + 1)
-                        AccessibleSlider(gainLabel, band.gainDb.toFloat(), -18f..18f, "dB") {
+                        AccessibleSlider(gainLabel, band.gainDb.toFloat(), -18f..18f, "dB", onEditFinished) {
                             updateBand(profile, index, band.copy(gainDb = it.toDouble()), onProfileChange)
                         }
-                        NumericValueField(stringResource(R.string.dsp_eq_band_gain_numeric, index + 1), band.gainDb, -18.0..18.0) {
+                        NumericValueField(
+                            stringResource(R.string.dsp_eq_band_gain_numeric, index + 1),
+                            band.gainDb,
+                            -18.0..18.0,
+                            onEditFinished,
+                        ) {
                             updateBand(profile, index, band.copy(gainDb = it), onProfileChange)
                         }
                     }
                     if (band.type in setOf(DspEqType.PEAK, DspEqType.HIGH_PASS, DspEqType.LOW_PASS, DspEqType.NOTCH)) {
                         val qLabel = stringResource(R.string.dsp_eq_band_q, index + 1)
-                        AccessibleSlider(qLabel, band.q.toFloat(), 0.1f..20f, "Q") {
+                        AccessibleSlider(qLabel, band.q.toFloat(), 0.1f..20f, "Q", onEditFinished) {
                             updateBand(profile, index, band.copy(q = it.toDouble()), onProfileChange)
                         }
-                        NumericValueField(qLabel, band.q, 0.1..20.0) {
+                        NumericValueField(qLabel, band.q, 0.1..20.0, onEditFinished) {
                             updateBand(profile, index, band.copy(q = it), onProfileChange)
                         }
                     }
@@ -217,7 +255,7 @@ fun DspAdvancedControlsPane(
             val cabin = profile.cabinCorrection
             if (!enabled || cabin.notches.any { it.enabled }) onProfileChange(profile.copy(cabinCorrection = cabin.copy(enabled = enabled)))
         }) {
-            Text("Approved Cabin EQ bands are included in the EQ graph and share its 15-band runtime limit.")
+            Text(stringResource(R.string.dsp_eq_cabin_limit_note))
         }
         ModuleControls("Seat alignment", profile.seatAlignment.enabled, { onProfileChange(profile.copy(seatAlignment = profile.seatAlignment.copy(enabled = it))) }) {
             ValueSlider("Seat left trim", profile.seatAlignment.leftTrimDb.toFloat(), -6f..6f, "dB") { onProfileChange(profile.copy(seatAlignment = profile.seatAlignment.copy(leftTrimDb = it.toDouble()))) }
@@ -305,12 +343,14 @@ private fun EqResponseGraph(
     modifier: Modifier,
     onSelectBand: (Int) -> Unit,
     onBandEdit: (Int, DspEqBand) -> Unit,
+    onEditFinished: () -> Unit,
 ) {
     val curveColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
     val maxFrequencyHz = minOf(20_000.0, sampleRateHz * 0.45)
     val currentBands by rememberUpdatedState(bands)
     val currentOnSelectBand by rememberUpdatedState(onSelectBand)
     val currentOnBandEdit by rememberUpdatedState(onBandEdit)
+    val currentOnEditFinished by rememberUpdatedState(onEditFinished)
     val currentEditableBandCount by rememberUpdatedState(editableBandCount)
     val currentSelectedBandIndex by rememberUpdatedState(selectedBandIndex)
     val graphDescription = stringResource(R.string.dsp_eq_graph_description)
@@ -326,21 +366,25 @@ private fun EqResponseGraph(
                     currentOnSelectBand(index)
                     val dragStart = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
                     if (dragStart != null) {
+                        var edited = false
                         editGraphBandAt(
                             index, dragStart.position, currentBands, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, currentOnBandEdit,
                         )
+                        edited = true
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            editGraphBandAt(
+                                index, change.position, currentBands, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, currentOnBandEdit,
+                            )
+                            edited = true
                             if (change.pressed) {
                                 change.consume()
-                                editGraphBandAt(
-                                    index, change.position, currentBands, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, currentOnBandEdit,
-                                )
                             } else {
                                 break
                             }
                         }
+                        if (edited) currentOnEditFinished()
                     }
                 }
             }
@@ -427,7 +471,14 @@ private fun ModuleControls(title: String, enabled: Boolean, onEnabled: (Boolean)
 }
 
 @Composable
-private fun AccessibleSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, unit: String, onChange: (Float) -> Unit) {
+private fun AccessibleSlider(
+    label: String,
+    value: Float,
+    range: ClosedFloatingPointRange<Float>,
+    unit: String,
+    onFinished: () -> Unit = {},
+    onChange: (Float) -> Unit,
+) {
     val logarithmic = unit == "Hz" && range.start > 0f && range.endInclusive / range.start > 10f
     val sliderValue = if (logarithmic) {
         (ln(value.coerceIn(range).toDouble() / range.start) / ln(range.endInclusive.toDouble() / range.start)).toFloat()
@@ -443,6 +494,7 @@ private fun AccessibleSlider(label: String, value: Float, range: ClosedFloatingP
                 } else fraction
                 onChange(mapped.coerceIn(range))
             },
+            onValueChangeFinished = onFinished,
             valueRange = sliderRange,
             modifier = Modifier.semantics { contentDescription = label },
         )
@@ -454,6 +506,7 @@ private fun NumericValueField(
     label: String,
     value: Double,
     bounds: ClosedFloatingPointRange<Double>,
+    onFinished: () -> Unit = {},
     onChange: (Double) -> Unit,
 ) {
     val decimalSeparator = DecimalFormatSymbols.getInstance().decimalSeparator
@@ -485,15 +538,19 @@ private fun NumericValueField(
         } else null,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
+            val wasFocused = focused
             focused = state.isFocused
-            if (!state.isFocused) text = formatEqNumericValue(value, decimalSeparator)
+            if (wasFocused && !state.isFocused) {
+                text = formatEqNumericValue(value, decimalSeparator)
+                onFinished()
+            }
         },
     )
 }
 
 @Composable
 private fun ValueSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, unit: String, onChange: (Float) -> Unit) =
-    AccessibleSlider(label, value, range, unit, onChange)
+    AccessibleSlider(label, value, range, unit, onChange = onChange)
 
 @Composable
 internal fun DspModulePresetPane(
@@ -506,18 +563,24 @@ internal fun DspModulePresetPane(
     onPresetSelect: (String) -> Unit,
     onApply: (DspModulePreset) -> Unit,
     onSave: (String) -> Unit,
+    onDelete: (DspModulePreset) -> Unit,
+    onFactoryReset: () -> Unit,
+    onCompareA: () -> Unit,
+    onCompareB: () -> Unit,
 ) {
     var moduleMenuExpanded by remember { mutableStateOf(false) }
     var presetMenuExpanded by remember { mutableStateOf(false) }
     var saveDialogVisible by remember { mutableStateOf(false) }
+    var deleteDialogVisible by remember { mutableStateOf(false) }
+    var resetDialogVisible by remember { mutableStateOf(false) }
     var newPresetName by remember { mutableStateOf("") }
-    val selectedPreset = presets.firstOrNull { it.id == selectedPresetId } ?: presets.firstOrNull()
+    val selectedPreset = presets.firstOrNull { it.id == selectedPresetId }
 
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Module presets", style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.dsp_module_preset_title), style = MaterialTheme.typography.titleMedium)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Module", Modifier.weight(1f))
+                Text(stringResource(R.string.dsp_module_label), Modifier.weight(1f))
                 Box {
                     OutlinedButton(onClick = { moduleMenuExpanded = true }, enabled = enabled) {
                         Text("${modulePresetLabel(moduleKey)} ▾")
@@ -539,13 +602,19 @@ internal fun DspModulePresetPane(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Preset", Modifier.weight(1f))
+                Text(stringResource(R.string.dsp_preset_label), Modifier.weight(1f))
                 Box {
                     OutlinedButton(
                         onClick = { presetMenuExpanded = true },
                         enabled = enabled && presets.isNotEmpty(),
                     ) {
-                        Text(selectedPreset?.let { "${it.name} · ${if (it.factory) "Factory" else "User"} ▾" } ?: "Loading…")
+                        Text(selectedPreset?.let {
+                            stringResource(
+                                R.string.dsp_preset_name_with_type,
+                                it.name,
+                                stringResource(if (it.factory) R.string.dsp_preset_factory else R.string.dsp_preset_user),
+                            ) + " ▾"
+                        } ?: stringResource(R.string.dsp_module_preset_custom_unsaved))
                     }
                     DropdownMenu(
                         expanded = presetMenuExpanded,
@@ -553,7 +622,13 @@ internal fun DspModulePresetPane(
                     ) {
                         presets.forEach { preset ->
                             DropdownMenuItem(
-                                text = { Text("${preset.name} · ${if (preset.factory) "Factory" else "User"}") },
+                                text = {
+                                    Text(stringResource(
+                                        R.string.dsp_preset_name_with_type,
+                                        preset.name,
+                                        stringResource(if (preset.factory) R.string.dsp_preset_factory else R.string.dsp_preset_user),
+                                    ))
+                                },
                                 onClick = {
                                     presetMenuExpanded = false
                                     onPresetSelect(preset.id)
@@ -568,14 +643,36 @@ internal fun DspModulePresetPane(
                     onClick = { selectedPreset?.let(onApply) },
                     enabled = enabled && selectedPreset != null,
                 ) {
-                    Text("Apply preset to draft")
+                    Text(stringResource(R.string.dsp_module_preset_apply_draft))
                 }
                 OutlinedButton(onClick = { saveDialogVisible = true }, enabled = enabled) {
-                    Text("Save as User preset")
+                    Text(stringResource(R.string.dsp_module_preset_save_as))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { resetDialogVisible = true },
+                    enabled = enabled,
+                ) {
+                    Text(stringResource(R.string.dsp_module_preset_reset_action))
+                }
+                OutlinedButton(
+                    onClick = { deleteDialogVisible = true },
+                    enabled = enabled && selectedPreset != null && !selectedPreset.factory,
+                ) {
+                    Text(stringResource(R.string.dsp_module_preset_delete_action))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onCompareA, enabled = enabled) {
+                    Text(stringResource(R.string.dsp_module_compare_a))
+                }
+                OutlinedButton(onClick = onCompareB, enabled = enabled) {
+                    Text(stringResource(R.string.dsp_module_compare_b))
                 }
             }
             Text(
-                "Applying changes only this module in the draft. Preview and Save are separate.",
+                stringResource(R.string.dsp_module_preset_apply_help),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -584,12 +681,12 @@ internal fun DspModulePresetPane(
     if (saveDialogVisible) {
         AlertDialog(
             onDismissRequest = { saveDialogVisible = false },
-            title = { Text("Save ${modulePresetLabel(moduleKey)} preset") },
+            title = { Text(stringResource(R.string.dsp_module_preset_save_title, modulePresetLabel(moduleKey))) },
             text = {
                 OutlinedTextField(
                     value = newPresetName,
                     onValueChange = { if (it.length <= 48) newPresetName = it },
-                    label = { Text("Preset name") },
+                    label = { Text(stringResource(R.string.dsp_module_preset_name)) },
                     singleLine = true,
                 )
             },
@@ -601,29 +698,68 @@ internal fun DspModulePresetPane(
                         newPresetName = ""
                     },
                     enabled = enabled && newPresetName.isNotBlank(),
-                ) { Text("Save") }
+                ) { Text(stringResource(R.string.dsp_save)) }
             },
             dismissButton = {
-                OutlinedButton(onClick = { saveDialogVisible = false }) { Text("Cancel") }
+                OutlinedButton(onClick = { saveDialogVisible = false }) { Text(stringResource(R.string.dsp_cancel)) }
+            },
+        )
+    }
+
+    if (deleteDialogVisible && selectedPreset != null && !selectedPreset.factory) {
+        AlertDialog(
+            onDismissRequest = { deleteDialogVisible = false },
+            title = { Text(stringResource(R.string.dsp_module_preset_delete_title)) },
+            text = {
+                Text(stringResource(R.string.dsp_module_preset_delete_message, selectedPreset.name))
+            },
+            confirmButton = {
+                Button(onClick = {
+                    deleteDialogVisible = false
+                    onDelete(selectedPreset)
+                }) { Text(stringResource(R.string.dsp_module_preset_delete_confirm)) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { deleteDialogVisible = false }) { Text(stringResource(R.string.dsp_cancel)) }
+            },
+        )
+    }
+
+    if (resetDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { resetDialogVisible = false },
+            title = { Text(stringResource(R.string.dsp_module_preset_reset_title)) },
+            text = {
+                Text(stringResource(R.string.dsp_module_preset_reset_message))
+            },
+            confirmButton = {
+                Button(onClick = {
+                    resetDialogVisible = false
+                    onFactoryReset()
+                }) { Text(stringResource(R.string.dsp_module_preset_reset_confirm)) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { resetDialogVisible = false }) { Text(stringResource(R.string.dsp_cancel)) }
             },
         )
     }
 }
 
-private fun modulePresetLabel(key: String): String = when (key) {
-    "peq" -> "PEQ"
-    "bass" -> "Bass"
-    "seat" -> "Seat alignment"
-    "advanced_ms" -> "Advanced M/S"
-    "compressor" -> "Compressor"
-    "multiband" -> "Multiband"
-    "dynamic_eq" -> "Dynamic EQ"
-    "harmonic" -> "Harmonic"
-    "limiter" -> "Safety limiter"
-    "convolver" -> "Convolver"
-    "cabin" -> "Cabin correction"
-    "smart_loudness" -> "Smart Loudness"
-    "dynamic_bass" -> "Dynamic Bass"
-    "macros" -> "Sound macros"
-    else -> key
-}
+@Composable
+private fun modulePresetLabel(key: String): String = stringResource(when (key) {
+    "peq" -> R.string.dsp_module_peq
+    "bass" -> R.string.dsp_module_bass
+    "seat" -> R.string.dsp_module_seat
+    "advanced_ms" -> R.string.dsp_module_advanced_ms
+    "compressor" -> R.string.dsp_module_compressor
+    "multiband" -> R.string.dsp_module_multiband
+    "dynamic_eq" -> R.string.dsp_module_dynamic_eq
+    "harmonic" -> R.string.dsp_module_harmonic
+    "limiter" -> R.string.dsp_module_limiter
+    "convolver" -> R.string.dsp_module_convolver
+    "cabin" -> R.string.dsp_module_cabin
+    "smart_loudness" -> R.string.dsp_module_smart_loudness
+    "dynamic_bass" -> R.string.dsp_module_dynamic_bass
+    "macros" -> R.string.dsp_macro_module_label
+    else -> R.string.dsp_module_label
+})

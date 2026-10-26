@@ -21,6 +21,14 @@ class DspSettingsUiContractTest {
     }
 
     @Test
+    fun modulePresetNavigationHasFourteenUniqueModules() {
+        val moduleKeys = dspModulePresetKeys()
+
+        assertEquals(14, moduleKeys.size)
+        assertEquals(moduleKeys.size, moduleKeys.toSet().size)
+    }
+
+    @Test
     fun parametricEqControlsMatchEachFilterType() {
         assertEquals(
             setOf(EqBandEditorControl.FREQUENCY, EqBandEditorControl.GAIN, EqBandEditorControl.Q),

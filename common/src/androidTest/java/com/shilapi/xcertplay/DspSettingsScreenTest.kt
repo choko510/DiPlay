@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -12,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
@@ -20,8 +22,10 @@ import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -87,7 +91,28 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithText("Bass Impact").assertExists()
             composeRule.onNodeWithContentDescription("Macro Power").performClick()
             assertMacroPowerEnabled(expectedMacroPowerEnabled)
-            assertEquals("draft edits must not reach runtime before Preview", initialConfig, runtime.configProvider.snapshot())
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.configProvider.snapshot().macroTone.enabled == expectedMacroPowerEnabled
+            }
+            val beforeDrag = runtime.configProvider.snapshot()
+            composeRule.onNodeWithContentDescription("Bass Impact")
+                .performScrollTo()
+                .performSemanticsAction(SemanticsActions.SetProgress) { setProgress -> setProgress(80f) }
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.configProvider.snapshot().macroTone.bassGainDb > beforeDrag.macroTone.bassGainDb
+            }
+            composeRule.onNodeWithText("Undo").performScrollTo().assertIsEnabled().performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.configProvider.snapshot().macroTone.bassGainDb == beforeDrag.macroTone.bassGainDb
+            }
+            configStore.reportRendererApplyStatus(
+                DspRendererApplyStatus(
+                    generation = runtime.configProvider.versionedSnapshot().generation,
+                    phase = DspRendererApplyPhase.DEFERRED,
+                    activeGeneration = 0L,
+                    reason = deferredReason,
+                ),
+            )
 
             presentation.value = DspPresentationMode.FULL
             composeRule.waitForIdle()
@@ -135,6 +160,109 @@ class DspSettingsScreenTest {
             try {
                 restoreCommittedWorkspace(runtime)
             } finally {
+                runtime.closeForTesting()
+                preferences.edit().clear().commit()
+                filesDirectory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun loudnessAndDynamicBassControlsPreviewImmediately() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-settings-live-controls-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(runtime = runtime, onBack = {})
+                }
+            }
+
+            composeRule.onNodeWithContentDescription("Dynamics").performScrollTo().performClick()
+            composeRule.onNodeWithText("MANUAL").performScrollTo().performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                runtime.configProvider.snapshot().smartLoudness.enabled
+            }
+            composeRule.onNodeWithText("OFF").performScrollTo().performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                !runtime.configProvider.snapshot().smartLoudness.enabled
+            }
+
+            composeRule.onNodeWithContentDescription("Dynamic Bass enabled, off")
+                .performScrollTo()
+                .performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                runtime.configProvider.snapshot().dynamicBass.enabled
+            }
+        } finally {
+            try {
+                restoreCommittedWorkspace(runtime)
+            } finally {
+                runtime.closeForTesting()
+                preferences.edit().clear().commit()
+                filesDirectory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun leavingDirtyStudioPromptsAndDiscardRestoresCommittedAudioBeforeBack() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-settings-dirty-exit-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        val backCount = AtomicInteger()
+        try {
+            restoreCommittedWorkspace(runtime)
+            val initiallyEnabled = runtime.configProvider.snapshot().macroTone.enabled
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        presentation = DspPresentationMode.COMPACT_SPLIT,
+                        onBack = { backCount.incrementAndGet() },
+                    )
+                }
+            }
+
+            composeRule.onNodeWithContentDescription("Macro Power").performScrollTo().performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                runtime.configProvider.snapshot().macroTone.enabled != initiallyEnabled
+            }
+            composeRule.onNodeWithContentDescription(context.getString(R.string.dsp_close_settings))
+                .performClick()
+
+            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_title)).assertIsDisplayed()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_discard)).performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                backCount.get() == 1 && runtime.configProvider.snapshot().macroTone.enabled == initiallyEnabled
+            }
+            assertEquals(1, backCount.get())
+            assertFalse(runtime.createStudioSessionCoordinator().isDirty)
+        } finally {
+            try {
+                restoreCommittedWorkspace(runtime)
+            } finally {
+                runtime.closeForTesting()
                 preferences.edit().clear().commit()
                 filesDirectory.deleteRecursively()
             }

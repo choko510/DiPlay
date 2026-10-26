@@ -56,6 +56,7 @@ class DspEqEditorGraphTest {
         val startingBand = DspEqBand(DspEqType.PEAK, frequencyHz = 1_000.0, gainDb = 0.0)
         val profile = mutableStateOf(DspAudioProfile(id = "graph-test", name = "Graph test", eqBands = listOf(startingBand)))
         val callbackProfile = mutableStateOf<DspAudioProfile?>(null)
+        val finishedEditCount = mutableStateOf(0)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
 
         composeRule.setContent {
@@ -67,6 +68,7 @@ class DspEqEditorGraphTest {
                         callbackProfile.value = it
                         profile.value = it
                     },
+                    onEditFinished = { finishedEditCount.value += 1 },
                 )
             }
         }
@@ -108,6 +110,7 @@ class DspEqEditorGraphTest {
             val edited = requireNotNull(callbackProfile.value).eqBands.single()
             assertEquals(2_000.0, edited.frequencyHz, 1.0)
             assertEquals(6.0, edited.gainDb, 0.1)
+            assertEquals(1, finishedEditCount.value)
         }
     }
 

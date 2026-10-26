@@ -54,4 +54,38 @@ class DspEditorPanesTest {
         assertEquals(15, activeEqBandCount(peq, cabin))
         assertTrue(activeEqBandCount(peq.dropLast(1) + peq.last().copy(enabled = true), cabin) > DspAudioProfile.MAX_EQ_BANDS)
     }
+
+    @Test
+    fun graphPointerMappingUsesLogFrequencyAndClampsToGraphBounds() {
+        assertEquals(20.0, eqGraphFrequencyAtX(0f, 100f, 20.0, 20_000.0), 1e-9)
+        assertEquals(632.455532, eqGraphFrequencyAtX(50f, 100f, 20.0, 20_000.0), 1e-5)
+        assertEquals(20_000.0, eqGraphFrequencyAtX(120f, 100f, 20.0, 20_000.0), 1e-9)
+        assertEquals(20.0, eqGraphFrequencyAtX(50f, 0f, 20.0, 20_000.0), 1e-9)
+        assertEquals(18.0, eqGraphGainAtY(-10f, 100f), 1e-9)
+        assertEquals(0.0, eqGraphGainAtY(50f, 100f), 1e-9)
+        assertEquals(-18.0, eqGraphGainAtY(150f, 100f), 1e-9)
+        assertEquals(0.0, eqGraphGainAtY(50f, 0f), 1e-9)
+    }
+
+    @Test
+    fun numericEqValuesStayInsideRuntimeBounds() {
+        assertEquals(20.0, safeEqNumericValue(1.0, 20.0..19_845.0), 0.0)
+        assertEquals(19_845.0, safeEqNumericValue(30_000.0, 20.0..19_845.0), 0.0)
+        assertEquals(-18.0, safeEqNumericValue(Double.NEGATIVE_INFINITY, -18.0..18.0), 0.0)
+        assertEquals(0.1, safeEqNumericValue(0.01, 0.1..20.0), 0.0)
+        assertEquals(20.0, safeEqNumericValue(Double.NaN, 20.0..20_000.0), 0.0)
+    }
+
+    @Test
+    fun graphEditsChangeOnlyTheEditorDraftProfile() {
+        val applied = DspProfilePresets.find("flat")!!
+        val session = DspEditorSession(applied, applied, initialMasterEnabled = false)
+        val changedBand = session.draftProfile.eqBands.first().copy(frequencyHz = 900.0, gainDb = -3.0, q = 1.2)
+
+        session.draftProfile = updatedEqBandProfile(session.draftProfile, 0, changedBand)
+
+        assertEquals(changedBand, session.draftProfile.eqBands.first())
+        assertEquals(applied, session.appliedProfile)
+        assertTrue(session.hasUnappliedChanges)
+    }
 }

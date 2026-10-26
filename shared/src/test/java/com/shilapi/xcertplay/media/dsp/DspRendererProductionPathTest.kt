@@ -473,6 +473,59 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun disablingHotUpdatesAfterPreparationDefersWithoutEnqueueing() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initial,
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).also(processorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 300),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    macroTone = DspMacroToneConfig(enabled = true, bassGainDb = 1.0),
+                ),
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            provider.setStudioHotUpdatesEnabled(false)
+
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 400),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 200L,
+            )
+
+            assertEquals(0, processorRef.get()?.hotUpdateEnqueueAttempts)
+            assertEquals(0L, renderer.dspGenerationForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+            assertEquals(DspRendererApplyPhase.DEFERRED, provider.rendererApplyStatus()?.phase)
+            assertEquals("Native HOT updates are disabled", provider.rendererApplyStatus()?.reason)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun rejectedHotUpdateRetriesAndReportsWhyTheActivePipelineIsKept() {
         val initial = DspRuntimeConfig(enabled = true)
         val provider = MutableConfigProvider(initial)
@@ -2105,8 +2158,11 @@ class DspRendererProductionPathTest {
         private val current = AtomicReference(DspConfigSnapshot(0L, initial))
         private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
         private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
+        private val hotUpdatesEnabled = AtomicBoolean(true)
 
         override fun snapshot(): DspRuntimeConfig = current.get().config
+
+        override fun studioHotUpdatesEnabled(): Boolean = hotUpdatesEnabled.get()
 
         override fun versionedSnapshot(): DspConfigSnapshot = current.get()
 
@@ -2135,6 +2191,10 @@ class DspRendererProductionPathTest {
             }
             applyStatus.set(DspRendererApplyStatus(next.generation, DspRendererApplyPhase.REQUESTED, activeGeneration))
             listeners.forEach { it(next) }
+        }
+
+        fun setStudioHotUpdatesEnabled(enabled: Boolean) {
+            hotUpdatesEnabled.set(enabled)
         }
 
         private fun canAdvance(previous: DspRendererApplyPhase, next: DspRendererApplyPhase): Boolean = when (previous) {

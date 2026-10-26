@@ -119,7 +119,7 @@ internal class DspModulePresetRepository(
         val directory = moduleDirectory(moduleKey) ?: return null
         val target = File(directory, "$id.json")
         if (target.exists() && (!target.isFile || target.canonicalFile.parentFile != directory.canonicalFile)) return null
-        return try { if (target.length() > MAX_PAYLOAD_CHARS) return null; val j = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }); if (j.getInt("schemaVersion") != SCHEMA || j.getInt("payloadVersion") != 1 || j.getString("id") != id || j.getString("moduleKey") != moduleKey) return null; val payload = j.getJSONObject("payload"); val name = j.getString("name"); if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) null else DspModulePreset(id, moduleKey, name, payload) } catch (_: Exception) { null }
+        return try { if (target.length() > MAX_PAYLOAD_CHARS) return null; val j = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }); if (j.getInt("schemaVersion") != SCHEMA || j.getInt("payloadVersion") != 1 || j.getString("id") != id || j.getString("moduleKey") != moduleKey || j.optString("origin") != "USER") return null; val payload = j.getJSONObject("payload"); val name = j.getString("name"); if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) null else DspModulePreset(id, moduleKey, name, payload) } catch (_: Exception) { null }
     }
     fun userPresets(moduleKey: String): List<DspModulePreset> {
         val directory = moduleDirectory(moduleKey) ?: return emptyList()

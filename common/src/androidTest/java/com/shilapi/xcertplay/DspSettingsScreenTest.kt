@@ -6,6 +6,8 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.onAllNodesWithText
@@ -16,7 +18,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.shilapi.xcertplay.dsp.DspFactoryPresets
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
+import com.shilapi.xcertplay.dsp.DspPresetStoreResult
 import com.shilapi.xcertplay.dsp.DspRuntimeConfigStore
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
@@ -258,6 +262,130 @@ class DspSettingsScreenTest {
             }
             assertEquals(1, backCount.get())
             assertFalse(runtime.createStudioSessionCoordinator().isDirty)
+        } finally {
+            try {
+                restoreCommittedWorkspace(runtime)
+            } finally {
+                runtime.closeForTesting()
+                preferences.edit().clear().commit()
+                filesDirectory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun moduleFactoryResetChangesOnlyTheSelectedModuleDraft() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-module-factory-reset-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            val studioSession = runtime.createStudioSessionCoordinator()
+            val before = studioSession.preview
+            val factoryPreset = DspFactoryPresets.modulePresets().first { it.moduleKey == "bass" && it.id == "factory-bass-neutral" }
+            val expected = runtime.applyStudioModulePreset(before, factoryPreset)!!.copy(
+                selectedModulePresetIds = before.selectedModulePresetIds + ("bass" to factoryPreset.id),
+            )
+
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        presentation = DspPresentationMode.COMPACT_SPLIT,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
+            composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("Factory reset module").performScrollTo().performClick()
+            composeRule.onNodeWithText("Reset module").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                studioSession.preview.selectedModulePresetIds["bass"] == factoryPreset.id
+            }
+
+            assertEquals(expected, studioSession.preview)
+        } finally {
+            try {
+                restoreCommittedWorkspace(runtime)
+            } finally {
+                runtime.closeForTesting()
+                preferences.edit().clear().commit()
+                filesDirectory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun deletingSelectedUserPresetFallsBackToFactoryWithoutChangingOtherDraftValues() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-module-preset-delete-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            val studioSession = runtime.createStudioSessionCoordinator()
+            val presetId = "user_bass_delete"
+            val saveResult = AtomicReference<DspPresetStoreResult?>()
+            runtime.saveModulePresetAsync(studioSession.preview, "bass", presetId, "Night") {
+                saveResult.set(it)
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000) { saveResult.get() != null }
+            assertEquals(DspPresetStoreResult.SAVED, saveResult.get())
+            studioSession.edit { workspace ->
+                workspace.copy(selectedModulePresetIds = workspace.selectedModulePresetIds + ("bass" to presetId))
+            }
+            val beforeDelete = studioSession.preview
+
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        presentation = DspPresentationMode.COMPACT_SPLIT,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
+            composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText("Night · User ▾").fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("Delete user preset").performScrollTo().performClick()
+            composeRule.onNodeWithText("Delete").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                "bass" !in studioSession.preview.selectedModulePresetIds
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
+            }
+
+            assertEquals(
+                beforeDelete.copy(selectedModulePresetIds = beforeDelete.selectedModulePresetIds - "bass"),
+                studioSession.preview,
+            )
         } finally {
             try {
                 restoreCommittedWorkspace(runtime)

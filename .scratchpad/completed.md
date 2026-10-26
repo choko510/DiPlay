@@ -2,6 +2,11 @@
 
 > 186 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
+## 2026-10-27
+
+- Completed B08 timing evidence and B10/B11/B12 result packages; API 35 Shared instrumentation later passed 19/19 while the earlier p99 failure remains recorded. Release stays `NO_GO_THIS_RUN` pending hardware, signing, and review gates.
+- Added the F-05 eight-prior-port classifier regression and testable fail-closed Android CI classification; local shared/common suites pass 864/864 and EX-08 fixtures pass 19/19. Workflow-sensitive run #481 passed host/native/sanitizer/lint/build/JNI/R8 and API 35 instrumentation while PR #45 remained Draft.
+
 ## 2026-10-23
 
 - 2026-10-23: Applied source fixes from the PR-45 fourth integrated audit: plausible incomplete NCM blocks no longer resync on gap signatures (max-length ambiguity fails closed); oversized NDP tables are bounded; microphone recovery observes post-start worker death; video recovery is generation-fenced and parallel across MAIN/ALT, decoder replacement waits for a bounded stop ACK; notification open is reusable across taps/process death; USB attach requires MANAGE_USB; DSP preparation exceptions terminate the generation and callbacks are controller-epoch fenced; Harmonic native sweep includes 6/12/18 kHz cutoff settings through 20.4 kHz. Latest local checks: 601 shared + 193 common tests, native DSP, Android shared JNI debug link for arm64-v8a/armeabi-v7a/x86_64, CI classifier, EX-08 inventory, public-tree, and diff checks passed. PR #45 Draft run #379 passed classifier/public-tree/EX-08, native/ASan/UBSan, and Draft unit tests; docs-only run #380 passed static checks. Full host/R8, API 35 instrumentation, SurfaceTexture lifetime, hardware/protocol, signing/rollback, and governance gates remain open or skipped.
@@ -249,8 +254,3 @@
 - 2026-10-26: B06 added capture-loop proof that repeated zero AudioRecord reads send no packet and positive reads resume transmission, plus initial DSP-OFF PCM16 exactness across 44.1/48 kHz mono/stereo. Test commit `686516f5a3fbd220822c89e394c5c12222a24eb8`; full shared suite passed 646/646. Product behavior was already correct; physical audio validation remains `NOT_RUN`.
 - 2026-10-26: B07 recorded SHA-specific decisions for the fixed 111-commit overlay and classified all 51 merges. No new adaptation met the evidence bar; 37 reviewed rows remain evidence-gated. EX-08 regression tests passed 19/19 and the 1,289-row legacy prefix remains byte-identical.
 - 2026-10-26: B08 added observation-only, attempt-relative Stage3 timing with bounded in-memory reporting and a reproducible host per-thread CPU/allocation comparison. Transmission behavior is unchanged; target-device causal timing remains blocked.
-- 2026-10-27: Added a fixed-iteration host CPU/allocation fixture for B08; the full shared/common suites passed 862/862. The target-device causal timing gate remains blocked.
-- 2026-10-27: Prepared B10's HW-01–HW-13 device runbook and B11's conditional `NO_GO_THIS_RUN` register; no gated production feature was enabled.
-- 2026-10-27: Re-ran API 35 Shared instrumentation after a p99 failure: the focused 48 kHz stereo test and full 19-test suite pass at the same code/test head, with p99 below unchanged limits. Preserved the earlier failure and crash; cause remains unknown. Updated B09/G4/G6 records; B09 remains partial because full hosted lanes were skipped under Draft scope and local LeakSanitizer is unavailable.
-- 2026-10-27: Added `CODEX_IMPLEMENTATION_RESULT.md` and `FINAL_GATE_SUMMARY.md` with exact source/test SHAs, test/CI scopes, commit history, and explicit remaining G6–G9 blockers. Release remains `NO_GO_THIS_RUN` because target hardware, signing and independent review gates remain open.
-- 2026-10-27: Pushed the verification package to PR #45 as `94d2ba35`; run #477 passed `changes`, static `check`, and Draft scope. Quick-baseline and runtime lanes were skipped because the commit only changed documentation/evidence.

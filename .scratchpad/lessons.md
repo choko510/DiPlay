@@ -525,6 +525,8 @@ Keep log-volume limits separate from bounded recent-history storage: an evicted 
 
 CI evidence tests should assert the meaning of a historical status record rather than an exact phrase that later becomes stale. Keep the run SHA and skipped job scope explicit when updating those records.
 
+For CI change classification, treat an empty or malformed compare-file list as incomplete evidence, not as an empty/docs-only diff. Exercise baseline lookup, file-count limits, unknown paths, Draft skips, and docs-after-source cases through the same helper used by the workflow.
+
 2026-10-26: A successful docs-only workflow run validates only its static checks. Record the workflow HEAD and each job/step's `success`, `failure`, or `skipped` result separately from the last passing source-test SHA; also exercise representative production paths through the current classifier.
 
 When a test latch runs inside a worker that is deliberately interrupted during shutdown, `await()` can throw before the test releases the gate. Make the test gate interruption-tolerant and rely on explicit cleanup to release it; allow enough time for a separately scheduled assertion thread to run in CI.

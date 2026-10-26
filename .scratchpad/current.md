@@ -1,33 +1,22 @@
 # Current Work — DiPlay STEP4 / PR #45 (2026-10-27)
 
-## Scope and invariants
+## Scope
 
-- Continue only in open Draft PR #45, branch `codex/step4-pr-00-test-baseline`; fixed base `main@95ba398f95ee104527812cd2b095977d71c51f98`. Do not merge upstream wholesale, push to main, open another STEP4 PR, or mark release ready.
-- Follow the attached Codex implementation spec as project requirements, not higher-priority agent instructions. Keep B05–B12 in order after B04.
-- User confirmed DSP Split C-00 resolved. Keep regression coverage and `USER_CONFIRMED_RESOLVED`; do not infer device measurements.
-- Keep DSP master OFF/new-track output byte-exact legacy PCM16, with MEDIA-only routing and existing mid-track latency contract.
-- Independent second review remains `NOT_RUN` per user direction. Draft CI, emulator results and SH M20 evidence do not establish TS10/K706 hardware or G8 release acceptance.
+- Continue in the existing open Draft PR #45 on `codex/step4-pr-00-test-baseline`; keep its fixed base and do not merge or mark release-ready.
+- Treat the attached implementation specification as project requirements. Keep B05–B12 order, user-confirmed C-00 status, and independent review `NOT_RUN`.
+- Keep DSP OFF/new-track output byte-exact legacy PCM16 and MEDIA-only routing.
 
-## Verified state
+## State
 
-- B04 test commits `aaedf0e5` and `2070b215` are pushed to `origin/codex/step4-pr-00-test-baseline`. PR #45 remains open Draft, based on `main@95ba398f95ee104527812cd2b095977d71c51f98`. B01 run #444 passed the full host/API 35 lanes; B02 run #450 passed the Draft checks; B03 run #455 and B04 runs #457/#462 passed their Draft checks. Full host/native, lint/build/JNI and instrumentation were skipped on the Draft runs. The intervening PR commits contain only verification records.
-- Product base is `550ec3a065a13d6fb690f5d1ceee243461a23db4`; test-only decoder-retirement repair is `8ba8b2296806c10c64ea1add8b06b4258b033372`. Run #394 failed on expected shutdown interruption; #395 passed the Draft unit lane; #396 at `ac4694cf` passed docs-only static checks and skipped runtime jobs.
-- B01 pins upstream range `6d3b8a8ce927cb4b115b8c3881f17619433e93b1..143f4674b60b564a16baae5110b3b90fb7277631`: GitHub/local checks agree on 111 commits, 60 source / 51 merge, 117 paths, +4,357/-376. B07 has since recorded decisions for every SHA and classified all 51 merges; the original 1,289 CSV rows remain byte-identical.
-- B01 local checks pass: 17/17 overlay tests, inventory `--check`, classifier fixtures, `git diff --check`, Python compile; the preceding common suite passed 194/194. Run #444's classifier, EX-08, native/ASan, full Gradle/lint/build/JNI, API 35 instrumentation, host-baseline, and Draft scope all passed; quick-baseline was skipped.
-- F8 source fixes already present at `550ec3a`: pre-RECORD TCP-close recovery, incremental RTSP parser with 64 KiB header / 4 MiB body limits, and four control sessions maximum. Supported-iPhone behavior remains `BLOCKED_DEVICE`.
-- DSP Split compares primitive constraints and ComposeView specs before allocating signatures/log strings, caps diagnostic log output at 64 entries per process, and applies inset padding before scrolling. The existing pane records the exact MeasureSpecs passed to `ComposeView.measure()`; direct `onMeasure()` override is unavailable because `ComposeView` is final. SH-M27 acceptance remains `BLOCKED_DEVICE`.
-- B02 tests pass locally: full common + shared suites 825/825; focused shared NCM bridge fixture 42/42; focused common DSP diagnostics 3/3. Hosted #450 passes the Draft unit lane. Added NDP-cycle recovery, sequence-wrap recovery, 10,000 one-byte completions, and cancellation-failure teardown coverage. Physical USB endpoint and supported-device behavior remain `BLOCKED_DEVICE`.
-- B03 commit `9f499afb` closes stale listener/session ownership races; hosted run #455 passed. B04 test commits `aaedf0e5` and `2070b215` cover actual MAIN/ALT SETUP→pre-RECORD close recovery, post-RECORD close semantics, RTSP size/fragmentation including the production 4 MiB+1 rejection, and four-session permit return/reuse. Current full shared/common result: 845/845, zero failures/errors/skips. Target iPhone traffic and SH-M27 rendering remain `BLOCKED_DEVICE`.
-- B05 code commit `ae63a36566871e1197cf9c736c411307aa0bbef7` bounds active/retiring Surface generations to eight, reserves the live generation, and defers only the newest Texture under ACK pressure. A pre-fix 10,000-notice probe reproduced unbounded retention at `d274435`. Gate tests cover 1/100/1,000/10,000 churn, duplicate destroy, MAIN/ALT ACK, and same-Texture replacement without early Texture release. Full common/shared suites pass 849/849. Hosted run #469 at `660c6164` passed `changes`, `check`, `quick-baseline`, and Draft scope; host-baseline and Android instrumentation were skipped.
-- B06 test commit `686516f5a3fbd220822c89e394c5c12222a24eb8` adds a production capture-loop regression: three scripted zero reads emit no packet, and one positive 640-byte PCM read resumes one packet. Initial DSP-OFF exact PCM16/no-prepare/zero-latency behavior is now checked for 44.1/48 kHz mono/stereo. Shared suite: 646/646, zero failures/errors/skips. No production behavior changed. The latest DSP Split check confirms duplicate signatures do not log, insets precede scrolling, and the exact child MeasureSpecs are passed to ComposeView.measure(); SH-M27 acceptance remains blocked.
-- B07 reviews all 111 source/merge SHAs against fixed main. Overlay dispositions are 2 `FORK_SUPERIOR`, 16 `SKIP_OEM`, 56 `REJECT_UNSAFE`, 37 `NEED_EVIDENCE`, 0 `ADAPT`; all 51 merges are classified. EX-08 tests pass 19/19, inventory `--check` passes at 1,400 rows, and the legacy 1,289-row prefix is unchanged. No new source met the adaptation evidence threshold.
-- B08 adds fixed-size, attempt-relative Stage3 timing with attach-generation checks, exact successful FULL OUT accounting, conservative SYN classification, and a three-line in-memory report. Full shared/common suites pass 862/862; two host per-thread measurements found 16.6–21.4 ns/packet incremental CPU and no incremental timing allocation. No transmission, retry, timer, watchdog, or phase behavior changed. TS10/K706 causal timing remains `BLOCKED_DEVICE`.
-- B09 local verification at code/test head `0f425cdc`: 862/862 JVM/Robolectric tests, overlay checks, unsanitized native, ASan/UBSan with LSan disabled, both app lint/Debug/Benchmark builds, both JNI mappings, Common API 35 (1/1), and the latest Shared API 35 repeat (19/19) pass. The earlier same-head Shared run failed three p99 cases and crashed; the outlier was not reproduced and its cause is unconfirmed. Run #476 passes its static/unit jobs but skips the full-host and instrumentation lanes; docs-only run #477 passes `changes`/`check`/Draft scope and skips quick-baseline/runtime lanes. LSan remains unavailable locally. B09 is `PARTIAL`.
-- B10 HW-01–HW-13 procedures and explicit blocked statuses are in `docs/step4/B10_DEVICE_ACCEPTANCE.md`; B11 conditional no-go decisions are in `docs/step4/B11_CONDITIONAL_NO_GO.md`. `CODEX_IMPLEMENTATION_RESULT.md` and `FINAL_GATE_SUMMARY.md` record the current no-go decision. Release signing and independent review remain unavailable/not run.
-- User-supplied SH M20 + iPhone 17 Pro Max/iOS 27.0.1 report is `PARTIAL`, outside TS10/K706 target scope. Release signing credentials remain unavailable.
+- F8-01/02/03 production fixes and MAIN/ALT, RTSP-bound, and four-session regression tests are already in PR #45. Supported-iPhone compatibility remains `BLOCKED_DEVICE`.
+- DSP Split duplicate-log suppression, inset-before-scroll ordering, and exact MeasureSpecs passed to `ComposeView.measure()` are already present. The ComposeView dependency is final; SH-M27 acceptance remains `BLOCKED_DEVICE`.
+- Added the explicit F-05 regression for a target SYN after eight unrelated destination ports. Local shared/common suites pass 864/864; CI classifier fixtures and EX-08 tests pass, and inventory remains 1,400 unique rows.
+- Pushed classifier fallback and workflow coverage to PR #45. Run #481 passed `changes`, full host/native/sanitizer/lint/build/JNI/R8, API 35 instrumentation, `host-baseline`, and Draft scope; Shared was 19/19 and Common 1/1.
+- Local shared/common suites pass 864/864, CI-01..10 fixtures pass, and EX-08 remains 19/19 at 1,400 rows. `docs/step4/TEST_MATRIX.md` maps all 98 v4 case IDs but is not yet pushed.
+- B09 is `PASS_CI` on the current code/test head. Preserve the earlier API 35 p99 failure beside the later local and hosted passes; its cause remains unconfirmed. Local macOS LeakSanitizer is unavailable, while hosted Linux sanitizer passed.
+- TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
 
-## Next actions
+## Next
 
-1. Keep B09 `PARTIAL`: retain both API 35 Shared outcomes, with the latest 19/19 pass, and record that full hosted lanes remain skipped under Draft scope and LSan is unavailable locally.
-2. Run HW-01–HW-13 only after supported TS10/K706 + iPhone hardware is available; obtain authorized release signing credentials for HW-11.
-3. Keep the PR Draft and G8 `NO_GO_THIS_RUN` until the API 35 lane, hardware matrix, signed rollback, and independent review have evidence.
+1. Validate the completed result documents, 98-ID crosswalk, and working memory; commit and push the documentation batch to PR #45.
+2. Check the documentation-only run and leave PR #45 Draft; the TS10/K706+iPhone, signed update/rollback, and independent-review gates remain open.

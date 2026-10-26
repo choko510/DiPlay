@@ -14,6 +14,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.dsp.DspRuntimeConfigStore
+import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.File
@@ -79,7 +80,8 @@ class DspSettingsScreenTest {
             presentation.value = DspPresentationMode.FULL
             composeRule.waitForIdle()
             composeRule.onNodeWithContentDescription("Profile").performClick()
-            composeRule.onNodeWithText("Playback renderer apply status").performScrollTo()
+            composeRule.onNodeWithContentDescription("Profile, selected").assertExists()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_renderer_apply_status)).performScrollTo()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
             }

@@ -83,4 +83,21 @@ class PlaybackRouteListenerGateTest {
         assertTrue(gate.publishIfCurrent(secondTrack, secondGeneration) { publications.incrementAndGet() })
         assertEquals(1, publications.get())
     }
+
+    @Test
+    fun delayedInitialRouteReadPublishesCurrentRouteAfterRoutingChange() {
+        val gate = PlaybackRouteListenerGate<Any>()
+        val track = Any()
+        val generation = gate.bind(track)
+        val publishedRoutes = mutableListOf<String?>()
+        var currentRoute = "route-a"
+        val delayedInitialRead = currentRoute
+
+        currentRoute = "route-b"
+        gate.publishCurrentIfCurrent(track, generation, { currentRoute }) { publishedRoutes.add(it) }
+        gate.publishCurrentIfCurrent(track, generation, { currentRoute }) { publishedRoutes.add(it) }
+
+        assertEquals("route-a", delayedInitialRead)
+        assertEquals(listOf("route-b", "route-b"), publishedRoutes)
+    }
 }

@@ -20,6 +20,18 @@ internal class PlaybackRouteListenerGate<T : Any> {
     }
 
     @Synchronized
+    fun <R> publishCurrentIfCurrent(
+        owner: T,
+        generation: Long,
+        readCurrent: () -> R,
+        publish: (R) -> Unit,
+    ): Boolean {
+        if (this.owner !== owner || this.generation != generation) return false
+        publish(readCurrent())
+        return true
+    }
+
+    @Synchronized
     fun release(owner: T, clear: () -> Unit): Boolean {
         if (this.owner !== owner) return false
         this.owner = null

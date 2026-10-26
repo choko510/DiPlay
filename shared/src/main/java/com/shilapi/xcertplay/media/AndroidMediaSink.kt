@@ -1598,7 +1598,12 @@ internal class AudioRenderer(
         lastTrackFailureLogNs = 0L
         lastTrackRetryLogNs = null
         track = built
-        dspConfigProvider.reportPlaybackSampleRate(this, effective.sampleRate)
+        DspStreamPolicy.reportPlaybackSampleRate(
+            classification.dspRole,
+            this,
+            effective.sampleRate,
+            dspConfigProvider::reportPlaybackSampleRate,
+        )
         val trackDspFormat = DspAudioFormat(sampleRate, channels)
         completeLiveCrossfadeForTrackGeneration(trackDspFormat)
         beginTrackGeneration(trackDspFormat)
@@ -1608,17 +1613,33 @@ internal class AudioRenderer(
         val routeGeneration = playbackRouteListenerGate.bind(built)
         val routingListener = AudioRouting.OnRoutingChangedListener { routing ->
             if (routing === built) {
-                val device = runCatching { built.routedDevice }.getOrNull()
-                playbackRouteListenerGate.publishIfCurrent(built, routeGeneration) {
-                    onPlaybackRouteChanged?.invoke(playbackRouteOwnerToken, device?.type, device?.address, usesMusicStream)
+                playbackRouteListenerGate.publishCurrentIfCurrent(
+                    built,
+                    routeGeneration,
+                    { runCatching { built.routedDevice }.getOrNull() },
+                ) { device ->
+                    onPlaybackRouteChanged?.invoke(
+                        playbackRouteOwnerToken,
+                        device?.type,
+                        device?.address,
+                        usesMusicStream,
+                    )
                 }
             }
         }
         trackRoutingListener = routingListener
         runCatching { built.addOnRoutingChangedListener(routingListener, Handler(Looper.getMainLooper())) }
-        val initialDevice = runCatching { built.routedDevice }.getOrNull()
-        playbackRouteListenerGate.publishIfCurrent(built, routeGeneration) {
-            onPlaybackRouteChanged?.invoke(playbackRouteOwnerToken, initialDevice?.type, initialDevice?.address, usesMusicStream)
+        playbackRouteListenerGate.publishCurrentIfCurrent(
+            built,
+            routeGeneration,
+            { runCatching { built.routedDevice }.getOrNull() },
+        ) { device ->
+            onPlaybackRouteChanged?.invoke(
+                playbackRouteOwnerToken,
+                device?.type,
+                device?.address,
+                usesMusicStream,
+            )
         }
         playbackRouteLogged = false
         statsLastUnderruns = runCatching { built.underrunCount }.getOrDefault(0)
@@ -3671,7 +3692,12 @@ internal class AudioRenderer(
     private fun releaseTrack() {
         val track = track
         this.track = null
-        dspConfigProvider.reportPlaybackSampleRate(this, null)
+        DspStreamPolicy.reportPlaybackSampleRate(
+            classification.dspRole,
+            this,
+            null,
+            dspConfigProvider::reportPlaybackSampleRate,
+        )
         activeDecoderPcmFormat = null
         activeTrackAttributes = null
         playbackRouteLogged = false

@@ -670,4 +670,6 @@ The reaper's close callback can signal before its `finally` decrements the retir
 
 Keep the wired startup watchdog's existing completion signal on an accepted MAIN or ALT screen SETUP. After that point, treat control TCP closure before RECORD as a separate startup failure and route it through the existing transport teardown/retry policy. Bound RTSP headers to 64 KiB, bodies to 4 MiB, and simultaneous control sessions to four; verify these limits against supported-device traffic before treating hardware acceptance as complete.
 
+2026-10-26 B00: treat C-00 as `USER_CONFIRMED_RESOLVED` for product behavior, while preserving any older `NOT_RUN` device measurements as such. Freeze the full current 1,289-row EX-08 CSV bytes and SHA-256 before building a separate 111-commit overlay; generated inventory consistency is not semantic review or device evidence.
+
 The decoder-retirement test must keep its stop gate closed until the assertion completes even though `VideoDecoder.close()` interrupts the worker to wake its queue. The test hook absorbs that expected interrupt while waiting, then restores the thread interrupt flag after explicit release.

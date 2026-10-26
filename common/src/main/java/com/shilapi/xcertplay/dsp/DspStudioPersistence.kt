@@ -76,7 +76,7 @@ internal class DspStudioWorkspaceRepository(
     companion object { const val SCHEMA = 1; private const val WORKSPACE_ID = "active_dsp_studio"; private const val MAX_BYTES = 1_048_576L; private val ID = Regex("^[A-Za-z0-9_-]{1,64}$"); private val PRESET_ID = ID; private val MODULES = setOf("peq", "bass", "seat", "advanced_ms", "compressor", "multiband", "dynamic_eq", "harmonic", "limiter", "convolver", "cabin", "smart_loudness", "dynamic_bass", "macros") }
 }
 
-internal enum class DspPresetStoreResult { SAVED, NOT_FOUND, INVALID, FUTURE_SCHEMA_PRESERVED, WRITE_FAILED }
+internal enum class DspPresetStoreResult { SAVED, DELETED, NOT_FOUND, INVALID, FUTURE_SCHEMA_PRESERVED, WRITE_FAILED }
 internal data class DspModulePreset(val id: String, val moduleKey: String, val name: String, val payload: JSONObject, val factory: Boolean = false)
 
 internal class DspModulePresetRepository(
@@ -99,7 +99,39 @@ internal class DspModulePresetRepository(
     fun load(moduleKey: String, id: String): DspModulePreset? {
         if (moduleKey !in MODULES || !validId(id)) return null
         val target = File(File(filesDirectory, "dsp/modules"), "$moduleKey/$id.json")
-        return try { if (target.length() > MAX_PAYLOAD_CHARS) return null; val j = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }); if (j.getInt("schemaVersion") != SCHEMA || j.getInt("payloadVersion") != 1 || j.getString("id") != id || j.getString("moduleKey") != moduleKey) return null; val payload = j.getJSONObject("payload"); val name = j.getString("name"); if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) null else DspModulePreset(id, moduleKey, name, payload) } catch (_: Exception) { null }
+        return try {
+            if (target.length() > MAX_PAYLOAD_CHARS) return null
+            val json = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() })
+            if (json.getInt("schemaVersion") != SCHEMA || json.getInt("payloadVersion") != 1 ||
+                json.getString("id") != id || json.getString("moduleKey") != moduleKey ||
+                json.getString("origin") != "USER"
+            ) return null
+            val payload = json.getJSONObject("payload")
+            val name = json.getString("name")
+            if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) {
+                null
+            } else {
+                DspModulePreset(id, moduleKey, name, payload)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun deleteUserPreset(moduleKey: String, id: String): DspPresetStoreResult {
+        if (moduleKey !in MODULES || !validId(id) ||
+            DspFactoryPresets.modulePresets().any { it.moduleKey == moduleKey && it.id == id }
+        ) return DspPresetStoreResult.INVALID
+        val target = File(File(filesDirectory, "dsp/modules"), "$moduleKey/$id.json")
+        if (!target.isFile) return DspPresetStoreResult.NOT_FOUND
+        if (schema(target)?.let { it > SCHEMA } == true) return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+        if (load(moduleKey, id) == null) return DspPresetStoreResult.INVALID
+        return try {
+            AtomicFile(target).delete()
+            if (target.exists()) DspPresetStoreResult.WRITE_FAILED else DspPresetStoreResult.DELETED
+        } catch (_: Exception) {
+            DspPresetStoreResult.WRITE_FAILED
+        }
     }
     fun userPresets(moduleKey: String): List<DspModulePreset> {
         if (moduleKey !in MODULES) return emptyList()

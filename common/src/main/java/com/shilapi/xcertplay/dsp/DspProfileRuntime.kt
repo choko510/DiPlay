@@ -164,6 +164,17 @@ internal class DspProfileRuntime private constructor(
         }
     }
 
+    fun deleteModulePresetAsync(
+        moduleKey: String,
+        presetId: String,
+        onComplete: (DspPresetStoreResult) -> Unit,
+    ) {
+        ioExecutor.execute {
+            val result = modulePresetRepository.deleteUserPreset(moduleKey, presetId)
+            Handler(Looper.getMainLooper()).post { onComplete(result) }
+        }
+    }
+
     fun studioVolumeReading(): DspVolumeReading {
         val reading = readVolumeSource()
         val previous = cachedVolumeReading.getAndSet(reading)

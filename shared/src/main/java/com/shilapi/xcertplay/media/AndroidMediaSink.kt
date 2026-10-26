@@ -2735,8 +2735,16 @@ internal class AudioRenderer(
                 hotUpdate.rendererOwnerToken != rendererOwnerToken ||
                 hotUpdate.pcmFormatEpoch != pcmFormatEpoch || hotUpdate.hotContextToken != hotBoundContextToken ||
                 !hotUpdate.mediaRole ||
-                pendingHotApply.get() != null || !pendingDspUpdate.compareAndSet(prepared, null)
+                pendingHotApply.get() != null
             ) return
+            if (!pendingDspUpdate.compareAndSet(prepared, null)) return
+            if (!dspConfigProvider.studioHotUpdatesEnabled()) {
+                deferredDspGeneration = update.generation
+                reportDspApplyStatus(
+                    prepared.deferredStatus.copy(reason = "Native HOT updates are disabled"),
+                )
+                return
+            }
             if (!pipeline.enqueueHotUpdate(hotUpdate)) {
                 pendingDspUpdate.compareAndSet(null, prepared)
                 deferredDspGeneration = update.generation
@@ -2766,6 +2774,7 @@ internal class AudioRenderer(
             targetLatencyFrames = candidateLatencyFrames,
             requiresStateContinuity = graphConfig.requiresStateContinuity(),
             mediaRole = classification.dspRole == DspStreamRole.MEDIA,
+            studioHotUpdatesEnabled = dspConfigProvider.studioHotUpdatesEnabled(),
         )
         val unsupportedLocalWarm = updateDecision.plan == DspUpdatePlan.LOCAL_WARM &&
             trackGenerationContentCommitted

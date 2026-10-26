@@ -32,4 +32,10 @@
     <string name="dsp_rollout_disable_all">Disable enhanced DSP</string>
     <string name="dsp_rollout_restore_saved">Restore saved profile</string>
     <string name="dsp_rollout_update_failed">Feature setting could not be applied</string>
+    <string name="dsp_module_preset_delete">Delete user preset</string>
+    <string name="dsp_module_preset_delete_title">Delete user preset?</string>
+    <string name="dsp_module_preset_delete_message">Delete “%1$s”? This only removes the saved preset; current module settings stay unchanged.</string>
+    <string name="dsp_module_factory_reset">Factory reset module</string>
+    <string name="dsp_module_factory_reset_message">Replace the current %1$s draft values with its factory preset? Other modules stay unchanged.</string>
+    <string name="dsp_cancel">Cancel</string>
 </resources>

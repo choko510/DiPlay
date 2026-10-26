@@ -722,9 +722,56 @@ internal fun DspSettingsScreen(
                                     DspPresetStoreResult.WRITE_FAILED -> "Could not save module preset"
                                     DspPresetStoreResult.NOT_FOUND -> "Module preset was not found"
                                     DspPresetStoreResult.SAVED -> "User preset saved"
+                                    DspPresetStoreResult.DELETED -> "User preset deleted"
                                 }
                                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                             }
+                        }
+                    },
+                    onDelete = { presetId ->
+                        val moduleKey = selectedModulePresetModule
+                        studioOperationPending = true
+                        runtime.deleteModulePresetAsync(moduleKey, presetId) { result ->
+                            studioOperationPending = false
+                            studioUiRevision += 1
+                            if (result == DspPresetStoreResult.DELETED) {
+                                studioSession.edit { workspace ->
+                                    workspace.copy(
+                                        selectedModulePresetIds = workspace.selectedModulePresetIds - moduleKey,
+                                    )
+                                }
+                                syncStudioDraftToScreen(studioSession.preview)
+                                selectedModulePresetId = null
+                                runtime.loadModulePresetsAsync(moduleKey) {
+                                    if (selectedModulePresetModule == moduleKey) modulePresets = it
+                                }
+                                if (screenActive.get()) Toast.makeText(context, "User preset deleted", Toast.LENGTH_SHORT).show()
+                            } else if (screenActive.get()) {
+                                val message = when (result) {
+                                    DspPresetStoreResult.INVALID -> "Only valid user presets can be deleted"
+                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> "Newer preset data was preserved"
+                                    DspPresetStoreResult.NOT_FOUND -> "User preset was not found"
+                                    DspPresetStoreResult.WRITE_FAILED -> "Could not delete user preset"
+                                    DspPresetStoreResult.SAVED -> "User preset saved"
+                                    DspPresetStoreResult.DELETED -> "User preset deleted"
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    onFactoryReset = {
+                        val factoryPreset = modulePresets.firstOrNull { it.factory }
+                        val applied = factoryPreset?.let { runtime.applyStudioModulePreset(studioSession.preview, it) }
+                        if (factoryPreset == null || applied == null) {
+                            Toast.makeText(context, "Could not reset this module", Toast.LENGTH_LONG).show()
+                        } else {
+                            val reset = applied.copy(
+                                selectedModulePresetIds = applied.selectedModulePresetIds +
+                                    (factoryPreset.moduleKey to factoryPreset.id),
+                            )
+                            studioSession.edit { reset }
+                            syncStudioDraftToScreen(studioSession.preview)
+                            selectedModulePresetId = factoryPreset.id
                         }
                     },
                     )

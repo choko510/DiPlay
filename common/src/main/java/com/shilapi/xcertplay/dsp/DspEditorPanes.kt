@@ -490,10 +490,14 @@ internal fun DspModulePresetPane(
     onPresetSelect: (String) -> Unit,
     onApply: (DspModulePreset) -> Unit,
     onSave: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onFactoryReset: () -> Unit,
 ) {
     var moduleMenuExpanded by remember { mutableStateOf(false) }
     var presetMenuExpanded by remember { mutableStateOf(false) }
     var saveDialogVisible by remember { mutableStateOf(false) }
+    var deleteDialogVisible by remember { mutableStateOf(false) }
+    var factoryResetDialogVisible by remember { mutableStateOf(false) }
     var newPresetName by remember { mutableStateOf("") }
     val selectedPreset = presets.firstOrNull { it.id == selectedPresetId } ?: presets.firstOrNull()
 
@@ -558,6 +562,20 @@ internal fun DspModulePresetPane(
                     Text("Save as User preset")
                 }
             }
+            OutlinedButton(
+                onClick = { deleteDialogVisible = true },
+                enabled = enabled && selectedPreset?.factory == false,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.dsp_module_preset_delete))
+            }
+            OutlinedButton(
+                onClick = { factoryResetDialogVisible = true },
+                enabled = enabled && presets.any(DspModulePreset::factory),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.dsp_module_factory_reset))
+            }
             Text(
                 "Applying changes only this module in the draft. Preview and Save are separate.",
                 style = MaterialTheme.typography.bodySmall,
@@ -589,6 +607,48 @@ internal fun DspModulePresetPane(
             },
             dismissButton = {
                 OutlinedButton(onClick = { saveDialogVisible = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (deleteDialogVisible && selectedPreset != null) {
+        AlertDialog(
+            onDismissRequest = { deleteDialogVisible = false },
+            title = { Text(stringResource(R.string.dsp_module_preset_delete_title)) },
+            text = { Text(stringResource(R.string.dsp_module_preset_delete_message, selectedPreset.name)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deleteDialogVisible = false
+                        onDelete(selectedPreset.id)
+                    },
+                ) { Text(stringResource(R.string.dsp_module_preset_delete)) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { deleteDialogVisible = false }) {
+                    Text(stringResource(R.string.dsp_cancel))
+                }
+            },
+        )
+    }
+
+    if (factoryResetDialogVisible) {
+        AlertDialog(
+            onDismissRequest = { factoryResetDialogVisible = false },
+            title = { Text(stringResource(R.string.dsp_module_factory_reset)) },
+            text = { Text(stringResource(R.string.dsp_module_factory_reset_message, modulePresetLabel(moduleKey))) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        factoryResetDialogVisible = false
+                        onFactoryReset()
+                    },
+                ) { Text(stringResource(R.string.dsp_module_factory_reset)) }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { factoryResetDialogVisible = false }) {
+                    Text(stringResource(R.string.dsp_cancel))
+                }
             },
         )
     }

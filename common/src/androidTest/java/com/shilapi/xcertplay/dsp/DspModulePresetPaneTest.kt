@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.dsp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -41,6 +42,8 @@ class DspModulePresetPaneTest {
                     onPresetSelect = { selectedPresetId.value = it },
                     onApply = { appliedPreset.value = it },
                     onSave = {},
+                    onDelete = {},
+                    onFactoryReset = {},
                 )
             }
         }
@@ -77,6 +80,8 @@ class DspModulePresetPaneTest {
                     onPresetSelect = {},
                     onApply = {},
                     onSave = { savedName.value = it },
+                    onDelete = {},
+                    onFactoryReset = {},
                 )
             }
         }
@@ -86,5 +91,72 @@ class DspModulePresetPaneTest {
         composeRule.onNodeWithText("Save").performClick()
 
         assertEquals("Night drive", savedName.value)
+    }
+
+    @Test
+    fun userPresetDeleteRequiresConfirmation() {
+        val deletedId = mutableStateOf<String?>(null)
+        val factoryPreset = DspFactoryPresets.modulePresets().first { it.moduleKey == "bass" }
+        val userPreset = DspModulePreset(
+            id = "user_bass_night",
+            moduleKey = "bass",
+            name = "Night",
+            payload = JSONObject().put("enabled", true).put("gainDb", 2.0).put("frequencyHz", 80.0),
+        )
+
+        composeRule.setContent {
+            MaterialTheme {
+                DspModulePresetPane(
+                    moduleKey = "bass",
+                    moduleKeys = listOf("bass"),
+                    presets = listOf(factoryPreset, userPreset),
+                    selectedPresetId = userPreset.id,
+                    enabled = true,
+                    onModuleKeyChange = {},
+                    onPresetSelect = {},
+                    onApply = {},
+                    onSave = {},
+                    onDelete = { deletedId.value = it },
+                    onFactoryReset = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Delete user preset").performClick()
+        assertEquals(null, deletedId.value)
+        composeRule.onNodeWithText("Delete user preset?").assertExists()
+        composeRule.onAllNodesWithText("Delete user preset")[1].performClick()
+
+        assertEquals(userPreset.id, deletedId.value)
+    }
+
+    @Test
+    fun factoryResetRequiresConfirmation() {
+        val reset = mutableStateOf(false)
+        val factoryPreset = DspFactoryPresets.modulePresets().first { it.moduleKey == "bass" }
+
+        composeRule.setContent {
+            MaterialTheme {
+                DspModulePresetPane(
+                    moduleKey = "bass",
+                    moduleKeys = listOf("bass"),
+                    presets = listOf(factoryPreset),
+                    selectedPresetId = factoryPreset.id,
+                    enabled = true,
+                    onModuleKeyChange = {},
+                    onPresetSelect = {},
+                    onApply = {},
+                    onSave = {},
+                    onDelete = {},
+                    onFactoryReset = { reset.value = true },
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Factory reset module").performClick()
+        assertEquals(false, reset.value)
+        composeRule.onAllNodesWithText("Factory reset module")[1].performClick()
+
+        assertEquals(true, reset.value)
     }
 }

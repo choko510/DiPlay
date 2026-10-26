@@ -82,6 +82,47 @@ class DspStudioPersistenceTest {
         assertEquals(DspPresetStoreResult.INVALID, repo.save(DspFactoryPresets.modulePresets().first()))
     }
 
+    @Test fun userModulePresetCanBeDeleted() {
+        val root = temporaryFolder.root
+        val repo = DspModulePresetRepository(root)
+        val preset = DspModulePreset(
+            "user_bass_night",
+            "bass",
+            "Night",
+            JSONObject().put("enabled", true).put("gainDb", 2.0).put("frequencyHz", 80.0),
+        )
+
+        assertEquals(DspPresetStoreResult.SAVED, repo.save(preset))
+        assertEquals(preset.id, repo.load("bass", preset.id)?.id)
+        assertEquals(DspPresetStoreResult.DELETED, repo.deleteUserPreset("bass", preset.id))
+        assertNull(repo.load("bass", preset.id))
+        assertEquals(DspPresetStoreResult.NOT_FOUND, repo.deleteUserPreset("bass", preset.id))
+    }
+
+    @Test fun factoryPresetIdCannotBeDeletedEvenIfAFileExists() {
+        val root = temporaryFolder.root
+        val factory = DspFactoryPresets.modulePresets().first { it.moduleKey == "bass" }
+        val target = File(root, "dsp/modules/${factory.moduleKey}/${factory.id}.json")
+        target.parentFile!!.mkdirs()
+        target.writeText("{\"schemaVersion\":1,\"id\":\"${factory.id}\",\"moduleKey\":\"bass\",\"name\":\"forged\",\"origin\":\"USER\",\"payloadVersion\":1,\"payload\":{\"enabled\":true,\"gainDb\":2.0,\"frequencyHz\":80.0}}")
+        val repo = DspModulePresetRepository(root)
+
+        assertEquals(DspPresetStoreResult.INVALID, repo.deleteUserPreset("bass", factory.id))
+        assertTrue(target.exists())
+    }
+
+    @Test fun deletingFutureModulePresetPreservesItsBytes() {
+        val root = temporaryFolder.root
+        val file = File(root, "dsp/modules/bass/future_delete.json")
+        file.parentFile!!.mkdirs()
+        val future = "{\"schemaVersion\":99,\"sentinel\":\"keep\"}"
+        file.writeText(future)
+        val repo = DspModulePresetRepository(root)
+
+        assertEquals(DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED, repo.deleteUserPreset("bass", "future_delete"))
+        assertEquals(future, file.readText())
+    }
+
     @Test fun applyingBassPresetChangesOnlyBassModule() {
         val profile = DspProfilePresets.find("vocal")!!
         val preset = DspModulePreset("factory-bass", "bass", "Factory", JSONObject().put("enabled", true).put("gainDb", 2.5).put("frequencyHz", 90.0), factory = true)

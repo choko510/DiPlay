@@ -28,6 +28,7 @@ class DspEqEditorGraphTest {
         val startingBand = DspEqBand(DspEqType.PEAK, frequencyHz = 1_000.0, gainDb = 0.0)
         val profile = mutableStateOf(DspAudioProfile(id = "graph-test", name = "Graph test", eqBands = listOf(startingBand)))
         val callbackProfile = mutableStateOf<DspAudioProfile?>(null)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
 
         composeRule.setContent {
             MaterialTheme {
@@ -43,10 +44,19 @@ class DspEqEditorGraphTest {
         }
 
         val graph = composeRule.onNodeWithContentDescription(
-            InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.dsp_eq_graph_description),
+            context.getString(R.string.dsp_eq_graph_description),
         )
+        composeRule.onNodeWithContentDescription(context.getString(R.string.dsp_eq_band_enable, 1)).assertExists()
+        composeRule.onNodeWithContentDescription(context.getString(R.string.dsp_eq_band_frequency, 1)).assertExists()
+        composeRule.onNodeWithContentDescription(context.getString(R.string.dsp_eq_band_gain, 1)).assertExists()
         composeRule.onNodeWithContentDescription(
-            InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.dsp_eq_band_enable, 1),
+            context.getString(
+                R.string.dsp_eq_toggle_sign,
+                context.getString(R.string.dsp_eq_band_gain_numeric, 1),
+            ),
+        ).assertExists()
+        composeRule.onNodeWithText(
+            context.getString(R.string.dsp_eq_filter_type_summary, context.getString(R.string.dsp_eq_filter_peak)),
         ).assertExists()
         composeRule.onNodeWithText("Playback rate 48000 Hz", substring = true).assertExists()
         val bounds = graph.fetchSemanticsNode().boundsInRoot

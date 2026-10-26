@@ -30,8 +30,8 @@ class DspSmartLoudnessPaneTest {
         composeRule.onNodeWithText(
             "AUTO_UNAVAILABLE · playback-volume input is unvalidated for this route; use MANUAL or FIXED",
         ).assertExists()
-        composeRule.onNodeWithText("AUTO", substring = true).assertIsNotEnabled()
-        composeRule.onNodeWithText("MANUAL", substring = true).assertIsEnabled()
-        composeRule.onNodeWithText("FIXED", substring = true).assertIsEnabled()
+        composeRule.onNodeWithText("• AUTO").assertIsNotEnabled()
+        composeRule.onNodeWithText("MANUAL").assertIsEnabled()
+        composeRule.onNodeWithText("FIXED").assertIsEnabled()
     }
 }

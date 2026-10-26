@@ -10,7 +10,7 @@
 
 ## Current integration state
 
-- PR #52 base `codex/step4-pr-00-test-baseline` is at `15fa5e06bd96af855aa168605f2ac4b7ad2e1b6d`; source head `ce3c87d7f8520d0752a96f4fa50aa8b92b988641` is pushed on `codex/dsp-studio-final`.
+- PR #52 base `codex/step4-pr-00-test-baseline` is at `15fa5e06bd96af855aa168605f2ac4b7ad2e1b6d`. Latest PR branch head is documentation/Working Memory commit `f65921f3fca630685cb03e728211ad373ef0d3ab`; the latest code source head remains `ce3c87d7f8520d0752a96f4fa50aa8b92b988641`.
 - `f9c9f56e` adds module-scoped A/B preview while keeping the editor draft intact. `ce3c87d7` restores draft audio preview after deleting the selected preset during active A/B; independent follow-up review closed the P2 finding.
 - The screen test initially exposed a missing assertion import and an A/B preview path that overwrote draft state. Both were corrected. The follow-up screen test now also guards against leaving the renderer on an obsolete comparison snapshot after deletion.
 
@@ -23,6 +23,7 @@
 
 ## Next actions
 
-1. Finish and push the documentation and working-memory refresh; update PR #52's body with run #484 and the remaining gates.
+1. Documentation and Working Memory were pushed; PR #52's body now records the source head, run #484, manual-dispatch skips, and remaining gates.
 2. Complete remaining per-ID test evidence and hardware runbook gates; keep these open in the final report.
-3. Keep PR #52 unmerged and PR #45/`main` untouched.
+3. Rerun the relevant checks if any production source changes; do not count skips as passes.
+4. Keep PR #52 unmerged and PR #45/`main` untouched.

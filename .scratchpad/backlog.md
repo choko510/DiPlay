@@ -4,7 +4,8 @@
 
 ## Ordered implementation
 
-- [ ] After B06, execute B07–B08 from the attached 2026-10-26 specification in order: verify/reproduce remaining source-level issues, make only minimal evidenced fixes, add focused regression coverage, record exact source SHA and rollback. Recheck current code first; do not reimplement completed fixes.
+- [x] B07: review all 111 fixed-range source/merge SHAs against fixed main, classify all 51 merge relationships, and preserve row-specific evidence gates. No new `ADAPT` candidate met the evidence bar.
+- [ ] B08: add Stage3 monotonic timing diagnostics only. Preserve USB transmission and StartSession behavior; keep additional `0x4301` disabled until target-device evidence supports a separate gate.
 - [ ] B09: run review-ready host/native, unit, lint/build, JNI/R8 and API 35 instrumentation gates on one exact source SHA; report every skipped job separately.
 - [ ] B10/B11/B12: prepare device, conditional no-go and final gate packages. Keep missing physical and signing evidence blocked; do not mark G8 pass.
 

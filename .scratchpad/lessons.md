@@ -348,6 +348,8 @@ For privacy review, check both the formatter and redactor behavior. A test showi
 
 For EX-08 content rows, compare the archived patch with fixed-main locale registration, resource keys, and runtime support. A translation or release note does not prove the described feature; finalize clear scope mismatches while keeping generic device claims pending without target evidence.
 
+For a fixed upstream range containing merges, classify every merge from its parent topology and first-parent patch, then link source-integration duplicates to source indexes. A complete SHA inventory is not a semantic review unless every row also records the fixed-main owner, concrete disposition reason, and the evidence needed for any pending decision.
+
 When an upstream runtime patch also edits repository configuration, inspect dependency-source changes as part of the aggregate. A later commit that removes an unapproved mirror can support rejecting the earlier aggregate without claiming the separate runtime behavior is disproven.
 
 For a commit that combines USB re-enumeration and audio PCM processing, classify the actual patch as a cross-gate aggregate. Preserve each narrow candidate's separate device, audio-quality, and rollback evidence requirements.
@@ -532,3 +534,5 @@ For wired startup, state-helper tests do not prove callback routing: exercise th
 For semaphore-limited socket handlers, test both rejection at capacity and permit return after session close/detach; a cap-only test misses leaked permits that prevent later valid reconnects.
 
 For Surface churn, gate new Surface creation before handing a wrapper to decoder workers. Include the current live Surface in the outstanding budget, keep one latest generation pending, and never release a Surface or Texture until its specific decoder ownership ACKs have completed.
+
+For an upstream range with many merge commits, keep source and merge decisions separate. Use parent topology to label PR integration duplicates versus branch-sync merges, and make each pending source row name the exact evidence that would change its disposition. Keep the old ledger population frozen when adding a new overlay.

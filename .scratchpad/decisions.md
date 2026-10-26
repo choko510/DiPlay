@@ -14,6 +14,10 @@ The decisions below are retained with their full rationale; earlier choices may 
 
 Preserve the upstream catalog original source_review_state as provenance. Treat generated current_review_state and disposition as the present decision layer; NEED_EVIDENCE means a documented requirement remains unresolved, not semantic proof or parity. Report current totals from the generated ledger, never from stale catalog-state counts.
 
+## Review each delta-111 SHA before adoption
+
+The 111-commit overlay is a fixed, separate population from the frozen legacy 1,289 rows. Record one semantic decision per SHA and classify each merge from its parent topology as source integration or branch synchronization. Keep `ADAPT` behind a missing-required-behavior check, a failing fixed-main regression, and a narrow safe fix; send unsupported runtime claims to an explicit evidence gate.
+
 ## Keep documentation-only and workflow-only PR checks lightweight
 
 For pull requests, always run public-tree and EX-08 inventory checks. Compare host verification against the latest successful `host-baseline` marker and emulator instrumentation against the latest successful full `check` plus `android-instrumentation` run. Changes limited to `docs/`, `.scratchpad/`, `.github/workflows/`, Markdown files, or the exact audit-only `scripts/generate_step4_ex08_inventory.py` may skip product runtime checks; the inventory `--check` still runs on every PR. Unknown paths, missing/failed baselines, large diffs, and API errors require the relevant verification path. Pushes and manual runs use the full suite.
@@ -673,6 +677,8 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 2026-10-26 B00: treat C-00 as `USER_CONFIRMED_RESOLVED` for product behavior, while preserving any older `NOT_RUN` device measurements as such. Freeze the full current 1,289-row EX-08 CSV bytes and SHA-256 before building a separate 111-commit overlay; generated inventory consistency is not semantic review or device evidence.
 
 2026-10-26 B01: preserve the fixed EX-08 111-commit range as a separate metadata/patch overlay and keep every new row `NEED_EVIDENCE` until per-SHA semantic review. Protect the existing 1,289 CSV rows as a byte-identical prefix; do not treat compare stats, patch digests, or inventory checks as adoption or parity proof.
+
+2026-10-26 B07: classify each SHA independently against fixed main. `ADAPT` requires a fixed-main failing test and a narrow safe implementation; source commits already integrated by a merge are classified through their source rows, while branch-sync merges are never independent feature candidates. Keep `NEED_EVIDENCE` rows actionable with the exact target measurement or log needed to advance.
 
 2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
 

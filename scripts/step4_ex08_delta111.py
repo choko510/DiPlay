@@ -23,6 +23,11 @@ EXPECTED_FINAL_TREE_DELETIONS = 376
 DISPOSITIONS = {"ADAPT", "FORK_SUPERIOR", "SKIP_OEM", "REJECT_UNSAFE", "NEED_EVIDENCE"}
 REVIEW_STATES = {"REVIEWED", "NEED_EVIDENCE"}
 MERGE_ROLES = {"SOURCE", "DUPLICATE_MERGE", "CONFLICT_RESOLUTION", "OTHER_MERGE"}
+MERGE_RELATIONSHIPS = {
+    "BRANCH_SYNC_ONLY",
+    "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "SOURCE_DOCS_INTEGRATION_DUPLICATE",
+}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -121,12 +126,26 @@ def validate_source_commits(
     return sha_values, merge_count
 
 
-def validate_review_overrides(overrides: list[dict[str, Any]], sha_values: list[str]) -> None:
+def validate_review_overrides(
+    overrides: list[dict[str, Any]],
+    sha_values: list[str],
+    merge_shas: set[str] | None = None,
+) -> None:
     override_shas = [row.get("commit_sha") for row in overrides]
     if len(overrides) != EXPECTED_COMMITS or set(override_shas) != set(sha_values) or len(set(override_shas)) != len(overrides):
         raise OverlayError("review overrides must contain exactly one row for each fixed source SHA")
     for override in overrides:
         validate_review_override(override)
+        if merge_shas is not None and override["current_review_state"] == "REVIEWED":
+            is_merge = override["commit_sha"] in merge_shas
+            has_relation = override["merge_relationship"] in MERGE_RELATIONSHIPS
+            if is_merge != has_relation:
+                raise OverlayError(f"merge relationship does not match source topology for {override['commit_sha']}")
+            source_indexes = override["merge_source_indexes"]
+            if is_merge and override["merge_relationship"] == "BRANCH_SYNC_ONLY" and source_indexes:
+                raise OverlayError(f"branch-sync merge cannot claim a feature source for {override['commit_sha']}")
+            if is_merge and override["merge_relationship"] != "BRANCH_SYNC_ONLY" and not source_indexes:
+                raise OverlayError(f"source integration merge requires source indexes for {override['commit_sha']}")
 
 
 def load_and_validate_inputs(
@@ -192,7 +211,8 @@ def load_and_validate_inputs(
     except (tarfile.TarError, OSError) as error:
         raise OverlayError(f"invalid delta-111 patch archive: {error}") from error
     sha_values, merge_count = validate_source_commits(commits, patch_files, legacy_shas)
-    validate_review_overrides(overrides, sha_values)
+    merge_shas = {commit["commit_sha"] for commit in commits if commit["is_merge"]}
+    validate_review_overrides(overrides, sha_values, merge_shas)
 
     if meta.get("source_commit_count") != EXPECTED_COMMITS:
         raise OverlayError("metadata source commit count does not match the fixed range")
@@ -212,7 +232,15 @@ def validate_review_override(override: dict[str, Any]) -> None:
     disposition = override.get("disposition")
     if disposition not in DISPOSITIONS:
         raise OverlayError(f"unknown disposition for {sha_value}")
-    for field in ("decision_reason", "test_evidence", "related_step4", "rollback_plan", "fork_owner_file"):
+    for field in (
+        "decision_reason",
+        "test_evidence",
+        "related_step4",
+        "rollback_plan",
+        "fork_owner_file",
+        "primary_category",
+        "fixed_main_summary",
+    ):
         if not isinstance(override.get(field), str) or not override[field].strip():
             raise OverlayError(f"missing {field} for {sha_value}")
     proof = override.get("proof")
@@ -225,6 +253,12 @@ def validate_review_override(override: dict[str, Any]) -> None:
         raise OverlayError(f"NEED_EVIDENCE requires a concrete missing_evidence list for {sha_value}")
     if disposition in {"ADAPT", "FORK_SUPERIOR"} and not proof:
         raise OverlayError(f"{disposition} requires code/test proof for {sha_value}")
+    relationship = override.get("merge_relationship", "")
+    source_indexes = override.get("merge_source_indexes")
+    if relationship and relationship not in MERGE_RELATIONSHIPS:
+        raise OverlayError(f"unknown merge relationship for {sha_value}")
+    if not isinstance(source_indexes, list) or any(not isinstance(index, int) or index < 1 for index in source_indexes):
+        raise OverlayError(f"invalid merge source indexes for {sha_value}")
 
 
 def build_initial_review_overrides(commits: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -238,6 +272,8 @@ def build_initial_review_overrides(commits: list[dict[str, Any]]) -> list[dict[s
                 "commit_sha": sha_value,
                 "current_review_state": "NEED_EVIDENCE",
                 "disposition": "NEED_EVIDENCE",
+                "primary_category": "PENDING_SEMANTIC_REVIEW",
+                "fixed_main_summary": "Initial source capture only; fixed-main semantic review has not been performed.",
                 "decision_reason": (
                     f"Metadata-only record for '{subject}' ({paths}). The first-parent patch is archived, "
                     "but its behavior has not been semantically compared with fixed main; no code adoption is proposed."
@@ -255,6 +291,8 @@ def build_initial_review_overrides(commits: list[dict[str, Any]]) -> list[dict[s
                     "No upstream patch imported. Any future adaptation must be isolated in a revertible PR #45 commit "
                     "with its matching regression test."
                 ),
+                "merge_relationship": "",
+                "merge_source_indexes": [],
             },
         )
     return overrides
@@ -282,12 +320,15 @@ def build_overlay_rows(
                 "subject": commit["subject"],
                 "is_merge": str(commit["is_merge"]).lower(),
                 "changed_paths": ";".join(commit["changed_paths"]),
-                "primary_category": "MERGE_STRUCTURE" if commit["is_merge"] else "PENDING_SEMANTIC_REVIEW",
+                "primary_category": review["primary_category"],
                 "patch_sha256": commit["patch_sha256"],
                 "patch_archive": f"{meta['patch_archive']}#{commit['patch_file']}",
-                "source_review_state": "PARENT_AND_FIRST_PARENT_PATCH_METADATA_ONLY",
+                "source_review_state": "PER_SHA_FIXED_MAIN_REVIEW_RECORDED",
                 "current_review_state": review["current_review_state"],
-                "candidate_note": "Unreviewed overlay record; see docs/step4/EX08_DELTA111_REVIEW.md",
+                "candidate_note": (
+                    "B07 per-SHA review recorded; see docs/step4/EX08_DELTA111_REVIEW.md; "
+                    f"merge={review['merge_relationship'] or 'SOURCE_COMMIT'}"
+                ),
                 "disposition": review["disposition"],
                 "decision_reason": review["decision_reason"],
                 "test_evidence": review["test_evidence"],
@@ -297,6 +338,99 @@ def build_overlay_rows(
         )
         rows.append(row)
     return rows
+
+
+def render_review_markdown(
+    meta: dict[str, Any],
+    commits: list[dict[str, Any]],
+    overrides: list[dict[str, Any]],
+) -> str:
+    """Render the reviewed per-SHA evidence table from the pinned source catalog."""
+    counts: dict[str, int] = {disposition: 0 for disposition in sorted(DISPOSITIONS)}
+    overrides_by_sha = {row["commit_sha"]: row for row in overrides}
+    for review in overrides:
+        counts[review["disposition"]] += 1
+
+    lines = [
+        "# EX-08 Delta-111 Review Record",
+        "",
+        "## Frozen upstream range",
+        "",
+        f"- Repository: `shihabal3amri/DiPlay`",
+        f"- Base: `{meta['base_sha']}`",
+        f"- Head: `{meta['head_sha']}`",
+        f"- [GitHub compare]({meta['compare_url']}): 111 commits, 0 behind, 117 changed final-tree paths, +4,357 / -376 lines.",
+        "- Commit topology: 60 source commits and 51 merges from immutable parent lists; each first-parent patch is pinned by SHA-256 in the manifest/archive.",
+        "- Legacy rows: the original 1,289 CSV rows remain the byte-identical prefix; the generated inventory contains 1,400 unique rows.",
+        "",
+        "## B07 review result",
+        "",
+        "All 111 commits have a SHA-specific fixed-main disposition. `NEED_EVIDENCE` means the patch was reviewed and the adoption decision is gated by the concrete evidence named in that row; it is not an unreviewed placeholder.",
+        "",
+        "| Disposition | Count |",
+        "|---|---:|",
+    ]
+    for disposition, count in counts.items():
+        lines.append(f"| `{disposition}` | {count} |")
+    lines.extend(
+        [
+            "",
+            "No new `ADAPT` is justified by the current evidence: the upstream feature is not required by the requested STEP4 scope, already has a fixed-main implementation, is OEM-specific, or lacks the required failure/device evidence. The focused backlog is in [B07_ADAPT_BACKLOG.md](B07_ADAPT_BACKLOG.md).",
+            "",
+            "## Merge fate",
+            "",
+            "Every merge is classified as either a source-feature/PR integration duplicate or a branch-sync-only merge. Source integration rows identify the source commit indexes; branch-sync rows deliberately claim no feature source. Merge wrappers are not independent code changes to cherry-pick.",
+            "",
+            "## Per-SHA decisions and evidence",
+            "",
+            "Each source link opens the immutable upstream commit (and its first-parent diff). Local code/test links refer to the fixed-main files reviewed. `NOT_RUN` items remain explicit in the evidence/next-step column.",
+            "",
+            "| # | Commit | Category | Decision and fixed-main finding | Test / missing evidence | Merge fate |",
+            "|---:|---|---|---|---|---|",
+        ]
+    )
+    for commit in commits:
+        sha_value = commit["commit_sha"]
+        review = overrides_by_sha[sha_value]
+        commit_link = f"[{sha_value[:12]}]({commit['source_url']})"
+        evidence = "<br>".join(review["proof"])
+        missing = "<br>".join(f"Next: {item}" for item in review["missing_evidence"])
+        test_text = review["test_evidence"]
+        if evidence:
+            test_text = f"{test_text}<br>{evidence}"
+        if missing:
+            test_text = f"{test_text}<br>{missing}"
+        relation = review["merge_relationship"]
+        if relation:
+            source_indexes = ", ".join(str(index) for index in review["merge_source_indexes"])
+            fate = f"`{relation}`" + (f"; source index {source_indexes}" if source_indexes else "")
+        else:
+            fate = "Source commit"
+        fields = [
+            str(commit["local_index"]),
+            f"{commit_link}<br>{commit['subject']}",
+            review["primary_category"],
+            f"`{review['disposition']}` — {review['fixed_main_summary']}<br><br>{review['decision_reason']}",
+            test_text,
+            fate,
+        ]
+        lines.append("| " + " | ".join(field.replace("|", "\\|") for field in fields) + " |")
+    lines.extend(
+        [
+            "",
+            "## STEP4 boundary checks",
+            "",
+            "- F8-01 pre-RECORD close recovery, F8-02 incremental RTSP size bounds, and F8-03 the four-session cap are already present in fixed main; B04 state-model/parser/session tests passed. iPhone compatibility is `BLOCKED_DEVICE`.",
+            "- DSP Split diagnostics log only newly retained signatures, apply Scaffold insets before scrolling, and record the exact child MeasureSpecs passed to `ComposeView.measure()`. SH-M27 layout acceptance is `BLOCKED_DEVICE`.",
+            "- F-01/F-02 touch ownership and final UP coordinates are covered in fixed main by `AirPlayTouchSlots` and its regression tests; F-09 rejects closed sessions after Activity recreation. No duplicate upstream code is needed.",
+            "- F-03/F-04 remain conditional: B08 adds observation-only same-attempt monotonic timing; no extra StartSession request is enabled.",
+            "- F-05/F-06 continue to use the fork's bounded VLAN/IPv6-aware classifier; F-10/F-11/F-12 require supported-device audio evidence; F-13 rejects private API reflection; F-14 preserves the frozen legacy generator prefix; F-15 is handled by B09 CI gates.",
+            "",
+            "The B07 decision record does not reinterpret the legacy 353 evidence-pending rows. Inventory regeneration proves consistency and prefix preservation only; it is not proof of hardware behavior, release readiness, or implementation parity.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def serialize_rows(rows: list[dict[str, str]], fieldnames: list[str]) -> bytes:

@@ -1,6 +1,6 @@
 # Quirks — environments and workarounds
 
-> Preserved historical observations (33/33), organized by theme. Some are host- or version-specific and may now be obsolete; verify before applying.
+> Preserved historical observations (42/42), organized by theme. Some are host- or version-specific and may now be obsolete; verify before applying.
 
 ## Local Windows / SDK / Gradle
 

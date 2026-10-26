@@ -688,7 +688,7 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-27 B09/B11: keep the 21.332 ms API 35 p99 limit unchanged after local reruns fail; a passing first run does not erase later failed evidence. Keep additional StartSession sends and all other conditional features off without the specified device reproduction and A/B proof.
 
-2026-10-27 B09 follow-up: the exact-head focused 48 kHz stereo case and full API 35 Shared suite subsequently passed 19/19 below the unchanged budget. Keep the earlier p99 failure/crash as separate evidence; the transient cause is unknown. The full hosted lane remains skipped under Draft scope, so B09 stays partial.
+2026-10-27 B09 follow-up: the focused 48 kHz stereo case and full API 35 Shared suite subsequently passed 19/19 below the unchanged budget. At that point the full hosted lane was still skipped under Draft scope, so B09 remained partial. Later workflow-sensitive run #486 passed the full host and API 35 gates; retain the earlier p99 failure/crash and passing repeats separately because the transient cause is unknown.
 
 2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
 

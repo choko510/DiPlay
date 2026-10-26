@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -123,39 +124,36 @@ internal enum class DspPresentationMode {
 
 private const val RENDERER_APPLY_STATUS_POLL_INTERVAL_MS = 500L
 
-private enum class DspCompactSection {
-    STUDIO,
-    PROFILE,
-    BASIC,
-    EQ,
-    ADVANCED,
+internal enum class DspStudioTab(val label: String) {
+    STUDIO("Studio"),
+    EQ("EQ"),
+    SPATIAL("Spatial"),
+    DYNAMICS("Dynamics"),
+    ADVANCED("Advanced"),
 }
+
+internal fun dspStudioTabs(): List<DspStudioTab> = DspStudioTab.values().toList()
 
 @Composable
 private fun DspStudioNavigation(
-    selected: DspCompactSection,
-    onSelect: (DspCompactSection) -> Unit,
+    selected: DspStudioTab,
+    compact: Boolean,
+    onSelect: (DspStudioTab) -> Unit,
 ) {
-    val options = listOf(
-        DspCompactSection.STUDIO to "Studio",
-        DspCompactSection.PROFILE to "Profile",
-        DspCompactSection.EQ to "EQ",
-        DspCompactSection.ADVANCED to "More",
-    )
     Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        modifier = if (compact) Modifier.horizontalScroll(rememberScrollState()) else Modifier.fillMaxWidth(),
+        horizontalArrangement = if (compact) Arrangement.spacedBy(4.dp) else Arrangement.SpaceEvenly,
     ) {
-        options.forEach { (section, label) ->
-            val isSelected = selected == section || (section == DspCompactSection.PROFILE && selected == DspCompactSection.BASIC)
+        dspStudioTabs().forEach { tab ->
+            val isSelected = selected == tab
             TextButton(
-                onClick = { onSelect(section) },
+                onClick = { onSelect(tab) },
                 modifier = Modifier.semantics {
-                    contentDescription = if (isSelected) "$label, selected" else label
+                    contentDescription = if (isSelected) "${tab.label}, selected" else tab.label
                 },
             ) {
                 Text(
-                    label,
+                    tab.label,
                     color = if (isSelected) MaterialTheme.colorScheme.primary
                     else MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -233,7 +231,7 @@ internal fun DspSettingsScreen(
     var profile by remember(editorSession) { editorSession.draftProfileState }
     var dspEnabled by remember(editorSession) { editorSession.masterEnabledMutableState }
     var advanced by rememberSaveable { mutableStateOf(false) }
-    var compactSection by rememberSaveable { mutableStateOf(DspCompactSection.STUDIO) }
+    var compactSection by rememberSaveable { mutableStateOf(DspStudioTab.STUDIO) }
     var macroSettings by remember(studioSession) { mutableStateOf(studioSession.preview.macros) }
     var loudnessSettings by remember(studioSession) { mutableStateOf(studioSession.preview.smartLoudness) }
     var dynamicBassSettings by remember(studioSession) { mutableStateOf(studioSession.preview.dynamicBass) }
@@ -472,10 +470,12 @@ internal fun DspSettingsScreen(
     }
 
     val compact = presentation == DspPresentationMode.COMPACT_SPLIT
-    val showStudio = compactSection == DspCompactSection.STUDIO
-    val showProfile = compactSection == DspCompactSection.PROFILE || compactSection == DspCompactSection.BASIC
-    val showEq = compactSection == DspCompactSection.EQ
-    val showAdvanced = compactSection == DspCompactSection.ADVANCED && advanced
+    val showStudio = compactSection == DspStudioTab.STUDIO
+    val showProfile = compactSection == DspStudioTab.STUDIO
+    val showEq = compactSection == DspStudioTab.EQ
+    val showSpatial = compactSection == DspStudioTab.SPATIAL
+    val showDynamics = compactSection == DspStudioTab.DYNAMICS
+    val showAdvanced = compactSection == DspStudioTab.ADVANCED && advanced
     val compactHeightCap = LocalConfiguration.current.screenHeightDp.coerceAtLeast(1).dp
     val compactBodyConstraint = if (compact) {
         Modifier.layout { measurable, constraints ->
@@ -525,7 +525,7 @@ internal fun DspSettingsScreen(
                             })
                         }
                     }
-                    DspStudioNavigation(compactSection) { compactSection = it }
+                    DspStudioNavigation(compactSection, compact = true) { compactSection = it }
                 }
             } else {
                 Column {
@@ -533,7 +533,7 @@ internal fun DspSettingsScreen(
                         title = { Text("DSP Studio") },
                         navigationIcon = { TextButton(onClick = leaveEditor) { Text("‹") } },
                     )
-                    DspStudioNavigation(compactSection) { compactSection = it }
+                    DspStudioNavigation(compactSection, compact = false) { compactSection = it }
                 }
             }
         },
@@ -548,7 +548,7 @@ internal fun DspSettingsScreen(
                             Text(stringResource(R.string.dsp_apply))
                         }
                     }
-                    if (showProfile) {
+                    if (showStudio) {
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             OutlinedButton(
                                 enabled = !operationPending,
@@ -644,6 +644,22 @@ internal fun DspSettingsScreen(
                         }
                     },
                 )
+                Text(if (studioDirty) "Unsaved DSP Studio draft" else "Saved DSP Studio workspace", style = MaterialTheme.typography.bodySmall)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(enabled = canUndoStudio && !operationPending, onClick = undoStudioChange) { Text("Undo") }
+                    OutlinedButton(enabled = canRedoStudio && !operationPending, onClick = redoStudioChange) { Text("Redo") }
+                    OutlinedButton(enabled = !operationPending, onClick = { previewStudioWorkspace(studioSession.compareA()) }) { Text("A") }
+                    OutlinedButton(enabled = !operationPending, onClick = { previewStudioWorkspace(studioSession.compareB()) }) { Text("B") }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(enabled = !operationPending, onClick = { previewStudioWorkspace(studioSession.preview) }) { Text("Preview") }
+                    Button(enabled = !operationPending, onClick = saveStudioWorkspace) { Text("Save") }
+                    OutlinedButton(enabled = !operationPending, onClick = cancelStudioChanges) { Text("Cancel preview") }
+                }
+                Text("Base EQ and profile controls stay independent of these macros.", style = MaterialTheme.typography.bodySmall)
+            }
+
+            if (showDynamics) {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     DspSmartLoudnessPane(
                         settings = loudnessSettings,
@@ -673,19 +689,6 @@ internal fun DspSettingsScreen(
                     onSettingsChange = { dynamicBassSettings = it },
                     enabled = !operationPending,
                 )
-                Text(if (studioDirty) "Unsaved DSP Studio draft" else "Saved DSP Studio workspace", style = MaterialTheme.typography.bodySmall)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(enabled = canUndoStudio && !operationPending, onClick = undoStudioChange) { Text("Undo") }
-                    OutlinedButton(enabled = canRedoStudio && !operationPending, onClick = redoStudioChange) { Text("Redo") }
-                    OutlinedButton(enabled = !operationPending, onClick = { previewStudioWorkspace(studioSession.compareA()) }) { Text("A") }
-                    OutlinedButton(enabled = !operationPending, onClick = { previewStudioWorkspace(studioSession.compareB()) }) { Text("B") }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Button(enabled = !operationPending, onClick = { previewStudioWorkspace(studioSession.preview) }) { Text("Preview") }
-                    Button(enabled = !operationPending, onClick = saveStudioWorkspace) { Text("Save") }
-                    OutlinedButton(enabled = !operationPending, onClick = cancelStudioChanges) { Text("Cancel preview") }
-                }
-                Text("Base EQ and profile controls stay independent of these macros.", style = MaterialTheme.typography.bodySmall)
             }
 
             if (!compact) {
@@ -757,6 +760,9 @@ internal fun DspSettingsScreen(
                 DspValueSlider(stringResource(R.string.dsp_bass_frequency), profile.bass.frequencyHz, 20.0..300.0, "Hz") {
                     profile = profile.copy(bass = profile.bass.copy(frequencyHz = it))
                 }
+            }
+
+            if (showSpatial) SectionCard(title = stringResource(R.string.dsp_stereo_width)) {
                 if (!profile.advancedMs.enabled) {
                     DspValueSlider(stringResource(R.string.dsp_stereo_width), profile.stereoWidth, 0.0..2.0, "") {
                         profile = profile.copy(stereoWidth = it)
@@ -777,7 +783,7 @@ internal fun DspSettingsScreen(
                 }
             }
 
-            if (compactSection == DspCompactSection.ADVANCED) Card(modifier = Modifier.fillMaxWidth()) {
+            if (compactSection == DspStudioTab.ADVANCED) Card(modifier = Modifier.fillMaxWidth()) {
                 DspSwitchRow(
                     modifier = Modifier.padding(16.dp),
                     title = stringResource(R.string.dsp_advanced_controls),
@@ -786,8 +792,8 @@ internal fun DspSettingsScreen(
                 )
             }
 
-            if (showAdvanced) {
-                SectionCard(title = stringResource(R.string.dsp_auto_headroom)) {
+            if (showAdvanced || showSpatial) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_auto_headroom)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_auto_headroom),
                         checked = profile.autoHeadroomEnabled,
@@ -800,7 +806,7 @@ internal fun DspSettingsScreen(
                         "dB",
                     ) { profile = profile.copy(autoHeadroomMarginDb = it) }
                 }
-                SectionCard(title = stringResource(R.string.dsp_seat_alignment)) {
+                if (showSpatial) SectionCard(title = stringResource(R.string.dsp_seat_alignment)) {
                     val seat = profile.seatAlignment
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_seat_alignment),
@@ -862,7 +868,7 @@ internal fun DspSettingsScreen(
                         onCheckedChange = { profile = profile.copy(seatAlignment = seat.copy(invertRight = it)) },
                     )
                 }
-                SectionCard(title = stringResource(R.string.dsp_ms_advanced)) {
+                if (showSpatial) SectionCard(title = stringResource(R.string.dsp_ms_advanced)) {
                     val ms = profile.advancedMs
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_ms_advanced),
@@ -943,7 +949,7 @@ internal fun DspSettingsScreen(
                         )) }
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_cabin_correction)) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_cabin_correction)) {
                     val cabin = profile.cabinCorrection
                     Text(stringResource(R.string.dsp_cabin_description))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1066,7 +1072,7 @@ internal fun DspSettingsScreen(
                         },
                     )
                 }
-                SectionCard(title = stringResource(R.string.dsp_harmonic_engine)) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_harmonic_engine)) {
                     val harmonic = profile.harmonic
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_harmonic_engine),
@@ -1158,8 +1164,8 @@ internal fun DspSettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            if (showAdvanced) {
-                SectionCard(title = stringResource(R.string.dsp_compressor)) {
+            if (showDynamics || showAdvanced) {
+                if (showDynamics) SectionCard(title = stringResource(R.string.dsp_compressor)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_compressor),
                         checked = profile.compressor.enabled,
@@ -1184,7 +1190,7 @@ internal fun DspSettingsScreen(
                         profile = profile.copy(compressor = profile.compressor.copy(makeupDb = it))
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_multiband)) {
+                if (showDynamics) SectionCard(title = stringResource(R.string.dsp_multiband)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_multiband),
                         checked = profile.multiband.enabled,
@@ -1223,7 +1229,7 @@ internal fun DspSettingsScreen(
                         )
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_dynamic_eq)) {
+                if (showDynamics) SectionCard(title = stringResource(R.string.dsp_dynamic_eq)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_dynamic_eq),
                         checked = profile.dynamicEq.enabled,
@@ -1246,7 +1252,7 @@ internal fun DspSettingsScreen(
                         }
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_limiter)) {
+                if (showDynamics) SectionCard(title = stringResource(R.string.dsp_limiter)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_limiter),
                         checked = profile.limiter.enabled,
@@ -1259,7 +1265,7 @@ internal fun DspSettingsScreen(
                         profile = profile.copy(limiter = profile.limiter.copy(releaseMs = it))
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_convolver)) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_convolver)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_convolver),
                         checked = profile.convolver.enabled,
@@ -1304,7 +1310,7 @@ internal fun DspSettingsScreen(
                         )
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_diagnostics)) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_diagnostics)) {
                     Text(stringResource(R.string.dsp_selected_profile, profileLabel(context, profile)))
                     Text(stringResource(R.string.dsp_applied_profile, profileLabel(context, editorSession.appliedProfile)))
                     Text(stringResource(R.string.dsp_dsp_state, if (dspEnabled) "ON" else "OFF"))

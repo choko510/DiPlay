@@ -2,10 +2,18 @@ package com.shilapi.xcertplay
 
 import android.os.Handler
 import android.os.Looper
+import com.shilapi.xcertplay.airplay.AirPlayConfig
+import com.shilapi.xcertplay.airplay.AirPlayDisplayConfig
+import com.shilapi.xcertplay.airplay.AirPlayIdentity
+import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
+import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
+import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.orchestration.CarPlayStatus
 import com.shilapi.xcertplay.youtube.DisplaySize
 import java.lang.reflect.Field
+import java.net.ServerSocket
+import java.net.Socket
 import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -251,6 +259,80 @@ class CarPlayHostActivityReconnectTest {
             ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
             CarPlayBackgroundSession.active = previousActive
         }
+    }
+
+    @Test
+    fun staleOldSessionEndCannotClearOrReconnectTheNewActiveSession() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val activeSessionField = field(activity, "activeAirPlaySession")
+        val previousActiveSession = activeSessionField.get(activity)
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+        val restartGeneration = field(activity, "restartGeneration").getInt(activity)
+        val connectionEpoch = field(activity, "connectionEpoch").getLong(activity)
+        val oldSession = createSession()
+        val newSession = createSession()
+        val listener = activity.javaClass.getDeclaredMethod(
+            "createSessionListener",
+            Int::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+            .invoke(activity, restartGeneration, connectionEpoch) as AirPlaySessionListener
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+            CarPlayBackgroundSession.active = true
+            activeSessionField.set(activity, newSession)
+
+            listener.onSessionEnded(oldSession)
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertTrue(activeSessionField.get(activity) === newSession)
+            assertFalse(newSession.isClosed)
+            assertTrue(CarPlayBackgroundSession.active)
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+            assertNull(field(activity, "scheduledReconnectTicket").get(activity))
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+            activeSessionField.set(activity, previousActiveSession)
+            oldSession.close()
+            newSession.close()
+        }
+    }
+
+    private fun createSession(): AirPlaySession {
+        val server = ServerSocket(0)
+        val socket = try {
+            Socket("127.0.0.1", server.localPort).use { server.accept() }
+        } finally {
+            server.close()
+        }
+        return AirPlaySession(
+            socket = socket,
+            config = AirPlayConfig(
+                deviceName = "test",
+                deviceId = "02:00:00:00:00:02",
+                btMac = "02:00:00:00:00:01",
+                sourceVersion = "1.0",
+                main = AirPlayDisplayConfig(widthPixels = 800, heightPixels = 480),
+            ),
+            identity = AirPlayIdentity.generate(),
+            pairings = PairingStore(),
+            mfi = null,
+            listener = object : AirPlaySessionListener {},
+            media = object : AirPlayMediaHandler {},
+        )
     }
 
     private fun field(instance: Any, name: String): Field = instance.javaClass.getDeclaredField(name).apply {

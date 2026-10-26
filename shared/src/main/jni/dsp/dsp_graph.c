@@ -65,6 +65,8 @@ int dsp_graph_prepare(
         !dsp_dynamic_bass_prepare(&graph->dynamic_bass, sample_rate, channels, dynamic_bass_config)) {
         return 0;
     }
+    graph->pending_studio_gain_db = gain_db;
+    graph->studio_gain_refund_pending = 0;
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
     return 1;
@@ -81,6 +83,15 @@ int dsp_graph_studio_hot_config_is_valid(
         dsp_dynamic_bass_config_is_valid(dynamic_bass_config);
 }
 
+static int studio_module_gains_are_settled(const dsp_graph *graph) {
+    const double dynamic_bass_gain_ceiling = graph->dynamic_bass.target_enabled
+        ? graph->dynamic_bass.max_gain
+        : 1.0;
+    return graph->macro.ramp_frames_remaining <= 0 &&
+        graph->smart_loudness.ramp_frames_remaining <= 0 &&
+        graph->dynamic_bass.current_gain <= dynamic_bass_gain_ceiling + 1.0e-6;
+}
+
 int dsp_graph_apply_studio_hot(
     dsp_graph *graph,
     double gain_db,
@@ -89,13 +100,33 @@ int dsp_graph_apply_studio_hot(
     const dsp_dynamic_bass_config *dynamic_bass_config) {
     if (graph == NULL || !dsp_graph_studio_hot_config_is_valid(
             gain_db, macro_config, smart_loudness_config, dynamic_bass_config)) return 0;
-    if (!dsp_gain_set_db(&graph->gain, gain_db) ||
-        !dsp_macro_apply_hot(&graph->macro, macro_config) ||
+    const double current_gain_db = graph->gain.decibels;
+    if (!dsp_macro_apply_hot(&graph->macro, macro_config) ||
         !dsp_smart_loudness_apply_hot(&graph->smart_loudness, smart_loudness_config) ||
         !dsp_dynamic_bass_apply_hot(&graph->dynamic_bass, dynamic_bass_config)) {
         return 0;
     }
+    if (gain_db <= current_gain_db) {
+        if (!dsp_gain_set_db(&graph->gain, gain_db)) return 0;
+        graph->studio_gain_refund_pending = 0;
+    } else {
+        graph->pending_studio_gain_db = gain_db;
+        graph->studio_gain_refund_pending = 1;
+        if (studio_module_gains_are_settled(graph)) {
+            if (!dsp_gain_set_db(&graph->gain, gain_db)) return 0;
+            graph->studio_gain_refund_pending = 0;
+        }
+    }
     return 1;
+}
+
+static void apply_pending_studio_gain_refund(dsp_graph *graph) {
+    if (!graph->studio_gain_refund_pending || !studio_module_gains_are_settled(graph)) {
+        return;
+    }
+    if (dsp_gain_set_db(&graph->gain, graph->pending_studio_gain_db)) {
+        graph->studio_gain_refund_pending = 0;
+    }
 }
 
 void dsp_graph_reset(dsp_graph *graph) {
@@ -138,6 +169,7 @@ void dsp_graph_process(
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
     for (size_t frame = 0; frame < frames; frame++) {
+        apply_pending_studio_gain_refund(graph);
         const size_t offset = frame * channels;
         float input_left = input[offset];
         float input_right = channels == 2 ? input[offset + 1] : 0.0f;

@@ -21,11 +21,18 @@ internal class DspStudioWorkspaceRepository(
     private val writer: (File, ByteArray) -> Unit = ::atomicWrite,
 ) {
     private val file = File(File(filesDirectory, "dsp"), "workspace/current.json")
+    private val backupFile = File(file.path + ".bak")
 
     fun load(): DspWorkspaceReadResult {
-        if (!file.isFile) return DspWorkspaceReadResult.NotFound
+        if (!file.exists() && !backupFile.exists()) return DspWorkspaceReadResult.NotFound
         return try {
-            require(file.length() <= MAX_BYTES)
+            for (candidate in listOf(file, backupFile)) {
+                if (candidate.exists()) {
+                    require(candidate.isFile && candidate.canonicalFile.parentFile == file.parentFile?.canonicalFile)
+                }
+            }
+            val recoverySource = if (backupFile.isFile) backupFile else file
+            require(recoverySource.length() <= MAX_BYTES)
             val json = JSONObject(AtomicFile(file).openRead().bufferedReader(StandardCharsets.UTF_8).use { it.readText() })
             val schema = json.optInt("workspaceSchema", 0)
             if (schema > SCHEMA) return DspWorkspaceReadResult.FutureSchema(schema)
@@ -58,9 +65,13 @@ internal class DspStudioWorkspaceRepository(
 
     @Synchronized fun save(workspace: DspStudioWorkspace, updatedAtMs: Long = System.currentTimeMillis()): DspWorkspaceSaveResult {
         if (!validWorkspace(workspace) || updatedAtMs < 0L) return DspWorkspaceSaveResult.INVALID
-        if (file.exists()) {
-            if (!file.isFile || file.canonicalFile.parentFile != file.parentFile?.canonicalFile) {
-                return DspWorkspaceSaveResult.INVALID
+        if (file.exists() || backupFile.exists()) {
+            for (candidate in listOf(file, backupFile)) {
+                if (candidate.exists() &&
+                    (!candidate.isFile || candidate.canonicalFile.parentFile != file.parentFile?.canonicalFile)
+                ) {
+                    return DspWorkspaceSaveResult.INVALID
+                }
             }
             when (load()) {
                 is DspWorkspaceReadResult.Loaded -> Unit

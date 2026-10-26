@@ -36,6 +36,46 @@ class DspStudioPersistenceTest {
         assertEquals(workspace(), loaded.workspace)
     }
 
+    @Test fun workspaceRecoversAtomicBackupWhenMainFileIsMissing() {
+        val repo = DspStudioWorkspaceRepository(temporaryFolder.root)
+        assertEquals(DspWorkspaceSaveResult.SAVED, repo.save(workspace()))
+        val target = File(temporaryFolder.root, "dsp/workspace/current.json")
+        val savedBytes = target.readBytes()
+        assertTrue(Files.move(target.toPath(), File(target.path + ".bak").toPath()).toFile().isFile)
+
+        assertEquals(DspWorkspaceReadResult.Loaded(workspace()), repo.load())
+        assertTrue(target.isFile)
+        assertTrue(savedBytes.contentEquals(target.readBytes()))
+    }
+
+    @Test fun futureSchemaAtomicBackupIsRecoveredAndProtectedFromSave() {
+        val target = File(temporaryFolder.root, "dsp/workspace/current.json")
+        target.parentFile!!.mkdirs()
+        val backup = File(target.path + ".bak")
+        val future = "{\"workspaceSchema\":99,\"sentinel\":\"backup-only\"}"
+        backup.writeText(future)
+        val repo = DspStudioWorkspaceRepository(temporaryFolder.root)
+
+        assertEquals(DspWorkspaceReadResult.FutureSchema(99), repo.load())
+        assertEquals(DspWorkspaceSaveResult.FUTURE_SCHEMA_PRESERVED, repo.save(workspace()))
+        assertEquals(future, target.readText())
+    }
+
+    @Test fun backupWorkspaceImpulseResponseReferencePreventsCollection() {
+        val target = File(temporaryFolder.root, "dsp/workspace/current.json")
+        val workspaceWithIr = workspace().copy(
+            baseProfileSnapshot = workspace().baseProfileSnapshot.copy(
+                convolver = DspConvolverConfig(enabled = true, impulseResponseId = "backup_ir"),
+            ),
+        )
+        val repo = DspStudioWorkspaceRepository(temporaryFolder.root)
+        assertEquals(DspWorkspaceSaveResult.SAVED, repo.save(workspaceWithIr))
+        assertTrue(Files.move(target.toPath(), File(target.path + ".bak").toPath()).toFile().isFile)
+
+        assertTrue(repo.referencesImpulseResponse("backup_ir"))
+        assertFalse(repo.referencesImpulseResponse("unrelated_ir"))
+    }
+
     @Test fun workspaceSourceIdMustMatchSnapshotIdOnLoadAndSave() {
         val target = File(temporaryFolder.root, "dsp/workspace/current.json")
         val repo = DspStudioWorkspaceRepository(temporaryFolder.root)

@@ -41,12 +41,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
@@ -55,11 +58,15 @@ import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqResponse
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
+import com.shilapi.xcertplay.media.dsp.DspMacroToneConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
+import com.shilapi.xcertplay.media.dsp.DspSmartLoudnessRuntimeConfig
 import java.text.DecimalFormatSymbols
 import kotlin.math.ln
 import kotlin.math.log10
+import kotlin.math.hypot
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 /** Reusable editor for the profile's existing 15-band PEQ and approved Cabin EQ. */
 @Composable
@@ -71,6 +78,10 @@ fun DspEqEditorPane(
     modifier: Modifier = Modifier,
     sampleRateHz: Int? = null,
     onEditFinished: () -> Unit = {},
+    macroTone: DspMacroToneConfig = DspMacroToneConfig(),
+    smartLoudness: DspSmartLoudnessRuntimeConfig = DspSmartLoudnessRuntimeConfig(),
+    dynamicBassEnabled: Boolean = false,
+    predictedPreampDb: Double = profile.preampDb,
 ) {
     val effectiveSampleRateHz = sampleRateHz ?: DEFAULT_EQ_PREVIEW_SAMPLE_RATE_HZ
     require(effectiveSampleRateHz in 8_000..192_000)
@@ -96,6 +107,7 @@ fun DspEqEditorPane(
                 rateDescription,
             ),
         )
+        Text(stringResource(R.string.dsp_eq_predicted_response, maxFrequencyHz.roundToInt(), effectiveSampleRateHz))
         AccessibleSlider(stringResource(R.string.dsp_preamp), profile.preampDb.toFloat(), -24f..12f, "dB", onEditFinished) {
             onProfileChange(profile.copy(preampDb = it.toDouble()))
         }
@@ -103,13 +115,25 @@ fun DspEqEditorPane(
             bands = profile.eqBands + cabinBands,
             editableBandCount = profile.eqBands.size,
             selectedBandIndex = selectedBandIndex,
-            preampDb = profile.preampDb.toFloat(),
+            preampDb = predictedPreampDb.toFloat(),
             sampleRateHz = effectiveSampleRateHz,
+            macroTone = macroTone,
+            smartLoudness = smartLoudness,
             modifier = Modifier.fillMaxWidth().height(150.dp),
             onSelectBand = { selectedBandIndex = it },
             onBandEdit = { index, band -> updateBand(profile, index, band, onProfileChange) },
             onEditFinished = onEditFinished,
         )
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.dsp_eq_curve_peq), color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.dsp_eq_curve_tone), color = MaterialTheme.colorScheme.secondary)
+            Text(stringResource(R.string.dsp_eq_curve_combined), color = MaterialTheme.colorScheme.tertiary)
+        }
+        Text(stringResource(R.string.dsp_eq_stereo_width_excluded), style = MaterialTheme.typography.bodySmall)
+        if (dynamicBassEnabled) Text(stringResource(R.string.dsp_eq_dynamic_bass_excluded))
         if (profile.eqBands.isNotEmpty()) {
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -117,9 +141,13 @@ fun DspEqEditorPane(
             ) {
                 profile.eqBands.indices.forEach { index ->
                     val selected = index == selectedBandIndex
+                    val selectionLabel = stringResource(R.string.dsp_eq_select_band, index + 1)
+                    val selectionState = stringResource(
+                        if (selected) R.string.dsp_eq_selected else R.string.dsp_eq_not_selected,
+                    )
                     val modifier = Modifier.semantics {
-                        contentDescription = "Select PEQ band ${index + 1}"
-                        stateDescription = if (selected) "Selected" else "Not selected"
+                        contentDescription = selectionLabel
+                        stateDescription = selectionState
                     }
                     if (selected) Button(onClick = { selectedBandIndex = index }, modifier = modifier) {
                         Text("${index + 1}")
@@ -280,7 +308,7 @@ private fun safeMultiband(config: DspMultibandConfig, lowMid: Double? = null, mi
     return config.copy(lowMidCrossoverHz = low, midHighCrossoverHz = high)
 }
 
-private data class CurvePoint(val x: Float, val y: Float)
+private data class EqGraphResponseSample(val frequencyHz: Double, val eqDb: Double, val toneDb: Double)
 
 internal fun eqGraphFrequencyAtX(x: Float, width: Float, minFrequencyHz: Double, maxFrequencyHz: Double): Double {
     require(minFrequencyHz > 0.0 && maxFrequencyHz >= minFrequencyHz)
@@ -333,6 +361,52 @@ internal fun dspEqResponseDb(
     }
 }
 
+private data class StudioTransfer(val real: Double, val imaginary: Double) {
+    operator fun plus(other: StudioTransfer) = StudioTransfer(real + other.real, imaginary + other.imaginary)
+    operator fun minus(other: StudioTransfer) = StudioTransfer(real - other.real, imaginary - other.imaginary)
+    operator fun times(scale: Double) = StudioTransfer(real * scale, imaginary * scale)
+    fun magnitude() = hypot(real, imaginary)
+}
+
+private fun onePoleTransfer(frequencyHz: Double, cutoffHz: Double, sampleRateHz: Int): StudioTransfer {
+    val alpha = 1.0 - kotlin.math.exp(-2.0 * Math.PI * cutoffHz / sampleRateHz)
+    val pole = 1.0 - alpha
+    val omega = 2.0 * Math.PI * frequencyHz / sampleRateHz
+    val denominatorReal = 1.0 - pole * kotlin.math.cos(omega)
+    val denominatorImaginary = pole * kotlin.math.sin(omega)
+    val denominatorMagnitudeSquared = denominatorReal * denominatorReal + denominatorImaginary * denominatorImaginary
+    return StudioTransfer(
+        real = alpha * denominatorReal / denominatorMagnitudeSquared,
+        imaginary = -alpha * denominatorImaginary / denominatorMagnitudeSquared,
+    )
+}
+
+internal fun dspStudioToneResponseDb(
+    frequencyHz: Double,
+    macroTone: DspMacroToneConfig,
+    smartLoudness: DspSmartLoudnessRuntimeConfig,
+    sampleRateHz: Int,
+): Double {
+    require(sampleRateHz in 8_000..192_000)
+    if (frequencyHz <= 0.0) return 0.0
+    val unity = StudioTransfer(1.0, 0.0)
+    val macroBassGain = if (macroTone.enabled) 10.0.pow(macroTone.bassGainDb / 20.0) else 1.0
+    val macroVocalGain = if (macroTone.enabled) 10.0.pow(macroTone.vocalGainDb / 20.0) else 1.0
+    val macroAirGain = if (macroTone.enabled) 10.0.pow(macroTone.airGainDb / 20.0) else 1.0
+    val airCutoffHz = minOf(8_000.0, sampleRateHz * 0.4)
+    val macro = unity +
+        onePoleTransfer(frequencyHz, 180.0, sampleRateHz) * (macroBassGain - 1.0) +
+        (onePoleTransfer(frequencyHz, 4_000.0, sampleRateHz) -
+            onePoleTransfer(frequencyHz, 500.0, sampleRateHz)) * (macroVocalGain - 1.0) +
+        (unity - onePoleTransfer(frequencyHz, airCutoffHz, sampleRateHz)) * (macroAirGain - 1.0)
+    val loudnessLowGain = if (smartLoudness.enabled) 10.0.pow(smartLoudness.lowGainDb / 20.0) else 1.0
+    val loudnessHighGain = if (smartLoudness.enabled) 10.0.pow(smartLoudness.highGainDb / 20.0) else 1.0
+    val loudness = unity +
+        onePoleTransfer(frequencyHz, 100.0, sampleRateHz) * (loudnessLowGain - 1.0) +
+        (unity - onePoleTransfer(frequencyHz, airCutoffHz, sampleRateHz)) * (loudnessHighGain - 1.0)
+    return 20.0 * log10((macro.magnitude() * loudness.magnitude()).coerceAtLeast(1e-12))
+}
+
 @Composable
 private fun EqResponseGraph(
     bands: List<DspEqBand>,
@@ -340,27 +414,60 @@ private fun EqResponseGraph(
     selectedBandIndex: Int,
     preampDb: Float,
     sampleRateHz: Int,
+    macroTone: DspMacroToneConfig,
+    smartLoudness: DspSmartLoudnessRuntimeConfig,
     modifier: Modifier,
     onSelectBand: (Int) -> Unit,
     onBandEdit: (Int, DspEqBand) -> Unit,
     onEditFinished: () -> Unit,
 ) {
-    val curveColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
+    val colorScheme = androidx.compose.material3.MaterialTheme.colorScheme
+    val curveColor = colorScheme.primary
+    val toneCurveColor = colorScheme.secondary
+    val combinedCurveColor = colorScheme.tertiary
     val maxFrequencyHz = minOf(20_000.0, sampleRateHz * 0.45)
+    val responseSamples = remember(bands, preampDb, macroTone, smartLoudness, sampleRateHz) {
+        (0..160).map { index ->
+            val frequencyHz = 20.0 * (maxFrequencyHz / 20.0).pow(index / 160.0)
+            EqGraphResponseSample(
+                frequencyHz = frequencyHz,
+                eqDb = dspEqResponseDb(frequencyHz, bands, preampDb.toDouble(), sampleRateHz),
+                toneDb = dspStudioToneResponseDb(frequencyHz, macroTone, smartLoudness, sampleRateHz),
+            )
+        }
+    }
     val currentBands by rememberUpdatedState(bands)
     val currentOnSelectBand by rememberUpdatedState(onSelectBand)
     val currentOnBandEdit by rememberUpdatedState(onBandEdit)
     val currentOnEditFinished by rememberUpdatedState(onEditFinished)
     val currentEditableBandCount by rememberUpdatedState(editableBandCount)
     val currentSelectedBandIndex by rememberUpdatedState(selectedBandIndex)
-    val graphDescription = stringResource(R.string.dsp_eq_graph_description)
-    val hitRadiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 32.dp.toPx() }
+    val graphDescription = stringResource(
+        R.string.dsp_eq_graph_description,
+        maxFrequencyHz.roundToInt(),
+        sampleRateHz,
+    )
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val axisLeftPx = with(density) { 30.dp.toPx() }
+    val axisRightPx = with(density) { 4.dp.toPx() }
+    val axisTopPx = with(density) { 4.dp.toPx() }
+    val axisBottomPx = with(density) { 18.dp.toPx() }
+    val axisTextSizePx = with(density) { 9.sp.toPx() }
+    val hitRadiusPx = with(density) { 32.dp.toPx() }
     val graphInputModifier = Modifier
         .pointerInput(sampleRateHz, hitRadiusPx) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 val index = nearestEditableBand(
-                    currentBands, currentEditableBandCount, down.position, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, hitRadiusPx,
+                    currentBands,
+                    currentEditableBandCount,
+                    down.position,
+                    axisLeftPx,
+                    axisTopPx,
+                    size.width.toFloat() - axisRightPx,
+                    size.height.toFloat() - axisBottomPx,
+                    maxFrequencyHz,
+                    hitRadiusPx,
                 )
                 if (index >= 0) {
                     currentOnSelectBand(index)
@@ -368,14 +475,30 @@ private fun EqResponseGraph(
                     if (dragStart != null) {
                         var edited = false
                         editGraphBandAt(
-                            index, dragStart.position, currentBands, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, currentOnBandEdit,
+                            index,
+                            dragStart.position,
+                            currentBands,
+                            axisLeftPx,
+                            axisTopPx,
+                            size.width.toFloat() - axisRightPx,
+                            size.height.toFloat() - axisBottomPx,
+                            maxFrequencyHz,
+                            currentOnBandEdit,
                         )
                         edited = true
                         while (true) {
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             editGraphBandAt(
-                                index, change.position, currentBands, size.width.toFloat(), size.height.toFloat(), maxFrequencyHz, currentOnBandEdit,
+                                index,
+                                change.position,
+                                currentBands,
+                                axisLeftPx,
+                                axisTopPx,
+                                size.width.toFloat() - axisRightPx,
+                                size.height.toFloat() - axisBottomPx,
+                                maxFrequencyHz,
+                                currentOnBandEdit,
                             )
                             edited = true
                             if (change.pressed) {
@@ -395,19 +518,74 @@ private fun EqResponseGraph(
         val lowDb = -18f
         val highDb = 18f
         val maxFrequencyHz = minOf(20_000.0, sampleRateHz * 0.45)
-        val points = (0..160).map { i ->
-            val hz = 20.0 * (maxFrequencyHz / 20.0).pow(i / 160.0)
-            val x = size.width * i / 160f
-            val response = dspEqResponseDb(hz, bands, preampDb.toDouble(), sampleRateHz).toFloat().coerceIn(lowDb, highDb)
-            CurvePoint(x, size.height * (highDb - response) / (highDb - lowDb))
+        val plotLeft = axisLeftPx
+        val plotTop = axisTopPx
+        val plotRight = size.width - axisRightPx
+        val plotBottom = size.height - axisBottomPx
+        val plotWidth = (plotRight - plotLeft).coerceAtLeast(1f)
+        val plotHeight = (plotBottom - plotTop).coerceAtLeast(1f)
+        val frequencyTicks = listOf(20, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000, 20_000)
+            .filter { it <= maxFrequencyHz }
+        val gainTicks = listOf(18, 12, 6, 0, -6, -12, -18)
+        val gridColor = androidx.compose.ui.graphics.Color.Gray.copy(alpha = 0.28f)
+        frequencyTicks.forEach { frequencyHz ->
+            val fraction = (ln(frequencyHz / 20.0) / ln(maxFrequencyHz / 20.0)).toFloat()
+            val x = plotLeft + plotWidth * fraction
+            drawLine(gridColor, Offset(x, plotTop), Offset(x, plotBottom), 1.dp.toPx())
         }
-        val zeroY = size.height * highDb / (highDb - lowDb)
-        drawLine(androidx.compose.ui.graphics.Color.Gray, androidx.compose.ui.geometry.Offset(0f, zeroY), androidx.compose.ui.geometry.Offset(size.width, zeroY), 1.dp.toPx())
-        val path = Path().apply { points.forEachIndexed { i, point -> if (i == 0) moveTo(point.x, point.y) else lineTo(point.x, point.y) } }
-        drawPath(path, curveColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
+        gainTicks.forEach { gainDb ->
+            val y = plotTop + plotHeight * (highDb - gainDb) / (highDb - lowDb)
+            drawLine(gridColor, Offset(plotLeft, y), Offset(plotRight, y), 1.dp.toPx())
+        }
+        val axisPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = curveColor.toArgb()
+            textSize = axisTextSizePx
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        val yAxisPaint = android.graphics.Paint(axisPaint).apply { textAlign = android.graphics.Paint.Align.RIGHT }
+        val labelBaseline = size.height - 2.dp.toPx()
+        gainTicks.forEach { gainDb ->
+            val y = plotTop + plotHeight * (highDb - gainDb) / (highDb - lowDb)
+            val baseline = (y + axisTextSizePx * 0.35f).coerceIn(axisTextSizePx, plotBottom + axisTextSizePx)
+            drawContext.canvas.nativeCanvas.drawText(gainDb.toString(), plotLeft - 4.dp.toPx(), baseline, yAxisPaint)
+        }
+        frequencyTicks.forEach { frequencyHz ->
+            val fraction = (ln(frequencyHz / 20.0) / ln(maxFrequencyHz / 20.0)).toFloat()
+            val x = plotLeft + plotWidth * fraction
+            val label = if (frequencyHz >= 1_000) "${frequencyHz / 1_000}k" else frequencyHz.toString()
+            val safeX = x.coerceIn(axisTextSizePx, size.width - axisTextSizePx)
+            drawContext.canvas.nativeCanvas.drawText(label, safeX, labelBaseline, axisPaint)
+        }
+        val zeroY = plotTop + plotHeight * highDb / (highDb - lowDb)
+        drawLine(androidx.compose.ui.graphics.Color.Gray, Offset(plotLeft, zeroY), Offset(plotRight, zeroY), 1.dp.toPx())
+        val eqPath = Path()
+        val tonePath = Path()
+        val combinedPath = Path()
+        responseSamples.forEachIndexed { index, sample ->
+            val x = plotLeft + plotWidth *
+                (ln(sample.frequencyHz / 20.0) / ln(maxFrequencyHz / 20.0)).toFloat()
+            val eqY = plotTop + plotHeight *
+                (highDb - sample.eqDb.toFloat().coerceIn(lowDb, highDb)) / (highDb - lowDb)
+            val toneY = plotTop + plotHeight *
+                (highDb - sample.toneDb.toFloat().coerceIn(lowDb, highDb)) / (highDb - lowDb)
+            val combinedY = plotTop + plotHeight *
+                (highDb - (sample.eqDb + sample.toneDb).toFloat().coerceIn(lowDb, highDb)) / (highDb - lowDb)
+            if (index == 0) {
+                eqPath.moveTo(x, eqY)
+                tonePath.moveTo(x, toneY)
+                combinedPath.moveTo(x, combinedY)
+            } else {
+                eqPath.lineTo(x, eqY)
+                tonePath.lineTo(x, toneY)
+                combinedPath.lineTo(x, combinedY)
+            }
+        }
+        drawPath(eqPath, curveColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
+        drawPath(tonePath, toneCurveColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx()))
+        drawPath(combinedPath, combinedCurveColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5.dp.toPx()))
         bands.take(editableBandCount).forEachIndexed { index, band ->
-            val x = size.width * (ln(band.frequencyHz.coerceIn(20.0, maxFrequencyHz) / 20.0) / ln(maxFrequencyHz / 20.0)).toFloat()
-            val y = size.height * (18.0 - band.gainDb.coerceIn(-18.0, 18.0)) / 36.0
+            val x = plotLeft + plotWidth * (ln(band.frequencyHz.coerceIn(20.0, maxFrequencyHz) / 20.0) / ln(maxFrequencyHz / 20.0)).toFloat()
+            val y = plotTop + plotHeight * (18.0 - band.gainDb.coerceIn(-18.0, 18.0)) / 36.0
             drawCircle(
                 color = if (band.enabled) curveColor else androidx.compose.ui.graphics.Color.Gray,
                 radius = if (index == currentSelectedBandIndex) 7.dp.toPx() else 5.dp.toPx(),
@@ -422,17 +600,19 @@ private fun nearestEditableBand(
     bands: List<DspEqBand>,
     editableBandCount: Int,
     position: Offset,
-    width: Float,
-    height: Float,
+    plotLeft: Float,
+    plotTop: Float,
+    plotRight: Float,
+    plotBottom: Float,
     maxFrequencyHz: Double,
     hitRadiusPx: Float,
 ): Int {
-    if (width <= 0f || height <= 0f) return -1
+    if (plotRight <= plotLeft || plotBottom <= plotTop) return -1
     return bands.take(editableBandCount).indices
         .map { index ->
             val band = bands[index]
-            val x = width * (ln(band.frequencyHz.coerceIn(20.0, maxFrequencyHz) / 20.0) / ln(maxFrequencyHz / 20.0)).toFloat()
-            val y = height * (18.0 - band.gainDb.coerceIn(-18.0, 18.0)) / 36.0
+            val x = plotLeft + (plotRight - plotLeft) * (ln(band.frequencyHz.coerceIn(20.0, maxFrequencyHz) / 20.0) / ln(maxFrequencyHz / 20.0)).toFloat()
+            val y = plotTop + (plotBottom - plotTop) * (18.0 - band.gainDb.coerceIn(-18.0, 18.0)) / 36.0
             index to (Offset(x, y.toFloat()) - position).getDistance()
         }
         .filter { it.second <= hitRadiusPx }
@@ -444,15 +624,17 @@ private fun editGraphBandAt(
     index: Int,
     position: Offset,
     bands: List<DspEqBand>,
-    width: Float,
-    height: Float,
+    plotLeft: Float,
+    plotTop: Float,
+    plotRight: Float,
+    plotBottom: Float,
     maxFrequencyHz: Double,
     onBandEdit: (Int, DspEqBand) -> Unit,
 ) {
     val band = bands.getOrNull(index) ?: return
-    val frequency = eqGraphFrequencyAtX(position.x, width, 20.0, maxFrequencyHz)
+    val frequency = eqGraphFrequencyAtX(position.x - plotLeft, plotRight - plotLeft, 20.0, maxFrequencyHz)
     val gain = if (band.type in setOf(DspEqType.PEAK, DspEqType.LOW_SHELF, DspEqType.HIGH_SHELF)) {
-        eqGraphGainAtY(position.y, height)
+        eqGraphGainAtY(position.y - plotTop, plotBottom - plotTop)
     } else band.gainDb
     onBandEdit(index, band.copy(frequencyHz = frequency, gainDb = gain))
 }

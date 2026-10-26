@@ -33,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -41,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -52,6 +54,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.dsp.DspAudioProfile
@@ -67,6 +70,7 @@ import com.shilapi.xcertplay.dsp.DspStudioSessionCoordinator
 import com.shilapi.xcertplay.dsp.DspSoundMacroSettings
 import com.shilapi.xcertplay.dsp.DspSmartLoudnessSettings
 import com.shilapi.xcertplay.dsp.DspDynamicBassSettings
+import com.shilapi.xcertplay.dsp.DspTuningResolver
 import com.shilapi.xcertplay.dsp.DspStudioWorkspace
 import com.shilapi.xcertplay.dsp.DspFactoryPresets
 import com.shilapi.xcertplay.dsp.DspPresetStoreResult
@@ -215,6 +219,10 @@ private fun rendererApplyWarningText(status: DspRendererApplyStatus?): String? =
         stringResource(R.string.dsp_renderer_apply_convolver_rate_mismatch)
 }
 
+private val LocalDspStudioEditStarted = staticCompositionLocalOf<() -> Unit> { {} }
+private val LocalDspStudioProfileSliderChanged = staticCompositionLocalOf<() -> Unit> { {} }
+private val LocalDspStudioEditFinished = staticCompositionLocalOf<() -> Unit> { {} }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DspSettingsScreen(
@@ -265,6 +273,8 @@ internal fun DspSettingsScreen(
     var compactSection by rememberSaveable { mutableStateOf(DspStudioTab.STUDIO) }
     var macroSettings by remember(studioSession) { mutableStateOf(studioSession.preview.macros) }
     var studioEditTransaction by remember(studioSession) { mutableStateOf<DspStudioEditTransaction?>(null) }
+    var studioProfileSliderCommitPending by remember(studioSession) { mutableStateOf(false) }
+    var studioProfileSliderChangedPending by remember(studioSession) { mutableStateOf(false) }
     var leaveConfirmationVisible by remember { mutableStateOf(false) }
     var leaveAfterSave by remember { mutableStateOf(false) }
     var leaveAfterRestore by remember { mutableStateOf(false) }
@@ -302,11 +312,25 @@ internal fun DspSettingsScreen(
                 smartLoudness = loudnessSettings,
                 dynamicBass = dynamicBassSettings,
             )
+            var workspaceChanged = false
             if (candidate != studioSession.preview) {
                 val selectedPresetBefore = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
-                studioSession.edit { candidate }
+                val transaction = studioEditTransaction
+                val updated = transaction?.let { studioSession.edit(it) { candidate } }
+                if (updated == null) studioSession.edit { candidate }
                 val selectedPresetAfter = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
                 if (selectedPresetBefore != selectedPresetAfter) selectedModulePresetId = selectedPresetAfter
+                workspaceChanged = true
+                studioUiRevision += 1
+            }
+            if (studioProfileSliderCommitPending) {
+                studioEditTransaction?.let(studioSession::commitEditTransaction)
+                studioEditTransaction = null
+                studioProfileSliderCommitPending = false
+                if (workspaceChanged || studioProfileSliderChangedPending) {
+                    runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
+                }
+                studioProfileSliderChangedPending = false
                 studioUiRevision += 1
             }
         }
@@ -373,6 +397,29 @@ internal fun DspSettingsScreen(
         studioEditTransaction = null
         studioUiRevision += 1
         runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
+    }
+    val finishStudioProfileSliderEdit: () -> Unit = {
+        studioProfileSliderCommitPending = true
+    }
+    val syncStudioProfileSliderEdit: () -> Unit = {
+        val currentProfile = editorSession.draftProfile.copy(
+            convolver = editorSession.draftProfile.convolver.copy(impulseResponse = null),
+        )
+        val currentWorkspace = studioSession.preview
+        val candidate = currentWorkspace.copy(
+            profileSourceId = currentProfile.id,
+            baseProfileSnapshot = currentProfile,
+        )
+        if (candidate != currentWorkspace) {
+            val selectedPresetBefore = currentWorkspace.selectedModulePresetIds[selectedModulePresetModule]
+            val transaction = studioEditTransaction
+            val updated = transaction?.let { studioSession.edit(it) { candidate } }
+            if (updated == null) studioSession.edit { candidate }
+            val selectedPresetAfter = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+            if (selectedPresetBefore != selectedPresetAfter) selectedModulePresetId = selectedPresetAfter
+            studioProfileSliderChangedPending = true
+            studioUiRevision += 1
+        }
     }
     val updateStudioProfile: (DspAudioProfile) -> Unit = { next ->
         if (!next.hasValidEqCapacity()) {
@@ -650,6 +697,15 @@ internal fun DspSettingsScreen(
         Modifier
     }
 
+    CompositionLocalProvider(
+        LocalDspStudioEditStarted provides {
+            if (studioEditTransaction == null) {
+                studioEditTransaction = studioSession.beginEditTransaction()
+            }
+        },
+        LocalDspStudioProfileSliderChanged provides syncStudioProfileSliderEdit,
+        LocalDspStudioEditFinished provides finishStudioProfileSliderEdit,
+    ) {
     Scaffold(
         modifier = if (compact) {
             // Cap an unbounded OEM pane to the current window before its body creates a scroll viewport.
@@ -828,7 +884,9 @@ internal fun DspSettingsScreen(
                             studioUiRevision += 1
                             if (result == DspPresetStoreResult.DELETED) {
                                 if (selectedPresetWasDeleted) {
-                                    selectedModulePresetId = DspFactoryPresets.neutralModulePreset(preset.moduleKey)?.id
+                                    studioSession.clearSelectedPresetReference(preset.moduleKey, preset.id)
+                                    if (selectedModulePresetModule == preset.moduleKey) selectedModulePresetId = null
+                                    syncStudioDraftToScreen(studioSession.preview)
                                 }
                                 runtime.loadModulePresetsAsync(preset.moduleKey) {
                                     if (selectedModulePresetModule == preset.moduleKey) modulePresets = it
@@ -876,6 +934,35 @@ internal fun DspSettingsScreen(
                         ),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    val levelMatchLabel = stringResource(R.string.dsp_module_level_match_label)
+                    val levelMatchUnavailable = stringResource(R.string.dsp_module_level_match_unavailable)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(levelMatchLabel, Modifier.weight(1f))
+                        Switch(
+                            checked = false,
+                            onCheckedChange = {},
+                            enabled = false,
+                            modifier = Modifier.semantics {
+                                contentDescription = levelMatchLabel
+                                stateDescription = levelMatchUnavailable
+                            },
+                        )
+                    }
+                    if (playbackSampleRateHz == null) {
+                        Text(stringResource(R.string.dsp_renderer_apply_waiting), style = MaterialTheme.typography.bodySmall)
+                        rendererApplyStatus?.let { lastStatus ->
+                            Text(
+                                stringResource(R.string.dsp_renderer_last_report, rendererApplyStatusText(lastStatus)),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    } else {
+                        Text(rendererApplyStatusText(rendererApplyStatus), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(stringResource(R.string.dsp_renderer_apply_status_note), style = MaterialTheme.typography.bodySmall)
+                    rendererApplyWarningText(rendererApplyStatus)?.let { warning ->
+                        Text(warning, style = MaterialTheme.typography.bodySmall)
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(enabled = !operationPending, onClick = {
                             studioEditTransaction?.let(studioSession::commitEditTransaction)
@@ -1461,14 +1548,36 @@ internal fun DspSettingsScreen(
                 }
             }
 
-            if (showEq) DspEqEditorPane(
-                profile = profile,
-                onProfileChange = updateStudioProfile,
-                onEditBandType = { bandTypeDialog = it },
-                sampleRateHz = playbackSampleRateHz,
-                modifier = Modifier.fillMaxWidth(),
-                onEditFinished = finishStudioFeatureEdit,
-            )
+            if (showEq) {
+                val tuning = DspTuningResolver.resolve(
+                    profile = profile,
+                    masterEnabled = dspEnabled,
+                    macros = macroSettings.copy(
+                        enabled = macroSettings.enabled && studioFeatureFlags.macroOverlayEnabled,
+                    ),
+                    loudness = if (studioFeatureFlags.smartLoudnessEnabled) {
+                        loudnessSettings
+                    } else {
+                        DspSmartLoudnessSettings()
+                    },
+                    volumeReading = volumeReading,
+                    dynamicBass = dynamicBassSettings.copy(
+                        enabled = dynamicBassSettings.enabled && studioFeatureFlags.dynamicBassEnabled,
+                    ),
+                )
+                DspEqEditorPane(
+                    profile = profile,
+                    onProfileChange = updateStudioProfile,
+                    onEditBandType = { bandTypeDialog = it },
+                    sampleRateHz = playbackSampleRateHz,
+                    modifier = Modifier.fillMaxWidth(),
+                    onEditFinished = finishStudioFeatureEdit,
+                    macroTone = tuning.runtimeConfig.macroTone,
+                    smartLoudness = tuning.runtimeConfig.smartLoudness,
+                    dynamicBassEnabled = tuning.runtimeConfig.dynamicBass.enabled,
+                    predictedPreampDb = tuning.runtimeConfig.gainDb,
+                )
+            }
 
             if (showDynamics || showAdvanced) {
                 if (showDynamics) SectionCard(title = stringResource(R.string.dsp_compressor)) {
@@ -1477,7 +1586,7 @@ internal fun DspSettingsScreen(
                         checked = profile.compressor.enabled,
                         onCheckedChange = { profile = profile.copy(compressor = profile.compressor.copy(enabled = it)) },
                     )
-                    DspValueSlider(stringResource(R.string.dsp_threshold), profile.compressor.thresholdDb, -60.0..0.0, "dB") {
+                    DspValueSlider(stringResource(R.string.dsp_compressor_threshold), profile.compressor.thresholdDb, -60.0..0.0, "dB") {
                         profile = profile.copy(compressor = profile.compressor.copy(thresholdDb = it))
                     }
                     DspValueSlider(stringResource(R.string.dsp_ratio), profile.compressor.ratio, 1.0..20.0, ":1") {
@@ -1564,7 +1673,7 @@ internal fun DspSettingsScreen(
                         checked = profile.limiter.enabled,
                         onCheckedChange = { profile = profile.copy(limiter = profile.limiter.copy(enabled = it)) },
                     )
-                    DspValueSlider(stringResource(R.string.dsp_threshold), profile.limiter.thresholdDb, -12.0..0.0, "dB") {
+                    DspValueSlider(stringResource(R.string.dsp_limiter_threshold), profile.limiter.thresholdDb, -12.0..0.0, "dB") {
                         profile = profile.copy(limiter = profile.limiter.copy(thresholdDb = it))
                     }
                     DspValueSlider(stringResource(R.string.dsp_release), profile.limiter.releaseMs, 1.0..500.0, "ms") {
@@ -1651,6 +1760,7 @@ internal fun DspSettingsScreen(
                 }
             }
         }
+    }
     }
 
     bandTypeDialog?.let { index ->
@@ -1753,13 +1863,25 @@ private fun DspValueSlider(
     unit: String,
     onChange: (Double) -> Unit,
 ) {
+    val editStarted = LocalDspStudioEditStarted.current
+    val profileSliderChanged = LocalDspStudioProfileSliderChanged.current
+    val editFinished = LocalDspStudioEditFinished.current
     Column {
         val formatted = String.format(Locale.getDefault(), "%.1f", value)
         Text(if (unit.isBlank()) "$title: $formatted" else "$title: $formatted $unit")
         Slider(
             value = value.toFloat().coerceIn(range.start.toFloat(), range.endInclusive.toFloat()),
-            onValueChange = { onChange(it.toDouble()) },
+            onValueChange = {
+                editStarted()
+                onChange(it.toDouble())
+                profileSliderChanged()
+            },
+            onValueChangeFinished = editFinished,
             valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
+            modifier = Modifier.semantics {
+                contentDescription = title
+                stateDescription = if (unit.isBlank()) formatted else "$formatted $unit"
+            },
         )
     }
 }

@@ -2,6 +2,8 @@ package com.shilapi.xcertplay.dsp
 
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
+import com.shilapi.xcertplay.media.dsp.DspMacroToneConfig
+import com.shilapi.xcertplay.media.dsp.DspSmartLoudnessRuntimeConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -34,6 +36,24 @@ class DspEditorPanesTest {
         assertTrue(response(DspEqType.LOW_PASS, 18_000.0) < -20.0)
         assertTrue(response(DspEqType.NOTCH, 1_000.0) < -20.0)
         assertEquals(0.0, response(DspEqType.ALL_PASS, 1_000.0), 1e-6)
+    }
+
+    @Test
+    fun graphTonePredictionMatchesNativeFirstOrderMacroAndLoudnessModels() {
+        val neutral = dspStudioToneResponseDb(
+            1_000.0,
+            DspMacroToneConfig(),
+            DspSmartLoudnessRuntimeConfig(),
+            48_000,
+        )
+        assertEquals(0.0, neutral, 1e-9)
+
+        val macro = DspMacroToneConfig(enabled = true, bassGainDb = 3.0, vocalGainDb = 1.5, airGainDb = 1.0)
+        val loudness = DspSmartLoudnessRuntimeConfig(enabled = true, lowGainDb = 2.5, highGainDb = 1.0)
+        assertEquals(5.131172, dspStudioToneResponseDb(40.0, macro, loudness, 48_000), 1e-5)
+        assertEquals(1.321587, dspStudioToneResponseDb(1_000.0, macro, loudness, 48_000), 1e-5)
+        assertEquals(1.285642, dspStudioToneResponseDb(10_000.0, macro, loudness, 48_000), 1e-5)
+        assertEquals(1.261820, dspStudioToneResponseDb(1_000.0, macro, DspSmartLoudnessRuntimeConfig(), 48_000), 1e-5)
     }
 
     @Test

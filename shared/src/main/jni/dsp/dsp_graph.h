@@ -30,6 +30,8 @@ typedef struct {
     dsp_macro macro;
     dsp_smart_loudness smart_loudness;
     dsp_dynamic_bass dynamic_bass;
+    double pending_studio_gain_db;
+    int studio_gain_refund_pending;
     dsp_meter input_meter;
     dsp_meter output_meter;
 } dsp_graph;

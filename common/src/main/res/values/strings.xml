@@ -9,6 +9,15 @@
     <string name="dsp_eq_editor_heading">Parametric EQ · 有効 %1$s/%2$s · Cabin EQ %3$sバンド · %4$s</string>
     <string name="dsp_eq_playback_rate_active">再生レート %1$d Hz</string>
     <string name="dsp_eq_playback_rate_unknown">再生レート不明。%1$d Hzでプレビュー</string>
+    <string name="dsp_eq_predicted_response">予測した静的応答（実測ではありません）· PEQ + Cabin + Macro + Smart Loudness · 20–%1$d Hz · 再生レート %2$d Hz</string>
+    <string name="dsp_eq_curve_peq">PEQ + Cabin</string>
+    <string name="dsp_eq_curve_tone">Macro + Smart Loudness</string>
+    <string name="dsp_eq_curve_combined">合成予測</string>
+    <string name="dsp_eq_stereo_width_excluded">ステレオ幅やSeat処理はこの静的カーブに含みません。</string>
+    <string name="dsp_eq_dynamic_bass_excluded">Dynamic Bassは時間変化するため静的カーブに含めません。</string>
+    <string name="dsp_eq_select_band">PEQバンド%1$dを選択</string>
+    <string name="dsp_eq_selected">選択中</string>
+    <string name="dsp_eq_not_selected">未選択</string>
     <string name="dsp_studio_workspace_disabled">DSP Studio のワークスペース操作は無効です。既存のプロファイル操作は引き続き使えます。</string>
     <string name="dsp_macro_overlay_disabled">Macro overlay は無効です。保存済みの値は保持されます。</string>
     <string name="dsp_smart_loudness_disabled">Smart Loudness は無効です。保存済みの設定は保持されます。</string>
@@ -50,6 +59,9 @@
     <string name="dsp_module_compare_a">このモジュールのAを比較</string>
     <string name="dsp_module_compare_b">このモジュールのBを比較</string>
     <string name="dsp_module_compare_status">%1$s の比較: %2$s · Aは保存済みモジュール値、Bは下書きです。ラウドネス実測がないため音量一致は利用できません。</string>
+    <string name="dsp_module_level_match_label">音量一致</string>
+    <string name="dsp_module_level_match_unavailable">同一音源の音量を実測できないため利用できません</string>
+    <string name="dsp_renderer_last_report">最後のレンダラー報告: %1$s</string>
     <string name="dsp_studio_leave_title">DSP Studio を終了しますか？</string>
     <string name="dsp_studio_leave_message">現在の下書きを保存するか、破棄して保存済み設定へ戻すか、編集を続けます。</string>
     <string name="dsp_studio_leave_save">保存して終了</string>

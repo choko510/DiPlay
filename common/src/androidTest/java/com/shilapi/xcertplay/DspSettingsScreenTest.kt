@@ -6,6 +6,7 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -56,6 +57,7 @@ class DspSettingsScreenTest {
         )
         try {
             restoreCommittedWorkspace(runtime)
+            val studioSession = runtime.createStudioSessionCoordinator()
             val initialConfig = runtime.configProvider.snapshot()
             val expectedMacroPowerEnabled = !initialConfig.macroTone.enabled
             val presentation = mutableStateOf(DspPresentationMode.COMPACT_SPLIT)
@@ -88,10 +90,35 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithContentDescription("Dynamics").performScrollTo().performClick()
             composeRule.onNodeWithContentDescription("Dynamics, selected").assertExists()
             composeRule.onNodeWithText("Dynamic Bass").assertExists()
+            val thresholdBeforeDrag = studioSession.preview.baseProfileSnapshot.compressor.thresholdDb
+            val thresholdAfterDrag = if (thresholdBeforeDrag < -20.0) -10.0f else -50.0f
+            composeRule.onNodeWithContentDescription("Compressor threshold")
+                .performScrollTo()
+                .performSemanticsAction(SemanticsActions.SetProgress) { setProgress -> setProgress(thresholdAfterDrag) }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                kotlin.math.abs(
+                    runtime.editorSession.draftProfile.compressor.thresholdDb - thresholdAfterDrag.toDouble(),
+                ) < 0.05
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                kotlin.math.abs(
+                    studioSession.preview.baseProfileSnapshot.compressor.thresholdDb - thresholdAfterDrag.toDouble(),
+                ) < 0.05
+            }
             composeRule.onNodeWithContentDescription("Advanced").performScrollTo().performClick()
             composeRule.onNodeWithContentDescription("Advanced, selected").assertExists()
             composeRule.onNodeWithContentDescription("Studio").performClick()
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
+            composeRule.onNodeWithContentDescription("Level match").assertIsNotEnabled()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_renderer_apply_waiting)).assertExists()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("Undo").performScrollTo().assertIsEnabled().performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                studioSession.preview.baseProfileSnapshot.compressor.thresholdDb == thresholdBeforeDrag
+            }
+            assertFalse(studioSession.canUndo)
             composeRule.onNodeWithText("Bass Impact").assertExists()
             composeRule.onNodeWithContentDescription("Macro Power").performClick()
             assertMacroPowerEnabled(expectedMacroPowerEnabled)
@@ -379,7 +406,7 @@ class DspSettingsScreenTest {
                 "bass" !in studioSession.preview.selectedModulePresetIds
             }
             composeRule.waitUntil(timeoutMillis = 5_000) {
-                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
+                composeRule.onAllNodesWithText("Custom values · not saved").fetchSemanticsNodes().isNotEmpty()
             }
 
             assertEquals(

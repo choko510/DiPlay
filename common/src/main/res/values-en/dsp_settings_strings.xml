@@ -56,7 +56,7 @@
     <string name="dsp_eq_band_gain">PEQ band %1$d gain</string>
     <string name="dsp_eq_band_gain_numeric">PEQ band %1$d gain (dB)</string>
     <string name="dsp_eq_band_q">PEQ band %1$d Q</string>
-    <string name="dsp_eq_graph_description">Equalizer frequency response graph. Tap or drag a band handle to edit frequency and gain.</string>
+    <string name="dsp_eq_graph_description">Predicted response graph for PEQ + Cabin, Macro + Smart Loudness, and their combined curve. Frequency 20 Hz to %1$d Hz at %2$d Hz sample rate; gain −18 dB to +18 dB. Dynamic Bass and stereo width are not included. Tap or drag a band handle to edit.</string>
     <string name="dsp_eq_toggle_sign">Toggle sign for %1$s</string>
     <string name="dsp_eq_filter_type_summary">Filter type · %1$s</string>
     <string name="dsp_eq_filter_peak">Peak</string>
@@ -72,6 +72,8 @@
     <string name="dsp_q">Q</string>
     <string name="dsp_compressor">Compressor</string>
     <string name="dsp_threshold">Threshold</string>
+    <string name="dsp_compressor_threshold">Compressor threshold</string>
+    <string name="dsp_limiter_threshold">Limiter threshold</string>
     <string name="dsp_ratio">Ratio</string>
     <string name="dsp_attack">Attack</string>
     <string name="dsp_release">Release</string>
@@ -193,6 +195,9 @@
     <string name="dsp_module_compare_a">Compare module A</string>
     <string name="dsp_module_compare_b">Compare module B</string>
     <string name="dsp_module_compare_status">%1$s comparison: %2$s · A uses saved module values, B uses the draft. Level match is unavailable without measured loudness.</string>
+    <string name="dsp_module_level_match_label">Level match</string>
+    <string name="dsp_module_level_match_unavailable">Unavailable without measured loudness from the same audio</string>
+    <string name="dsp_renderer_last_report">Last renderer report: %1$s</string>
     <string name="dsp_studio_leave_title">Leave DSP Studio?</string>
     <string name="dsp_studio_leave_message">Save the current draft, discard it and restore the saved settings, or keep editing.</string>
     <string name="dsp_studio_leave_save">Save and leave</string>
@@ -323,6 +328,15 @@
     <string name="dsp_eq_editor_heading">Parametric EQ · %1$s/%2$s active · %3$s Cabin bands · %4$s</string>
     <string name="dsp_eq_playback_rate_active">Playback rate %1$d Hz</string>
     <string name="dsp_eq_playback_rate_unknown">Playback rate unknown; preview at %1$d Hz</string>
+    <string name="dsp_eq_predicted_response">Predicted static response (not measured) · PEQ + Cabin + Macro + Smart Loudness · 20–%1$d Hz · playback rate %2$d Hz</string>
+    <string name="dsp_eq_curve_peq">PEQ + Cabin</string>
+    <string name="dsp_eq_curve_tone">Macro + Smart Loudness</string>
+    <string name="dsp_eq_curve_combined">Combined prediction</string>
+    <string name="dsp_eq_stereo_width_excluded">Stereo width and Seat processing are not included in this static curve.</string>
+    <string name="dsp_eq_dynamic_bass_excluded">Dynamic Bass changes over time and is not included in this static curve.</string>
+    <string name="dsp_eq_select_band">Select PEQ band %1$d</string>
+    <string name="dsp_eq_selected">Selected</string>
+    <string name="dsp_eq_not_selected">Not selected</string>
     <string name="dsp_studio_workspace_disabled">DSP Studio workspace controls are disabled. Existing profile controls remain available.</string>
     <string name="dsp_macro_overlay_disabled">Macro overlay is disabled. Saved macro values are retained.</string>
     <string name="dsp_smart_loudness_disabled">Smart Loudness is disabled. Saved settings are retained.</string>

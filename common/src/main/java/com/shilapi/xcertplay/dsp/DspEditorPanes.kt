@@ -43,6 +43,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
@@ -63,15 +65,29 @@ fun DspEqEditorPane(
     onProfileChange: (DspAudioProfile) -> Unit,
     onEditBandType: (Int) -> Unit = {},
     modifier: Modifier = Modifier,
-    sampleRateHz: Int = 44_100,
+    sampleRateHz: Int? = null,
 ) {
-    require(sampleRateHz in 8_000..192_000)
+    val effectiveSampleRateHz = sampleRateHz ?: DEFAULT_EQ_PREVIEW_SAMPLE_RATE_HZ
+    require(effectiveSampleRateHz in 8_000..192_000)
     val cabinBands = cabinCorrection.approvedEqBands()
     val activeTotal = activeEqBandCount(profile.eqBands, cabinBands)
-    val maxFrequencyHz = minOf(20_000f, sampleRateHz * 0.45f)
+    val maxFrequencyHz = minOf(20_000f, effectiveSampleRateHz * 0.45f)
     var selectedBandIndex by remember { mutableStateOf(0) }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Parametric EQ · $activeTotal/${DspAudioProfile.MAX_EQ_BANDS} total active · ${cabinBands.size} Cabin bands")
+        val rateDescription = if (sampleRateHz == null) {
+            stringResource(R.string.dsp_eq_playback_rate_unknown, effectiveSampleRateHz)
+        } else {
+            stringResource(R.string.dsp_eq_playback_rate_active, effectiveSampleRateHz)
+        }
+        Text(
+            stringResource(
+                R.string.dsp_eq_editor_heading,
+                activeTotal,
+                DspAudioProfile.MAX_EQ_BANDS,
+                cabinBands.size,
+                rateDescription,
+            ),
+        )
         AccessibleSlider("Preamp", profile.preampDb.toFloat(), -24f..12f, "dB") {
             onProfileChange(profile.copy(preampDb = it.toDouble()))
         }
@@ -80,7 +96,7 @@ fun DspEqEditorPane(
             editableBandCount = profile.eqBands.size,
             selectedBandIndex = selectedBandIndex,
             preampDb = profile.preampDb.toFloat(),
-            sampleRateHz = sampleRateHz,
+            sampleRateHz = effectiveSampleRateHz,
             modifier = Modifier.fillMaxWidth().height(150.dp),
             onSelectBand = { selectedBandIndex = it },
             onBandEdit = { index, band -> updateBand(profile, index, band, onProfileChange) },
@@ -132,6 +148,8 @@ fun DspEqEditorPane(
         }
     }
 }
+
+private const val DEFAULT_EQ_PREVIEW_SAMPLE_RATE_HZ = 44_100
 
 private fun updateBand(
     profile: DspAudioProfile,

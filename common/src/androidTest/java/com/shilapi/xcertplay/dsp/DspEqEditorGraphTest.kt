@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.shilapi.xcertplay.media.dsp.DspEqBand
@@ -42,6 +43,7 @@ class DspEqEditorGraphTest {
         val graph = composeRule.onNodeWithContentDescription(
             "Equalizer frequency response graph. Tap or drag a band handle to edit frequency and gain.",
         )
+        composeRule.onNodeWithText("Playback rate 48000 Hz", substring = true).assertExists()
         val bounds = graph.fetchSemanticsNode().boundsInRoot
         graph.performTouchInput {
             val maxFrequencyHz = 20_000.0
@@ -108,5 +110,19 @@ class DspEqEditorGraphTest {
             assertEquals(2_000.0, edited.frequencyHz, 1.0)
             assertEquals(startingBand.gainDb, edited.gainDb, 0.0)
         }
+    }
+
+    @Test
+    fun unknownPlaybackRateIsShownAsPreviewFallback() {
+        composeRule.setContent {
+            MaterialTheme {
+                DspEqEditorPane(
+                    profile = DspAudioProfile(id = "unknown-rate-test", name = "Unknown rate test"),
+                    onProfileChange = {},
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Playback rate unknown; preview at 44100 Hz", substring = true).assertExists()
     }
 }

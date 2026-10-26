@@ -106,6 +106,35 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun studioSessionCoordinatorRetainsDraftWhenSettingsScreenIsRecreated() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+
+        try {
+            val runtime = DspProfileRuntime.get(context)
+            val originalSession = runtime.createStudioSessionCoordinator()
+            originalSession.edit { workspace ->
+                workspace.copy(macros = workspace.macros.copy(enabled = true, bassImpact = 91))
+            }
+
+            val recreatedScreenSession = runtime.createStudioSessionCoordinator()
+
+            assertSame(originalSession, recreatedScreenSession)
+            assertTrue(recreatedScreenSession.isDirty)
+            assertTrue(recreatedScreenSession.preview.macros.enabled)
+            assertEquals(91, recreatedScreenSession.preview.macros.bassImpact)
+            assertEquals(50, recreatedScreenSession.compareA().macros.bassImpact)
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
     fun restoringCommittedStudioWorkspaceRestoresSelectedProfileAcrossRuntimeRecreation() {
         val context: Application = RuntimeEnvironment.getApplication()
         val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)

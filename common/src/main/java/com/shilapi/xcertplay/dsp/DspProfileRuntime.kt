@@ -40,6 +40,9 @@ internal class DspProfileRuntime private constructor(
     private val studioApplyGeneration = AtomicLong()
     private val activeStudioWorkspace: AtomicReference<DspStudioWorkspace>
     private val committedStudioWorkspace: AtomicReference<DspStudioWorkspace>
+    private val studioSessionCoordinator by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        DspStudioSessionCoordinator(committedStudioWorkspace.get().deepCopy(), workspaceRepository)
+    }
     internal val editorSession: DspEditorSession by lazy {
         DspEditorSession(
             initialDraft = selectedProfile(),
@@ -68,8 +71,7 @@ internal class DspProfileRuntime private constructor(
 
     fun isDspEnabled(): Boolean = dspEnabled.get()
 
-    fun createStudioSessionCoordinator(): DspStudioSessionCoordinator =
-        DspStudioSessionCoordinator(committedStudioWorkspace.get().deepCopy(), workspaceRepository)
+    fun createStudioSessionCoordinator(): DspStudioSessionCoordinator = studioSessionCoordinator
 
     fun applyStudioModulePreset(workspace: DspStudioWorkspace, preset: DspModulePreset): DspStudioWorkspace? =
         modulePresetRepository.applyTo(workspace, preset)

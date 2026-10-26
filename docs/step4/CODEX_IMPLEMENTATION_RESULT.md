@@ -5,11 +5,12 @@
 - PR: [#45](https://github.com/choko510/DiPlay/pull/45), existing branch `codex/step4-pr-00-test-baseline`.
 - Fixed base: `main@95ba398f95ee104527812cd2b095977d71c51f98`.
 - Product source commit: `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`.
-- Current code/test evidence head: `0f425cdc98fd78e3835350fc614881ecf911b729`; the added commit is test/measurement/documentation only and does not change product runtime code.
-- Docs-only CI head for run #477: `94d2ba35ebdd436ee0f679a606cd5b4a2cadd463`; it adds no source/test changes.
-- PR #45 at run #477: open, Draft, unmerged, based on the fixed base above.
+- Current code/test evidence head: `ae60351267b14a8ef6de3dacb6f718b37bc2310c`; commits after the product source are tests and CI classification only, with no production runtime change.
+- Historical docs-only CI head for run #478: `05c02dd017e96f1fa3228bae3879efc9e5e7fb50`; it adds no source/test changes.
+- Result-package commit `5acd98aa9ef8d85384dea218a0e68a4ba454c433` passed docs-only run #482 (`changes`, static `check`, and Draft scope; runtime jobs skipped).
+- PR #45 remains open, Draft and unmerged, based on the fixed base above.
 
-**Current decision: `NO_GO_THIS_RUN` for merge/release.** The latest API 35 Shared instrumentation run passes, but an earlier run at the same head exceeded the unchanged DSP p99 budget and crashed; retain both outcomes. Full current-head CI lanes were skipped by Draft scope, target hardware and release signing are unavailable, and independent review is `NOT_RUN`.
+**Current decision: `NO_GO_THIS_RUN` for merge/release.** Workflow-sensitive run #481 passed the full host/native/sanitizer/lint/build/JNI/R8 and API 35 lanes on the current code/test head, even while the PR remained Draft. Preserve the earlier API 35 p99 failure beside the later passing repeats; its cause is unconfirmed. Target hardware and release signing are unavailable, and independent review is `NOT_RUN`.
 
 ## Requirement findings
 
@@ -31,7 +32,7 @@
 | B06 | `PASS_CI` | Run #471 passed Draft checks; AudioRecord zero reads emit no packet and positive reads resume output; DSP-OFF PCM16 is checked across 44.1/48 kHz mono/stereo. |
 | B07 | `PASS_LOCAL` | All 111 source/merge SHAs have individual dispositions and evidence links; all 51 merges are classified. Overlay: 2 `FORK_SUPERIOR`, 16 `SKIP_OEM`, 56 `REJECT_UNSAFE`, 37 `NEED_EVIDENCE`, 0 new `ADAPT`. |
 | B08 | `PASS_LOCAL` | Observation-only Stage3 timing, bounded report retention, full shared/common tests 862/862, and host per-thread CPU/allocation comparison are recorded. TS10/K706+iPhone causal timing remains `BLOCKED_DEVICE`; EX-05 retry remains zero. |
-| B09 | `PARTIAL` | Current full shared/common JVM suites pass 862/862; EX-08 19/19, classifier fixtures, native unsanitized, ASan/UBSan with LeakSanitizer disabled, both app lints, both Debug/Benchmark builds, and both JNI mappings pass. The latest API 35 Shared instrumentation repeat passes 19/19; an earlier same-head run failed three p99 cases and crashed. Run #476 passed `changes`, static `check`, Draft unit, quick-baseline, and Draft scope; full-host lint/build/JNI and instrumentation were skipped by Draft classification. |
+| B09 | `PASS_CI` | Run #481 passed workflow-sensitive host/native/sanitizer, unit, lint, Debug/Benchmark, JNI/R8, and API 35 instrumentation gates on the current code/test head. Local shared/common suites pass 864/864; EX-08 tests pass 19/19. Preserve the earlier API 35 p99 failure beside the later passing repeats; local macOS LeakSanitizer remains `BLOCKED_ENV`. |
 | B10 | `BLOCKED_DEVICE` / `BLOCKED_ENV` | The complete HW-01–HW-13 procedure and record template are in `B10_DEVICE_ACCEPTANCE.md`. No target unit or phone was attached. HW-11 also lacks authorized release signing credentials. |
 | B11 | `NO_GO_THIS_RUN` | `B11_CONDITIONAL_NO_GO.md` records EX-05 as `NO_GO_FOR_PRODUCTION_RETRY` and all other conditional candidates off pending their exact evidence. No conditional production feature was added. |
 | B12 | `PARTIAL` | This result, the final summary, device runbook, no-go package, test matrix, and remaining-gate register are present. Full current-head hosted evidence and G7/G8/G9 remain open; preserve both the earlier API 35 p99 failure and the passing rerun. |
@@ -40,9 +41,9 @@
 
 | Command / run | Result | Scope and evidence |
 |---|---|---|
-| `./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest` | `PASS_LOCAL` | 656 shared + 206 common = 862, zero failures/errors/skips, at code/test head `0f425cdc`. |
+| `./gradlew :shared:testDebugUnitTest :common:testDebugUnitTest` | `PASS_LOCAL` | 864 tests, zero failures/errors/skips, including the audio-owner-thread and eight-prior-ports regressions, at code/test head `ae603512`. |
 | `python3 scripts/generate_step4_ex08_inventory.py --check` and `python3 scripts/test_step4_ex08_delta111.py` | `PASS_LOCAL` | 1,400 unique ledger SHAs; frozen 1,289-row prefix; delta tests 19/19. |
-| `bash scripts/test_android_ci_classifier.sh` | `PASS_LOCAL` | Classifier regression fixtures pass at `0f425cdc`. |
+| `bash scripts/test_android_ci_classifier.sh` | `PASS_LOCAL` | CI-01..10 classifier fixtures pass, including empty/malformed/oversized compare-file fallback. Run #481's `changes` job also passes these fixtures. |
 | `bash scripts/test_dsp_native.sh` | `PASS_LOCAL` | Host unsanitized native suite passes. |
 | `bash scripts/test_dsp_native.sh --sanitize` with default options | `BLOCKED_ENV` | macOS AddressSanitizer aborts because LeakSanitizer `detect_leaks` is unsupported. |
 | Sanitizer rerun with `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1` | `PASS_LOCAL` | ASan/UBSan passes with leak detection disabled; LeakSanitizer remains unverified locally. |
@@ -51,19 +52,22 @@
 | `python3 scripts/check_jni_mapping.py` | `PASS_LOCAL` | Both mobile and automotive Benchmark R8 mappings retain JNI entry points. This was run on the unchanged product source `b767ed8f`; `0f425cdc` changes tests/docs only. |
 | `ANDROID_HOME=/Users/choko/Library/Android/sdk ./gradlew :shared:connectedDebugAndroidTest` / API 35 emulator | `PASS_EMULATOR` on latest repeat | 19 tests, zero failures/errors/skips. Latest Gain median p99 values are 320 µs (48 kHz stereo), 140 µs (48 kHz mono), 120 µs (44.1 kHz mono), and 180 µs (44.1 kHz stereo), below the unchanged ceilings. A preceding focused 48 kHz stereo run also passed. The earlier same-head full rerun remains a separate failure: three cases failed, including 151,772 µs stereo and 44,053 µs mono; the 44.1 kHz mono method failed before a process crash. The outlier's cause is unconfirmed. Common API 35 passed 1/1. The filtered logcat evidence validator passes. |
 | GitHub Actions [run #476](https://github.com/choko510/DiPlay/actions/runs/40358035639) | `PARTIAL` | `changes` and `check` passed, including Draft unit tests and EX-08 checks; `quick-baseline` and Draft scope passed. Full host/native/sanitizer/lint/build/JNI/R8 and API 35 instrumentation were explicitly skipped because PR #45 remains Draft. |
-| GitHub Actions [run #477](https://github.com/choko510/DiPlay/actions/runs/40361161687) | `PASS_CI` for docs-only Draft scope | On docs-only head `94d2ba35`, `changes`, static `check`, and Draft scope succeeded; quick-baseline, host/native/sanitizer, lint/build/JNI/R8, and Android instrumentation were skipped. This adds no runtime-test evidence. |
+| GitHub Actions [run #477](https://github.com/choko510/DiPlay/actions/runs/40361161687) / [run #478](https://github.com/choko510/DiPlay/actions/runs/40361499379) | `PASS_CI` for docs-only Draft scope | Both docs-only runs passed `changes`, static `check`, and Draft scope; runtime lanes were skipped. These runs add no runtime-test evidence. |
+| GitHub Actions [run #480](https://github.com/choko510/DiPlay/actions/runs/40364789296) | `PASS_CI` for class-filtered Draft scope | The changed `DspRendererProductionPathTest` class passed; full host/native/build/JNI/R8 and instrumentation were skipped under the previous workflow classifier. |
+| GitHub Actions [run #481](https://github.com/choko510/DiPlay/actions/runs/40366764979) | `PASS_CI` | Workflow-sensitive classification selected the full lane on the Draft. `changes`, full `check`, native/ASan/UBSan, lint, Debug/Benchmark builds, R8/JNI mapping, API 35 instrumentation, host-baseline, and Draft scope all passed. Shared instrumentation passed 19/19 and Common 1/1; quick-baseline was skipped because full-host verification ran instead. |
+| GitHub Actions [run #482](https://github.com/choko510/DiPlay/actions/runs/40369187235) | `PASS_STATIC` | The result-package docs-only head passed `changes`, EX-08/static `check`, and Draft scope. Host/native/sanitizer/lint/build/JNI/R8 and API 35 instrumentation were skipped; this adds no runtime evidence. |
 `scripts/run_android_instrumentation.sh` environment note: macOS has neither `timeout` nor `gtimeout`; the post-run capture step reports `timeout: command not found`. The successful Gradle runs were invoked directly, followed by tag-filtered `adb logcat` capture and `check_android_instrumentation_evidence.sh`.
 
 ## Re-entry and rollback
 
-- For API 35 instrumentation, keep the 21.332 ms budget unchanged and retain both failed and passing runs at the exact SHA. The earlier outlier was not reproduced, but its cause is unconfirmed; obtain hosted full-lane evidence when available.
+- For API 35 instrumentation, keep the 21.332 ms budget unchanged and retain both failed and passing runs. The earlier outlier was not reproduced in local or hosted full repeats, but its cause is unconfirmed.
 - For device/conditional gates, use `B10_DEVICE_ACCEPTANCE.md` and `B11_CONDITIONAL_NO_GO.md`; no change is authorized by a host-only result.
 - B08 product rollback: revert `b767ed8f` to remove the observation-only timing path; `0f425cdc` is only its measurement fixture and can be reverted independently. Earlier feature rollback remains per the existing PR/feature defaults and `REMAINING_GATES.md`.
 - No signing secret, MFi credential, device serial/MAC, audio payload, or packet body is stored in this report.
 
 ## Source/test commit list
 
-The table below is generated from commits between the fixed base and current code/test head `0f425cdc98fd78e3835350fc614881ecf911b729`, retaining commits that touched `*/src/main`, `*/src/test`, or `*/src/androidTest`.
+The table below is generated from commits between the fixed base and current code/test head `ae60351267b14a8ef6de3dacb6f718b37bc2310c`, retaining commits that touched `*/src/main`, `*/src/test`, or `*/src/androidTest`.
 
 | Commit | Subject |
 |---|---|
@@ -116,3 +120,5 @@ The table below is generated from commits between the fixed base and current cod
 | `686516f5a3fbd220822c89e394c5c12222a24eb8` | test: cover microphone zero-read and DSP-off formats |
 | `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f` | feat: add observation-only wired startup timing |
 | `0f425cdc98fd78e3835350fc614881ecf911b729` | test(step4): measure wired timing overhead |
+| `abf7bbd9f776a812ef7ec0f93b91034fc28ad577` | test(dsp): assert process and reset owner |
+| `ae60351267b14a8ef6de3dacb6f718b37bc2310c` | test: harden Android CI classification coverage |

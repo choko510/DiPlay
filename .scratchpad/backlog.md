@@ -6,7 +6,7 @@
 
 - [x] B07: review all 111 fixed-range source/merge SHAs against fixed main, classify all 51 merge relationships, and preserve row-specific evidence gates. No new `ADAPT` candidate met the evidence bar.
 - [x] B08: add Stage3 monotonic timing diagnostics only. Preserve USB transmission and StartSession behavior; keep additional `0x4301` disabled until target-device evidence supports a separate gate. Host CPU/allocation overhead is measured; target-device causal evidence remains open.
-- [ ] B09: complete review-ready host/native, unit, lint/build, JNI/R8 and API 35 instrumentation gates on one exact source SHA. Latest local API 35 Shared repeat passes 19/19; preserve the earlier same-head p99 failure. Runs #476/#477 skipped full lanes because PR #45 remains Draft, and local LeakSanitizer is unavailable.
+- [x] B09: full host/native/sanitizer, unit, lint/build, JNI/R8 and API 35 instrumentation gates pass on the current code/test head in workflow-sensitive run #481. Local common/shared suites pass 864/864; preserve the earlier API 35 p99 failure beside later passes. Local macOS LeakSanitizer remains unavailable; hosted Linux sanitizer passes.
 - [x] B10/B11/B12 packages: device acceptance procedure, conditional no-go decision, implementation result and final gate summary are recorded. Physical, signing, p99, and independent-review gates remain open.
 
 ## P0 — Review and acceptance blockers

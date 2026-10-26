@@ -340,19 +340,25 @@ The eighth-review source changes are already present at `550ec3a065a13d6fb690f5d
 | B08-06 | TS10/K706 and supported-iPhone causal timing trace | `BLOCKED_DEVICE` | No supported target device is attached; EX-05 retry stays disabled and all conditional behavior remains unchanged. |
 | B08-07 | Full shared/common regression after adding the overhead fixture | `PASS_LOCAL` | `:shared:testDebugUnitTest :common:testDebugUnitTest`: 656 + 206 = 862 tests, zero failures/errors/skips. The benchmark fixture's second host run measured baseline/timing-OFF/timing-ON CPU at 4.552/25.9925/24.3475 ns/packet and allocation at 0.196584/0/0.024576 bytes/packet. |
 
-## 2026-10-27 B09–B12 current code/test head (`0f425cdc`)
+## 2026-10-27 B09–B12 current code/test verification
 
 | Evidence ID | Scenario | Result | Evidence and limits |
 |---|---|---|---|
-| B09-01 | Full local `:shared:testDebugUnitTest :common:testDebugUnitTest` | `PASS_LOCAL` | 862 tests, zero failures/errors/skips; includes `WiredStartupTimingOverheadTest`. Product source remains `b767ed8f`; `0f425cdc` adds test/evidence only. |
+| B09-01 | Full local `:shared:testDebugUnitTest :common:testDebugUnitTest` | `PASS_LOCAL` | 864 tests, zero failures/errors/skips; includes the DSP audio-owner-thread and eight-prior-ports classifier regressions. Product source remains `b767ed8f`; subsequent changes are tests and CI classification only. |
 | B09-02 | EX-08 generator and delta-111 semantic fixtures | `PASS_LOCAL` | `generate_step4_ex08_inventory.py --check` reports 1,400 unique SHA rows and a byte-identical legacy 1,289-row prefix; `test_step4_ex08_delta111.py` passes 19/19. |
-| B09-03 | Android CI classifier and hosted Draft check | `PASS_CI` for Draft scope | Local classifier fixtures pass. Run #476 passes `changes`, EX-08/static `check`, Draft unit, quick-baseline and Draft scope. Native, full host, lint/build/JNI/R8 and API 35 instrumentation jobs are skipped. |
-| B09-04 | Native DSP | `PARTIAL` | `bash scripts/test_dsp_native.sh` passes. ASan/UBSan passes with `detect_leaks=0`; the default sanitizer aborts because macOS LeakSanitizer is unsupported, so LSan is not verified. |
-| B09-05 | Mobile/automotive lint, Debug/Benchmark builds, JNI/R8 mapping | `PASS_LOCAL` | Both `lintDebug` tasks, both Debug and Benchmark assemblies, and `check_jni_mapping.py` pass on product source `b767ed8f`; the subsequent `0f425cdc` commit changes only tests/docs. |
+| B09-03 | Android CI classifier and hosted Draft check | `PASS_CI` | CI-01..10 classifier fixtures pass locally and in run #481's `changes` job. Run #481 also proves workflow-sensitive Draft changes select the full host and API 35 lanes; Draft scope still does not equal release readiness. |
+| B09-04 | Native DSP | `PASS_CI` | Run #481 passes unsanitized native DSP and ASan/UBSan with the Linux runner's default leak detection. Local macOS LeakSanitizer remains `BLOCKED_ENV`. |
+| B09-05 | Mobile/automotive lint, Debug/Benchmark builds, JNI/R8 mapping | `PASS_CI` | Run #481 passes both app lint tasks, Debug/Benchmark assemblies and JNI/R8 mapping on unchanged product source `b767ed8f`. |
 | B09-06 | API 35 Common instrumentation | `PASS_EMULATOR` | `:common:connectedDebugAndroidTest` passes 1/1 on `Medium_Phone_API_35` (API 35, emulator-5556). This is emulator evidence, not TS10/K706 acceptance. |
 | B09-07 | Earlier API 35 Shared DSP benchmark run at `0f425cdc` | `FAIL` | The overwritten XML recorded 6 tests, 3 failures, 0 errors. Gain p99 was 151,772 µs at 48 kHz stereo and 44,053 µs at 48 kHz mono against the unchanged 21,332 µs limit; the 44.1 kHz mono benchmark also failed before the instrumentation process crashed. Preserve this failed attempt separately from the later full-suite pass. |
-| B09-09 | Latest API 35 Shared instrumentation repeat at `0f425cdc` | `PASS_EMULATOR` | `ANDROID_HOME=/Users/choko/Library/Android/sdk ./gradlew :shared:connectedDebugAndroidTest`: 19 tests, zero failures/errors/skips. Gain median p99 was 320 µs (48 kHz stereo), 140 µs (48 kHz mono), 120 µs (44.1 kHz mono), and 180 µs (44.1 kHz stereo), within unchanged per-format ceilings. Focused 48 kHz stereo rerun also passed. |
-| B09-08 | GitHub Actions #476 full current-head coverage | `SKIP` | PR #45 remains Draft. Full host/native/sanitizer/lint/build/JNI/R8 and instrumentation jobs are explicitly skipped; only Draft verification passes. See [run #476](https://github.com/choko510/DiPlay/actions/runs/40358035639). |
+| B09-08 | Latest API 35 Shared instrumentation repeat at `0f425cdc` | `PASS_EMULATOR` | `ANDROID_HOME=/Users/choko/Library/Android/sdk ./gradlew :shared:connectedDebugAndroidTest`: 19 tests, zero failures/errors/skips. Gain median p99 was 320 µs (48 kHz stereo), 140 µs (48 kHz mono), 120 µs (44.1 kHz mono), and 180 µs (44.1 kHz stereo), within unchanged per-format ceilings. Focused 48 kHz stereo rerun also passed. |
+| B09-09 | GitHub Actions #476 full current-head coverage | `SKIP` | PR #45 remains Draft. Full host/native/sanitizer/lint/build/JNI/R8 and instrumentation jobs are explicitly skipped; only Draft verification passes. See [run #476](https://github.com/choko510/DiPlay/actions/runs/40358035639). |
+| B09-10 | GitHub Actions #477 docs-only verification | `PASS_STATIC` | `changes`, static `check`, and Draft scope passed. Quick-baseline and runtime lanes were skipped; this is documentation validation only. |
+| B09-11 | GitHub Actions #478 docs-only verification | `PASS_STATIC` | `changes`, static `check`, and Draft scope passed. Quick-baseline and runtime lanes were skipped; this is documentation validation only. |
+| B09-12 | GitHub Actions #480 class-filtered DSP owner-thread test | `PASS_CI` for Draft scope | `changes`, `check`, and Draft scope passed. Only the changed `DspRendererProductionPathTest` class ran in the Draft unit lane; full host/native/build/JNI/R8 and API 35 instrumentation were skipped. |
+| B09-13 | Current workflow-sensitive classifier and full host/API 35 verification | `PASS_CI` | [Run #481](https://github.com/choko510/DiPlay/actions/runs/40366764979) passes `changes`, native, ASan/UBSan, full unit/lint/Debug/Benchmark builds, R8/JNI, API 35 instrumentation, `host-baseline`, and Draft scope. The workflow helper fails closed for empty, oversized, malformed, or unavailable compare metadata. Draft scope remains `DRAFT_ONLY_NOT_RELEASE_READY`. |
+| B09-14 | API 35 instrumentation on current code/test head | `PASS_EMULATOR` | Run #481 passes Shared 19/19 and Common 1/1 on API 35 emulator. This does not replace TS10/K706+iPhone acceptance; preserve the earlier same-product-source p99 failure separately. |
+| B09-15 | Result-package docs-only verification | `PASS_STATIC` | [Run #482](https://github.com/choko510/DiPlay/actions/runs/40369187235) passes `changes`, EX-08/static `check`, and Draft scope. Runtime lanes are skipped; this does not alter the source/test evidence above. |
 | HW-01 | TS10/K706 cold wired start ×10 | `BLOCKED_DEVICE` | No target unit/phone. Required chain and evidence are in `B10_DEVICE_ACCEPTANCE.md`. |
 | HW-02 | Cable fault / USB-present OUT NotReady and close | `BLOCKED_DEVICE` | Requires controlled physical USB tests while parked; software fixtures do not establish OEM behavior. |
 | HW-03 | NCM AUTO vs NO_STATUS_POLLING same-device A/B | `BLOCKED_DEVICE` | Requires matched device/phone/cable run with first-frame, success, timeout, CPU and GC evidence. |
@@ -370,7 +376,7 @@ The eighth-review source changes are already present at `550ec3a065a13d6fb690f5d
 | B11-02 | Other conditional transport/route/ViewArea/codec/clock candidates | `NO_GO_THIS_RUN` | No candidate has the required target reproduction and A/B proof. Defaults remain unchanged; see `B11_CONDITIONAL_NO_GO.md`. |
 | G0 | C-00 user resolution | `USER_CONFIRMED_RESOLVED` | Preserve regression coverage; do not claim device measurement. |
 | G1 | Source changes, focused regressions, rollback paths | `PASS_LOCAL` | Relevant source/test commits are listed in `CODEX_IMPLEMENTATION_RESULT.md`; target behavior remains separately gated. |
-| G2 | USB/VPN/HID owned-state regression | `PASS_LOCAL` | 862 shared/common tests pass. Physical USB and OEM callbacks remain blocked. |
+| G2 | USB/VPN/HID owned-state regression | `PASS_LOCAL` | 864 shared/common tests pass. Physical USB and OEM callbacks remain blocked. |
 | G3 | RTSP/Surface regression and ACK stress | `PARTIAL` | Parser/Surface unit coverage passes; supported iPhone and target Surface continuity remain blocked on device evidence. |
 | G4 | DSP OFF/MEDIA/latency/native/JNI gates | `PARTIAL` | Digital/native/JNI gates and the latest API 35 Shared instrumentation run pass locally; retain the earlier p99 failure, and LSan/target acoustics remain unverified. |
 | G5 | EX-08 all 111 plus frozen legacy catalog | `PASS_LOCAL` | 1,400 unique entries, 19/19 overlay tests, 1,289-byte-prefix invariant and all 51 merge classifications pass. |
@@ -378,3 +384,51 @@ The eighth-review source changes are already present at `550ec3a065a13d6fb690f5d
 | G7 | Required TS10/K706+iPhone matrix | `BLOCKED_DEVICE` | See HW-01–HW-13. |
 | G8 | Signed update, compatibility, rollback and privacy approval | `BLOCKED_ENV` / `NO_GO_THIS_RUN` | Release signing/update evidence is absent. |
 | G9 | Independent review | `NOT_RUN` | No independent review was requested or performed. |
+
+## v4.0 acceptance case-ID crosswalk
+
+Ranges include every numbered case in the range. Passing a local/emulator test records only that test target; physical-device claims remain separate gates.
+
+| Case ID(s) | Target/evidence | Status | Result and limit |
+|---|---|---|---|
+| USB-01..USB-05 | `NcmUsbBridgeFixtureTest`, `Ntb16CodecTest` | `PASS_ROBOLECTRIC` | Exact block/pad endpoints, split and coalesced reads pass; physical USB endpoint behavior remains device-gated. |
+| USB-06..USB-10 | `NcmUsbBridgeFixtureTest` | `PASS_ROBOLECTRIC` | Malformed NDP/loop, unused-gap false NTH, two-sequence recovery, one-block fail-closed, and ambiguous maximum-length cases are covered. |
+| USB-11..USB-12 | `NcmUsbBridgeFixtureTest` | `PASS_ROBOLECTRIC` | >1 MiB garbage and 30-second no-progress timeout remain bounded. |
+| USB-13..USB-16 | `PersistentUsbReadRequestStateTest`, `NcmUsbBridgeFixtureTest` | `PASS_ROBOLECTRIC` | Late completion keeps the queued request owner; close/cancel failure and stale-generation delivery are covered. |
+| USB-17 | `WiredTcpPacketClassifierTest` | `PASS_LOCAL` | VLAN/QinQ, IPv6 extensions/fragments, IPv4 fragments, and UNKNOWN/fail-closed classification are covered; no target packet capture is claimed. |
+| USB-18 | `NcmUsbBridgeFixtureTest` | `PASS_ROBOLECTRIC` | 10,000 one-byte completions preserve frame count/order and bounded recovery. |
+| VPN-01..VPN-08 | `CarPlayVpnServiceAcceptGenerationTest`, `CarPlayHostActivityReconnectTest`, `CarPlayControllerWatchdogTest` | `PASS_ROBOLECTRIC` | Old accept/revoke/error ownership, bind/teardown cleanup, current wireless/wired owner, host retry fencing, and 1,000 stale revoke orders are covered. |
+| RTSP-01..RTSP-03, RTSP-10 | `RtspMessageParserTest` | `PASS_LOCAL` | Incremental fragmentation/coalescing, malformed lengths, 64 KiB/4 MiB limits, and 10,000-message input pass without unbounded concatenation. |
+| RTSP-04 | `CarPlayVpnServiceAcceptGenerationTest.excessControlConnectionsAreClosedAndReleasedPermitsAllowLaterConnections` | `PASS_ROBOLECTRIC` | Four active control sessions cap admission; the fifth closes and a released permit admits a later connection. |
+| RTSP-05..RTSP-08 | `CarPlayControllerWatchdogTest`, `CarPlayVpnServiceAcceptGenerationTest` | `PASS_ROBOLECTRIC` | MAIN/ALT SETUP→pre-RECORD close recovers once; post-RECORD close follows normal teardown; stale old-session events cannot change the new owner. Supported-iPhone behavior is unverified. |
+| RTSP-09 | `WiredPathAirPlayDiagnosticsTest` | `PARTIAL` | SETUP/open and submitted first-frame milestones are distinct; actual visible-frame acceptance remains device-gated. |
+| VIDEO-01, VIDEO-03..VIDEO-06 | `SurfaceRetirementGateTest`, `AndroidMediaSinkStateTest` | `PASS_ROBOLECTRIC` | Surface/Texture release waits for all worker ACKs, shared MAIN/ALT ownership is retained, and 10,000-generation ACK/failure churn stays bounded. |
+| VIDEO-02 | `AndroidMediaSinkStateTest`, source audit | `PARTIAL` | Replacement waits for old decoder stop ACK; an injected `MediaCodec.release()` exception is not covered. |
+| VIDEO-07 | `VideoDecodeQueueTest` | `PASS_ROBOLECTRIC` | Reference-chain resynchronization and queue bounds are covered. |
+| VIDEO-08 | `AndroidMediaSinkStateTest.replacementWaitsForTheOldVideoDecoderStopAckWithoutBlockingTheStreamOwner` | `PASS_ROBOLECTRIC` | Stop ACK survives worker interruption and blocks replacement until completion; physical MediaCodec behavior remains device-gated. |
+| VIDEO-09 | `CarPlayHostActivityLocalScaleTest`, `CarPlayHostActivityReconnectTest` | `PASS_ROBOLECTRIC` | Split uses the existing host/session path in local lifecycle tests; target Full↔Split cycles remain device-gated. |
+| VIDEO-10 | TS10/K706 + supported iPhone | `BLOCKED_DEVICE` | Local tests do not prove remote iPhone size or display recovery when Surface absence lasts 0/50/600 ms. |
+| VIDEO-11 | `CarPlayTouchMapperTest`, Host gesture regressions | `PASS_ROBOLECTRIC` | Pointer-ID mapping, last-coordinate UP, and local multi-finger gesture separation are covered. |
+| VIDEO-12 | `WiredPathAirPlayDiagnosticsTest`, target black-screen reproduction | `PARTIAL` | Decoder/setup/first-frame diagnostic milestones are separated; visible-frame and timer attribution needs the target reproduction. |
+| DSP-01..DSP-02 | `DspRendererProductionPathTest` | `PASS_ROBOLECTRIC` | Initial DSP-OFF PCM16 remains byte-exact for 44.1/48 kHz mono/stereo; live OFF retains track latency and the next track returns to initial OFF behavior. |
+| DSP-03..DSP-04 | `DspFinalIntegrationInstrumentedTest`, DSP converter/config tests | `PASS_EMULATOR` / `PASS_LOCAL` | All 64 module/format combinations and block-boundary invariance pass; malformed frame sizes and finite-value checks are covered. |
+| DSP-05..DSP-08 | `DspStreamPolicyTest`, DSP config/repository tests, `DspRendererProductionPathTest` | `PASS_LOCAL` | MEDIA-only routing, seat alignment/fallback, M/S compatibility, and invalid cabin/PEQ rejection are covered in local tests. |
+| DSP-09 | `DspFinalIntegrationInstrumentedTest`, `NativeDspBridgeInstrumentedTest` | `PASS_EMULATOR` | Harmonic alias and JNI rejection cases pass on emulator; target acoustic and listening evidence remains open. |
+| DSP-10..DSP-14 | `DspRendererProductionPathTest`, `DspLiveUpdateControllerTest` | `PASS_LOCAL` | Preparation/retirement failures, stale callbacks, serialized same-handle process/reset, rapid updates, close, and resource return have regression coverage. |
+| DSP-15 | API 35 `DspPipelineBenchmarkInstrumentedTest` | `PARTIAL` | Latest Shared run passes 19/19 under unchanged p99 ceilings; preserve the earlier 3-failure/crash run and unconfirmed outlier cause. |
+| DSP-16 | TS10/K706 + iPhone, 30–60 minute audio/video soak | `BLOCKED_DEVICE` | No target acoustic/A-V/CPU/underrun/thermal/memory time series is available. |
+| MIC-01..MIC-03 | `MicrophoneRequestPolicyTest`, `MicrophoneUplinkRecorderFailureTest`, `MicrophoneUplinkLifecycleTest` | `PASS_ROBOLECTRIC` | Explicit denial, zero-read silence/backoff then positive-read recovery, and stale worker ownership are covered. |
+| MIC-04 | TS10/K706 + iPhone telephony/Siri/music transitions | `BLOCKED_DEVICE` | Device routing, RTP clock, and stereo continuity across call/music transitions are unverified. |
+| T-01..T-05 | `WiredStartupTimingTest`, `WiredStartupTimingOverheadTest`, `WiredTcpPacketClassifierTest` | `PASS_LOCAL` | Full vs partial/NotReady OUT, SYN/SYN-ACK and unknown parsing, timing boundaries, stale attempt fencing, debug-independent behavior, and eight unrelated destination ports before the target SYN are covered. Host overhead does not prove target CPU. |
+| CI-01..CI-10 | `scripts/test_android_ci_classifier.sh`, `.github/workflows/android.yml` | `PASS_CI` | Run #481's `changes` job passes the fixtures for docs-only, module scope, native/Android.mk, benchmark sensitivity, missing/malformed/empty/300+ file lists, 100-commit window, source+docs, and Draft success vs release-ready distinction. Full workflow-sensitive host/API 35 verification passed on the same head; the PR remains Draft. |
+| F-01..F-02 | `CarPlayTouchMapperTest`, `AirPlayTouchSlotsTest` | `PASS_ROBOLECTRIC` | Android pointer IDs map to fixed HID slots and UP uses the last successfully delivered coordinate. |
+| F-03 | `WiredStartupTimingTest`, target delayed FULL OUT trace | `PARTIAL` | Attempt-relative FULL OUT/15-second watchdog observation exists; target causal timing is missing and no resend was added. |
+| F-04 | TS10/K706 same-attempt delayed-OUT/SYN-loss trace | `NO_GO_THIS_RUN` | No evidence supports an additional `0x4301` retry; retry behavior remains unchanged. |
+| F-05..F-06 | `WiredTcpPacketClassifierTest` | `PASS_LOCAL` | Explicit eight-unrelated-port-before-target SYN regression and VLAN/IPv6 bounded-parse cases pass; physical traffic is unverified. |
+| F-07 | `WiredStartupTimingTest.exactFullNcmOutIsRecordedBeforeOrAfterStartSessionWithoutAcceptingPartialOrNotReady` | `PASS_LOCAL` | First exact FULL OUT timestamp is kept separate from partial and NotReady outcomes. |
+| F-08..F-09 | `CarPlayVpnServiceAcceptGenerationTest`, `CarPlayHostActivityReconnectTest` | `PASS_ROBOLECTRIC` | Old accept/revoke and closed/stale session callbacks cannot mutate a newer transport/host owner. |
+| F-10..F-11 | TS10/K706 + iPhone call/music route and clock A/B | `NO_GO_THIS_RUN` | No target measurements justify changing AudioManager mode or music clock speed. |
+| F-12 | `MicrophoneUplinkRecorderFailureTest`, `MicrophonePacketizerTest` | `PARTIAL` | Zero-read suppression/recovery and packetization are covered; target mic silence and RTP clock behavior remain device-gated. |
+| F-13 | API 28+ supported-device socket keepalive reproduction | `NO_GO_THIS_RUN` | No reproducible failure supports private reflection or a new keepalive path. |
+| F-14 | EX-08 inventory generator and delta-111 tests | `PASS_LOCAL` | The immutable 1,289-row prefix plus 111-row overlay yields 1,400 unique entries with per-SHA review coverage. |
+| F-15 | CI classifier fixtures and Draft verification policy | `PASS_CI` | Run #481 verifies both the full workflow-sensitive path and the `DRAFT_ONLY_NOT_RELEASE_READY` result; a successful Draft workflow is not a release decision. |

@@ -36,6 +36,8 @@ The 111-commit overlay is a fixed, separate population from the frozen legacy 1,
 
 For pull requests, always run public-tree and EX-08 inventory checks. Compare host verification against the latest successful `host-baseline` marker and emulator instrumentation against the latest successful full `check` plus `android-instrumentation` run. Changes limited to `docs/`, `.scratchpad/`, `.github/workflows/`, Markdown files, or the exact audit-only `scripts/generate_step4_ex08_inventory.py` may skip product runtime checks; the inventory `--check` still runs on every PR. Unknown paths, missing/failed baselines, large diffs, and API errors require the relevant verification path. Pushes and manual runs use the full suite.
 
+Keep changed-path classification in a directly fixture-tested helper. A successful compare response with an empty or malformed file list is not evidence of a docs-only diff; select the full verification scope, and require workflow-sensitive changes to complete host and instrumentation gates even while the PR is Draft.
+
 ## Cache Gradle task outputs only within the same pull request
 
 Allow Gradle's local build cache to be written for same-repository pull requests, where GitHub scopes those cache entries to the PR merge ref. Keep cache writes disabled for fork pull requests, and enable `--build-cache` in both Android Gradle invocations so unchanged task outputs can be reused on later commits.

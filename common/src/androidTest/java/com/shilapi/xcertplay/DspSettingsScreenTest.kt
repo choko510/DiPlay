@@ -79,6 +79,7 @@ class DspSettingsScreenTest {
             presentation.value = DspPresentationMode.FULL
             composeRule.waitForIdle()
             composeRule.onNodeWithContentDescription("Profile").performClick()
+            composeRule.onNodeWithText("Playback renderer apply status").performScrollTo()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
             }

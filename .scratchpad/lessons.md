@@ -534,3 +534,6 @@ For playback volume monitoring, use the renderer's actual `AudioTrack.routedDevi
 ## Keep screen instrumentation isolated and classify execution precisely
 
 Give standalone screen tests their own files directory and preference name, and assert draft edits do not change runtime configuration before Preview. Android-test Kotlin compilation proves source/build validity only; a test that cannot run on a connected device remains `BLOCKED_ENV`, and CarPlay host geometry/session/Surface acceptance remains `NOT_RUN` until measured there.
+
+For Compose graph drag tests, compute touch points from the node's measured Canvas bounds and then inject in node-local coordinates; separately assert the emitted editor model so a successful pointer dispatch cannot mask a mapping error.
+When a Compose drag can begin with a single movement beyond touch slop, retain the original down position for target selection and use post-slop positions only for editing; selecting from the detector's simple drag-start position may miss the handle.

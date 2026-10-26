@@ -72,4 +72,23 @@ class DspRuntimeConfigStoreTest {
             store.rendererApplyStatus(),
         )
     }
+
+    @Test
+    fun activePlaybackSampleRateTracksNewestRendererAndFallsBackWhenItReleases() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        val firstOwner = Any()
+        val secondOwner = Any()
+
+        assertEquals(null, store.activePlaybackSampleRateHz())
+        store.reportPlaybackSampleRate(firstOwner, 44_100)
+        store.reportPlaybackSampleRate(secondOwner, 48_000)
+        assertEquals(48_000, store.activePlaybackSampleRateHz())
+
+        store.reportPlaybackSampleRate(secondOwner, null)
+        assertEquals(44_100, store.activePlaybackSampleRateHz())
+        store.reportPlaybackSampleRate(firstOwner, 1_000)
+        assertEquals(44_100, store.activePlaybackSampleRateHz())
+        store.reportPlaybackSampleRate(firstOwner, null)
+        assertEquals(null, store.activePlaybackSampleRateHz())
+    }
 }

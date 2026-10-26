@@ -339,3 +339,42 @@ The eighth-review source changes are already present at `550ec3a065a13d6fb690f5d
 | B08-05 | Reproducible debug OFF/ON CPU and allocation differential | `PASS_LOCAL` | `WiredStartupTimingOverheadTest` ran 2,000,000 iterations × 5 rounds per lane on macOS arm64/JDK 25.0.3+9; two runs measured 16.6–21.4 ns/packet incremental CPU and 0–0.024576 bytes/packet allocation on the timing lanes. This measures the host receive-header path, not target-device CPU. |
 | B08-06 | TS10/K706 and supported-iPhone causal timing trace | `BLOCKED_DEVICE` | No supported target device is attached; EX-05 retry stays disabled and all conditional behavior remains unchanged. |
 | B08-07 | Full shared/common regression after adding the overhead fixture | `PASS_LOCAL` | `:shared:testDebugUnitTest :common:testDebugUnitTest`: 656 + 206 = 862 tests, zero failures/errors/skips. The benchmark fixture's second host run measured baseline/timing-OFF/timing-ON CPU at 4.552/25.9925/24.3475 ns/packet and allocation at 0.196584/0/0.024576 bytes/packet. |
+
+## 2026-10-27 B09–B12 current code/test head (`0f425cdc`)
+
+| Evidence ID | Scenario | Result | Evidence and limits |
+|---|---|---|---|
+| B09-01 | Full local `:shared:testDebugUnitTest :common:testDebugUnitTest` | `PASS_LOCAL` | 862 tests, zero failures/errors/skips; includes `WiredStartupTimingOverheadTest`. Product source remains `b767ed8f`; `0f425cdc` adds test/evidence only. |
+| B09-02 | EX-08 generator and delta-111 semantic fixtures | `PASS_LOCAL` | `generate_step4_ex08_inventory.py --check` reports 1,400 unique SHA rows and a byte-identical legacy 1,289-row prefix; `test_step4_ex08_delta111.py` passes 19/19. |
+| B09-03 | Android CI classifier and hosted Draft check | `PASS_CI` for Draft scope | Local classifier fixtures pass. Run #476 passes `changes`, EX-08/static `check`, Draft unit, quick-baseline and Draft scope. Native, full host, lint/build/JNI/R8 and API 35 instrumentation jobs are skipped. |
+| B09-04 | Native DSP | `PARTIAL` | `bash scripts/test_dsp_native.sh` passes. ASan/UBSan passes with `detect_leaks=0`; the default sanitizer aborts because macOS LeakSanitizer is unsupported, so LSan is not verified. |
+| B09-05 | Mobile/automotive lint, Debug/Benchmark builds, JNI/R8 mapping | `PASS_LOCAL` | Both `lintDebug` tasks, both Debug and Benchmark assemblies, and `check_jni_mapping.py` pass on product source `b767ed8f`; the subsequent `0f425cdc` commit changes only tests/docs. |
+| B09-06 | API 35 Common instrumentation | `PASS_EMULATOR` | `:common:connectedDebugAndroidTest` passes 1/1 on `Medium_Phone_API_35` (API 35, emulator-5556). This is emulator evidence, not TS10/K706 acceptance. |
+| B09-07 | Earlier API 35 Shared DSP benchmark run at `0f425cdc` | `FAIL` | The overwritten XML recorded 6 tests, 3 failures, 0 errors. Gain p99 was 151,772 µs at 48 kHz stereo and 44,053 µs at 48 kHz mono against the unchanged 21,332 µs limit; the 44.1 kHz mono benchmark also failed before the instrumentation process crashed. Preserve this failed attempt separately from the later full-suite pass. |
+| B09-09 | Latest API 35 Shared instrumentation repeat at `0f425cdc` | `PASS_EMULATOR` | `ANDROID_HOME=/Users/choko/Library/Android/sdk ./gradlew :shared:connectedDebugAndroidTest`: 19 tests, zero failures/errors/skips. Gain median p99 was 320 µs (48 kHz stereo), 140 µs (48 kHz mono), 120 µs (44.1 kHz mono), and 180 µs (44.1 kHz stereo), within unchanged per-format ceilings. Focused 48 kHz stereo rerun also passed. |
+| B09-08 | GitHub Actions #476 full current-head coverage | `SKIP` | PR #45 remains Draft. Full host/native/sanitizer/lint/build/JNI/R8 and instrumentation jobs are explicitly skipped; only Draft verification passes. See [run #476](https://github.com/choko510/DiPlay/actions/runs/40358035639). |
+| HW-01 | TS10/K706 cold wired start ×10 | `BLOCKED_DEVICE` | No target unit/phone. Required chain and evidence are in `B10_DEVICE_ACCEPTANCE.md`. |
+| HW-02 | Cable fault / USB-present OUT NotReady and close | `BLOCKED_DEVICE` | Requires controlled physical USB tests while parked; software fixtures do not establish OEM behavior. |
+| HW-03 | NCM AUTO vs NO_STATUS_POLLING same-device A/B | `BLOCKED_DEVICE` | Requires matched device/phone/cable run with first-frame, success, timeout, CPU and GC evidence. |
+| HW-04 | 20 Full↔YouTube/DSP Split cycles | `BLOCKED_DEVICE` | Requires same-session identity, remote-size, audio, touch and video evidence on target hardware. |
+| HW-05 | 50/55/60% scale, 1/2/3-finger input, ACTION_CANCEL | `BLOCKED_DEVICE` | Local JVM geometry tests do not replace target viewport/HID behavior. |
+| HW-06 | Rotation, IME, lifecycle, Surface absence 0/50/600 ms | `BLOCKED_DEVICE` | Requires target lifecycle and visible-frame evidence. |
+| HW-07 | MAIN/ALT MediaCodec release failure and recovery | `BLOCKED_DEVICE` | ACK/ownership unit tests pass; target codec/Surface continuity remains unmeasured. |
+| HW-08 | Siri/call/voice-message deny/allow and route restore | `BLOCKED_DEVICE` | Scripted AudioRecord tests do not prove target microphone, AEC/AGC or phone-route behavior. |
+| HW-09 | DSP OFF/ON module matrix, THD/alias/A-V | `BLOCKED_DEVICE` | Host/emulator tests pass some digital invariants; no target acoustics/listening evidence. |
+| HW-10 | 30–60 minute wired DSP soak | `BLOCKED_DEVICE` | No target PSS/native memory/FD/GC/xrun/temperature time series. |
+| HW-11 | Signed old→same-identity update and rollback | `BLOCKED_ENV` | Release-signing credentials are unavailable; Debug signature is not a substitute. |
+| HW-12 | MAIN/ALT SETUP then pre-RECORD TCP close | `BLOCKED_DEVICE` | State-path regressions pass; supported iPhone causal behavior is untested. |
+| HW-13 | API 28+ USB queue-false with device present | `BLOCKED_DEVICE` | No device-present `queue()==false` reproduction; do not add a fallback without it. |
+| B11-01 | EX-05 additional `0x4301` retry | `NO_GO_THIS_RUN` | No target same-attempt delayed-OUT/SYN-loss causal trace; production retry count remains zero. |
+| B11-02 | Other conditional transport/route/ViewArea/codec/clock candidates | `NO_GO_THIS_RUN` | No candidate has the required target reproduction and A/B proof. Defaults remain unchanged; see `B11_CONDITIONAL_NO_GO.md`. |
+| G0 | C-00 user resolution | `USER_CONFIRMED_RESOLVED` | Preserve regression coverage; do not claim device measurement. |
+| G1 | Source changes, focused regressions, rollback paths | `PASS_LOCAL` | Relevant source/test commits are listed in `CODEX_IMPLEMENTATION_RESULT.md`; target behavior remains separately gated. |
+| G2 | USB/VPN/HID owned-state regression | `PASS_LOCAL` | 862 shared/common tests pass. Physical USB and OEM callbacks remain blocked. |
+| G3 | RTSP/Surface regression and ACK stress | `PARTIAL` | Parser/Surface unit coverage passes; supported iPhone and target Surface continuity remain blocked on device evidence. |
+| G4 | DSP OFF/MEDIA/latency/native/JNI gates | `PARTIAL` | Digital/native/JNI gates and the latest API 35 Shared instrumentation run pass locally; retain the earlier p99 failure, and LSan/target acoustics remain unverified. |
+| G5 | EX-08 all 111 plus frozen legacy catalog | `PASS_LOCAL` | 1,400 unique entries, 19/19 overlay tests, 1,289-byte-prefix invariant and all 51 merge classifications pass. |
+| G6 | Current source full host/API 35 lane | `PARTIAL` | Local host/build/JNI and latest API 35 Shared instrumentation pass; retain the earlier p99 failure. Run #476 skips full host/instrumentation under Draft scope, and local LSan is unavailable. |
+| G7 | Required TS10/K706+iPhone matrix | `BLOCKED_DEVICE` | See HW-01–HW-13. |
+| G8 | Signed update, compatibility, rollback and privacy approval | `BLOCKED_ENV` / `NO_GO_THIS_RUN` | Release signing/update evidence is absent. |
+| G9 | Independent review | `NOT_RUN` | No independent review was requested or performed. |

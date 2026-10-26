@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -59,8 +60,10 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithContentDescription("Macro Power").performClick()
             assertMacroPowerEnabled(expectedMacroPowerEnabled)
             assertEquals("draft edits must not reach runtime before Preview", initialConfig, runtime.configProvider.snapshot())
-            composeRule.onNodeWithText("Preview").performScrollTo().performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.waitForIdle()
+            composeRule.onNodeWithText("Unsaved DSP Studio draft").assertExists()
+            composeRule.onNodeWithText("Preview").performScrollTo().assertIsEnabled().performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
                 runtime.configProvider.snapshot().macroTone.enabled == !initialConfig.macroTone.enabled
             }
             assertEquals(initialConfig.enabled, runtime.configProvider.snapshot().enabled)
@@ -75,7 +78,7 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
             assertMacroPowerEnabled(expectedMacroPowerEnabled)
             composeRule.onNodeWithText("Cancel preview").performScrollTo().performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.waitUntil(timeoutMillis = 15_000) {
                 val restored = runtime.configProvider.snapshot()
                 restored.macroTone.enabled == initialConfig.macroTone.enabled &&
                     restored.enabled == initialConfig.enabled

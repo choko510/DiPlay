@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -40,7 +41,7 @@ class DspSettingsScreenTest {
         try {
             restoreCommittedWorkspace(runtime)
             val initialConfig = runtime.configProvider.snapshot()
-            val expectedMacroPowerLabel = if (initialConfig.macroTone.enabled) "Disabled" else "Enabled"
+            val expectedMacroPowerEnabled = !initialConfig.macroTone.enabled
             val presentation = mutableStateOf(DspPresentationMode.COMPACT_SPLIT)
 
             composeRule.setContent {
@@ -56,7 +57,7 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
             composeRule.onNodeWithText("Bass Impact").assertExists()
             composeRule.onNodeWithContentDescription("Macro Power").performClick()
-            composeRule.onNodeWithText(expectedMacroPowerLabel).assertExists()
+            assertMacroPowerEnabled(expectedMacroPowerEnabled)
             assertEquals("draft edits must not reach runtime before Preview", initialConfig, runtime.configProvider.snapshot())
             composeRule.onNodeWithText("Preview").performScrollTo().performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
@@ -67,20 +68,19 @@ class DspSettingsScreenTest {
             presentation.value = DspPresentationMode.FULL
             composeRule.waitForIdle()
             composeRule.onNodeWithText("DSP Studio").assertExists()
-            composeRule.onNodeWithText(expectedMacroPowerLabel).assertExists()
+            assertMacroPowerEnabled(expectedMacroPowerEnabled)
 
             presentation.value = DspPresentationMode.COMPACT_SPLIT
             composeRule.waitForIdle()
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
-            composeRule.onNodeWithText(expectedMacroPowerLabel).assertExists()
+            assertMacroPowerEnabled(expectedMacroPowerEnabled)
             composeRule.onNodeWithText("Cancel preview").performScrollTo().performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 val restored = runtime.configProvider.snapshot()
                 restored.macroTone.enabled == initialConfig.macroTone.enabled &&
                     restored.enabled == initialConfig.enabled
             }
-            composeRule.onNodeWithText(if (initialConfig.macroTone.enabled) "Enabled" else "Disabled")
-                .assertExists()
+            assertMacroPowerEnabled(initialConfig.macroTone.enabled)
         } finally {
             try {
                 restoreCommittedWorkspace(runtime)
@@ -89,6 +89,12 @@ class DspSettingsScreenTest {
                 filesDirectory.deleteRecursively()
             }
         }
+    }
+
+    private fun assertMacroPowerEnabled(expectedEnabled: Boolean) {
+        val actualState = composeRule.onNodeWithContentDescription("Macro Power")
+            .fetchSemanticsNode().config[SemanticsProperties.StateDescription]
+        assertEquals(if (expectedEnabled) "On" else "Off", actualState)
     }
 
     private fun restoreCommittedWorkspace(runtime: DspProfileRuntime) {

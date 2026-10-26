@@ -4,6 +4,7 @@
 
 ## Scope and invariants
 
+- An authorized PR #52 Phase 02 child change is on `codex/dsp52-five-tab-ui`, based on integration head `9e026e55d75f0c4f6d89cdaf66727bfbd023f40a`; it replaces the legacy four-item navigation with Studio/EQ/Spatial/Dynamics/Advanced, keeps single screen/session state, and does not touch Host Split/Surface/session code. Unit/UI-contract tests and Android-test Kotlin compilation pass; instrumentation and physical host acceptance remain `NOT_RUN` without an attached device. Do not merge this child PR automatically.
 - STEP4 work stays in PR #45, branch `codex/step4-pr-00-test-baseline`; do **not** push to `main`, bulk-merge upstream or open another STEP4 PR.
 - Fixed fork baseline: `95ba398f95ee104527812cd2b095977d71c51f98`. The external STEP4 v3 specification was recorded with SHA-256 `7e8f60a216ff769434f09ba922b0bd218859a8aaf1c8554ced9ab1127b92ca73`; obtain/verify that artifact separately if necessary.
 - DSP master OFF **at a new track** must retain the byte-exact, zero-latency legacy PCM16 path. DSP switched OFF mid-track retains the existing latency until a new track; this is **not** a byte-exact live OFF.

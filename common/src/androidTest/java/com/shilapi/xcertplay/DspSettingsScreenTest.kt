@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.isToggleable
@@ -73,6 +74,16 @@ class DspSettingsScreenTest {
                 ),
             )
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
+            composeRule.onNodeWithContentDescription("Spatial").performScrollTo().performClick()
+            composeRule.onNodeWithContentDescription("Spatial, selected").assertExists()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_stereo_width)).assertExists()
+            composeRule.onNodeWithContentDescription("Dynamics").performScrollTo().performClick()
+            composeRule.onNodeWithContentDescription("Dynamics, selected").assertExists()
+            composeRule.onNodeWithText("Dynamic Bass").assertExists()
+            composeRule.onNodeWithContentDescription("Advanced").performScrollTo().performClick()
+            composeRule.onNodeWithContentDescription("Advanced, selected").assertExists()
+            composeRule.onNodeWithContentDescription("Studio").performClick()
+            composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
             composeRule.onNodeWithText("Bass Impact").assertExists()
             composeRule.onNodeWithContentDescription("Macro Power").performClick()
             assertMacroPowerEnabled(expectedMacroPowerEnabled)
@@ -80,8 +91,11 @@ class DspSettingsScreenTest {
 
             presentation.value = DspPresentationMode.FULL
             composeRule.waitForIdle()
-            composeRule.onNodeWithContentDescription("More").performClick()
-            composeRule.onNodeWithContentDescription("More, selected").assertExists()
+            composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_save_custom_1)).performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_save_custom_2)).performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithContentDescription("Advanced").performClick()
+            composeRule.onNodeWithContentDescription("Advanced, selected").assertExists()
             composeRule.onNode(isToggleable()).performClick()
             composeRule.onNodeWithText(context.getString(R.string.dsp_renderer_apply_status)).performScrollTo()
             composeRule.waitUntil(timeoutMillis = 5_000) {

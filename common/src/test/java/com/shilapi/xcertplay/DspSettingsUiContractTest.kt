@@ -7,6 +7,14 @@ import org.junit.Test
 
 class DspSettingsUiContractTest {
     @Test
+    fun studioNavigationExposesTheFiveProductTabsInOrder() {
+        assertEquals(
+            listOf("Studio", "EQ", "Spatial", "Dynamics", "Advanced"),
+            dspStudioTabs().map(DspStudioTab::label),
+        )
+    }
+
+    @Test
     fun parametricEqControlsMatchEachFilterType() {
         assertEquals(
             setOf(EqBandEditorControl.FREQUENCY, EqBandEditorControl.GAIN, EqBandEditorControl.Q),

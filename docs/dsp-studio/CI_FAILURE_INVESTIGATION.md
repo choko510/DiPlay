@@ -51,3 +51,14 @@ The diagnostics card is inside the Advanced section, which is reached through Mo
 | [#438](https://github.com/choko510/DiPlay/actions/runs/40280273076) (`40280273076`) | `9e026e55d75f0c4f6d89cdaf66727bfbd023f40a` | PASSED | Integration PR #52 head. Classifier, public-tree/EX-08, host Native, ASan/UBSan, Shared/Common unit tests, lint, Debug/benchmark builds, JNI/R8 verification, API 35 Shared/Common instrumentation, and Release verification passed. The optional quick-baseline job was skipped because this was not a draft quick-only change; the normal full-host check ran instead. |
 
 The integration run is the latest hosted result at this source head. Local post-merge verification also passed Shared 639/639 and Common 227/227 unit tests (866 total), plus Shared and Common Android-test Kotlin compilation, with zero failures, errors, or skips. Local connected instrumentation remains `NOT_RUN` because no connected device was available and the configured AVD could not start with the available disk space.
+
+## PR #52 module A/B screen regressions
+
+The first local compile also caught a missing `assertNull` import in `DspProfileRuntimeTest`; adding the test import fixed the compile error.
+
+| Source head | Result | Diagnosis and fix |
+|---|---|---|
+| `f9c9f56e8022fa4808ec5023e688e65ede45f498` | API 35 `DspSettingsScreenTest` timed out during module A/B preview. | The preview refresh copied the applied profile back into the editor and replaced the draft. `DspEditorSession.refreshAppliedStateFromRuntime` now refreshes applied profile/master state without overwriting the draft; the test seeds the already-synchronized editor draft before composing the screen. |
+| `ce3c87d7f8520d0752a96f4fa50aa8b92b988641` | API 35 `DspSettingsScreenTest` passed 4/4. | Independent follow-up review found a separate delete-during-A/B issue: the UI returned to Draft but the renderer could keep auditioning A. Deleting the selected User preset now previews the current draft before resetting the comparison side. Regression assertions verify the renderer's Bass gain returns to the draft and other draft values remain intact. |
+
+The latest-head hosted run [#40370259506](https://github.com/choko510/DiPlay/actions/runs/40370259506) passed on `ce3c87d7`: `changes`, `check`, `android-instrumentation`, and `host-baseline` succeeded. `quick-baseline` and PR-only `verification-status` were skipped because the run used `workflow_dispatch`; neither is counted as a pass. The latest local API 35 screen report is `common/build/reports/androidTests/connected/debug/com.shilapi.xcertplay.DspSettingsScreenTest.html`.

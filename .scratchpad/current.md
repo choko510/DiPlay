@@ -1,32 +1,28 @@
-# Current Work — DiPlay DSP Studio PR #52 (2026-10-26)
+# Current Work — DiPlay DSP Studio PR #52 (2026-10-27)
 
-> Active goal: complete the PR #52 implementation, tracked tests, independent reviews, and latest-head CI. PR #52 must remain unmerged until the user approves it. Do not modify or merge PR #45 or main.
+> Active goal: finish PR #52 implementation, evidence, reviews, and latest-head CI. Keep PR #52 open and unmerged; do not modify or merge PR #45 or `main`.
 
 ## Scope and invariants
 
-- Follow the active PR #52 goal objective and its attached remediation specification as project requirements. Keep formal test IDs, added test IDs, known CRs, CI evidence, and review dispositions individually traceable.
-- PR #52 owns the DSP Studio integration branch. Child PRs are reviewed and may be merged into that branch.
-- Hardware-only TS10/K706/iPhone acceptance remains NOT_RUN unless measurements are available; record the procedure and residual risk.
-- Preserve the existing zero-latency DSP-OFF contract and avoid claiming hardware acceptance from emulator or source checks.
+- Keep the 60 PH-ID and 110 T-ID acceptance rows traceable; incomplete evidence remains `PARTIAL` or `NOT_RUN`.
+- Preserve the zero-latency DSP-OFF contract. TS10/K706/iPhone acceptance remains `NOT_RUN` without measurements.
+- Work only in `/Users/choko/.codex/worktrees/dsp52-volume-monitor/DiPlay`; the root checkout has unrelated dirty changes and is untouched.
 
 ## Current integration state
 
-- PR #62 EQ/sample-rate changes were merged into PR #52. Its callbackProfile-null instrumentation failure was traced to selecting a band from the touch-slop drag start instead of the initial pointer-down position. The fix selects from pointer-down and edits from post-slop positions; API 35 graph instrumentation passed 3/3 and hosted run #464 passed.
-- PR #63 Smart Loudness route monitoring was merged into PR #52 at commit 8660c6132926f5d0c1f74e7629e2205c9d68a8ec. Its final source head c56cba9ddd379e69f82cd2696ce41578a92e1d98 passed hosted run #468, including Android instrumentation, unit tests/lint/build/R8, host baseline, and release verification.
-- PR #63's earlier FullHeavyChain instrumentation attempt measured p99 31,579 us against the existing 21,332 us threshold. The same case passed on retry at that commit; the threshold was unchanged. Latest hosted instrumentation also passed.
-- Independent review of PR #63's final head confirmed both prior P2 findings were fixed: only MEDIA routes publish the active playback sample rate, and route reads/listeners/release are serialized to prevent stale route publication. No P0–P2 findings remain.
-- PR #52 head is 8660c6132926f5d0c1f74e7629e2205c9d68a8ec. Its base branch codex/step4-pr-00-test-baseline advanced to 15fa5e06bd96af855aa168605f2ac4b7ad2e1b6d; GitHub currently reports the PR as not mergeable with a stale base snapshot.
+- PR #52 base `codex/step4-pr-00-test-baseline` is at `15fa5e06bd96af855aa168605f2ac4b7ad2e1b6d`; source head `ce3c87d7f8520d0752a96f4fa50aa8b92b988641` is pushed on `codex/dsp-studio-final`.
+- `f9c9f56e` adds module-scoped A/B preview while keeping the editor draft intact. `ce3c87d7` restores draft audio preview after deleting the selected preset during active A/B; independent follow-up review closed the P2 finding.
+- The screen test initially exposed a missing assertion import and an A/B preview path that overwrote draft state. Both were corrected. The follow-up screen test now also guards against leaving the renderer on an obsolete comparison snapshot after deletion.
 
 ## Current test status
 
-- PR #62 pointer-down correction: focused API 35 instrumentation, Android-test Kotlin compilation, and unit checks passed; hosted run #464 passed.
-- PR #63 route/rate corrections: focused volume-monitor, route-gate, stream-policy, and runtime-config tests passed; common/shared debug assemblies and diff check passed; hosted run #468 passed.
-- PR #52 needs a fresh full hosted CI run after updating its base branch. Any failure must be diagnosed and fixed at the current exact head; do not count skipped jobs as passes.
+- Full local Gradle gates at `f9c9f56e`: Shared 668 + Common 271 = 939 tests, zero failures/errors/skips; Native, sanitizers, lint, debug/benchmark builds, JNI and repository checks passed.
+- At `ce3c87d7`, Common unit tests passed 271/271 and API 35 `DspSettingsScreenTest` passed 4/4, including module A/B and deletion-during-A/B draft restoration.
+- Hosted Android checks run [#40370259506](https://github.com/choko510/DiPlay/actions/runs/40370259506) passed at `ce3c87d7`: `changes`, `check`, `android-instrumentation`, and `host-baseline` succeeded. `quick-baseline` and PR-only `verification-status` were skipped for `workflow_dispatch`; they are not counted as passes. Earlier run #40362586212 passed at `d8637ca9` and is not current-head evidence.
+- Local API 35 emulator is test evidence only; it does not establish CarPlay host or target-device acceptance.
 
 ## Next actions
 
-1. Finish merging the current PR #45 base branch into the PR #52 integration head. Source files auto-merge; resolve and preserve both histories in the four Working Memory files.
-2. Push the resolved PR #52 head and wait for its current GitHub Actions checks. Repair failures, rerun the affected checks, and confirm the final CI state.
-3. Complete the requested formal/additional test ID matrix, CR ledger, phase implementation records, and four-field independent review evidence against the final PR #52 head.
-4. Keep unsupported hardware checks NOT_RUN with steps and residual risks; refresh PR #52's implementation and verification summary.
-5. Leave PR #52 unmerged and leave PR #45 and main unchanged.
+1. Finish and push the documentation and working-memory refresh; update PR #52's body with run #484 and the remaining gates.
+2. Complete remaining per-ID test evidence and hardware runbook gates; keep these open in the final report.
+3. Keep PR #52 unmerged and PR #45/`main` untouched.

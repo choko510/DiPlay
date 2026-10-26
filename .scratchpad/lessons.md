@@ -558,3 +558,5 @@ For Surface churn, gate new Surface creation before handing a wrapper to decoder
 For drag tests that cross touch slop in one movement, band hit-testing must use the original pointer-down coordinate; the detector's drag-start coordinate is only valid for the post-slop edit position.
 
 If a benchmark threshold miss is rerun, keep the threshold fixed and record both the first failure and the same-revision retry outcome. Final CI evidence must name the exact head SHA.
+
+For Compose A/B regression tests, assert the displayed side, renderer configuration, editor draft, and unrelated module values. Include deleting the selected preset while A/B is active so a UI fallback cannot leave the renderer playing a stale comparison snapshot. Seed an already-synchronized editor draft before composition when the test starts from preexisting runtime state.

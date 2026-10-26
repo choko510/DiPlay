@@ -319,11 +319,12 @@ class CarPlayVpnServiceAcceptGenerationTest {
     }
 
     @Test
-    fun excessControlConnectionsAreClosedAtTheServiceLimit() {
+    fun excessControlConnectionsAreClosedAndReleasedPermitsAllowLaterConnections() {
         val service = Robolectric.buildService(CarPlayVpnService::class.java).create().get()
         val listener = CountingListener()
         val server = QueuedServerSocket()
-        val pairs = List(CarPlayVpnService.MAX_CONTROL_CONNECTIONS + 1) { connectedSocketPair() }
+        val pairs = List(CarPlayVpnService.MAX_CONTROL_CONNECTIONS + 2) { connectedSocketPair() }
+        val permits = field(service, "controlSessionPermits").get(service) as java.util.concurrent.Semaphore
         val acceptLoop = CarPlayVpnService::class.java.getDeclaredMethod(
             "acceptLoop",
             Int::class.javaPrimitiveType,
@@ -350,14 +351,38 @@ class CarPlayVpnServiceAcceptGenerationTest {
         }
 
         try {
-            pairs.forEach { (accepted, _) -> server.enqueue(accepted) }
+            pairs.take(CarPlayVpnService.MAX_CONTROL_CONNECTIONS + 1)
+                .forEach { (accepted, _) -> server.enqueue(accepted) }
             awaitCondition {
                 sessionCount(service) == CarPlayVpnService.MAX_CONTROL_CONNECTIONS &&
-                    pairs.last().first.isClosed
+                    pairs[CarPlayVpnService.MAX_CONTROL_CONNECTIONS].first.isClosed
             }
 
             assertEquals(CarPlayVpnService.MAX_CONTROL_CONNECTIONS, sessionCount(service))
+            assertEquals(0, permits.availablePermits())
+            assertTrue(pairs[CarPlayVpnService.MAX_CONTROL_CONNECTIONS].first.isClosed)
             assertNull(invocationFailure.get())
+
+            sessionSnapshot(service).first().close()
+            awaitCondition {
+                sessionCount(service) == CarPlayVpnService.MAX_CONTROL_CONNECTIONS - 1 &&
+                    permits.availablePermits() == 1
+            }
+            server.enqueue(pairs.last().first)
+            awaitCondition {
+                sessionCount(service) == CarPlayVpnService.MAX_CONTROL_CONNECTIONS &&
+                    !pairs.last().first.isClosed && permits.availablePermits() == 0
+            }
+
+            assertTrue(pairs[CarPlayVpnService.MAX_CONTROL_CONNECTIONS].first.isClosed)
+            assertFalse(pairs.last().first.isClosed)
+            assertNull(invocationFailure.get())
+
+            service.detach()
+            awaitCondition {
+                sessionCount(service) == 0 &&
+                    permits.availablePermits() == CarPlayVpnService.MAX_CONTROL_CONNECTIONS
+            }
         } finally {
             service.detach()
             pairs.forEach { (accepted, client) ->
@@ -743,8 +768,14 @@ class CarPlayVpnServiceAcceptGenerationTest {
         }
     }
 
-    private fun sessionCount(service: CarPlayVpnService): Int =
-        (field(service, "sessions").get(service) as Set<*>).size
+    private fun sessionCount(service: CarPlayVpnService): Int = sessionSnapshot(service).size
+
+    private fun sessionSnapshot(service: CarPlayVpnService): List<AirPlaySession> {
+        val lock = field(service, "sessionsLock").get(service) ?: error("sessionsLock was null")
+        return synchronized(lock) {
+            (field(service, "sessions").get(service) as Set<*>).filterIsInstance<AirPlaySession>()
+        }
+    }
 
     private fun field(instance: Any, name: String) =
         instance.javaClass.getDeclaredField(name).apply { isAccessible = true }

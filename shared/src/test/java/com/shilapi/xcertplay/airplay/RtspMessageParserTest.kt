@@ -143,6 +143,15 @@ class RtspMessageParserTest {
     }
 
     @Test
+    fun rejectsOneByteOverTheProductionBodyLimitBeforeReceivingTheBody() {
+        val parser = RtspMessage.Parser()
+        val header = "POST /large RTSP/1.0\r\nContent-Length: ${RtspMessage.MAX_BODY_BYTES + 1}\r\n\r\n"
+            .toByteArray(Charsets.US_ASCII)
+
+        assertIllegalArgument { parser.append(header) }
+    }
+
+    @Test
     fun retainsOneMiBOfAnIncompleteBodyWithinTheConfiguredMessageLimit() {
         val header = "POST /slow RTSP/1.0\r\nContent-Length: 4194304\r\n\r\n"
             .toByteArray(Charsets.US_ASCII)

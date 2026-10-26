@@ -1157,6 +1157,59 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun peqLocalWarmDefersUntilStageLocalHistoryTransferIsImplemented() {
+        val impulse = DspImpulseResponse("peq_warm_room", 48_000, 1, floatArrayOf(1.0f))
+        val initialConfig = convolverConfig(impulse)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                pipeline(audioFormat, latencyFrames = if (config.convolver.enabled) 128 else 0, gain = 1.0f)
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 10)
+            val activePipeline = renderer.dspPipeline
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    convolver = initialConfig.convolver,
+                    peqBands = listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 3.0)),
+                ),
+            )
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 20)
+
+            assertTrue(renderer.dspPipeline === activePipeline)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(0L, renderer.dspGenerationForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+            assertEquals(DspRendererApplyPhase.DEFERRED, provider.rendererApplyStatus()?.phase)
+            assertEquals(
+                "stage-local warm-up is unavailable; keeping the active pipeline until the next AudioTrack generation",
+                provider.rendererApplyStatus()?.reason,
+            )
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 30)
+
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertTrue(renderer.dspPipeline !== activePipeline)
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun activeSeatDelayGraphUpdatesWaitUntilANewTrackGeneration() {
         val seat = DspSeatAlignmentConfig(
             enabled = true,

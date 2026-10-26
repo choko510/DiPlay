@@ -2706,12 +2706,18 @@ internal class AudioRenderer(
             requiresStateContinuity = graphConfig.requiresStateContinuity(),
             mediaRole = classification.dspRole == DspStreamRole.MEDIA,
         )
-        if (updateDecision.plan == DspUpdatePlan.DEFERRED) {
+        val unsupportedLocalWarm = updateDecision.plan == DspUpdatePlan.LOCAL_WARM &&
+            trackGenerationContentCommitted
+        if (updateDecision.plan == DspUpdatePlan.DEFERRED || unsupportedLocalWarm) {
             if (deferredDspGeneration != update.generation) {
                 deferredDspGeneration = update.generation
-                val reason = updateDecision.reason ?: "update is not safe for the committed track"
+                val reason = if (unsupportedLocalWarm) {
+                    "stage-local warm-up is unavailable; keeping the active pipeline until the next AudioTrack generation"
+                } else {
+                    updateDecision.reason ?: "update is not safe for the committed track"
+                }
                 reportDsp("DSP update deferred until next AudioTrack generation: $reason")
-                reportDspApplyStatus(prepared.deferredStatus)
+                reportDspApplyStatus(prepared.deferredStatus.copy(reason = reason))
             }
             return
         }

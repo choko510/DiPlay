@@ -106,6 +106,44 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun savedWorkspaceWinsOverMismatchedLegacyProfileSelectionOnStartup() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        try {
+            val savedProfile = DspProfilePresets.find("flat")!!
+            val savedWorkspace = DspStudioWorkspace(
+                profileSourceId = savedProfile.id,
+                baseProfileSnapshot = savedProfile,
+                macros = DspSoundMacroSettings(enabled = true, bassImpact = 91),
+            )
+            assertEquals(
+                DspWorkspaceSaveResult.SAVED,
+                DspStudioWorkspaceRepository(context.filesDir).save(savedWorkspace),
+            )
+            val savedFileContents = workspaceFile.readText()
+            preferences.edit()
+                .putBoolean(KEY_DSP_ENABLED, true)
+                .putString(KEY_SELECTED_PROFILE_ID, "vocal")
+                .commit()
+
+            DspProfileRuntime.resetForTesting()
+            val runtime = DspProfileRuntime.get(context)
+
+            assertEquals(savedProfile, runtime.selectedProfile())
+            assertTrue(runtime.configProvider.snapshot().macroTone.enabled)
+            assertEquals(savedProfile.id, preferences.getString(KEY_SELECTED_PROFILE_ID, null))
+            assertEquals(savedFileContents, workspaceFile.readText())
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
     fun studioSessionCoordinatorRetainsDraftWhenSettingsScreenIsRecreated() {
         val context: Application = RuntimeEnvironment.getApplication()
         val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")

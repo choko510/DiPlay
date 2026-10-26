@@ -25,12 +25,12 @@
 
 ## API 35 instrumentation
 
-The latest local results are:
+The first local API 35 results below are from code/test head `0f425cdc`; the later current-code/test-head repeat after run #490 is recorded under `API 35 p99 distribution recheck` below.
 
 | Module/test | Result | Evidence |
 |---|---|---|
-| `:common:connectedDebugAndroidTest` | `PASS_EMULATOR` | 1/1 test, zero failures/errors/skips; `common/build/outputs/androidTest-results/connected/debug/TEST-Medium_Phone_API_35(AVD) - 15-_common-.xml`. |
-| `ANDROID_HOME=/Users/choko/Library/Android/sdk ./gradlew :shared:connectedDebugAndroidTest` | `PASS_EMULATOR` on the latest repeat | 19 tests, zero failures/errors/skips. XML: `shared/build/outputs/androidTest-results/connected/debug/TEST-Medium_Phone_API_35(AVD) - 15-_shared-.xml`. The earlier run below remains recorded as a separate failed attempt. |
+| `:common:connectedDebugAndroidTest` | `PASS_EMULATOR` at `0f425cdc` | 1/1 test, zero failures/errors/skips; `common/build/outputs/androidTest-results/connected/debug/TEST-Medium_Phone_API_35(AVD) - 15-_common-.xml`. Current-code Common 1/1 is also confirmed by run #490. |
+| `ANDROID_HOME=/Users/choko/Library/Android/sdk ./gradlew :shared:connectedDebugAndroidTest` | `PASS_EMULATOR` at `0f425cdc` | 19 tests, zero failures/errors/skips. XML: `shared/build/outputs/androidTest-results/connected/debug/TEST-Medium_Phone_API_35(AVD) - 15-_shared-.xml`. The earlier run below remains recorded as a separate failed attempt. |
 
 The earlier failed Shared rerun's three 48 kHz Gain runs were:
 
@@ -43,7 +43,7 @@ The `benchmarks44100Mono` test also failed before it emitted a usable sample lin
 
 After that failure, a focused `benchmarks48000Stereo` run passed, then the full Shared instrumentation suite passed 19/19 on the same API 35 arm64 emulator and code/test head. Current Gain p99 samples were 240/320/660 µs (48 kHz stereo), 140/120/140 µs (48 kHz mono), 120/120/120 µs (44.1 kHz mono), and 180/180/180 µs (44.1 kHz stereo); each median is below its unchanged per-format ceiling. The combined filtered logcat capture at `shared/build/outputs/dsp-benchmark/logcat.txt` contains the four `HARMONIC_ALIAS` records and the latest benchmark samples. `bash scripts/check_android_instrumentation_evidence.sh shared/build/outputs/dsp-benchmark/logcat.txt` exits 0.
 
-The initial p99 outlier was not reproduced in the focused or full-suite repeat. Emulator/host scheduling variation is a possible explanation, but its cause was not established. The passing rerun does not erase the earlier failure; both results remain part of the gate record.
+The specific 151,772/44,053 µs failures and process crash did not repeat in the later full-suite runs. Run #490 and the current local repeat did show single-run p99 tails above 21,332 µs while their median-of-three gates passed. Emulator/host scheduling variation is possible, but the cause of the original failure and later tails is unconfirmed. Preserve every distribution; a passing median does not prove that each measured run stayed under the ceiling.
 
 The local helper `scripts/run_android_instrumentation.sh` cannot complete its post-run capture on this macOS host because neither `timeout` nor `gtimeout` is installed. The Gradle tasks were run directly, and filtered `adb logcat` capture plus the evidence validator were performed separately.
 
@@ -61,11 +61,15 @@ The local helper `scripts/run_android_instrumentation.sh` cannot complete its po
 
 ## CI test-report artifact verification
 
-[Workflow-sensitive run #490](https://github.com/choko510/DiPlay/actions/runs/40377747090) on workflow/artifact HEAD `06e4fcf472677d34ae7878d2378e15b47b309aa9` passed `changes`, host/native/sanitizer/unit/lint/build/JNI/R8, API 35 instrumentation, `host-baseline`, and Draft scope. `quick-baseline` was skipped because the full host lane ran. Product code/test HEAD remains `52799604c5810ea97b2c7b5e685cf1c2155de773`.
+[Workflow-sensitive run #490](https://github.com/choko510/DiPlay/actions/runs/40377747090) on workflow/artifact HEAD `06e4fcf472677d34ae7878d2378e15b47b309aa9` passed `changes`, host/native/sanitizer/unit/lint/build/JNI/R8, API 35 x86_64 instrumentation, `host-baseline`, and Draft scope. `quick-baseline` was skipped because the full host lane ran. Product code/test HEAD remains `52799604c5810ea97b2c7b5e685cf1c2155de773`.
 
 - `test-reports-check` contains 157 JUnit XML files: Shared 659 tests across 112 suites and Common 206 tests across 45 suites (865 total; zero failures, errors, or skipped tests). The artifact also contains the unit-test HTML reports.
-- `test-reports-android-instrumentation` contains the Shared 19/19 and Common 1/1 connected-test XML files (20 total; zero failures, errors, or skipped tests), both modules' AndroidTest HTML reports, and the DSP benchmark logcat capture.
+- `test-reports-android-instrumentation` contains the Shared 19/19 and Common 1/1 connected-test XML files (20 total; zero failures, errors, or skipped tests), both modules' AndroidTest HTML reports, and the DSP benchmark logcat capture. Its benchmark log has 168 rows (56 configurations × three measured runs); all median-of-three p99 gates passed. The largest median was 13,720 µs for `FullHeavyChain` at 48 kHz stereo against the unchanged 21,332 µs ceiling, while one run reached 41,636 µs. Four harmonic alias samples were present; maximum ratio was 6.1357×10⁻⁵.
 - The upload steps use `if: always()` so failed test runs should archive reports too; this successful run confirms the configured XML/report files are generated and included. It does not add TS10/K706+iPhone evidence or resolve the earlier p99 outlier.
+
+## API 35 p99 distribution recheck
+
+After run #490, the local `Medium_Phone_API_35` API 35 arm64-v8a (`sdk_gphone64_arm64`) emulator repeated `ANDROID_HOME=/Users/choko/Library/Android/sdk ANDROID_SDK_ROOT=/Users/choko/Library/Android/sdk ./gradlew :shared:connectedDebugAndroidTest` on the unchanged product code/test revision. Shared instrumentation passed 19/19 with zero failures/errors/skips. The per-test logs contain 168 benchmark rows across 56 configurations; all median-of-three p99 gates passed. The largest median was 20,020 µs for `Convolver64k` at 48 kHz stereo (21,332 µs ceiling). A single run reached 84,009 µs for `HarmonicEngine` at 48 kHz stereo. The highest folded-alias ratio was 6.1358×10⁻⁵. This is emulator evidence: the median gate passes, while single-run tails exceed the ceiling in both this repeat and run #490. Their cause is unconfirmed; the budget is unchanged and target-device performance remains `BLOCKED_DEVICE`.
 
 ## Acceptance boundary
 

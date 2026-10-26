@@ -15,7 +15,6 @@
 - [ ] Same-device NCM `AUTO` vs `NO_STATUS_POLLING` A/B with first-frame, `SCREEN_STREAM_OPENED`, and timeout evidence; do not change status behavior or add control requests without cause.
 - [ ] Reproduce `queue()==false` / `requestWait()==null` while the USB device is present; preserve persistent USB-request ownership otherwise.
 - [ ] Keep Stage3 diagnostics timing-only and EX05 second StartSession retry disabled until target packet timing proves the need.
-- [x] Measure Stage3 debug OFF/ON CPU and heap on a reproducible host runtime; target-device profiling remains part of the blocked hardware matrix.
 - [ ] Recompute source patch hashes only for EX-08 candidates selected for adoption; inventory `--check` alone is not semantic review or patch provenance.
 
 ## P2 — Conditional candidates

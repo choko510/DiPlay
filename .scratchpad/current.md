@@ -8,9 +8,10 @@
 
 ## State
 
-- Workflow-sensitive run #490 passed all required host, sanitizer, build, JNI/R8 and API 35 jobs on PR #45. Retained reports confirm 865 unit tests (659 Shared + 206 Common) and 20 API 35 tests (19 Shared + 1 Common), all passing; code/test HEAD remains `52799604`.
-- F8-01/02/03, DSP Split measurement fixes and VIDEO-02 regression are recorded in `completed.md` and the Step4 result package. Preserve the earlier API 35 p99 failure beside later passes; its cause remains unconfirmed. Local macOS LeakSanitizer is unavailable, while hosted Linux sanitizer passed.
-- The test matrix maps all 98 v4 case IDs. TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
+- Workflow-sensitive run #490 passed the full host, sanitizer, unit/build, JNI/R8 and API 35 lanes on PR #45. Retained reports confirm 865 unit tests (659 Shared + 206 Common) and 20 API 35 tests (19 Shared + 1 Common), all passing. Product code and tests have not changed since that run.
+- API 35 DSP median-of-three p99 gates pass, but run #490 had a 41.636 ms single-run tail and a local repeat had an 84.009 ms tail; the local maximum median is 20.020 ms against the unchanged 21.332 ms ceiling. Preserve these and the earlier failing run until the cause is understood. Local macOS LeakSanitizer is unavailable, while hosted Linux sanitizer passed.
+- Software implementation and its regression coverage are recorded in `completed.md` and the Step4 result package.
+- TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
 
 ## Next
 

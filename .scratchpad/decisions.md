@@ -690,6 +690,8 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-27 B09 follow-up: the focused 48 kHz stereo case and full API 35 Shared suite subsequently passed 19/19 below the unchanged budget. At that point the full hosted lane was still skipped under Draft scope, so B09 remained partial. Later workflow-sensitive run #486 passed the full host and API 35 gates; retain the earlier p99 failure/crash and passing repeats separately because the transient cause is unknown.
 
+2026-10-27 B09 distribution: the current acceptance check uses the median of three per-configuration p99 samples. Run #490's API 35 x86_64 artifact and a local API 35 arm64-v8a repeat passed that gate, yet single-run p99s reached 41.636 ms and 84.009 ms respectively; the local maximum median was 20.020 ms against the unchanged 21.332 ms ceiling. Report the per-run distribution alongside the CI result and do not relax the ceiling or infer that the tails are harmless.
+
 ## Retain Gradle test result XML in CI artifacts
 
 2026-10-27 B09: upload unit-test XML and connected AndroidTest XML/HTML with `if: always()` so a failed test remains diagnosable from the run artifact. Run #490 verified that the configured paths produce 865 unit-test and 20 instrumentation-test results; artifact retention itself does not change test scope or release status.

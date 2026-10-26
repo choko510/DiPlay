@@ -54,7 +54,7 @@ class DspRuntimeConfig(
 
     internal fun canApplyStudioHotUpdateTo(other: DspRuntimeConfig): Boolean = enabled && other.enabled &&
         DspUpdatePlanner.diff(this, other).all {
-            it == DspRuntimeField.PREAMP || it == DspRuntimeField.MACRO_TONE || it == DspRuntimeField.SMART_LOUDNESS ||
+            it == DspRuntimeField.MACRO_TONE || it == DspRuntimeField.SMART_LOUDNESS ||
                 it == DspRuntimeField.DYNAMIC_BASS
         }
 

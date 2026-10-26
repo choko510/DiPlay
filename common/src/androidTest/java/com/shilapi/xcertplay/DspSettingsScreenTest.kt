@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -12,6 +13,9 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
+import com.shilapi.xcertplay.dsp.DspRuntimeConfigStore
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
@@ -53,6 +57,21 @@ class DspSettingsScreenTest {
                         onBack = {},
                     )
                 }
+            }
+
+            val deferredReason = "stage-local warm-up is unavailable; keeping the active pipeline until the next AudioTrack generation"
+            val configStore = runtime.configProvider as DspRuntimeConfigStore
+            val generation = runtime.configProvider.versionedSnapshot().generation
+            configStore.reportRendererApplyStatus(
+                DspRendererApplyStatus(
+                    generation = generation,
+                    phase = DspRendererApplyPhase.DEFERRED,
+                    activeGeneration = 0L,
+                    reason = deferredReason,
+                ),
+            )
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
             }
 
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()

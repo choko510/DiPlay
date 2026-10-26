@@ -104,6 +104,12 @@ internal object DspUpdatePlanner {
         ) {
             return DspUpdateDecision(DspUpdatePlan.DEFERRED, "impulse response topology requires a new track")
         }
+        if (trackGenerationCommitted && changed == setOf(DspRuntimeField.PREAMP)) {
+            return DspUpdateDecision(
+                DspUpdatePlan.DEFERRED,
+                "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
+            )
+        }
 
         if (mediaRole && hasActivePipeline && current.enabled && target.enabled &&
             changed.all(::isHotField) &&
@@ -128,7 +134,6 @@ internal object DspUpdatePlanner {
     }
 
     private fun isHotField(field: DspRuntimeField): Boolean = field in setOf(
-        DspRuntimeField.PREAMP,
         DspRuntimeField.MACRO_TONE,
         DspRuntimeField.SMART_LOUDNESS,
         DspRuntimeField.DYNAMIC_BASS,

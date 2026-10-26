@@ -180,11 +180,18 @@ private fun rendererApplyStatusText(status: DspRendererApplyStatus?): String = w
     } else {
         stringResource(R.string.dsp_renderer_apply_active, status.generation)
     }
-    DspRendererApplyPhase.DEFERRED -> stringResource(
-        R.string.dsp_renderer_apply_deferred,
-        status.generation,
-        status.activeGeneration?.toString() ?: stringResource(R.string.dsp_renderer_apply_no_active),
-    )
+    DspRendererApplyPhase.DEFERRED -> {
+        val activeGeneration = status.activeGeneration?.toString()
+            ?: stringResource(R.string.dsp_renderer_apply_no_active)
+        status.reason?.takeIf(String::isNotBlank)?.let { reason ->
+            stringResource(
+                R.string.dsp_renderer_apply_deferred_with_reason,
+                status.generation,
+                activeGeneration,
+                reason,
+            )
+        } ?: stringResource(R.string.dsp_renderer_apply_deferred, status.generation, activeGeneration)
+    }
     DspRendererApplyPhase.FAILED -> stringResource(R.string.dsp_renderer_apply_failed, status.generation)
 }
 

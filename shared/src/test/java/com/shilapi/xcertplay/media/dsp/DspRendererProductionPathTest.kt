@@ -185,7 +185,7 @@ class DspRendererProductionPathTest {
     }
 
     @Test
-    fun lpcmAppliesProfileAToBPreparedGraphThroughTheLiveCrossfadePath() {
+    fun lpcmDefersPreampChangeUntilANewTrackWhenSampleRampIsUnavailable() {
         val configA = DspRuntimeConfig(enabled = true, gainDb = 0.0)
         val provider = MutableConfigProvider(configA)
         val prepared = LinkedBlockingQueue<Unit>()
@@ -209,12 +209,22 @@ class DspRendererProductionPathTest {
 
             renderer.handleRtpForTesting(lpcmRtp(IntArray(2_400) { 300 }), sample = 400)
 
-            assertEquals(1L, renderer.dspGenerationForTesting)
-            assertNotNull(renderer.dspPipeline)
+            assertEquals(0L, renderer.dspGenerationForTesting)
+            assertTrue(renderer.dspPipeline === activeBeforeUpdate)
             assertFalse(renderer.liveFadeInProgressForTesting)
-            assertFalse(renderer.hasPreparedDspUpdateForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+            assertEquals(
+                "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
+                provider.rendererApplyStatus()?.reason,
+            )
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 300 }), sample = 500)
+
+            assertEquals(1L, renderer.dspGenerationForTesting)
             assertTrue(renderer.dspPipeline !== activeBeforeUpdate)
-            assertEquals(300L, renderer.playbackClockForTesting()?.baseRtpSample)
+            assertNull(renderer.deferredDspGenerationForTesting)
+            assertEquals(500L, renderer.playbackClockForTesting()?.baseRtpSample)
         } finally {
             renderer.releaseForTesting()
         }
@@ -304,7 +314,7 @@ class DspRendererProductionPathTest {
             renderer.prepareLpcmPipelineForTesting()
             renderer.beginTrackGenerationForTesting()
             renderer.handleRtpForTesting(lpcmRtp(IntArray(1) { 250 }), sample = 10)
-            provider.update(DspRuntimeConfig(enabled = true, gainDb = 4.0))
+            provider.update(DspRuntimeConfig(enabled = true, stereoWidth = 1.25))
             assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
             renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 250 }), sample = 20)
 
@@ -922,7 +932,7 @@ class DspRendererProductionPathTest {
             assertNull(renderer.dspPipeline)
             assertEquals(128, renderer.trackLatencyForTesting)
 
-            provider.update(DspRuntimeConfig(enabled = true, gainDb = 1.0))
+            provider.update(DspRuntimeConfig(enabled = true, stereoWidth = 1.25))
             assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
             Thread.sleep(50)
             renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { frame -> 5_000 + frame }), sample = 256)
@@ -1040,7 +1050,7 @@ class DspRendererProductionPathTest {
             renderer.handleRtpForTesting(lpcmRtp(IntArray(256) { 1_000 }), sample = 30)
             assertTrue(readSample(writes.last(), 200 * Short.SIZE_BYTES) in 990..1_010)
 
-            provider.update(convolverConfig(irB, gainDb = 4.0))
+            provider.update(convolverConfig(irB, stereoWidth = 1.25))
             assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
             Thread.sleep(50)
             renderer.handleRtpForTesting(lpcmRtp(IntArray(2_400) { 1_000 }), sample = 35)
@@ -1736,9 +1746,14 @@ class DspRendererProductionPathTest {
         audioType = audioType,
     )
 
-    private fun convolverConfig(ir: DspImpulseResponse, gainDb: Double = 0.0): DspRuntimeConfig = DspRuntimeConfig(
+    private fun convolverConfig(
+        ir: DspImpulseResponse,
+        gainDb: Double = 0.0,
+        stereoWidth: Double = 1.0,
+    ): DspRuntimeConfig = DspRuntimeConfig(
         enabled = true,
         gainDb = gainDb,
+        stereoWidth = stereoWidth,
         autoHeadroomEnabled = false,
         convolver = DspConvolverConfig(
             enabled = true,

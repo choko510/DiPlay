@@ -5,7 +5,7 @@ import org.junit.Test
 
 class DspUpdatePlannerTest {
     @Test
-    fun studioOverlayAndPreampChangesAreHotWhenAPipelineIsActive() {
+    fun studioOverlayChangesAreHotWhenAPipelineIsActive() {
         val current = DspRuntimeConfig(enabled = true)
         val target = DspRuntimeConfig(
             enabled = true,
@@ -124,7 +124,14 @@ class DspUpdatePlannerTest {
 
         assertEquals(DspUpdatePlan.WARM, DspUpdatePlanner.classify(current, disabled, true, false, 0, 0, false))
         assertEquals(DspUpdatePlan.WARM, DspUpdatePlanner.classify(current, profileEdit, true, false, 0, 0, false))
-        assertEquals(DspUpdatePlan.HOT, DspUpdatePlanner.classify(current, preampEdit, true, true, 0, 0, false))
+        assertEquals(DspUpdatePlan.WARM, DspUpdatePlanner.classify(current, preampEdit, true, false, 0, 0, false))
+        assertEquals(
+            DspUpdateDecision(
+                DspUpdatePlan.DEFERRED,
+                "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
+            ),
+            DspUpdatePlanner.decide(current, preampEdit, true, true, 0, 0, false),
+        )
     }
 
 }

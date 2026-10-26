@@ -39,14 +39,17 @@ assert_classification 'true true both all false false' $'shared/src/main/jni/dsp
 assert_classification 'true true both all false true' $'shared/src/main/jni/Android.mk\tmodified'
 assert_classification 'true true both all false true' $'shared/src/main/jni/Application.mk\tmodified'
 
-# CI-06: benchmark and workflow helpers always require the workflow-sensitive lane.
+# CI-06: benchmark, MediaCodec/Surface ownership, and workflow helper changes require full verification.
 assert_classification 'true false both all true false' \
     $'shared/src/androidTest/java/com/shilapi/xcertplay/media/dsp/DspPipelineBenchmarkInstrumentedTest.kt\tmodified'
+assert_classification 'true false both all true false' \
+    $'shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt\tmodified'
 is_ci_workflow_sensitive_path ".github/workflows/android.yml"
 is_ci_workflow_sensitive_path "scripts/run_android_instrumentation.sh"
 is_ci_workflow_sensitive_path "scripts/android_ci_classifier.sh"
 is_ci_workflow_sensitive_path "scripts/test_android_ci_classifier.sh"
 is_ci_workflow_sensitive_path "scripts/check_android_instrumentation_evidence.sh"
+is_ci_workflow_sensitive_path "shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt"
 ! is_ci_workflow_sensitive_path "shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlaySession.kt"
 [[ "$(ci_draft_runtime_skip_policy true true true true)" == 'true true' ]]
 [[ "$(ci_draft_runtime_skip_policy true true true false)" == 'false false' ]]

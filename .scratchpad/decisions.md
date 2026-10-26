@@ -685,3 +685,7 @@ Smart Loudness AUTO trusts only explicit route-bound readings supplied by a plat
 ## Keep DSP Studio rollback claims tied to production wiring
 
 The schema-v1 workspace remains separate from legacy v7 profile storage. `DspStudioFeatureFlags` has no production call sites, so it is not an operational kill switch; describe rollback as DSP Master OFF, new modules disabled/default-neutral, and unsupported stateful or latency-changing updates deferred.
+
+## Exercise the production EQ graph in Compose instrumentation
+
+Host `DspEqEditorPane` directly and inject touch coordinates relative to the graph Canvas bounds so the test covers the production pointer handlers, callback mapping, and filter-specific gain behavior without adding test-only production APIs.

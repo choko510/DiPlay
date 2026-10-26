@@ -680,6 +680,8 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-26 B07: classify each SHA independently against fixed main. `ADAPT` requires a fixed-main failing test and a narrow safe implementation; source commits already integrated by a merge are classified through their source rows, while branch-sync merges are never independent feature candidates. Keep `NEED_EVIDENCE` rows actionable with the exact target measurement or log needed to advance.
 
+2026-10-26 B08: keep Stage3 timestamps in a fixed-size attempt-local monotonic state and fence attachment callbacks by generation. Record only exact successful full-size NCM OUT; keep reports validated and bounded in memory, separate from debug packet diagnostics. Do not add a resend or timer without target-device causal evidence.
+
 2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
 
 2026-10-26 B03: validate generation, attachment and server identity together before accepting sessions or processing VPN revocation; keep ownership validation and the session start atomic under the service monitor. Serialize wired release/error callbacks with replacement and reject stale attempts.

@@ -327,3 +327,13 @@ The eighth-review source changes are already present at `550ec3a065a13d6fb690f5d
 | B07-01 | Review each source SHA against fixed main and classify all 51 merge commits | `PASS_LOCAL` | `review_step4_ex08_delta111.py` records all 111 decisions. Overlay dispositions: 2 `FORK_SUPERIOR`, 16 `SKIP_OEM`, 56 `REJECT_UNSAFE` (including all merge wrappers), 37 `NEED_EVIDENCE`, 0 `ADAPT`. Every merge is marked source-feature/PR integration duplicate or branch-sync-only, with source indexes for integrations. |
 | B07-02 | Regenerate the combined ledger and preserve the frozen legacy prefix | `PASS_LOCAL` | `test_step4_ex08_delta111.py` passed 19/19; `generate_step4_ex08_inventory.py --check` passed with 1,400 unique SHAs. The original 1,289 serialized rows remain byte-identical. Combined counts: 11 `ADAPT`, 27 `FORK_SUPERIOR`, 207 `SKIP_OEM`, 765 `REJECT_UNSAFE`, 390 `NEED_EVIDENCE`. |
 | B07-03 | Determine whether any newly reviewed source merits adaptation now | `PASS_STATIC` | No new source met all three gates (missing required fixed-main behavior, a failing regression, and a narrow safe adaptation). F-01/F-02 and F-09 are already implemented and tested. Late StartSession candidates remain observation-only for B08 and target-device evidence is still required. See `B07_ADAPT_BACKLOG.md`. |
+
+## 2026-10-26 Stage3 wired startup timing (B08)
+
+| Evidence ID | Scenario | Result | Evidence and limits |
+|---|---|---|---|
+| B08-01 | `WiredStartupTimingTest` | `PASS_LOCAL` | 8/8 cases cover attempt-relative milestones, exact full-size NCM OUT, generation fencing, valid/unknown SYN classification, 14.9/15/17/26-second boundaries, the 2-second quiet boundary, teardown sealing, and debug-independent collection. |
+| B08-02 | `NcmUsbBridgeFixtureTest` and `Ipv6NcmBridgeWiredPathDiagnosticsTest` | `PASS_LOCAL` | Timing is captured with packet diagnostics disabled; partial NCM OUT is excluded; the observed SYN's exact IP bytes still reach TUN. Existing send results remain unchanged. |
+| B08-03 | Full local `:shared:testDebugUnitTest :common:testDebugUnitTest` | `PASS_LOCAL` | 655 shared + 206 common tests; 861 total, zero failures/errors/skips. |
+| B08-04 | Stage3 source behavior and report retention | `PASS_STATIC` | Fixed-size attempt-local state, monotonic attempt-relative values, exact successful full-size OUT only, no packet content, no StartSession resend/timer/watchdog/phase change, and at most three validated in-memory report lines. |
+| B08-05 | Debug OFF/ON CPU and heap differential; TS10/K706 causal trace | `NOT_RUN` | Local behavioral tests do not provide a reproducible runtime CPU/heap comparison or supported-device trace. Keep EX-05 retry disabled and B11 conditional changes `NO_GO` until measured. |

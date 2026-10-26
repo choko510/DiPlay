@@ -4559,6 +4559,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
             },
             onWiredPathReport = traceStore::appendWiredPathReport,
+            onWiredStartupTiming = traceStore::appendWiredStartupTiming,
         )
         controller = next
         CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this, backgroundStopAction())

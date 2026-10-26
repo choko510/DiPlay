@@ -153,6 +153,7 @@ class NcmUsbBridge internal constructor(
     private val diagnosticsEnabled: Boolean,
     private val onDiagnosticLog: (String) -> Unit,
     private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
+    private val wiredStartupTiming: WiredStartupTiming? = null,
     private val incompleteNtbNoProgressTimeoutMillis: Long = DEFAULT_INCOMPLETE_NTB_NO_PROGRESS_TIMEOUT_MILLIS,
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
@@ -308,6 +309,11 @@ class NcmUsbBridge internal constructor(
                 resultOverride = "PARTIAL",
             )
         }
+        wiredStartupTiming?.recordFullBulkOut(
+            transferred = transferred,
+            expectedFullSize = block.size,
+            callbackGeneration = wiredPathAttachGeneration,
+        )
         writeSuccesses.incrementAndGet()
         writeBytes.addAndGet(transferred.toLong())
         val wiredDiagnostics = wiredPathDiagnostics
@@ -376,6 +382,7 @@ class NcmUsbBridge internal constructor(
     internal fun setWiredPathAttachGeneration(generation: Long) {
         wiredPathAttachGeneration = generation
         wiredPathDiagnostics?.recordAttachGeneration(generation)
+        wiredStartupTiming?.recordAttachGeneration(generation)
     }
 
     internal fun linkPhase(): NcmLinkPhase = linkReadiness.phase()
@@ -1228,6 +1235,7 @@ class NcmUsbBridge internal constructor(
             diagnosticsEnabled: Boolean = false,
             onDiagnosticLog: (String) -> Unit = {},
             wiredPathDiagnostics: WiredPathDiagnostics? = null,
+            wiredStartupTiming: WiredStartupTiming? = null,
         ): NcmUsbBridge {
             val claimed = ArrayList<UsbInterface>(2)
             try {
@@ -1324,6 +1332,7 @@ class NcmUsbBridge internal constructor(
                     diagnosticsEnabled,
                     onDiagnosticLog,
                     wiredPathDiagnostics,
+                    wiredStartupTiming,
                 )
             } catch (error: Throwable) {
                 for (usbInterface in claimed.asReversed()) {

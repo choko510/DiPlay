@@ -20,6 +20,8 @@ import com.shilapi.xcertplay.transport.EthernetIpv6Codec
 import com.shilapi.xcertplay.transport.NcmUsbBridge
 import com.shilapi.xcertplay.transport.WiredPathDiagnostics
 import com.shilapi.xcertplay.transport.WiredPathEvent
+import com.shilapi.xcertplay.transport.WiredStartupTiming
+import com.shilapi.xcertplay.transport.WiredStartupTimingEvent
 import java.io.IOException
 import java.net.Inet6Address
 import java.net.InetAddress
@@ -64,6 +66,7 @@ class CarPlayVpnService : VpnService() {
         val media: AirPlayMediaHandler,
         val wiredPathDiagnostics: WiredPathDiagnostics?,
         val usesVpn: Boolean,
+        val wiredStartupTiming: WiredStartupTiming?,
     )
 
     private data class VpnRevocationOwner(
@@ -142,6 +145,7 @@ class CarPlayVpnService : VpnService() {
         listener: AirPlaySessionListener,
         media: AirPlayMediaHandler,
         wiredPathDiagnostics: WiredPathDiagnostics? = null,
+        wiredStartupTiming: WiredStartupTiming? = null,
     ): AttachResult {
         if (active.get()) {
             Log.i(TAG, "replacing stale NCM/VPN attachment")
@@ -150,6 +154,7 @@ class CarPlayVpnService : VpnService() {
         active.set(true)
         val generation = ++attachGeneration
         wiredPathDiagnostics?.recordAttachGeneration(generation.toLong())
+        wiredStartupTiming?.recordAttachGeneration(generation.toLong())
         ncm.setWiredPathAttachGeneration(generation.toLong())
         return try {
             val address = InetAddress.getByName(linkLocal)
@@ -174,6 +179,7 @@ class CarPlayVpnService : VpnService() {
                 tun = tunFd,
                 hostMac = hostMac,
                 wiredPathDiagnostics = wiredPathDiagnostics,
+                wiredStartupTiming = wiredStartupTiming,
                 expectedAirPlayAddress = address.address,
                 airPlayPort = config.port,
                 attachGeneration = generation.toLong(),
@@ -196,6 +202,7 @@ class CarPlayVpnService : VpnService() {
                     media,
                     wiredPathDiagnostics,
                     usesVpn = true,
+                    wiredStartupTiming = wiredStartupTiming,
                 ),
             )
             ipv6Bridge.start()
@@ -239,6 +246,7 @@ class CarPlayVpnService : VpnService() {
                     media,
                     null,
                     usesVpn = false,
+                    wiredStartupTiming = null,
                 ),
             )
             AttachResult.Started
@@ -305,6 +313,10 @@ class CarPlayVpnService : VpnService() {
                         return
                     }
                 }
+                current.wiredStartupTiming?.record(
+                    WiredStartupTimingEvent.LISTENER_ACCEPT,
+                    generation.toLong(),
+                )
                 if (!controlSessionPermits.tryAcquire()) {
                     runCatching { socket.close() }
                     continue
@@ -345,6 +357,7 @@ class CarPlayVpnService : VpnService() {
                         },
                         media = current.media,
                         wiredPathDiagnostics = current.wiredPathDiagnostics,
+                        wiredStartupTiming = current.wiredStartupTiming,
                         attachGeneration = generation.toLong(),
                     )
                     val accepted = startAcceptedSessionIfCurrent(

@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import android.content.Context
 import com.shilapi.xcertplay.orchestration.ConnectionTraceEvent
 import java.io.File
+import java.util.ArrayDeque
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.ThreadFactory
@@ -14,6 +15,8 @@ internal class ConnectionTraceStore(private val directory: File) {
         Thread(task, "diplay-connection-trace").apply { isDaemon = true }
     })
     private val previousElapsed = LinkedHashMap<String, Long>()
+    private val wiredStartupTimingLock = Any()
+    private val recentWiredStartupTimings = ArrayDeque<String>()
 
     fun append(attemptId: String, sequence: Long, event: ConnectionTraceEvent) {
         val safeAttemptId = attemptId.takeIf { ATTEMPT_ID.matches(it) } ?: "attempt-unknown"
@@ -41,6 +44,16 @@ internal class ConnectionTraceStore(private val directory: File) {
         }
     }
 
+    fun appendWiredStartupTiming(report: String) {
+        if (!isValidWiredStartupTiming(report)) return
+        synchronized(wiredStartupTimingLock) {
+            if (recentWiredStartupTimings.size == MAX_WIRED_STARTUP_TIMINGS) {
+                recentWiredStartupTimings.removeFirst()
+            }
+            recentWiredStartupTimings.addLast(report)
+        }
+    }
+
     fun snapshot(): String = runCatching {
         val result: Future<String> = executor.submit<String> {
             runCatching {
@@ -56,6 +69,14 @@ internal class ConnectionTraceStore(private val directory: File) {
         appendLine("--- Connection trace history (captured while debug mode was enabled) ---")
         appendLine("NCM_ATTACHED marks VPN/TUN, packet bridge, and AirPlay listener setup; NCM_FIRST_* marks observed link traffic.")
         append(snapshot())
+        appendLine("--- Stage3 wired startup timing (always-on, attempt-relative monotonic ns; no packet data) ---")
+        synchronized(wiredStartupTimingLock) {
+            if (recentWiredStartupTimings.isEmpty()) {
+                appendLine("none captured")
+            } else {
+                recentWiredStartupTimings.forEach { appendLine(it) }
+            }
+        }
     }
 
     private fun appendLine(line: String) {
@@ -108,6 +129,8 @@ internal class ConnectionTraceStore(private val directory: File) {
         private const val MAX_BYTES = 128 * 1024L
         private const val MAX_DETAIL_CHARS = 4_096
         private const val MAX_WIRED_PATH_REPORT_CHARS = 4_096
+        private const val MAX_WIRED_STARTUP_TIMING_CHARS = 512
+        private const val MAX_WIRED_STARTUP_TIMINGS = 3
         private const val MAX_TRACKED_ATTEMPTS = 256
         private val ATTEMPT_ID = Regex("attempt-[a-z0-9-]{1,40}")
         private val WIRED_PATH_RUN_ID = Regex("[A-Za-z0-9_-]{1,48}")
@@ -146,6 +169,7 @@ internal class ConnectionTraceStore(private val directory: File) {
         )
         private val ARCHIVE_FILES = listOf("connection-trace-1.log", "connection-trace-2.log", "connection-trace-3.log")
         private val REPORT_FILES = ARCHIVE_FILES.reversed() + CURRENT_FILE
+        private val WIRED_SYN_OBSERVATIONS = setOf("PRESENT", "ABSENT_WITHIN_WINDOW", "UNKNOWN")
         private val nextId = AtomicLong()
 
         private fun isValidWiredPathReport(report: String): Boolean {
@@ -182,6 +206,43 @@ internal class ConnectionTraceStore(private val directory: File) {
                 if (sealed == "1" && count > 0L && firstElapsed == null) return false
             }
             return index == fields.size
+        }
+
+        private fun isValidWiredStartupTiming(report: String): Boolean {
+            if (report.length > MAX_WIRED_STARTUP_TIMING_CHARS) return false
+            val fields = report.split(' ')
+            val keys = listOf(
+                "attempt",
+                "attach_generation",
+                "start_session_ns",
+                "first_full_bulk_out_ns",
+                "first_valid_airplay_syn_ns",
+                "syn_ack_tun_ns",
+                "syn_ack_out_ns",
+                "listener_accept_ns",
+                "rtsp_record_ns",
+                "main_setup_ns",
+                "main_first_frame_ns",
+                "teardown_ns",
+                "syn_observation",
+            )
+            if (fields.size != keys.size + 1 || fields[0] != "WIRED_STAGE3_V1") return false
+            for (index in keys.indices) {
+                val field = fields[index + 1]
+                val separator = field.indexOf('=')
+                if (separator <= 0 || separator != field.lastIndexOf('=')) return false
+                if (field.substring(0, separator) != keys[index]) return false
+                val value = field.substring(separator + 1)
+                when (keys[index]) {
+                    "attempt" -> if (value.toLongOrNull()?.let { it > 0L } != true) return false
+                    "attach_generation" -> if (
+                        value != "none" && value.toLongOrNull()?.let { it >= 0L } != true
+                    ) return false
+                    "syn_observation" -> if (value !in WIRED_SYN_OBSERVATIONS) return false
+                    else -> if (value != "none" && value.toLongOrNull()?.let { it >= 0L } != true) return false
+                }
+            }
+            return true
         }
 
         @Volatile private var appStore: ConnectionTraceStore? = null

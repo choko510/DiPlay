@@ -536,3 +536,5 @@ For semaphore-limited socket handlers, test both rejection at capacity and permi
 For Surface churn, gate new Surface creation before handing a wrapper to decoder workers. Include the current live Surface in the outstanding budget, keep one latest generation pending, and never release a Surface or Texture until its specific decoder ownership ACKs have completed.
 
 For an upstream range with many merge commits, keep source and merge decisions separate. Use parent topology to label PR integration duplicates versus branch-sync merges, and make each pending source row name the exact evidence that would change its disposition. Keep the old ledger population frozen when adding a new overlay.
+
+For wired startup timing, use one monotonic origin per attempt and exact successful full-size NCM transfers. Generation-fence callbacks, retain only bounded numeric milestones, and keep packet diagnostics independently opt-in; model tests do not replace CPU/heap measurements or device traces.

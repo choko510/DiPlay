@@ -935,11 +935,13 @@ class NcmUsbBridgeFixtureTest {
             assertArrayEquals(frame, Ntb16Codec.parse(script.outgoingBlocks.single()).single())
         }
 
-        val partialWrite = newBridge()
+        val partialTiming = WiredStartupTiming(attemptId = 3L)
+        val partialWrite = newBridge(wiredStartupTiming = partialTiming)
         partialWrite.second.enqueueBulkOutResult(1)
         val result = partialWrite.first.send(frame, timeoutMillis = 100)
         assertTrue(result is NcmSendResult.Failed)
         assertEquals(1L, partialWrite.first.diagnosticSnapshot().writePartialFailures)
+        assertEquals(null, partialTiming.snapshot().firstFullBulkOutNs)
         partialWrite.first.close()
     }
 
@@ -963,8 +965,10 @@ class NcmUsbBridgeFixtureTest {
         val frame = Step4TestFixtures.ethernetFrame(length = 60)
         val disabled = WiredPathDiagnostics("disabled", 1, enabled = false)
         val enabled = WiredPathDiagnostics("run-fixture", 1, enabled = true)
-        val (withoutDiagnostics, disabledScript) = newBridge(disabled)
+        val alwaysOnTiming = WiredStartupTiming(attemptId = 2L)
+        val (withoutDiagnostics, disabledScript) = newBridge(disabled, wiredStartupTiming = alwaysOnTiming)
         val (withDiagnostics, enabledScript) = newBridge(enabled)
+        withoutDiagnostics.setWiredPathAttachGeneration(4L)
         disabledScript.enqueueBulkOutResult(0)
         enabledScript.enqueueBulkOutResult(0)
 
@@ -984,12 +988,14 @@ class NcmUsbBridgeFixtureTest {
         assertEquals(1, enabledScript.outgoingBlocks.size)
         assertEquals(0L, disabled.snapshot(WiredPathReportReason.FINAL)
             .counter(WiredPathEvent.FIRST_BULK_OUT_FULL_SENT).count)
+        assertTrue(alwaysOnTiming.snapshot().firstFullBulkOutNs != null)
         assertEquals(1L, enabled.snapshot(WiredPathReportReason.FINAL)
             .counter(WiredPathEvent.FIRST_BULK_OUT_FULL_SENT).count)
     }
 
     private fun newBridge(
         wiredPathDiagnostics: WiredPathDiagnostics? = null,
+        wiredStartupTiming: WiredStartupTiming? = null,
         diagnosticProfile: NcmDiagnosticProfile = NcmDiagnosticProfile.AUTO,
         bulkInMaxPacketSize: Int = 512,
         bulkOutMaxPacketSize: Int = 512,
@@ -1012,6 +1018,7 @@ class NcmUsbBridgeFixtureTest {
             diagnosticsEnabled = false,
             onDiagnosticLog = {},
             wiredPathDiagnostics = wiredPathDiagnostics,
+            wiredStartupTiming = wiredStartupTiming,
             incompleteNtbNoProgressTimeoutMillis = incompleteNtbNoProgressTimeoutMillis,
         )
         return bridge to script

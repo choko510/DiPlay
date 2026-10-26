@@ -519,11 +519,19 @@ When tests share an executor with asynchronous retirement or preparation, do not
 
 Pipeline close callbacks precede the reaper's retirement-count decrement, so a close latch alone does not prove that another update is adoptable. Wait for the exposed adoption gate when that is the behavior under test.
 
+For concurrent route ownership, test selection and publication together while one callback is held at a latch; final owner state alone does not catch an older callback publishing after a newer removal.
+
+For persisted workspace identity, validate the external source ID against the decoded embedded profile ID at the repository boundary. Validation only during later edits allows invalid state to be applied at startup first.
+
+When initial hardware state and an asynchronous change listener can race, serialize validation and publication and fetch the current hardware state inside that serialized section; gating only by owner generation does not order two callbacks from the same track.
+
 For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()` cannot be overridden. Capture the exact specs at the existing pane's `measureChildWithMargins` call, pass those specs to `child.measure()`, and record the child result afterward; do not report a reconstructed probe value or a parent's pre-measure size.
 
 When a test latch runs inside a worker that is deliberately interrupted during shutdown, `await()` can throw before the test releases the gate. Make the test gate interruption-tolerant and rely on explicit cleanup to release it; allow enough time for a separately scheduled assertion thread to run in CI.
 
 Smart Loudness route calibration should use two trusted readings from the same route in increasing volume order. Failed, untrusted, reversed, or cross-route samples must leave the previous calibration intact.
+
+For playback volume monitoring, use the renderer's actual `AudioTrack.routedDevice` callback and reset route-bound samples when the route changes. A route label and Android MUSIC index—even when the index changes—do not prove that an OEM volume control follows it; keep AUTO unavailable until that correspondence is validated on supported hardware.
 
 ## Keep screen instrumentation isolated and classify execution precisely
 

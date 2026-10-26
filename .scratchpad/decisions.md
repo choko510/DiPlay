@@ -678,6 +678,12 @@ For DSP Split measurement diagnostics, retain the most recent 64 distinct measur
 
 For a retired DSP pipeline close failure, bind the failure to that pipeline's configuration generation and identity. Keep the status phase ACTIVE for the current graph, attach the old pipeline failure as separate metadata, and report that further updates are blocked; never mark the latest configured generation as a preparation failure for an older pipeline.
 
+Serialize active playback-route selection and monitor publication as one operation. Otherwise concurrent renderer callbacks can publish a stale route after a later owner removal.
+
+Treat persisted Studio workspaces whose source profile ID differs from their embedded snapshot ID as Invalid at repository load, and reject the same mismatch on save. Runtime startup then falls back to the selected profile instead of applying an internally inconsistent draft.
+
+Only MEDIA renderers publish the active playback sample rate used for EQ frequency validation. Route callbacks read the current routed device inside the listener generation gate immediately before publishing so delayed initial callbacks cannot restore an earlier route.
+
 When separating Surface retirement callbacks from coalesced jobs, preserve the original `SurfaceChanged` job if its callback list is empty. Tests for background DSP teardown must wait on an explicit close signal, and tests observing transient apply status must allow preparation to advance to deferred before reading it.
 
 The reaper's close callback can signal before its `finally` decrements the retired-pipeline count. Tests of controller adoption must wait for `canAdoptUpdate()` after close notification instead of reading it immediately.
@@ -687,6 +693,8 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 The decoder-retirement test must keep its stop gate closed until the assertion completes even though `VideoDecoder.close()` interrupts the worker to wake its queue. The test hook absorbs that expected interrupt while waiting, then restores the thread interrupt flag after explicit release.
 
 Smart Loudness AUTO trusts only explicit route-bound readings supplied by a platform adapter and user-captured quiet/reference points. The common module does not infer Android stream volume as physical playback volume; MANUAL and FIXED remain independent fallbacks.
+
+Production Android AUTO readings remain untrusted until supported-device evidence proves the hardware volume control follows Android's MUSIC index. Track the active `AudioTrack` route, index and fixed-volume status, but do not infer OEM/MCU correspondence from index changes alone. Keep the raw route address transient; only a SHA-256-derived route token reaches calibration storage.
 
 ## Keep DSP Studio rollback claims tied to production wiring
 

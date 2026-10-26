@@ -2,6 +2,7 @@ package com.shilapi.xcertplay.media
 
 import android.media.AudioAttributes
 import android.media.AudioManager
+import android.media.AudioRouting
 import android.media.AudioFormat as AndroidAudioFormat
 import android.media.AudioTimestamp
 import android.media.AudioTrack
@@ -9,6 +10,8 @@ import android.media.MediaCodec
 import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.Process
 import android.util.Log
 import android.view.Surface
@@ -66,6 +69,7 @@ import java.util.concurrent.TimeUnit
 
 private const val VIDEO_RECOVERY_WORKER_COUNT = 2
 private const val VIDEO_RECOVERY_QUEUE_CAPACITY = 16
+private val playbackRouteOwnerTokens = AtomicLong()
 
 internal fun interface AudioTrackWriteAdapterForTest {
     fun write(data: ByteArray, offset: Int, length: Int, writeMode: Int): Int
@@ -90,6 +94,7 @@ class AndroidMediaSink(
     private val mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
     private val onAudioDiagnostic: (String) -> Unit = {},
     onVideoFrameSubmittedToSurface: ((Int) -> Unit)? = null,
+    private val onPlaybackRouteChanged: ((Long, Int?, String?, Boolean) -> Unit)? = null,
 ) : MediaSink {
     constructor(
         surface: Surface? = null,
@@ -103,6 +108,7 @@ class AndroidMediaSink(
         onScreenStreamActiveChanged: ((Int, Boolean) -> Unit)? = null,
         mediaBufferMillis: Int = MediaAudioBuffer.DEFAULT_MILLIS,
         onAudioDiagnostic: (String) -> Unit = {},
+        onPlaybackRouteChanged: ((Long, Int?, String?, Boolean) -> Unit)? = null,
     ) : this(
         dspConfigProvider = DspConfigProvider { DspRuntimeConfig.disabled() },
         surface = surface,
@@ -116,6 +122,7 @@ class AndroidMediaSink(
         onScreenStreamActiveChanged = onScreenStreamActiveChanged,
         mediaBufferMillis = mediaBufferMillis,
         onAudioDiagnostic = onAudioDiagnostic,
+        onPlaybackRouteChanged = onPlaybackRouteChanged,
     )
     private data class VideoRecoveryHandler(val generation: Long, val callback: () -> Unit)
     private class PendingVideoRecovery(val generation: Long)
@@ -543,6 +550,7 @@ class AndroidMediaSink(
                 createNativePipeline(classification.dspRole, targetFormat, config)
             },
             audioTrackWriteAdapterForTest = audioTrackWriteAdapterForTest,
+            onPlaybackRouteChanged = onPlaybackRouteChanged,
             beforeDspUpdatePublishForTest = beforeDspUpdatePublishForTest,
             afterDspUpdateOwnerCheckForTest = afterDspUpdateOwnerCheckForTest,
             onDspUpdatePreparedForTest = onDspUpdatePreparedForTest,
@@ -1104,12 +1112,14 @@ internal class AudioRenderer(
         createNativePipeline(classification.dspRole, targetFormat, config)
     },
     private val audioTrackWriteAdapterForTest: AudioTrackWriteAdapterForTest? = null,
+    private val onPlaybackRouteChanged: ((Long, Int?, String?, Boolean) -> Unit)? = null,
     private val beforeDspUpdatePublishForTest: (() -> Unit)? = null,
     internal var afterDspUpdateOwnerCheckForTest: (() -> Unit)? = null,
     internal var afterHotApplyPendingReadForTest: (() -> Unit)? = null,
     private val onDspUpdatePreparedForTest: (() -> Unit)? = null,
     private val rendererOwnerToken: Long = 1L,
 ) : Closeable {
+    private val playbackRouteOwnerToken = playbackRouteOwnerTokens.incrementAndGet()
     private data class AudioPacket(val rtp: ByteArray, val sample: Int)
     private data class PreparedRendererDspUpdate(
         val update: DspPreparedUpdate,
@@ -1147,6 +1157,8 @@ internal class AudioRenderer(
     private val lifecycle = AudioRendererLifecycle()
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
+    private var trackRoutingListener: AudioRouting.OnRoutingChangedListener? = null
+    private val playbackRouteListenerGate = PlaybackRouteListenerGate<AudioTrack>()
     @Volatile internal var dspPipeline: DspPcmPipeline? = null
     private val pendingDspUpdate = AtomicReference<PreparedRendererDspUpdate?>(null)
     private val pendingHotApply = AtomicReference<PendingRendererHotApply?>(null)
@@ -1586,11 +1598,49 @@ internal class AudioRenderer(
         lastTrackFailureLogNs = 0L
         lastTrackRetryLogNs = null
         track = built
-        dspConfigProvider.reportPlaybackSampleRate(this, effective.sampleRate)
+        DspStreamPolicy.reportPlaybackSampleRate(
+            classification.dspRole,
+            this,
+            effective.sampleRate,
+            dspConfigProvider::reportPlaybackSampleRate,
+        )
         val trackDspFormat = DspAudioFormat(sampleRate, channels)
         completeLiveCrossfadeForTrackGeneration(trackDspFormat)
         beginTrackGeneration(trackDspFormat)
         activeTrackAttributes = attributes
+        val usesMusicStream = attributes.usage == AudioAttributes.USAGE_MEDIA ||
+            classification.route.useLegacyMusicStream
+        val routeGeneration = playbackRouteListenerGate.bind(built)
+        val routingListener = AudioRouting.OnRoutingChangedListener { routing ->
+            if (routing === built) {
+                playbackRouteListenerGate.publishCurrentIfCurrent(
+                    built,
+                    routeGeneration,
+                    { runCatching { built.routedDevice }.getOrNull() },
+                ) { device ->
+                    onPlaybackRouteChanged?.invoke(
+                        playbackRouteOwnerToken,
+                        device?.type,
+                        device?.address,
+                        usesMusicStream,
+                    )
+                }
+            }
+        }
+        trackRoutingListener = routingListener
+        runCatching { built.addOnRoutingChangedListener(routingListener, Handler(Looper.getMainLooper())) }
+        playbackRouteListenerGate.publishCurrentIfCurrent(
+            built,
+            routeGeneration,
+            { runCatching { built.routedDevice }.getOrNull() },
+        ) { device ->
+            onPlaybackRouteChanged?.invoke(
+                playbackRouteOwnerToken,
+                device?.type,
+                device?.address,
+                usesMusicStream,
+            )
+        }
         playbackRouteLogged = false
         statsLastUnderruns = runCatching { built.underrunCount }.getOrDefault(0)
         frameBytes = nextFrameBytes
@@ -3642,7 +3692,12 @@ internal class AudioRenderer(
     private fun releaseTrack() {
         val track = track
         this.track = null
-        dspConfigProvider.reportPlaybackSampleRate(this, null)
+        DspStreamPolicy.reportPlaybackSampleRate(
+            classification.dspRole,
+            this,
+            null,
+            dspConfigProvider::reportPlaybackSampleRate,
+        )
         activeDecoderPcmFormat = null
         activeTrackAttributes = null
         playbackRouteLogged = false
@@ -3659,6 +3714,14 @@ internal class AudioRenderer(
         lastTrackFailureLogFormat = null
         lastTrackRetryLogNs = null
         if (track != null) {
+            val listener = trackRoutingListener
+            trackRoutingListener = null
+            playbackRouteListenerGate.release(track) {
+                onPlaybackRouteChanged?.invoke(playbackRouteOwnerToken, null, null, false)
+            }
+            listener?.let { routeListener ->
+                runCatching { track.removeOnRoutingChangedListener(routeListener) }
+            }
             try {
                 track.pause()
             } catch (_: Exception) {

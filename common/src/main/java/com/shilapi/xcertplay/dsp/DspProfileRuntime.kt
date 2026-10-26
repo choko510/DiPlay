@@ -1,6 +1,10 @@
 package com.shilapi.xcertplay.dsp
 
 import android.content.Context
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
@@ -37,6 +41,10 @@ internal class DspProfileRuntime private constructor(
     private val runtimeConfig = DspRuntimeConfigStore()
     private val volumeSource = AtomicReference<DspVolumeSource>(ManualVolumeSource())
     private val cachedVolumeReading = AtomicReference(DspVolumeReading())
+    private val playbackVolumeMonitor = AndroidPlaybackVolumeMonitor(applicationContext) { reading ->
+        onPlaybackVolumeReadingChanged(reading)
+    }
+    private val playbackRouteOwners = PlaybackRouteOwners()
     private val studioApplyGeneration = AtomicLong()
     private val activeStudioWorkspace: AtomicReference<DspStudioWorkspace>
     private val committedStudioWorkspace: AtomicReference<DspStudioWorkspace>
@@ -65,6 +73,8 @@ internal class DspProfileRuntime private constructor(
         committedStudioWorkspace = AtomicReference(initialWorkspace.deepCopy())
         activeProfile = AtomicReference(initialWorkspace.baseProfileSnapshot)
         dspEnabled = AtomicBoolean(initialEnabled)
+        playbackVolumeMonitor.start()
+        volumeSource.set(playbackVolumeMonitor)
         cachedVolumeReading.set(readVolumeSource())
         runtimeConfig.update(resolveStudioWorkspace(initialWorkspace, initialEnabled, impulseResponseFor(initialWorkspace.baseProfileSnapshot)))
     }
@@ -117,6 +127,29 @@ internal class DspProfileRuntime private constructor(
             }
         }
         return reading
+    }
+
+    internal fun onPlaybackRouteChanged(owner: Long, deviceType: Int?, deviceAddress: String?, usesMusicStream: Boolean) {
+        playbackRouteOwners.updateAndPublish(owner, deviceType, deviceAddress, usesMusicStream) { route ->
+            playbackVolumeMonitor.setPlaybackRoute(route)
+        }
+    }
+
+    internal fun onPlaybackVolumeReadingChanged(reading: DspVolumeReading) {
+        val previous = cachedVolumeReading.getAndSet(reading)
+        if (previous == reading) return
+        val workspace = activeStudioWorkspace.get()
+        val enabled = dspEnabled.get()
+        ioExecutor.execute {
+            if (activeStudioWorkspace.get() == workspace) {
+                runCatching { applyStudioWorkspace(workspace, enabled, impulseResponseFor(workspace.baseProfileSnapshot)) }
+            }
+        }
+    }
+
+    internal fun closeForTesting() {
+        playbackVolumeMonitor.stop()
+        ioExecutor.shutdownNow()
     }
 
     internal fun setStudioVolumeSource(source: DspVolumeSource) {
@@ -423,7 +456,10 @@ internal class DspProfileRuntime private constructor(
         internal fun peekInstance(): DspProfileRuntime? = instance
 
         internal fun resetForTesting() {
-            synchronized(this) { instance = null }
+            synchronized(this) {
+                instance?.closeForTesting()
+                instance = null
+            }
         }
     }
 }

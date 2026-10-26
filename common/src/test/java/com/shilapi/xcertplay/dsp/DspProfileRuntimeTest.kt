@@ -12,6 +12,7 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -98,6 +99,96 @@ class DspProfileRuntimeTest {
             assertTrue(resolved.enabled)
             assertTrue(resolved.macroTone.enabled)
             assertEquals(4.0, resolved.macroTone.bassGainDb, 0.0)
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
+    fun startupRejectsWorkspaceWhoseSourceIdDoesNotMatchItsSnapshot() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+        try {
+            val selectedProfile = DspProfilePresets.find("flat")!!
+            val mismatchedSnapshot = DspProfilePresets.find("vocal")!!
+            val workspace = DspStudioWorkspace(
+                profileSourceId = mismatchedSnapshot.id,
+                baseProfileSnapshot = mismatchedSnapshot,
+                macros = DspSoundMacroSettings(enabled = true, bassImpact = 100),
+            )
+            assertEquals(DspWorkspaceSaveResult.SAVED, DspStudioWorkspaceRepository(context.filesDir).save(workspace))
+            val savedJson = JSONObject(workspaceFile.readText()).put("baseProfileSourceId", selectedProfile.id)
+            workspaceFile.writeText(savedJson.toString())
+            preferences.edit()
+                .putBoolean(KEY_DSP_ENABLED, true)
+                .putString(KEY_SELECTED_PROFILE_ID, selectedProfile.id)
+                .commit()
+
+            val runtime = DspProfileRuntime.get(context)
+
+            assertEquals(selectedProfile.id, runtime.selectedProfile().id)
+            assertEquals(selectedProfile.id, runtime.createStudioSessionCoordinator().preview.baseProfileSnapshot.id)
+            assertFalse(runtime.configProvider.snapshot().macroTone.enabled)
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
+    fun playbackVolumeUpdatesAppliedAutoConfigWhileStudioIsClosed() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+        try {
+            val profile = DspProfilePresets.find("flat")!!
+            val workspace = DspStudioWorkspace(
+                profileSourceId = profile.id,
+                baseProfileSnapshot = profile,
+                smartLoudness = DspSmartLoudnessSettings(
+                    mode = DspSmartLoudnessMode.AUTO_CALIBRATED,
+                    calibration = DspLoudnessCalibration("route-token", 0.0, 1.0),
+                ),
+            )
+            assertEquals(DspWorkspaceSaveResult.SAVED, DspStudioWorkspaceRepository(context.filesDir).save(workspace))
+            context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit()
+                .putBoolean(KEY_DSP_ENABLED, true)
+                .putString(KEY_SELECTED_PROFILE_ID, profile.id)
+                .commit()
+            val runtime = DspProfileRuntime.get(context)
+            assertFalse(runtime.configProvider.snapshot().smartLoudness.enabled)
+
+            runtime.onPlaybackVolumeReadingChanged(
+                DspVolumeReading(routeToken = "route-token", volumeFraction = 0.1, trustworthy = true),
+            )
+            awaitSmartLoudnessState(runtime, enabled = true)
+
+            runtime.onPlaybackVolumeReadingChanged(
+                DspVolumeReading(routeToken = "different-route", volumeFraction = 0.1, trustworthy = true),
+            )
+            awaitSmartLoudnessState(runtime, enabled = false)
+
+            val generation = runtime.configProvider.versionedSnapshot().generation
+            runtime.onPlaybackVolumeReadingChanged(
+                DspVolumeReading(routeToken = "untrusted-route-a", volumeFraction = 0.4, trustworthy = false),
+            )
+            runtime.onPlaybackVolumeReadingChanged(
+                DspVolumeReading(routeToken = "untrusted-route-b", volumeFraction = 0.7, trustworthy = false),
+            )
+            val completed = CountDownLatch(1)
+            runtime.previewStudioWorkspaceAsync(workspace, enabled = true) { completed.countDown() }
+            drainMainLooperUntil(completed)
+
+            assertEquals(generation, runtime.configProvider.versionedSnapshot().generation)
         } finally {
             DspProfileRuntime.resetForTesting()
             context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
@@ -341,5 +432,14 @@ class DspProfileRuntimeTest {
         }
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue("main-thread callback completed", completed.await(0, TimeUnit.MILLISECONDS))
+    }
+
+    private fun awaitSmartLoudnessState(runtime: DspProfileRuntime, enabled: Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (runtime.configProvider.snapshot().smartLoudness.enabled != enabled && System.nanoTime() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.sleep(5)
+        }
+        assertEquals(enabled, runtime.configProvider.snapshot().smartLoudness.enabled)
     }
 }

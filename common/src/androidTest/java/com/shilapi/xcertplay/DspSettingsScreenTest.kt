@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.isToggleable
@@ -90,9 +91,9 @@ class DspSettingsScreenTest {
 
             presentation.value = DspPresentationMode.FULL
             composeRule.waitForIdle()
-            composeRule.onNodeWithContentDescription("Studio").performClick()
-            composeRule.onNodeWithText(context.getString(R.string.dsp_save_custom_1)).assertExists()
-            composeRule.onNodeWithText(context.getString(R.string.dsp_save_custom_2)).assertExists()
+            composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_save_custom_1)).performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_save_custom_2)).performScrollTo().assertIsDisplayed()
             composeRule.onNodeWithContentDescription("Advanced").performScrollTo().performClick()
             composeRule.onNodeWithContentDescription("Advanced, selected").assertExists()
             composeRule.onNode(isToggleable()).performClick()

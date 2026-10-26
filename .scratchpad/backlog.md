@@ -4,7 +4,7 @@
 
 ## Ordered implementation
 
-- [ ] After B05, execute B06–B08 from the attached 2026-10-26 specification in order: verify/reproduce remaining source-level issues, make only minimal evidenced fixes, add focused regression coverage, record exact source SHA and rollback. Recheck current code first; do not reimplement completed fixes.
+- [ ] After B06, execute B07–B08 from the attached 2026-10-26 specification in order: verify/reproduce remaining source-level issues, make only minimal evidenced fixes, add focused regression coverage, record exact source SHA and rollback. Recheck current code first; do not reimplement completed fixes.
 - [ ] B09: run review-ready host/native, unit, lint/build, JNI/R8 and API 35 instrumentation gates on one exact source SHA; report every skipped job separately.
 - [ ] B10/B11/B12: prepare device, conditional no-go and final gate packages. Keep missing physical and signing evidence blocked; do not mark G8 pass.
 

@@ -517,6 +517,8 @@ For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()
 
 For repeated UI diagnostics, a string-based dedupe API still allocates the candidate string before it can reject a duplicate. Compare primitive signature fields first, then allocate the retained signature and formatted log only when the value is new.
 
+For microphone zero-read coverage, inject a scripted initialized `AudioRecord` through the existing Builder shadow and exercise the real capture worker plus a loopback UDP receiver. Hold the recorder before its first positive frame so a timeout proves zero reads never synthesize or transmit silence; then assert exactly one packet follows the positive frame.
+
 Keep log-volume limits separate from bounded recent-history storage: an evicted signature can otherwise be emitted again indefinitely. A process-wide emission counter provides a hard cap while retaining the rolling history for diagnostics.
 
 CI evidence tests should assert the meaning of a historical status record rather than an exact phrase that later becomes stale. Keep the run SHA and skipped job scope explicit when updating those records.

@@ -139,6 +139,19 @@ class DspProfileRuntimeTest {
                 DspVolumeReading(routeToken = "different-route", volumeFraction = 0.1, trustworthy = true),
             )
             awaitSmartLoudnessState(runtime, enabled = false)
+
+            val generation = runtime.configProvider.versionedSnapshot().generation
+            runtime.onPlaybackVolumeReadingChanged(
+                DspVolumeReading(routeToken = "untrusted-route-a", volumeFraction = 0.4, trustworthy = false),
+            )
+            runtime.onPlaybackVolumeReadingChanged(
+                DspVolumeReading(routeToken = "untrusted-route-b", volumeFraction = 0.7, trustworthy = false),
+            )
+            val completed = CountDownLatch(1)
+            runtime.previewStudioWorkspaceAsync(workspace, enabled = true) { completed.countDown() }
+            drainMainLooperUntil(completed)
+
+            assertEquals(generation, runtime.configProvider.versionedSnapshot().generation)
         } finally {
             DspProfileRuntime.resetForTesting()
             context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()

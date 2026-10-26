@@ -66,4 +66,16 @@ class AndroidPlaybackVolumeMonitorTest {
         assertNull(calibration.captureReferencePoint(secondRoute))
         assertNull(calibration.calibration)
     }
+
+    @Test
+    fun releasingOneAudioOwnerKeepsAnotherOwnersRouteActive() {
+        val owners = PlaybackRouteOwners()
+        val first = owners.update(1L, 11, "first-device", true)
+        val second = owners.update(2L, 12, "second-device", true)
+
+        assertEquals("second-device", second?.deviceAddress)
+        assertEquals("second-device", owners.update(1L, null, null, false)?.deviceAddress)
+        assertNull(owners.update(2L, null, null, false))
+        assertEquals("first-device", first?.deviceAddress)
+    }
 }

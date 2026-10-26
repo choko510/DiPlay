@@ -44,6 +44,7 @@ internal class DspProfileRuntime private constructor(
     private val playbackVolumeMonitor = AndroidPlaybackVolumeMonitor(applicationContext) { reading ->
         onPlaybackVolumeReadingChanged(reading)
     }
+    private val playbackRouteOwners = PlaybackRouteOwners()
     private val studioApplyGeneration = AtomicLong()
     private val activeStudioWorkspace: AtomicReference<DspStudioWorkspace>
     private val committedStudioWorkspace: AtomicReference<DspStudioWorkspace>
@@ -124,8 +125,10 @@ internal class DspProfileRuntime private constructor(
         return reading
     }
 
-    internal fun onPlaybackRouteChanged(deviceType: Int?, deviceAddress: String?, usesMusicStream: Boolean) {
-        playbackVolumeMonitor.setPlaybackRoute(deviceType, deviceAddress, usesMusicStream)
+    internal fun onPlaybackRouteChanged(owner: Long, deviceType: Int?, deviceAddress: String?, usesMusicStream: Boolean) {
+        playbackVolumeMonitor.setPlaybackRoute(
+            playbackRouteOwners.update(owner, deviceType, deviceAddress, usesMusicStream),
+        )
     }
 
     internal fun onPlaybackVolumeReadingChanged(reading: DspVolumeReading) {

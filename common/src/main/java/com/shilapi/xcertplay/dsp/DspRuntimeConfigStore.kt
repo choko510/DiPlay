@@ -50,6 +50,7 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
     }
 
     fun update(config: DspRuntimeConfig) {
+        if (current.get().config.hasSameEffectiveSettings(config)) return
         val next = current.updateAndGet { previous -> DspConfigSnapshot(previous.generation + 1, config) }
         while (true) {
             val previous = applyStatus.get()

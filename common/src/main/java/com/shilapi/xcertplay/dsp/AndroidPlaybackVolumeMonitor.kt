@@ -10,6 +10,7 @@ import java.security.MessageDigest
 
 internal class AndroidPlaybackVolumeMonitor(
     context: Context,
+    private val volumeChangedAction: String = ACTION_VOLUME_CHANGED,
     private val onReadingChanged: (DspVolumeReading) -> Unit,
 ) : DspVolumeSource {
     private val appContext = context.applicationContext
@@ -26,7 +27,7 @@ internal class AndroidPlaybackVolumeMonitor(
     @Synchronized
     fun start() {
         if (started) return
-        val filter = IntentFilter(ACTION_VOLUME_CHANGED)
+        val filter = IntentFilter(volumeChangedAction)
         if (Build.VERSION.SDK_INT >= 33) {
             appContext.registerReceiver(volumeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         } else {
@@ -45,7 +46,11 @@ internal class AndroidPlaybackVolumeMonitor(
 
     @Synchronized
     fun setPlaybackRoute(deviceType: Int?, deviceAddress: String?, usesMusicStream: Boolean) {
-        val nextRoute = PlaybackRoute(deviceType, deviceAddress, usesMusicStream)
+        setPlaybackRoute(PlaybackRoute(deviceType, deviceAddress, usesMusicStream))
+    }
+
+    @Synchronized
+    fun setPlaybackRoute(nextRoute: PlaybackRoute?) {
         route = nextRoute
         refresh()
     }
@@ -82,15 +87,32 @@ internal class AndroidPlaybackVolumeMonitor(
     private fun currentStreamIndex(): Int? =
         runCatching { audioManager?.getStreamVolume(AudioManager.STREAM_MUSIC) }.getOrNull()
 
-    private data class PlaybackRoute(
-        val deviceType: Int?,
-        val deviceAddress: String?,
-        val usesMusicStream: Boolean,
-    )
-
     private companion object {
         const val ACTION_VOLUME_CHANGED = "android.media.VOLUME_CHANGED_ACTION"
         const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
+    }
+}
+
+internal data class PlaybackRoute(
+    val deviceType: Int?,
+    val deviceAddress: String?,
+    val usesMusicStream: Boolean,
+)
+
+internal class PlaybackRouteOwners {
+    private data class OwnedRoute(val route: PlaybackRoute, val order: Long)
+
+    private val routes = LinkedHashMap<Long, OwnedRoute>()
+    private var order = 0L
+
+    @Synchronized
+    fun update(owner: Long, deviceType: Int?, deviceAddress: String?, usesMusicStream: Boolean): PlaybackRoute? {
+        if (deviceType == null || deviceAddress.isNullOrBlank() || !usesMusicStream) {
+            routes.remove(owner)
+        } else {
+            routes[owner] = OwnedRoute(PlaybackRoute(deviceType, deviceAddress, true), ++order)
+        }
+        return routes.values.maxByOrNull(OwnedRoute::order)?.route
     }
 }
 

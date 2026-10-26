@@ -26,6 +26,10 @@ class DspRuntimeConfig(
     val dynamicBass: DspDynamicBassRuntimeConfig = DspDynamicBassRuntimeConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
+
+    fun hasSameEffectiveSettings(other: DspRuntimeConfig): Boolean =
+        DspUpdatePlanner.diff(this, other).isEmpty()
+
     val preampDb: Double
         get() = gainDb
 

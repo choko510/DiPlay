@@ -59,7 +59,7 @@ class DspLiveUpdateControllerTest {
             activeLatencyFrames = { 0 },
             canAdoptLatencyChange = { !committed.get() },
             onPrepared = { prepared.offer(it) },
-            onDeferred = { deferred.offer(it) },
+            onDeferred = { generation, _ -> deferred.offer(generation) },
             pipelinePreparer = { format, _ ->
                 preparing.countDown()
                 check(release.await(5, TimeUnit.SECONDS))
@@ -409,7 +409,7 @@ class DspLiveUpdateControllerTest {
             initialGeneration = 0L,
             activeLatencyFrames = { 128 },
             onPrepared = { prepared.offer(it) },
-            onDeferred = { deferred.offer(it) },
+            onDeferred = { generation, _ -> deferred.offer(generation) },
             pipelinePreparer = { format, config ->
                 val latency = if (config.convolver.enabled) 128 else 0
                 trackingPipeline(format, latency) { }

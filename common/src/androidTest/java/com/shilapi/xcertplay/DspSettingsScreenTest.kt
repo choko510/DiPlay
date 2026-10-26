@@ -70,15 +70,24 @@ class DspSettingsScreenTest {
                     reason = deferredReason,
                 ),
             )
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
-            }
-
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
             composeRule.onNodeWithText("Bass Impact").assertExists()
             composeRule.onNodeWithContentDescription("Macro Power").performClick()
             assertMacroPowerEnabled(expectedMacroPowerEnabled)
             assertEquals("draft edits must not reach runtime before Preview", initialConfig, runtime.configProvider.snapshot())
+
+            presentation.value = DspPresentationMode.FULL
+            composeRule.waitForIdle()
+            composeRule.onNodeWithContentDescription("Profile").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+
+            presentation.value = DspPresentationMode.COMPACT_SPLIT
+            composeRule.waitForIdle()
+            composeRule.onNodeWithContentDescription("Studio").performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
             composeRule.waitForIdle()
             composeRule.onNodeWithText("Unsaved DSP Studio draft").assertExists()
             composeRule.onNodeWithText("Preview").performScrollTo().assertIsEnabled().performClick()

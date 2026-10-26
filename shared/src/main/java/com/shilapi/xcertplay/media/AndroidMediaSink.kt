@@ -2303,14 +2303,19 @@ internal class AudioRenderer(
                     )
                 }
             },
-            onDeferred = { generation ->
+            onDeferred = { generation, reason ->
                 if (isCurrentLiveUpdateController(controllerEpoch, format) &&
                     requestedDspGeneration == generation
                 ) {
                     livePreparationPending = false
                     deferredDspGeneration = generation
                     reportDspApplyStatus(
-                        DspRendererApplyStatus(generation, DspRendererApplyPhase.DEFERRED, activeDspGeneration),
+                        DspRendererApplyStatus(
+                            generation,
+                            DspRendererApplyPhase.DEFERRED,
+                            activeDspGeneration,
+                            reason = reason,
+                        ),
                     )
                 }
             },
@@ -2683,7 +2688,11 @@ internal class AudioRenderer(
             if (!pipeline.enqueueHotUpdate(hotUpdate)) {
                 pendingDspUpdate.compareAndSet(null, prepared)
                 deferredDspGeneration = update.generation
-                reportDspApplyStatus(prepared.deferredStatus)
+                reportDspApplyStatus(
+                    prepared.deferredStatus.copy(
+                        reason = "native DSP processor rejected the hot update; retrying on the next PCM block while keeping the active pipeline",
+                    ),
+                )
                 return
             }
             pendingHotApply.set(PendingRendererHotApply(prepared, pipeline, hotUpdate.hotContextToken))

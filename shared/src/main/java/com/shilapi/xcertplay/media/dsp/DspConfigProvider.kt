@@ -36,6 +36,10 @@ fun interface DspConfigProvider {
 
     fun addListener(listener: (DspConfigSnapshot) -> Unit): Closeable = Closeable { }
 
+    fun activePlaybackSampleRateHz(): Int? = null
+
+    fun reportPlaybackSampleRate(owner: Any, sampleRateHz: Int?) = Unit
+
     fun rendererApplyStatus(): DspRendererApplyStatus? = null
 
     fun reportRendererApplyStatus(status: DspRendererApplyStatus) = Unit

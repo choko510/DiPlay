@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">DiPlay</string>
+    <string name="dsp_studio_tab_studio">Studio</string>
+    <string name="dsp_studio_tab_eq">EQ</string>
+    <string name="dsp_studio_tab_spatial">Spatial</string>
+    <string name="dsp_studio_tab_dynamics">Dynamics</string>
+    <string name="dsp_studio_tab_advanced">Advanced</string>
+    <string name="dsp_studio_tab_selected">%1$s, selected</string>
+    <string name="dsp_eq_editor_heading">Parametric EQ · %1$d/%2$d total active · %3$d Cabin bands · %4$s</string>
+    <string name="dsp_eq_playback_rate_active">Playback rate %1$d Hz</string>
+    <string name="dsp_eq_playback_rate_unknown">Playback rate unknown; preview at %1$d Hz</string>
 </resources>

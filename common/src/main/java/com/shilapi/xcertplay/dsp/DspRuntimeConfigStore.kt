@@ -6,17 +6,33 @@ import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import java.io.Closeable
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntimeConfig.disabled()) : DspConfigProvider {
     private val current = AtomicReference(DspConfigSnapshot(0L, initialConfig))
     private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
     private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
+    private val playbackSampleRates = ConcurrentHashMap<Any, PlaybackSampleRate>()
+    private val nextPlaybackSampleRateRevision = AtomicLong()
 
     override fun snapshot(): DspRuntimeConfig = current.get().config
 
     override fun versionedSnapshot(): DspConfigSnapshot = current.get()
+
+    override fun activePlaybackSampleRateHz(): Int? = playbackSampleRates.values
+        .maxByOrNull(PlaybackSampleRate::revision)
+        ?.sampleRateHz
+
+    override fun reportPlaybackSampleRate(owner: Any, sampleRateHz: Int?) {
+        if (sampleRateHz == null) {
+            playbackSampleRates.remove(owner)
+        } else if (sampleRateHz in MIN_PLAYBACK_SAMPLE_RATE_HZ..MAX_PLAYBACK_SAMPLE_RATE_HZ) {
+            playbackSampleRates[owner] = PlaybackSampleRate(nextPlaybackSampleRateRevision.incrementAndGet(), sampleRateHz)
+        }
+    }
 
     override fun rendererApplyStatus(): DspRendererApplyStatus? = applyStatus.get()
 
@@ -62,5 +78,12 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
             if (applyStatus.compareAndSet(previous, requested)) break
         }
         listeners.forEach { listener -> runCatching { listener(next) } }
+    }
+
+    private data class PlaybackSampleRate(val revision: Long, val sampleRateHz: Int)
+
+    private companion object {
+        const val MIN_PLAYBACK_SAMPLE_RATE_HZ = 8_000
+        const val MAX_PLAYBACK_SAMPLE_RATE_HZ = 192_000
     }
 }

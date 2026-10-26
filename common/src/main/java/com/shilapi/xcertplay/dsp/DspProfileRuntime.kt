@@ -73,6 +73,8 @@ internal class DspProfileRuntime private constructor(
 
     fun isDspEnabled(): Boolean = dspEnabled.get()
 
+    fun activePlaybackSampleRateHz(): Int? = runtimeConfig.activePlaybackSampleRateHz()
+
     fun createStudioSessionCoordinator(): DspStudioSessionCoordinator = studioSessionCoordinator
 
     fun applyStudioModulePreset(workspace: DspStudioWorkspace, preset: DspModulePreset): DspStudioWorkspace? =

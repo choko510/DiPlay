@@ -8,6 +8,8 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import org.junit.Assert.assertEquals
@@ -41,8 +43,11 @@ class DspEqEditorGraphTest {
         }
 
         val graph = composeRule.onNodeWithContentDescription(
-            "Equalizer frequency response graph. Tap or drag a band handle to edit frequency and gain.",
+            InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.dsp_eq_graph_description),
         )
+        composeRule.onNodeWithContentDescription(
+            InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.dsp_eq_band_enable, 1),
+        ).assertExists()
         composeRule.onNodeWithText("Playback rate 48000 Hz", substring = true).assertExists()
         val bounds = graph.fetchSemanticsNode().boundsInRoot
         graph.performTouchInput {
@@ -87,7 +92,7 @@ class DspEqEditorGraphTest {
         }
 
         val graph = composeRule.onNodeWithContentDescription(
-            "Equalizer frequency response graph. Tap or drag a band handle to edit frequency and gain.",
+            InstrumentationRegistry.getInstrumentation().targetContext.getString(R.string.dsp_eq_graph_description),
         )
         val bounds = graph.fetchSemanticsNode().boundsInRoot
         graph.performTouchInput {

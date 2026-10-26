@@ -640,7 +640,7 @@ Declare `CarPlayVpnService` as a protected exported VpnService for Android's sys
 
 Treat an apparent consecutive NTH16 pair inside the unprotected tail of any declared block length as ambiguous and fail closed; never resynchronize into that tail. For a complete but incomplete-length NTB, fail the bridge after 30 seconds without new bytes while resetting the timer on progress.
 
-Keep TextureView SurfaceTexture ownership until each MAIN/ALT decoder worker acknowledges its surface transition. Release only after all owners acknowledge; if MediaCodec release fails, retain the old surface and prevent decoder replacement until safe release. Do not wait for a retiring decoder on the screen receive path.
+Keep TextureView SurfaceTexture ownership until each MAIN/ALT decoder worker acknowledges its surface transition. Release only after all owners acknowledge; if MediaCodec release fails, retain the old surface and prevent decoder replacement until safe release. Do not wait for a retiring decoder on the screen receive path. VIDEO-02 injects a release exception and verifies retention/replacement blocking before retrying cleanup.
 
 Keep video control/recovery work bounded and coalesce superseded surface/config jobs while carrying every surface-retirement callback forward. Scope one in-flight keyframe recovery request per stream type and bound the executor to two workers plus 16 queued jobs.
 

@@ -517,6 +517,8 @@ Pipeline close callbacks precede the reaper's retirement-count decrement, so a c
 
 For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()` cannot be overridden. Capture the exact specs at the existing pane's `measureChildWithMargins` call, pass those specs to `child.measure()`, and record the child result afterward; do not report a reconstructed probe value or a parent's pre-measure size.
 
+For decoder retirement, a throwing `MediaCodec.release()` does not prove the old Surface is safe to reuse. Retain the old decoder/Surface owner and deny replacement until a later release retry succeeds; inject the release boundary with a callback that delegates directly to `codec.release()` by default so the ownership failure path is deterministic in Robolectric.
+
 For repeated UI diagnostics, a string-based dedupe API still allocates the candidate string before it can reject a duplicate. Compare primitive signature fields first, then allocate the retained signature and formatted log only when the value is new.
 
 For microphone zero-read coverage, inject a scripted initialized `AudioRecord` through the existing Builder shadow and exercise the real capture worker plus a loopback UDP receiver. Hold the recorder before its first positive frame so a timeout proves zero reads never synthesize or transmit silence; then assert exactly one packet follows the positive frame.

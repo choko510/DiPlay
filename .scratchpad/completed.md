@@ -6,6 +6,7 @@
 
 - Completed B08 timing evidence and B10/B11/B12 result packages; API 35 Shared instrumentation later passed 19/19 while the earlier p99 failure remains recorded. Release stays `NO_GO_THIS_RUN` pending hardware, signing, and review gates.
 - Added the F-05 eight-prior-port classifier regression and testable fail-closed Android CI classification; local shared/common suites pass 864/864 and EX-08 fixtures pass 19/19. Run #481 passed full workflow-sensitive host/API 35 checks, and docs-only run #482 validated the published result package while PR #45 remained Draft.
+- Added VIDEO-02 MediaCodec release-failure injection: a failed release retains the decoder/Surface owner and blocks replacement until safe cleanup. Local shared/common tests pass 865/865; workflow-sensitive run #486 passed host/native/sanitizer/lint/build/JNI/R8 and API 35 Shared 19/19 + Common 1/1. F8 and DSP Split diagnostics/layout corrections are present; target-device, signing, and independent-review gates remain open.
 
 ## 2026-10-23
 

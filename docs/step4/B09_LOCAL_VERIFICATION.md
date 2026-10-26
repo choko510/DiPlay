@@ -51,13 +51,13 @@ The local helper `scripts/run_android_instrumentation.sh` cannot complete its po
 
 [Run #476](https://github.com/choko510/DiPlay/actions/runs/40358035639) on code/test HEAD `0f425cdc` passed `changes`, static `check`, Draft unit, quick-baseline and Draft scope. The later docs-only [run #477](https://github.com/choko510/DiPlay/actions/runs/40361161687) on `94d2ba35` passed `changes`, static `check` and Draft scope; quick-baseline was skipped. Both runs explicitly skipped host/native/sanitizer/full lint/build/JNI/R8 and Android instrumentation because PR #45 remains Draft. Neither is a full current-head B09 pass.
 
-## Current test-head and workflow-sensitive follow-up
+## Current-head verification on 2026-10-27
 
-- Current code/test HEAD: `ae60351267b14a8ef6de3dacb6f718b37bc2310c`; product source remains `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`.
-- Local `:shared:testDebugUnitTest :common:testDebugUnitTest` passes 864/864, including the audio-owner-thread and eight-prior-ports classifier regressions. CI classifier fixtures pass for CI-01..CI-10; EX-08 remains 19/19 with 1,400 inventory rows.
-- Workflow-sensitive [run #481](https://github.com/choko510/DiPlay/actions/runs/40366764979) passed `changes`, full host native and ASan/UBSan (Linux default leak detection), shared/common unit tests, both app lint tasks, Debug/Benchmark assemblies, JNI/R8, API 35 instrumentation, `host-baseline`, and Draft scope. API 35 instrumentation passed Shared 19/19 and Common 1/1. `quick-baseline` was skipped because the full host lane ran instead.
-- The earlier API 35 Shared p99 failure/crash remains recorded separately from the later local and hosted passes. No performance limit changed; the earlier outlier's cause remains unconfirmed. The default local macOS sanitizer cannot run LeakSanitizer, while the hosted Linux sanitizer passed.
-- PR #45 remains Draft and run #481 reports `DRAFT_ONLY_NOT_RELEASE_READY`; TS10/K706+iPhone, signed update/rollback, and independent review gates remain open.
+- Product-feature baseline: `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`. Current code/test HEAD: `52799604c5810ea97b2c7b5e685cf1c2155de773`; workflow-classifier policy HEAD: `22ada3a051d16f07c742771bc979e6b900642218`.
+- Local `:shared:testDebugUnitTest :common:testDebugUnitTest` passes 865/865, including the VIDEO-02 release-failure regression. Both apps' lint, Debug/Benchmark assemblies, JNI/R8 mappings, native DSP and ASan/UBSan (with local LeakSanitizer disabled), and API 35 Shared 19/19 + Common 1/1 pass. EX-08 remains 19/19 with 1,400 inventory rows; classifier fixtures pass CI-01..CI-10.
+- Workflow-sensitive [run #486](https://github.com/choko510/DiPlay/actions/runs/40372862000) passed `changes`, host native DSP, ASan/UBSan, shared/common unit tests, both app lint tasks, Debug/Benchmark assemblies, JNI/R8, API 35 instrumentation, `host-baseline`, and Draft scope. API 35 instrumentation passed Shared 19/19 and Common 1/1. `quick-baseline` was skipped because the full host lane ran instead.
+- [Run #481](https://github.com/choko510/DiPlay/actions/runs/40366764979) passed the same full hosted gates on the preceding code/test head. The earlier API 35 Shared p99 failure/crash remains recorded separately from both passing repeats. No performance limit changed; the earlier outlier's cause is unconfirmed. Local macOS LeakSanitizer remains unavailable; hosted Linux sanitizer passed.
+- PR #45 remains Draft and run #486 reports `DRAFT_ONLY_NOT_RELEASE_READY`; TS10/K706+iPhone, signed update/rollback, and independent review gates remain open.
 
 ## Acceptance boundary
 

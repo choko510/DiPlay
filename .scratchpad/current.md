@@ -10,10 +10,9 @@
 
 - F8-01/02/03 production fixes and MAIN/ALT, RTSP-bound, and four-session regression tests are already in PR #45. Supported-iPhone compatibility remains `BLOCKED_DEVICE`.
 - DSP Split duplicate-log suppression, inset-before-scroll ordering, and exact MeasureSpecs passed to `ComposeView.measure()` are already present. The ComposeView dependency is final; SH-M27 acceptance remains `BLOCKED_DEVICE`.
-- Added the explicit F-05 regression for a target SYN after eight unrelated destination ports. Local shared/common suites pass 864/864; CI classifier fixtures and EX-08 tests pass, and inventory remains 1,400 unique rows.
-- Pushed classifier fallback and workflow coverage to PR #45. Run #481 passed `changes`, full host/native/sanitizer/lint/build/JNI/R8, API 35 instrumentation, `host-baseline`, and Draft scope; Shared was 19/19 and Common 1/1.
-- Local shared/common suites pass 864/864, CI-01..10 fixtures pass, and EX-08 remains 19/19 at 1,400 rows. `docs/step4/TEST_MATRIX.md` maps all 98 v4 case IDs and is published in PR #45; docs-only run #482 passed `changes`, static `check`, and Draft scope.
-- B09 is `PASS_CI` on the current code/test head. Preserve the earlier API 35 p99 failure beside the later local and hosted passes; its cause remains unconfirmed. Local macOS LeakSanitizer is unavailable, while hosted Linux sanitizer passed.
+- Added the explicit F-05 regression for a target SYN after eight unrelated destination ports. Local shared/common suites pass 865/865; CI classifier fixtures and EX-08 tests pass, and inventory remains 1,400 unique rows.
+- Added VIDEO-02 release-failure injection and retained-owner regression at code/test HEAD `52799604`; default release delegates directly to `MediaCodec.release()`. Run #486 passed the full workflow-sensitive host/native/sanitizer/lint/build/JNI/R8/API 35 lanes on classifier HEAD `22ada3a0`; Shared was 19/19 and Common 1/1.
+- The implementation result, final summary, remaining-gate register, and test matrix record current-head evidence; `TEST_MATRIX.md` maps all 98 v4 case IDs. B09 is `PASS_CI`. Preserve the earlier API 35 p99 failure beside later passes; its cause remains unconfirmed. Local macOS LeakSanitizer is unavailable, while hosted Linux sanitizer passed.
 - TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
 
 ## Next

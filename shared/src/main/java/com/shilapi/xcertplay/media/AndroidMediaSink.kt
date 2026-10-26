@@ -2696,7 +2696,7 @@ internal class AudioRenderer(
             else -> update.pipeline.algorithmicLatencyFrames
         }
         val graphConfig = prepared.graphConfig
-        val updatePlan = DspUpdatePlanner.classify(
+        val updateDecision = DspUpdatePlanner.decide(
             current = activeDspConfig,
             target = update.config,
             hasActivePipeline = dspPipeline != null,
@@ -2706,14 +2706,10 @@ internal class AudioRenderer(
             requiresStateContinuity = graphConfig.requiresStateContinuity(),
             mediaRole = classification.dspRole == DspStreamRole.MEDIA,
         )
-        if (updatePlan == DspUpdatePlan.DEFERRED) {
+        if (updateDecision.plan == DspUpdatePlan.DEFERRED) {
             if (deferredDspGeneration != update.generation) {
                 deferredDspGeneration = update.generation
-                val reason = if (graphConfig.requiresStateContinuity()) {
-                    "stateful graph needs fresh history"
-                } else {
-                    "algorithmic latency would change"
-                }
+                val reason = updateDecision.reason ?: "update is not safe for the committed track"
                 reportDsp("DSP update deferred until next AudioTrack generation: $reason")
                 reportDspApplyStatus(prepared.deferredStatus)
             }

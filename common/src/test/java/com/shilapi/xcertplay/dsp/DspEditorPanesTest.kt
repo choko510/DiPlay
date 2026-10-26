@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.dsp
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,6 +75,15 @@ class DspEditorPanesTest {
         assertEquals(-18.0, safeEqNumericValue(Double.NEGATIVE_INFINITY, -18.0..18.0), 0.0)
         assertEquals(0.1, safeEqNumericValue(0.01, 0.1..20.0), 0.0)
         assertEquals(20.0, safeEqNumericValue(Double.NaN, 20.0..20_000.0), 0.0)
+    }
+
+    @Test
+    fun numericEqInputUsesLocaleDecimalSeparatorWithoutAcceptingGrouping() {
+        assertEquals(1.5, parseEqNumericValue("1,5", ',')!!, 0.0)
+        assertEquals(-0.5, parseEqNumericValue("-0,5", ',')!!, 0.0)
+        assertNull(parseEqNumericValue("1.234,5", ','))
+        assertNull(parseEqNumericValue("1.5", ','))
+        assertEquals(1.5, parseEqNumericValue("1.5", '.')!!, 0.0)
     }
 
     @Test

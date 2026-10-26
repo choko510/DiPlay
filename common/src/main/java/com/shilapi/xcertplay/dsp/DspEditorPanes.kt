@@ -50,6 +50,7 @@ import com.shilapi.xcertplay.media.dsp.DspEqResponse
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
 import com.shilapi.xcertplay.media.dsp.DspMultibandConfig
+import java.text.DecimalFormatSymbols
 import kotlin.math.ln
 import kotlin.math.log10
 import kotlin.math.pow
@@ -224,6 +225,25 @@ internal fun eqGraphGainAtY(y: Float, height: Float): Double {
 
 internal fun safeEqNumericValue(value: Double, bounds: ClosedFloatingPointRange<Double>): Double =
     if (value.isFinite()) value.coerceIn(bounds) else bounds.start
+
+internal fun parseEqNumericValue(input: String, decimalSeparator: Char): Double? {
+    if (input.isEmpty()) return null
+    var hasDigit = false
+    var hasDecimalSeparator = false
+    input.forEachIndexed { index, character ->
+        when {
+            character.isDigit() -> hasDigit = true
+            character == decimalSeparator && !hasDecimalSeparator -> hasDecimalSeparator = true
+            (character == '-' || character == '+') && index == 0 -> Unit
+            else -> return null
+        }
+    }
+    if (!hasDigit) return null
+    return input.replace(decimalSeparator, '.').toDoubleOrNull()?.takeIf(Double::isFinite)
+}
+
+private fun formatEqNumericValue(value: Double, decimalSeparator: Char): String =
+    value.toString().replace('.', decimalSeparator)
 
 internal fun dspEqResponseDb(
     frequencyHz: Double,
@@ -407,16 +427,17 @@ private fun NumericValueField(
     bounds: ClosedFloatingPointRange<Double>,
     onChange: (Double) -> Unit,
 ) {
-    var text by remember(label) { mutableStateOf(value.toString()) }
+    val decimalSeparator = DecimalFormatSymbols.getInstance().decimalSeparator
+    var text by remember(label) { mutableStateOf(formatEqNumericValue(value, decimalSeparator)) }
     var focused by remember(label) { mutableStateOf(false) }
     LaunchedEffect(value, focused) {
-        if (!focused) text = value.toString()
+        if (!focused) text = formatEqNumericValue(value, decimalSeparator)
     }
     OutlinedTextField(
         value = text,
         onValueChange = { input ->
             text = input
-            input.toDoubleOrNull()?.takeIf(Double::isFinite)?.let { onChange(safeEqNumericValue(it, bounds)) }
+            parseEqNumericValue(input, decimalSeparator)?.let { onChange(safeEqNumericValue(it, bounds)) }
         },
         label = { Text(label) },
         singleLine = true,
@@ -425,7 +446,7 @@ private fun NumericValueField(
                 IconButton(
                     onClick = {
                         val next = safeEqNumericValue(-value, bounds)
-                        text = next.toString()
+                        text = formatEqNumericValue(next, decimalSeparator)
                         onChange(next)
                     },
                     modifier = Modifier.semantics { contentDescription = "Toggle sign for $label" },
@@ -435,7 +456,7 @@ private fun NumericValueField(
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         modifier = Modifier.fillMaxWidth().onFocusChanged { state ->
             focused = state.isFocused
-            if (!state.isFocused) text = value.toString()
+            if (!state.isFocused) text = formatEqNumericValue(value, decimalSeparator)
         },
     )
 }

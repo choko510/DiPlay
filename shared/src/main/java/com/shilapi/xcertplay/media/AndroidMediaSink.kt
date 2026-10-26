@@ -160,6 +160,7 @@ class AndroidMediaSink(
     internal var microphoneUplinkFactoryForTest:
         ((MicrophoneConfig, () -> Boolean) -> MicrophoneUplinkController)? = null
     internal var beforeVideoDecoderStopForTest: (() -> Unit)? = null
+    internal var videoCodecReleaseForTest: ((MediaCodec) -> Unit)? = null
 
     override fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {
         synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
@@ -459,6 +460,11 @@ class AndroidMediaSink(
 
     private fun videoDecoder(type: Int): VideoDecoder? = videoDecoder(type, restorePendingConfig = true)
 
+    private fun releaseVideoCodec(codec: MediaCodec) {
+        val releaseForTest = videoCodecReleaseForTest
+        if (releaseForTest == null) codec.release() else releaseForTest(codec)
+    }
+
     private fun videoDecoder(type: Int, restorePendingConfig: Boolean): VideoDecoder? =
         synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
             if (closed.get()) return@synchronized null
@@ -478,6 +484,7 @@ class AndroidMediaSink(
                 requestKeyFrame = { requestVideoRecovery(type, generation) },
                 report = { diagnosticHandler?.invoke(it) },
                 beforeStop = { beforeVideoDecoderStopForTest?.invoke() },
+                releaseCodec = ::releaseVideoCodec,
                 onFirstFrameSubmittedToSurface = {
                     val currentDecoder = decoderReference.get()
                     if (!closed.get() && videoStreamGenerations.isCurrent(type, generation) &&
@@ -569,6 +576,7 @@ private class VideoDecoder(
     private val requestKeyFrame: () -> Unit,
     private val report: (String) -> Unit,
     private val beforeStop: () -> Unit,
+    private val releaseCodec: (MediaCodec) -> Unit,
     private val onFirstFrameSubmittedToSurface: () -> Unit,
     private val onStopped: (Boolean) -> Unit,
     private val streamType: Int,
@@ -853,7 +861,7 @@ private class VideoDecoder(
 
     private fun releaseFailedCandidate(codec: MediaCodec, reason: String) {
         try {
-            codec.release()
+            releaseCodec(codec)
         } catch (error: Exception) {
             failedDecoderReleases.add(codec)
             Log.e(
@@ -1037,7 +1045,7 @@ private class VideoDecoder(
                 Log.w(TAG, "video decoder stop failed error=${error.javaClass.simpleName}")
             }
             try {
-                codec.release()
+                releaseCodec(codec)
             } catch (error: Exception) {
                 failedDecoderReleases.add(codec)
                 Log.w(TAG, "video decoder release failed error=${error.javaClass.simpleName}")
@@ -1049,7 +1057,7 @@ private class VideoDecoder(
         }
         previouslyFailed.forEach { failed ->
             try {
-                failed.release()
+                releaseCodec(failed)
             } catch (error: Exception) {
                 failedDecoderReleases.add(failed)
                 Log.w(TAG, "retired video decoder release retry failed error=${error.javaClass.simpleName}")

@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.media
 
+import android.media.MediaCodec
+import android.media.MediaFormat
 import android.view.Surface
 import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.AudioFormat
@@ -250,6 +252,65 @@ class AndroidMediaSinkStateTest {
         } finally {
             releaseStop.countDown()
             sink.close()
+        }
+    }
+
+    @Test fun codecReleaseFailureRetainsItsSurfaceAndBlocksDecoderReplacement() {
+        val surface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val sink = AndroidMediaSink(surface = surface)
+        val type = 110
+        val stopEntered = CountDownLatch(1)
+        val allowStop = CountDownLatch(1)
+        val releaseAttempts = AtomicInteger()
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        sink.beforeVideoDecoderStopForTest = {
+            stopEntered.countDown()
+            var interrupted = false
+            while (true) {
+                try {
+                    check(allowStop.await(5, TimeUnit.SECONDS))
+                    break
+                } catch (_: InterruptedException) {
+                    interrupted = true
+                }
+            }
+            if (interrupted) Thread.currentThread().interrupt()
+        }
+        sink.videoCodecReleaseForTest = {
+            releaseAttempts.incrementAndGet()
+            throw IllegalStateException("injected MediaCodec release failure")
+        }
+        sink.onScreenStreamActive(type, true)
+        val oldDecoder = checkNotNull(decoderFactory.invoke(sink, type))
+
+        try {
+            sink.onScreenStreamActive(type, false)
+            assertTrue(stopEntered.await(5, TimeUnit.SECONDS))
+
+            val codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+            oldDecoder.javaClass.getDeclaredField("decoder").apply { isAccessible = true }
+                .set(oldDecoder, codec)
+            allowStop.countDown()
+
+            assertTrue(awaitVideoDecoderStopped(oldDecoder))
+            assertEquals(1, releaseAttempts.get())
+            assertFalse(privateField(oldDecoder, "surfaceReleaseSafe") as Boolean)
+            assertSame(surface, privateField(oldDecoder, "outputSurface"))
+            assertSame(oldDecoder, field(sink, "retiringVideoDecoders")[type])
+
+            sink.onScreenStreamActive(type, true)
+            assertNull(decoderFactory.invoke(sink, type))
+            assertSame(oldDecoder, field(sink, "retiringVideoDecoders")[type])
+        } finally {
+            allowStop.countDown()
+            sink.videoCodecReleaseForTest = null
+            val retryRelease = oldDecoder.javaClass.getDeclaredMethod("releaseDecoder").apply { isAccessible = true }
+            assertTrue(retryRelease.invoke(oldDecoder) as Boolean)
+            sink.close()
+            runCatching { surface.release() }
         }
     }
 

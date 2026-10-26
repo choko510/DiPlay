@@ -34,6 +34,16 @@ class DspStudioPersistenceTest {
         assertEquals(workspace(), loaded.workspace)
     }
 
+    @Test fun workspaceSourceIdMustMatchSnapshotIdOnLoadAndSave() {
+        val target = File(temporaryFolder.root, "dsp/workspace/current.json")
+        val repo = DspStudioWorkspaceRepository(temporaryFolder.root)
+        assertEquals(DspWorkspaceSaveResult.SAVED, repo.save(workspace()))
+        target.writeText(JSONObject(target.readText()).put("baseProfileSourceId", "vocal").toString())
+
+        assertEquals(DspWorkspaceReadResult.Invalid, repo.load())
+        assertEquals(DspWorkspaceSaveResult.INVALID, repo.save(workspace().copy(profileSourceId = "vocal")))
+    }
+
     @Test fun futureWorkspaceIsPreservedOnSave() {
         val target = File(temporaryFolder.root, "dsp/workspace/current.json")
         target.parentFile!!.mkdirs()

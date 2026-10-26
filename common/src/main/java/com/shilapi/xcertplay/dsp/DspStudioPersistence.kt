@@ -35,6 +35,7 @@ internal class DspStudioWorkspaceRepository(
             val profile = DspProfileRepository(filesDirectory).decodeDraftFromSavedState(
                 json.getJSONObject("baseProfileSnapshot").toString(),
             ) ?: return DspWorkspaceReadResult.Invalid
+            require(source == profile.id)
             val workspace = DspStudioWorkspace(
                 profileSourceId = source,
                 baseProfileSnapshot = profile,
@@ -70,7 +71,7 @@ internal class DspStudioWorkspaceRepository(
     }
 
     private fun readSchema(target: File): Int? = try { JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }).optInt("workspaceSchema", 0) } catch (_: Exception) { null }
-    private fun validWorkspace(value: DspStudioWorkspace): Boolean = ID.matches(value.profileSourceId) && value.baseProfileSnapshot.hasValidEqCapacity() && value.selectedModulePresetIds.size <= MODULES.size && value.selectedModulePresetIds.all { (key, id) -> key in MODULES && PRESET_ID.matches(id) }
+    private fun validWorkspace(value: DspStudioWorkspace): Boolean = ID.matches(value.profileSourceId) && value.profileSourceId == value.baseProfileSnapshot.id && value.baseProfileSnapshot.hasValidEqCapacity() && value.selectedModulePresetIds.size <= MODULES.size && value.selectedModulePresetIds.all { (key, id) -> key in MODULES && PRESET_ID.matches(id) }
     private fun JSONObject.toMap(): Map<String, String> { require(length() <= MODULES.size); return keys().asSequence().associateWith { getString(it) } }
     companion object { const val SCHEMA = 1; private const val WORKSPACE_ID = "active_dsp_studio"; private const val MAX_BYTES = 1_048_576L; private val ID = Regex("^[A-Za-z0-9_-]{1,64}$"); private val PRESET_ID = ID; private val MODULES = setOf("peq", "bass", "seat", "advanced_ms", "compressor", "multiband", "dynamic_eq", "harmonic", "limiter", "convolver", "cabin", "smart_loudness", "dynamic_bass", "macros") }
 }

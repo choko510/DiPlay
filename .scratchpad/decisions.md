@@ -680,6 +680,8 @@ For a retired DSP pipeline close failure, bind the failure to that pipeline's co
 
 Serialize active playback-route selection and monitor publication as one operation. Otherwise concurrent renderer callbacks can publish a stale route after a later owner removal.
 
+Treat persisted Studio workspaces whose source profile ID differs from their embedded snapshot ID as Invalid at repository load, and reject the same mismatch on save. Runtime startup then falls back to the selected profile instead of applying an internally inconsistent draft.
+
 When separating Surface retirement callbacks from coalesced jobs, preserve the original `SurfaceChanged` job if its callback list is empty. Tests for background DSP teardown must wait on an explicit close signal, and tests observing transient apply status must allow preparation to advance to deferred before reading it.
 
 The reaper's close callback can signal before its `finally` decrements the retired-pipeline count. Tests of controller adoption must wait for `canAdoptUpdate()` after close notification instead of reading it immediately.

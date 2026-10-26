@@ -12,6 +12,7 @@ import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -101,6 +102,42 @@ class DspProfileRuntimeTest {
         } finally {
             DspProfileRuntime.resetForTesting()
             context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
+    fun startupRejectsWorkspaceWhoseSourceIdDoesNotMatchItsSnapshot() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+        try {
+            val selectedProfile = DspProfilePresets.find("flat")!!
+            val mismatchedSnapshot = DspProfilePresets.find("vocal")!!
+            val workspace = DspStudioWorkspace(
+                profileSourceId = mismatchedSnapshot.id,
+                baseProfileSnapshot = mismatchedSnapshot,
+                macros = DspSoundMacroSettings(enabled = true, bassImpact = 100),
+            )
+            assertEquals(DspWorkspaceSaveResult.SAVED, DspStudioWorkspaceRepository(context.filesDir).save(workspace))
+            val savedJson = JSONObject(workspaceFile.readText()).put("baseProfileSourceId", selectedProfile.id)
+            workspaceFile.writeText(savedJson.toString())
+            preferences.edit()
+                .putBoolean(KEY_DSP_ENABLED, true)
+                .putString(KEY_SELECTED_PROFILE_ID, selectedProfile.id)
+                .commit()
+
+            val runtime = DspProfileRuntime.get(context)
+
+            assertEquals(selectedProfile.id, runtime.selectedProfile().id)
+            assertEquals(selectedProfile.id, runtime.createStudioSessionCoordinator().preview.baseProfileSnapshot.id)
+            assertFalse(runtime.configProvider.snapshot().macroTone.enabled)
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
             workspaceFile.delete()
         }
     }

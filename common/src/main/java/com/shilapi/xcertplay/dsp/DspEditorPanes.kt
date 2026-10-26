@@ -638,7 +638,7 @@ internal fun DspModulePresetPane(
                         deleteDialogVisible = false
                         onDelete(selectedPreset.id)
                     },
-                ) { Text(stringResource(R.string.dsp_module_preset_delete)) }
+                ) { Text(stringResource(R.string.dsp_module_preset_delete_confirm)) }
             },
             dismissButton = {
                 OutlinedButton(onClick = { deleteDialogVisible = false }) {
@@ -659,7 +659,7 @@ internal fun DspModulePresetPane(
                         factoryResetDialogVisible = false
                         onFactoryReset()
                     },
-                ) { Text(stringResource(R.string.dsp_module_factory_reset)) }
+                ) { Text(stringResource(R.string.dsp_module_factory_reset_confirm)) }
             },
             dismissButton = {
                 OutlinedButton(onClick = { factoryResetDialogVisible = false }) {

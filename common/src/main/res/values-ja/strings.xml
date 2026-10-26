@@ -25,7 +25,9 @@
     <string name="dsp_module_preset_delete">ユーザープリセットを削除</string>
     <string name="dsp_module_preset_delete_title">ユーザープリセットを削除しますか？</string>
     <string name="dsp_module_preset_delete_message">「%1$s」を削除します。保存済みプリセットだけを削除し、現在のモジュール設定は変更しません。</string>
+    <string name="dsp_module_preset_delete_confirm">削除</string>
     <string name="dsp_module_factory_reset">モジュールを初期化</string>
     <string name="dsp_module_factory_reset_message">%1$s の下書きをFactoryプリセットで置き換えます。他のモジュールは変更しません。</string>
+    <string name="dsp_module_factory_reset_confirm">モジュールを初期化</string>
     <string name="dsp_cancel">キャンセル</string>
 </resources>

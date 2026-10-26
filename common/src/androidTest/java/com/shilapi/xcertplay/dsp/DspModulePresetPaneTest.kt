@@ -3,7 +3,6 @@ package com.shilapi.xcertplay.dsp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -125,7 +124,7 @@ class DspModulePresetPaneTest {
         composeRule.onNodeWithText("Delete user preset").performClick()
         assertEquals(null, deletedId.value)
         composeRule.onNodeWithText("Delete user preset?").assertExists()
-        composeRule.onAllNodesWithText("Delete user preset")[1].performClick()
+        composeRule.onNodeWithText("Delete").performClick()
 
         assertEquals(userPreset.id, deletedId.value)
     }
@@ -155,7 +154,7 @@ class DspModulePresetPaneTest {
 
         composeRule.onNodeWithText("Factory reset module").performClick()
         assertEquals(false, reset.value)
-        composeRule.onAllNodesWithText("Factory reset module")[1].performClick()
+        composeRule.onNodeWithText("Reset module").performClick()
 
         assertEquals(true, reset.value)
     }

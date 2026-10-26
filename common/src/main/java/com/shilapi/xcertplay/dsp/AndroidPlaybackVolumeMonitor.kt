@@ -114,6 +114,17 @@ internal class PlaybackRouteOwners {
         }
         return routes.values.maxByOrNull(OwnedRoute::order)?.route
     }
+
+    @Synchronized
+    fun updateAndPublish(
+        owner: Long,
+        deviceType: Int?,
+        deviceAddress: String?,
+        usesMusicStream: Boolean,
+        publish: (PlaybackRoute?) -> Unit,
+    ) {
+        publish(update(owner, deviceType, deviceAddress, usesMusicStream))
+    }
 }
 
 internal fun playbackVolumeReading(

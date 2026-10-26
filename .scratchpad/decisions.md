@@ -672,6 +672,8 @@ For DSP Split measurement diagnostics, retain the most recent 64 distinct measur
 
 For a retired DSP pipeline close failure, bind the failure to that pipeline's configuration generation and identity. Keep the status phase ACTIVE for the current graph, attach the old pipeline failure as separate metadata, and report that further updates are blocked; never mark the latest configured generation as a preparation failure for an older pipeline.
 
+Serialize active playback-route selection and monitor publication as one operation. Otherwise concurrent renderer callbacks can publish a stale route after a later owner removal.
+
 When separating Surface retirement callbacks from coalesced jobs, preserve the original `SurfaceChanged` job if its callback list is empty. Tests for background DSP teardown must wait on an explicit close signal, and tests observing transient apply status must allow preparation to advance to deferred before reading it.
 
 The reaper's close callback can signal before its `finally` decrements the retired-pipeline count. Tests of controller adoption must wait for `canAdoptUpdate()` after close notification instead of reading it immediately.

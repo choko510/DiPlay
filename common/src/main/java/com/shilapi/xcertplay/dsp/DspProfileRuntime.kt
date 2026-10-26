@@ -126,9 +126,9 @@ internal class DspProfileRuntime private constructor(
     }
 
     internal fun onPlaybackRouteChanged(owner: Long, deviceType: Int?, deviceAddress: String?, usesMusicStream: Boolean) {
-        playbackVolumeMonitor.setPlaybackRoute(
-            playbackRouteOwners.update(owner, deviceType, deviceAddress, usesMusicStream),
-        )
+        playbackRouteOwners.updateAndPublish(owner, deviceType, deviceAddress, usesMusicStream) { route ->
+            playbackVolumeMonitor.setPlaybackRoute(route)
+        }
     }
 
     internal fun onPlaybackVolumeReadingChanged(reading: DspVolumeReading) {

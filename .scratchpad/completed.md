@@ -1,8 +1,10 @@
 # Completed — dated history
 
-> 195 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
+> 196 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
 ## 2026-10-27
+
+- Added persisted-workspace restoration coverage for runtime reconstruction and preview discard in PR #52; Common unit tests passed 272/272 and hosted run #487 passed at `6439a5b9`. Process-death/Activity E2E remains open.
 
 - Fixed the PR #52 module A/B screen regressions: preview no longer overwrites the editor draft, and deleting the selected preset during A/B restores the renderer to Draft. API 35 `DspSettingsScreenTest` passed 4/4; hosted run #484 passed host, Native/ASan/UBSan, Android instrumentation, unit/lint/build/R8, and host-baseline jobs on `ce3c87d7`. Manual-dispatch-only skips remain explicit; PR #52 stays open and hardware/per-ID evidence remains incomplete.
 

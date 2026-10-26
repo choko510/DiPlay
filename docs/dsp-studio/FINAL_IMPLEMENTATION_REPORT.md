@@ -1,12 +1,16 @@
 # DSP Studio final implementation report
 
-**Disposition:** `PARTIAL / CI_GREEN / EVIDENCE_AND_HARDWARE_PENDING`
+**Disposition:** `PARTIAL / CI_GREEN_FOR_SOURCE_6439A5B9 / EVIDENCE_AND_HARDWARE_PENDING`
 
 **Integration PR:** [#52](https://github.com/choko510/DiPlay/pull/52), base `codex/step4-pr-00-test-baseline`, stacked on PR #45. PR #52 is open and unmerged. PR #45 and `main` remain unmerged.
+
+**Current tested source head:** `6439a5b94e21da3bb5e2b921a2ac035c8d969079`. Common unit tests passed 272/272, and hosted run [#40374442067](https://github.com/choko510/DiPlay/actions/runs/40374442067) passed `changes`, `check`, `android-instrumentation`, and `host-baseline`. `quick-baseline` and PR-only `verification-status` were skipped for `workflow_dispatch`; neither is counted as a pass.
 
 **Implementation/test commit:** `ce3c87d7f8520d0752a96f4fa50aa8b92b988641` on `codex/dsp52-base-sync`, pushed to `codex/dsp-studio-final`. It adds module-scoped A/B preview and restores the draft after deleting a preset during A/B. The independent follow-up review closed its P2 finding. Full local Gradle/Native gates passed at parent source commit `f9c9f56e`; Common unit tests and API 35 `DspSettingsScreenTest` 4/4 passed at `ce3c87d7`. Hosted run [#40370259506](https://github.com/choko510/DiPlay/actions/runs/40370259506) passed on `ce3c87d7`: `changes`, `check`, `android-instrumentation`, and `host-baseline` succeeded. `quick-baseline` and PR-only `verification-status` were skipped for the manual `workflow_dispatch` event and are not counted as passes. Earlier run #40362586212 passed on `d8637ca9` and is not current-head evidence.
 
 ## Implementation summary
+
+**Latest validation update:** At source head `6439a5b94e21da3bb5e2b921a2ac035c8d969079`, Common unit tests passed 272/272, including `DspProfileRuntimeTest` 16/16 and `runtimeRecreationRestoresPersistedWorkspaceAndDiscardsPreviewDraft`. The test reconstructs the runtime within one process; process-death/Activity E2E remains unverified.
 
 - Added schema-v1 DSP Studio workspace and module-preset stores, independent of the v7 legacy profile store. Draft, Preview, Save, Cancel, A/B, and Undo/Redo retain separate states.
 - Added four non-destructive Macro controls, route-bound calibrated Smart Loudness AUTO with MANUAL/FIXED alternatives, and bounded Dynamic Bass with a linked stereo envelope. `DspTuningResolver` allocates a shared 6 dB additional-bass budget.
@@ -36,7 +40,7 @@ The task-supplied PR #52 implementation specification is preserved in [REMEDIATI
 
 ## Phase and known-CR disposition
 
-These dispositions refer to source head `ce3c87d7`, which passed hosted run #484. `PARTIAL` means implementation exists but at least one acceptance assertion or evidence item remains open. Hardware-only work is `NOT_RUN`.
+These dispositions refer to tested source head `6439a5b94e21da3bb5e2b921a2ac035c8d969079`, which passed hosted run #487. `PARTIAL` means implementation exists but at least one acceptance assertion or evidence item remains open. Hardware-only work is `NOT_RUN`.
 
 | ID | Disposition | Current evidence | Remaining gate |
 |---|---|---|---|
@@ -50,7 +54,7 @@ These dispositions refer to source head `ce3c87d7`, which passed hosted run #484
 | CR-002 — Macro drag audio preview | PARTIAL | Macro changes trigger runtime preview; pointer-up commits one edit transaction and flushes latest workspace. | Final-value audio ACK assertion on final head. |
 | CR-003 — Production loudness source | PARTIAL | `AndroidPlaybackVolumeMonitor` is installed as the runtime volume source; untrusted route readings remain unavailable. | TS10/K706 calibration and OEM behavior. |
 | CR-004 — Volume changes after UI close | PARTIAL | Runtime monitor subscribes to Android volume broadcasts and route changes independently of the screen. | Hardware route behavior. |
-| CR-005 — Session recreation | PARTIAL | Runtime owns the Studio coordinator and restore path; isolated runtime tests exist. | Activity recreation/process-death E2E. |
+| CR-005 — Session recreation | PARTIAL | `runtimeRecreationRestoresPersistedWorkspaceAndDiscardsPreviewDraft` verifies preview discard and restoration of the persisted workspace/effective gain after runtime reconstruction. | The test reconstructs the runtime in one process; Activity recreation/process-death E2E remains open. |
 | CR-006 — Saved workspace/profile identity | PARTIAL | Runtime reconciles selected profile identity from a loaded workspace and validates source identity. | Exact migration/reselection method mapping. |
 | CR-007 — Dynamic Bass detector tap | PARTIAL | PR #59 added a sanitized raw-input detector tap; native signal tests cover it. | Target listening/THD/performance. |
 | CR-008 — Five-tab navigation | PARTIAL | Five navigation tabs are implemented. | Direct reachability/accessibility assertions and host interaction. |
@@ -116,8 +120,10 @@ The [child PR ledger](SUBAGENT_PR_LEDGER.md) has the dispatch evidence, tests, f
 | Public-tree, EX-08 `--check`, Android CI classifier/evidence, JNI mapping, and inventory fixtures | PASS at source content committed as `f9c9f56e8022fa4808ec5023e688e65ede45f498`; EX-08 inventory is 1,400 unique rows and delta-111 fixtures passed 17/17. |
 | Mobile/Automotive Debug, lint, and Benchmark gates | PASS at source content committed as `f9c9f56e8022fa4808ec5023e688e65ede45f498` in the full CI-equivalent Gradle command (365 actionable tasks). |
 | Common unit tests | PASS at `ce3c87d7f8520d0752a96f4fa50aa8b92b988641`: Common 271/271. Shared 668/668 passed at `f9c9f56e`; no Shared inputs changed afterward. Combined total: 939, 0 failures/errors/skips. |
+| Common unit tests | PASS at `6439a5b94e21da3bb5e2b921a2ac035c8d969079`: Common 272/272, including `DspProfileRuntimeTest` 16/16. Shared inputs did not change; prior Shared 668/668 remains applicable. |
 | Connected Android instrumentation | API 35 `DspSettingsScreenTest` PASS 4/4 at `ce3c87d7f8520d0752a96f4fa50aa8b92b988641`; report: `common/build/reports/androidTests/connected/debug/com.shilapi.xcertplay.DspSettingsScreenTest.html`. `DspModulePresetPaneTest` 4/4 remains verified at `da7f89ac1adf2ac94aa82a9549ca007ea7f65933`. |
 | PR #52 hosted CI | PASS on source head `ce3c87d7f8520d0752a96f4fa50aa8b92b988641` | Run [#40370259506](https://github.com/choko510/DiPlay/actions/runs/40370259506): `changes`, `check`, `android-instrumentation`, and `host-baseline` succeeded. `quick-baseline` and PR-only `verification-status` were skipped because the run used `workflow_dispatch`; neither is counted as a pass. |
+| PR #52 hosted CI | PASS on source head `6439a5b94e21da3bb5e2b921a2ac035c8d969079` | Run [#40374442067](https://github.com/choko510/DiPlay/actions/runs/40374442067): `changes`, `check`, `android-instrumentation`, and `host-baseline` passed. `quick-baseline` and PR-only `verification-status` were skipped for `workflow_dispatch`; neither is counted as a pass. |
 | TS10/K706/iPhone physical acceptance | NOT_RUN. |
 
 The command ledger and environment limitations are in [TEST_MATRIX.md](TEST_MATRIX.md). The detailed per-ID catalog is in [TEST_MATRIX_DETAILED.md](TEST_MATRIX_DETAILED.md).

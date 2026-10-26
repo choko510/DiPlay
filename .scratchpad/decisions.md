@@ -1,5 +1,9 @@
 # Decisions
 
+## Restore only committed Studio state when a runtime is reconstructed
+
+Treat an uncommitted Studio preview as runtime-owned state. When a new runtime is created, restore the persisted workspace and rebuild its effective DSP configuration rather than carrying over the preview. Runtime-reconstruction unit coverage is useful but does not substitute for Android process-death or Activity recreation evidence.
+
 ## Keep the five DSP Studio tabs aligned with their editing domains
 
 - **Decision:** Use Studio for macros and legacy profile/basic controls, EQ for PEQ, Spatial for legacy width/mono bass plus Seat and M/S, Dynamics for Smart Loudness/Dynamic Bass and compressor-family stages, and Advanced for headroom, cabin, Harmonic, Convolver, and diagnostics.

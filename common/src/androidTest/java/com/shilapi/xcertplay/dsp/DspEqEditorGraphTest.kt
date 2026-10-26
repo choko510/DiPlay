@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.dsp
 
+import android.content.res.Configuration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
@@ -16,12 +17,39 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.Locale
 import kotlin.math.ln
 
 @RunWith(AndroidJUnit4::class)
 class DspEqEditorGraphTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun accessibilityResourcesResolveInJapaneseAndEnglish() {
+        val baseContext = InstrumentationRegistry.getInstrumentation().targetContext
+        val japaneseContext = baseContext.createConfigurationContext(
+            Configuration(baseContext.resources.configuration).apply { setLocale(Locale.JAPANESE) },
+        )
+        val englishContext = baseContext.createConfigurationContext(
+            Configuration(baseContext.resources.configuration).apply { setLocale(Locale.ENGLISH) },
+        )
+
+        assertEquals("プリアンプ", japaneseContext.getString(R.string.dsp_preamp))
+        assertEquals("Preamp", englishContext.getString(R.string.dsp_preamp))
+        assertEquals("PEQバンド 1の周波数", japaneseContext.getString(R.string.dsp_eq_band_frequency, 1))
+        assertEquals("PEQ band 1 frequency", englishContext.getString(R.string.dsp_eq_band_frequency, 1))
+        assertEquals("PEQバンド 1のゲイン", japaneseContext.getString(R.string.dsp_eq_band_gain, 1))
+        assertEquals("PEQ band 1 gain", englishContext.getString(R.string.dsp_eq_band_gain, 1))
+        assertEquals(
+            "イコライザーの周波数特性グラフ。バンドのハンドルをタップまたはドラッグして周波数とゲインを編集します。",
+            japaneseContext.getString(R.string.dsp_eq_graph_description),
+        )
+        assertEquals(
+            "Equalizer frequency response graph. Tap or drag a band handle to edit frequency and gain.",
+            englishContext.getString(R.string.dsp_eq_graph_description),
+        )
+    }
 
     @Test
     fun draggingProductionGraphHandleReportsMappedFrequencyAndGain() {

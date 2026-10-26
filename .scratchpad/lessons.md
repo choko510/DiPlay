@@ -354,6 +354,8 @@ For privacy review, check both the formatter and redactor behavior. A test showi
 
 For EX-08 content rows, compare the archived patch with fixed-main locale registration, resource keys, and runtime support. A translation or release note does not prove the described feature; finalize clear scope mismatches while keeping generic device claims pending without target evidence.
 
+For a fixed upstream range containing merges, classify every merge from its parent topology and first-parent patch, then link source-integration duplicates to source indexes. A complete SHA inventory is not a semantic review unless every row also records the fixed-main owner, concrete disposition reason, and the evidence needed for any pending decision.
+
 When an upstream runtime patch also edits repository configuration, inspect dependency-source changes as part of the aggregate. A later commit that removes an unapproved mirror can support rejecting the earlier aggregate without claiming the separate runtime behavior is disproven.
 
 For a commit that combines USB re-enumeration and audio PCM processing, classify the actual patch as a cross-gate aggregate. Preserve each narrow candidate's separate device, audio-quality, and rollback evidence requirements.
@@ -558,3 +560,8 @@ For Surface churn, gate new Surface creation before handing a wrapper to decoder
 For drag tests that cross touch slop in one movement, band hit-testing must use the original pointer-down coordinate; the detector's drag-start coordinate is only valid for the post-slop edit position.
 
 If a benchmark threshold miss is rerun, keep the threshold fixed and record both the first failure and the same-revision retry outcome. Final CI evidence must name the exact head SHA.
+For an upstream range with many merge commits, keep source and merge decisions separate. Use parent topology to label PR integration duplicates versus branch-sync merges, and make each pending source row name the exact evidence that would change its disposition. Keep the old ledger population frozen when adding a new overlay.
+
+For wired startup timing, use one monotonic origin per attempt and exact successful full-size NCM transfers. Generation-fence callbacks, retain only bounded numeric milestones, and keep packet diagnostics independently opt-in; model tests do not replace CPU/heap measurements or device traces.
+
+For a receive-path performance comparison, warm each mode, interleave the measurement order, and use per-thread CPU/allocation counters over enough iterations to rise above timer resolution. Record the host architecture/JDK and keep the result distinct from Android target-device profiling.

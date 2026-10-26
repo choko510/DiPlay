@@ -7,6 +7,8 @@ import com.shilapi.xcertplay.orchestration.ConnectionTraceStage
 import com.shilapi.xcertplay.transport.BlockingDuplexByteStream
 import com.shilapi.xcertplay.transport.WiredPathDiagnostics
 import com.shilapi.xcertplay.transport.WiredPathEvent
+import com.shilapi.xcertplay.transport.WiredStartupTiming
+import com.shilapi.xcertplay.transport.WiredStartupTimingEvent
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.Closeable
@@ -73,6 +75,7 @@ class AirPlaySession(
     private val listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
     private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
+    private val wiredStartupTiming: WiredStartupTiming? = null,
     private val attachGeneration: Long? = null,
 ) : Closeable {
     internal val wirelessAudio: Boolean
@@ -141,6 +144,12 @@ class AirPlaySession(
 
     internal fun videoFrameSubmittedToSurface(streamType: Int?) {
         if (!closed.get()) {
+            if (
+                streamType == STREAM_TYPE_MAIN_SCREEN &&
+                wiredStartupTiming?.has(WiredStartupTimingEvent.MAIN_FIRST_FRAME) == false
+            ) {
+                wiredStartupTiming.record(WiredStartupTimingEvent.MAIN_FIRST_FRAME, attachGeneration)
+            }
             if ((streamType == null || streamType == STREAM_TYPE_MAIN_SCREEN) &&
                 firstVideoFrameSubmittedToSurface.compareAndSet(false, true)
             ) {
@@ -410,6 +419,7 @@ class AirPlaySession(
         when (request.method) {
             "SETUP" -> return handleSetup(request)
             "RECORD" -> {
+                wiredStartupTiming?.record(WiredStartupTimingEvent.RTSP_RECORD, attachGeneration)
                 recordReceived.set(true)
                 wiredPathDiagnostics?.record(WiredPathEvent.RECORD_ACTIVE, attachGeneration)
                 runCatching { listener.onConnectionTrace(ConnectionTraceStage.AIRPLAY_SESSION_ACTIVE) }
@@ -572,6 +582,9 @@ class AirPlaySession(
             when (type) {
                 STREAM_TYPE_MAIN_SCREEN, STREAM_TYPE_ALT_SCREEN -> {
                     val port = media.onScreen(this, type, stream)
+                    if (port != null && type == STREAM_TYPE_MAIN_SCREEN) {
+                        wiredStartupTiming?.record(WiredStartupTimingEvent.MAIN_SETUP, attachGeneration)
+                    }
                     debugLog("airplay screen stream type=$type dataPort=${port ?: "rejected"}")
                     if (port != null) {
                         wiredPathDiagnostics?.record(

@@ -86,7 +86,7 @@ fun DspSmartLoudnessPane(
             }
         }
         Text(when {
-            settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED && !autoAvailable -> "AUTO_UNAVAILABLE · calibrate this playback route"
+            settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED && !autoAvailable -> "AUTO_UNAVAILABLE · playback-volume input is unvalidated for this route; use MANUAL or FIXED"
             settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED -> "AUTO_CALIBRATED · trusted route input"
             settings.mode == DspSmartLoudnessMode.MANUAL_ESTIMATE -> "MANUAL · declared listening level; device volume is unchanged"
             settings.mode == DspSmartLoudnessMode.FIXED -> "FIXED · constant compensation"
@@ -110,7 +110,7 @@ fun DspSmartLoudnessPane(
             Text("Maximum: low ${settings.maxLowBoostDb} dB · high ${settings.maxHighBoostDb} dB")
         }
         if (onCaptureQuietPoint != null || onCaptureReferencePoint != null) {
-            Text("Route calibration uses two trusted playback-volume readings. It is a listening-level preference, not an SPL measurement.")
+            Text("Capture requires trusted readings for the current route. Calibration is a listening-level preference, not an SPL measurement.")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onCaptureQuietPoint?.invoke() }, enabled = enabled && volumeReading.trustworthy && volumeReading.routeToken != null) {
                     Text("Capture quiet")

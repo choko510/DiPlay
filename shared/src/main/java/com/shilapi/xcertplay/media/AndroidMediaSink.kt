@@ -1158,6 +1158,7 @@ internal class AudioRenderer(
     private var codec: MediaCodec? = null
     private var track: AudioTrack? = null
     private var trackRoutingListener: AudioRouting.OnRoutingChangedListener? = null
+    private val playbackRouteListenerGate = PlaybackRouteListenerGate<AudioTrack>()
     @Volatile internal var dspPipeline: DspPcmPipeline? = null
     private val pendingDspUpdate = AtomicReference<PreparedRendererDspUpdate?>(null)
     private val pendingHotApply = AtomicReference<PendingRendererHotApply?>(null)
@@ -1603,16 +1604,21 @@ internal class AudioRenderer(
         activeTrackAttributes = attributes
         val usesMusicStream = attributes.usage == AudioAttributes.USAGE_MEDIA ||
             classification.route.useLegacyMusicStream
+        val routeGeneration = playbackRouteListenerGate.bind(built)
         val routingListener = AudioRouting.OnRoutingChangedListener { routing ->
-            if (routing === built && track === built) {
+            if (routing === built) {
                 val device = runCatching { built.routedDevice }.getOrNull()
-                onPlaybackRouteChanged?.invoke(playbackRouteOwnerToken, device?.type, device?.address, usesMusicStream)
+                playbackRouteListenerGate.publishIfCurrent(built, routeGeneration) {
+                    onPlaybackRouteChanged?.invoke(playbackRouteOwnerToken, device?.type, device?.address, usesMusicStream)
+                }
             }
         }
         trackRoutingListener = routingListener
         runCatching { built.addOnRoutingChangedListener(routingListener, Handler(Looper.getMainLooper())) }
         val initialDevice = runCatching { built.routedDevice }.getOrNull()
-        onPlaybackRouteChanged?.invoke(playbackRouteOwnerToken, initialDevice?.type, initialDevice?.address, usesMusicStream)
+        playbackRouteListenerGate.publishIfCurrent(built, routeGeneration) {
+            onPlaybackRouteChanged?.invoke(playbackRouteOwnerToken, initialDevice?.type, initialDevice?.address, usesMusicStream)
+        }
         playbackRouteLogged = false
         statsLastUnderruns = runCatching { built.underrunCount }.getOrDefault(0)
         frameBytes = nextFrameBytes
@@ -3680,11 +3686,14 @@ internal class AudioRenderer(
         lastTrackFailureLogFormat = null
         lastTrackRetryLogNs = null
         if (track != null) {
-            trackRoutingListener?.let { listener ->
-                runCatching { track.removeOnRoutingChangedListener(listener) }
-            }
+            val listener = trackRoutingListener
             trackRoutingListener = null
-            onPlaybackRouteChanged?.invoke(playbackRouteOwnerToken, null, null, false)
+            playbackRouteListenerGate.release(track) {
+                onPlaybackRouteChanged?.invoke(playbackRouteOwnerToken, null, null, false)
+            }
+            listener?.let { routeListener ->
+                runCatching { track.removeOnRoutingChangedListener(routeListener) }
+            }
             try {
                 track.pause()
             } catch (_: Exception) {

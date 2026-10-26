@@ -47,6 +47,13 @@ int dsp_dynamic_bass_prepare(
     const dsp_dynamic_bass_config *config);
 int dsp_dynamic_bass_apply_hot(dsp_dynamic_bass *bass, const dsp_dynamic_bass_config *config);
 void dsp_dynamic_bass_process_frame(dsp_dynamic_bass *bass, float *left, float *right, int channels);
+void dsp_dynamic_bass_process_frame_with_detector(
+    dsp_dynamic_bass *bass,
+    float detector_left,
+    float detector_right,
+    float *left,
+    float *right,
+    int channels);
 void dsp_dynamic_bass_reset(dsp_dynamic_bass *bass);
 void dsp_dynamic_bass_flush_denormals(dsp_dynamic_bass *bass);
 

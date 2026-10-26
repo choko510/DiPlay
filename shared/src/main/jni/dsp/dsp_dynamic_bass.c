@@ -91,10 +91,22 @@ static double target_gain(const dsp_dynamic_bass *bass) {
 }
 
 void dsp_dynamic_bass_process_frame(dsp_dynamic_bass *bass, float *left, float *right, int channels) {
+    if (left == NULL || channels < 1 || channels > 2) return;
+    dsp_dynamic_bass_process_frame_with_detector(
+        bass, *left, channels == 2 && right != NULL ? *right : 0.0f, left, right, channels);
+}
+
+void dsp_dynamic_bass_process_frame_with_detector(
+    dsp_dynamic_bass *bass,
+    float detector_input_left,
+    float detector_input_right,
+    float *left,
+    float *right,
+    int channels) {
     if (bass == NULL || left == NULL || channels < 1 || channels > 2 || !bass->enabled) return;
-    const float detector_left = lowpass(*left, &bass->detector_state[0], bass->detector_alpha);
+    const float detector_left = lowpass(detector_input_left, &bass->detector_state[0], bass->detector_alpha);
     const float detector_right = channels == 2 && right != NULL
-        ? lowpass(*right, &bass->detector_state[1], bass->detector_alpha)
+        ? lowpass(detector_input_right, &bass->detector_state[1], bass->detector_alpha)
         : 0.0f;
     const double level = channels == 2
         ? sqrt(0.5 * ((double)detector_left * detector_left + (double)detector_right * detector_right))

@@ -14,6 +14,10 @@ Store committed workspace state in its own schema-v1 AtomicFile under `files/dsp
 - **DSP:** [OFF baseline](#preserve-the-dsp-off-baseline-before-extending-the-graph), [Seat](#align-seat-timing-by-explicit-near-speaker-and-preserve-graph-history), [Cabin](#cabin-correction-requires-external-measurements-and-explicit-approval), [Harmonic](#harmonic-effects-use-bounded-2-fir-oversampling-and-report-the-dry-matched-latency).
 - **CI / security:** [draft gates](#defer-emulator-instrumentation-while-a-pr-is-draft), [privacy](#keep-connection-traces-opt-in-and-app-owned), [MFi local identity](#keep-local-mfi-identity-outside-tracked-source).
 
+## Keep Dynamic Bass detection on the sanitized raw-input tap
+
+Capture finite-checked PCM before gain or graph stages and pass it separately to the detector, while leaving Dynamic Bass at its existing output position. This makes detector gain independent of compressor/IR processing without changing the established audio-stage order or disabled path.
+
 ## Keep EX-08 provenance separate from current decisions
 
 Preserve the upstream catalog original source_review_state as provenance. Treat generated current_review_state and disposition as the present decision layer; NEED_EVIDENCE means a documented requirement remains unresolved, not semantic proof or parity. Report current totals from the generated ledger, never from stale catalog-state counts.

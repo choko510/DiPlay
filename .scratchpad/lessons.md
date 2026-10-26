@@ -1,5 +1,7 @@
 # Lessons
 
+For graph-level detector tests, vary upstream processing while feeding identical PCM, then compare detector state and audio output separately. The detector should remain stable even when the processed output changes.
+
 ## Topic guide
 
 These cumulative lessons include general rules followed by individual incident findings. Check applicability to the current code.

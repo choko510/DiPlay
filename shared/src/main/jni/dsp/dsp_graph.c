@@ -155,6 +155,9 @@ void dsp_graph_process(
         }
         dsp_meter_add_frame(&graph->input_meter, input_left, input_right);
 
+        const float detector_input_left = input_left;
+        const float detector_input_right = input_right;
+
         float output_left = dsp_gain_apply(&graph->gain, input_left);
         float output_right = channels == 2 ? dsp_gain_apply(&graph->gain, input_right) : 0.0f;
         dsp_spatial_process_seat(&graph->spatial, &output_left, &output_right, (int)channels);
@@ -172,7 +175,13 @@ void dsp_graph_process(
         dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
         dsp_harmonic_process_frame(&graph->harmonic, &output_left, &output_right, (int)channels);
         dsp_convolver_process_frame(&graph->convolver, &output_left, &output_right, (int)channels);
-        dsp_dynamic_bass_process_frame(&graph->dynamic_bass, &output_left, &output_right, (int)channels);
+        dsp_dynamic_bass_process_frame_with_detector(
+            &graph->dynamic_bass,
+            detector_input_left,
+            detector_input_right,
+            &output_left,
+            &output_right,
+            (int)channels);
         dsp_macro_process_frame(&graph->macro, &output_left, &output_right, (int)channels);
         dsp_smart_loudness_process_frame(&graph->smart_loudness, &output_left, &output_right, (int)channels);
         dsp_dynamics_process_limiter_frame(&graph->dynamics, &output_left, &output_right, (int)channels);

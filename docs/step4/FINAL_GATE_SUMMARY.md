@@ -8,7 +8,7 @@
 - Product-source commit: `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`
 - Current code/test head: `ae60351267b14a8ef6de3dacb6f718b37bc2310c` (F-05 and DSP ownership regression tests plus CI classifier coverage; no production code changed from `b767ed8f`)
 - PR: [#45](https://github.com/choko510/DiPlay/pull/45)
-- Latest Draft CI: [run #481](https://github.com/choko510/DiPlay/actions/runs/40366764979) on code/test head `ae603512`; workflow-sensitive host/native/sanitizer/lint/build/JNI/R8 and API 35 gates all passed. Run #480 on `abf7bbd9` also passed its class-filtered DSP owner-thread test.
+- Latest full workflow-sensitive run: [#481](https://github.com/choko510/DiPlay/actions/runs/40366764979) on code/test head `ae603512`; host/native/sanitizer/lint/build/JNI/R8 and API 35 gates all passed. Docs-only [run #482](https://github.com/choko510/DiPlay/actions/runs/40369187235) passed static checks and Draft scope, with runtime lanes skipped. Run #480 on `abf7bbd9` also passed its class-filtered DSP owner-thread test.
 
 ## Release gates
 

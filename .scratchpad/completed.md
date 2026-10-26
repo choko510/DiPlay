@@ -5,7 +5,7 @@
 ## 2026-10-27
 
 - Completed B08 timing evidence and B10/B11/B12 result packages; API 35 Shared instrumentation later passed 19/19 while the earlier p99 failure remains recorded. Release stays `NO_GO_THIS_RUN` pending hardware, signing, and review gates.
-- Added the F-05 eight-prior-port classifier regression and testable fail-closed Android CI classification; local shared/common suites pass 864/864 and EX-08 fixtures pass 19/19. Workflow-sensitive run #481 passed host/native/sanitizer/lint/build/JNI/R8 and API 35 instrumentation while PR #45 remained Draft.
+- Added the F-05 eight-prior-port classifier regression and testable fail-closed Android CI classification; local shared/common suites pass 864/864 and EX-08 fixtures pass 19/19. Run #481 passed full workflow-sensitive host/API 35 checks, and docs-only run #482 validated the published result package while PR #45 remained Draft.
 
 ## 2026-10-23
 

@@ -6,8 +6,9 @@
 - Fixed base: `main@95ba398f95ee104527812cd2b095977d71c51f98`.
 - Product source commit: `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`.
 - Current code/test evidence head: `ae60351267b14a8ef6de3dacb6f718b37bc2310c`; commits after the product source are tests and CI classification only, with no production runtime change.
-- Latest docs-only CI head for run #478: `05c02dd017e96f1fa3228bae3879efc9e5e7fb50`; it adds no source/test changes.
-- PR #45 at run #481: open, Draft, unmerged, based on the fixed base above.
+- Historical docs-only CI head for run #478: `05c02dd017e96f1fa3228bae3879efc9e5e7fb50`; it adds no source/test changes.
+- Result-package commit `5acd98aa9ef8d85384dea218a0e68a4ba454c433` passed docs-only run #482 (`changes`, static `check`, and Draft scope; runtime jobs skipped).
+- PR #45 remains open, Draft and unmerged, based on the fixed base above.
 
 **Current decision: `NO_GO_THIS_RUN` for merge/release.** Workflow-sensitive run #481 passed the full host/native/sanitizer/lint/build/JNI/R8 and API 35 lanes on the current code/test head, even while the PR remained Draft. Preserve the earlier API 35 p99 failure beside the later passing repeats; its cause is unconfirmed. Target hardware and release signing are unavailable, and independent review is `NOT_RUN`.
 
@@ -54,6 +55,7 @@
 | GitHub Actions [run #477](https://github.com/choko510/DiPlay/actions/runs/40361161687) / [run #478](https://github.com/choko510/DiPlay/actions/runs/40361499379) | `PASS_CI` for docs-only Draft scope | Both docs-only runs passed `changes`, static `check`, and Draft scope; runtime lanes were skipped. These runs add no runtime-test evidence. |
 | GitHub Actions [run #480](https://github.com/choko510/DiPlay/actions/runs/40364789296) | `PASS_CI` for class-filtered Draft scope | The changed `DspRendererProductionPathTest` class passed; full host/native/build/JNI/R8 and instrumentation were skipped under the previous workflow classifier. |
 | GitHub Actions [run #481](https://github.com/choko510/DiPlay/actions/runs/40366764979) | `PASS_CI` | Workflow-sensitive classification selected the full lane on the Draft. `changes`, full `check`, native/ASan/UBSan, lint, Debug/Benchmark builds, R8/JNI mapping, API 35 instrumentation, host-baseline, and Draft scope all passed. Shared instrumentation passed 19/19 and Common 1/1; quick-baseline was skipped because full-host verification ran instead. |
+| GitHub Actions [run #482](https://github.com/choko510/DiPlay/actions/runs/40369187235) | `PASS_STATIC` | The result-package docs-only head passed `changes`, EX-08/static `check`, and Draft scope. Host/native/sanitizer/lint/build/JNI/R8 and API 35 instrumentation were skipped; this adds no runtime evidence. |
 `scripts/run_android_instrumentation.sh` environment note: macOS has neither `timeout` nor `gtimeout`; the post-run capture step reports `timeout: command not found`. The successful Gradle runs were invoked directly, followed by tag-filtered `adb logcat` capture and `check_android_instrumentation_evidence.sh`.
 
 ## Re-entry and rollback

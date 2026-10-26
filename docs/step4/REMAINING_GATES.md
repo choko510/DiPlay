@@ -1,6 +1,6 @@
 # Remaining STEP4 Gates
 
-Status snapshot for PR #45 (2026-10-27), with code/test evidence HEAD `ae60351267b14a8ef6de3dacb6f718b37bc2310c` and latest workflow-sensitive Draft CI run #481 completed successfully. Product source is unchanged from `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`; later commits contain tests/evidence/docs only. The PR is open and Draft, based on `main@95ba398f95ee104527812cd2b095977d71c51f98`. This file records open evidence and release gates; it does not authorize changing PR state or merging.
+Status snapshot for PR #45 (2026-10-27), with code/test evidence HEAD `ae60351267b14a8ef6de3dacb6f718b37bc2310c`. Full workflow-sensitive Draft run #481 passed; docs-only result-package run #482 passed static checks and Draft scope with runtime jobs skipped. Product source is unchanged from `b767ed8f847a34b7cff72ddbf6a3279b8ad4184f`; later commits contain tests/evidence/docs only. The PR is open and Draft, based on `main@95ba398f95ee104527812cd2b095977d71c51f98`. This file records open evidence and release gates; it does not authorize changing PR state or merging.
 
 ## Current implementation and evidence boundary
 

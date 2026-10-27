@@ -78,6 +78,8 @@ import com.shilapi.xcertplay.dsp.DspLoudnessCalibrationController
 import com.shilapi.xcertplay.dsp.DspWorkspaceSaveResult
 import com.shilapi.xcertplay.dsp.DspStudioCancelOperation
 import com.shilapi.xcertplay.dsp.DspStudioRestoreRequest
+import com.shilapi.xcertplay.dsp.DspStudioRestoreAcknowledgement
+import com.shilapi.xcertplay.dsp.evaluateStudioRestoreAcknowledgement
 import com.shilapi.xcertplay.dsp.DspSmartLoudnessPane
 import com.shilapi.xcertplay.dsp.DspDynamicBassSettingsPane
 import com.shilapi.xcertplay.dsp.DspEqEditorPane
@@ -428,24 +430,21 @@ internal fun DspSettingsScreen(
         while (isVisible) {
             val status = runtime.configProvider.rendererApplyStatus()
             rendererApplyStatus = status
-            if (status == null || status.rendererOwnerToken == null) {
-                finishStudioCancel(operation, true)
-                return@LaunchedEffect
-            }
-            if (status.generation >= request.configGeneration &&
-                status.phase == DspRendererApplyPhase.ACTIVE &&
-                (status.activeGeneration ?: status.generation) >= request.configGeneration &&
-                runtime.isCommittedStudioWorkspaceActive()
-            ) {
-                finishStudioCancel(operation, true)
-                return@LaunchedEffect
-            }
-            if ((status.generation >= request.configGeneration &&
-                    status.phase in setOf(DspRendererApplyPhase.DEFERRED, DspRendererApplyPhase.FAILED)) ||
-                status.generation > request.configGeneration || System.currentTimeMillis() >= deadline
-            ) {
-                finishStudioCancel(operation, false)
-                return@LaunchedEffect
+            when (evaluateStudioRestoreAcknowledgement(
+                request = request,
+                status = status,
+                committedWorkspaceActive = runtime.isCommittedStudioWorkspaceActive(),
+                timedOut = System.currentTimeMillis() >= deadline,
+            )) {
+                DspStudioRestoreAcknowledgement.APPLIED -> {
+                    finishStudioCancel(operation, true)
+                    return@LaunchedEffect
+                }
+                DspStudioRestoreAcknowledgement.REJECTED -> {
+                    finishStudioCancel(operation, false)
+                    return@LaunchedEffect
+                }
+                DspStudioRestoreAcknowledgement.WAITING -> Unit
             }
             delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
         }

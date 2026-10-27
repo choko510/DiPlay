@@ -108,6 +108,83 @@ class CarPlayHostActivityReconnectTest {
     }
 
     @Test
+    fun wiredUsbAttachDuringShutdownQueuesOneResumeAfterTeardown() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        clearStartedActivities(activity)
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            (field(activity, "shuttingDown").get(activity) as java.util.concurrent.atomic.AtomicBoolean).set(true)
+            val firstAttach = CarPlayHostActions.createInternalIntent(
+                activity,
+                CarPlayHostActions.USB_DEVICE_ATTACHED,
+            )
+            val secondAttach = CarPlayHostActions.createInternalIntent(
+                activity,
+                CarPlayHostActions.USB_DEVICE_ATTACHED,
+            )
+            dispatchOnNewIntent(activity, firstAttach)
+            dispatchOnNewIntent(activity, secondAttach)
+
+            val pending = field(activity, "shutdownCompletionCallbacks").get(activity) as List<*>
+            assertEquals(1, pending.size)
+            assertNull(shadowOf(activity.application).nextStartedActivity)
+
+            activity.javaClass.getDeclaredMethod("completeShutdownCallbacks").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+            val resumedHost = shadowOf(activity.application).nextStartedActivity
+            assertNotNull(resumedHost)
+            assertEquals(CarPlayHostActions.OPEN_CARPLAY, CarPlayHostActions.consumeInternalAction(resumedHost))
+            assertNull(shadowOf(activity.application).nextStartedActivity)
+        } finally {
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun wirelessUsbAttachDuringShutdownSwitchesToWiredOnlyOnceAfterTeardown() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val persistedWireless = AirPlayPersistence.loadWirelessEnabled(activity)
+        clearStartedActivities(activity)
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, true)
+            AirPlayPersistence.saveWirelessEnabled(activity, true)
+            (field(activity, "shuttingDown").get(activity) as java.util.concurrent.atomic.AtomicBoolean).set(true)
+            repeat(2) {
+                dispatchOnNewIntent(
+                    activity,
+                    CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.USB_DEVICE_ATTACHED),
+                )
+            }
+
+            assertTrue(AirPlayPersistence.loadWirelessEnabled(activity))
+            assertEquals(1, (field(activity, "shutdownCompletionCallbacks").get(activity) as List<*>).size)
+            activity.javaClass.getDeclaredMethod("completeShutdownCallbacks").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+
+            assertFalse(AirPlayPersistence.loadWirelessEnabled(activity))
+            val resumedHost = shadowOf(activity.application).nextStartedActivity
+            assertNotNull(resumedHost)
+            assertEquals(CarPlayHostActions.OPEN_CARPLAY, CarPlayHostActions.consumeInternalAction(resumedHost))
+            assertNull(shadowOf(activity.application).nextStartedActivity)
+        } finally {
+            AirPlayPersistence.saveWirelessEnabled(activity, persistedWireless)
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
     fun altOnlyScreenDoesNotHideTheMainConnectionPanel() {
         assertFalse(mainScreenStreamIsActive(setOf(111), 110))
         assertTrue(mainScreenStreamIsActive(setOf(110), 110))
@@ -421,6 +498,10 @@ class CarPlayHostActivityReconnectTest {
             isAccessible = true
             invoke(activity, intent)
         }
+    }
+
+    private fun clearStartedActivities(activity: CarPlayHostActivity) {
+        while (shadowOf(activity.application).nextStartedActivity != null) { }
     }
 
     private fun invokeStatusReporter(reporter: Any?, status: CarPlayStatus) {

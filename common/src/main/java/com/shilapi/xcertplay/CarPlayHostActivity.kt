@@ -499,6 +499,11 @@ class CarPlayHostActivity : ComponentActivity() {
     private var gestureStartY = 0f
     private val shuttingDown = AtomicBoolean(false)
     private val wirelessUsbSwitchRequested = AtomicBoolean(false)
+    private val wiredUsbResumeAfterShutdownRequested = AtomicBoolean(false)
+    private val shutdownTerminatesProcess = AtomicBoolean(false)
+    private val shutdownCompletionLock = Any()
+    private val shutdownCompletionCallbacks = mutableListOf<() -> Unit>()
+    private var shutdownCompleted = false
     internal var startCarPlayForTest: ((DisplaySize) -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val teardownExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -981,8 +986,38 @@ class CarPlayHostActivity : ComponentActivity() {
         setIntent(CarPlayHostActions.sanitizedIntent(intent))
         if (action == null) return
         if (action == CarPlayHostActions.USB_DEVICE_ATTACHED) {
-            if (shuttingDown.get() || isFinishing || isDestroyed) {
+            if (isDestroyed) {
                 Log.i(TAG, "USB_ATTACH wired resume blocked reason=host_shutting_down")
+                return
+            }
+            if (shuttingDown.get()) {
+                if (shutdownTerminatesProcess.get()) {
+                    Log.i(TAG, "USB_ATTACH wired resume blocked reason=process_shutdown")
+                    return
+                }
+                if (wirelessEnabled) {
+                    if (!wirelessUsbSwitchRequested.compareAndSet(false, true)) return
+                    enqueueShutdownCompletion {
+                        AirPlayPersistence.saveWirelessEnabled(this, false)
+                        startActivity(
+                            CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
+                        )
+                        finish()
+                    }
+                } else {
+                    if (!wiredUsbResumeAfterShutdownRequested.compareAndSet(false, true)) return
+                    enqueueShutdownCompletion {
+                        startActivity(
+                            CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
+                        )
+                        finish()
+                    }
+                }
+                finish()
+                return
+            }
+            if (isFinishing) {
+                Log.i(TAG, "USB_ATTACH wired resume blocked reason=host_finishing")
                 return
             }
             CarPlayBackgroundSession.clearRestartSuppression()
@@ -5087,7 +5122,9 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
-        if (!shuttingDown.compareAndSet(false, true)) { completion(); return }
+        if (terminateProcess) shutdownTerminatesProcess.set(true)
+        enqueueShutdownCompletion(completion)
+        if (!shuttingDown.compareAndSet(false, true)) return
         finishCarPlayRestartTrace()
         destroyYoutubeBrowser()
         youtubeProfile = null
@@ -5118,14 +5155,44 @@ class CarPlayHostActivity : ComponentActivity() {
             val clean = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
             oldSink?.close()
             airPlayCommandExecutor.shutdown()
-            if (terminateProcess) {
+            if (shutdownTerminatesProcess.get()) {
                 applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java))
             }
             Log.i(TAG, "shutdown complete clean=$clean")
             applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java))
             teardownExecutor.shutdown()
-            mainHandler.post { completion() }
-            if (terminateProcess) Process.killProcess(Process.myPid())
+            mainHandler.post { completeShutdownCallbacks() }
+            if (shutdownTerminatesProcess.get()) Process.killProcess(Process.myPid())
+        }
+    }
+
+    private fun enqueueShutdownCompletion(completion: () -> Unit) {
+        val runImmediately = synchronized(shutdownCompletionLock) {
+            if (shutdownCompleted) true else {
+                shutdownCompletionCallbacks += completion
+                false
+            }
+        }
+        if (runImmediately) {
+            if (Looper.myLooper() == Looper.getMainLooper()) {
+                runShutdownCompletion(completion)
+            } else {
+                mainHandler.post { runShutdownCompletion(completion) }
+            }
+        }
+    }
+
+    private fun completeShutdownCallbacks() {
+        val callbacks = synchronized(shutdownCompletionLock) {
+            shutdownCompleted = true
+            shutdownCompletionCallbacks.toList().also { shutdownCompletionCallbacks.clear() }
+        }
+        callbacks.forEach(::runShutdownCompletion)
+    }
+
+    private fun runShutdownCompletion(completion: () -> Unit) {
+        runCatching(completion).onFailure { error ->
+            Log.e(TAG, "shutdown completion failed error=${error.javaClass.simpleName}")
         }
     }
 

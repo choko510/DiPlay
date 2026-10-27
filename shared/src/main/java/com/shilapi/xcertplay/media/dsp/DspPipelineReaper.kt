@@ -9,6 +9,7 @@ internal object DspPipelineReaper {
     private const val WORKER_COUNT = 2
     private val started = AtomicBoolean()
     private val nextWorker = AtomicInteger()
+    private val detachedRetirementCount = AtomicInteger()
     private val pending = Array(WORKER_COUNT) { AtomicReference<DspPcmPipeline?>(null) }
     private val workers = arrayOfNulls<Thread>(WORKER_COUNT)
 
@@ -34,6 +35,17 @@ internal object DspPipelineReaper {
         if (reaper != null) LockSupport.unpark(reaper)
     }
 
+    fun enqueueDetached(
+        pipeline: DspPcmPipeline,
+        onFailure: (Throwable) -> Unit,
+        onComplete: () -> Unit,
+    ) {
+        if (!pipeline.claimRetirement(detachedRetirementCount, onFailure, onComplete)) return
+        detachedRetirementCount.incrementAndGet()
+        start()
+        enqueue(pipeline)
+    }
+
     private fun drain(workerIndex: Int) {
         val queue = pending[workerIndex]
         while (true) {
@@ -47,6 +59,7 @@ internal object DspPipelineReaper {
                 pipeline.reaperNext = null
                 try {
                     pipeline.close()
+                    pipeline.reportRetirementCompleted()
                 } catch (error: Throwable) {
                     pipeline.reportRetirementFailure(error)
                 } finally {

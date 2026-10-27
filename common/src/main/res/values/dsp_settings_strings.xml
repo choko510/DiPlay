@@ -95,7 +95,7 @@
     <string name="dsp_renderer_apply_active">MEDIAレンダラーで最後に採用した世代: %1$d</string>
     <string name="dsp_renderer_apply_deferred">次の音声トラックまで保留（要求世代 %1$d、現在の世代 %2$s）</string>
     <string name="dsp_renderer_apply_failed">世代 %1$d の準備に失敗。現在の出力を維持します。</string>
-    <string name="dsp_renderer_apply_retirement_failed">退役世代 %1$s（pipeline %2$s）の解放に失敗。現在の世代 %3$s は継続中で、DSP更新は停止されています。</string>
+    <string name="dsp_renderer_apply_retirement_failed">退役世代 %1$s（pipeline %2$s）の解放に失敗。現在の世代 %3$s は継続中で、DSP更新は停止されています。変更を適用するにはDiPlayを再起動してください。</string>
     <string name="dsp_renderer_apply_no_active">なし</string>
     <string name="dsp_renderer_apply_status_note">最後に採用したグラフ世代の表示です。設定した全モジュールの有効状態や、現在再生中であることは示しません。</string>
     <string name="dsp_renderer_apply_convolver_ir_unavailable">ConvolverはIRを読み込めなかったため、この出力では無効です。</string>

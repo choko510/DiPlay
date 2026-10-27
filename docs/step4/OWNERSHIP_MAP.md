@@ -20,3 +20,30 @@ This map records current main before behavior changes. It supports race reviews 
 | Connection trace storage | `ConnectionTraceStore` is app-owned; callbacks enqueue bounded records to one writer executor. | Snapshot reads on that executor; capture is opt-in through `debug_logs_enabled` (default false). | Keep payloads and raw identifiers out of logs. |
 
 `NcmUsbBridge.drainFrames()` is the current RX framing boundary. It consumes the optional one-byte short-packet pad only when present. For an incomplete but structurally plausible NTH16 length, bounded recovery skips only past the validated NDP/datagram extent to a complete next block with the expected sequence; device endpoint behavior remains `NOT_RUN`.
+
+## PR #45 review-fix ownership and callback fences
+
+The rows below describe the existing owner checks and the changes made by the 2026-10-27 review-fix batch. They do not claim target-device acceptance.
+
+| Subsystem | State owner and generation | Final callback / timer check | Failure behavior |
+|---|---|---|---|
+| USB attach and wired startup | Exported `CarPlayUsbAttachActivity` verifies permission, currently attached identity, and CH341 VID/PID before creating a single-use internal action. `CarPlayHostActivity` consumes and sanitizes that token. The subsequent controller attempt owns its existing wired startup/data-path generations. | Wired attach clears reconnect suppression and calls `maybeStartCarPlay()`. That method rechecks shutdown/finish state, restart suppression and handoff, `CarPlayBackgroundSession` owner, display size, VPN readiness, location/microphone readiness, menu/handshake state, and `controller`. Wireless and wired attach requests observed during a non-process shutdown are coalesced to one completion after teardown. | Invalid/external/replayed actions cannot reach the wired resume path. Readiness gaps use existing VPN/display callbacks; no attach retry timer is added. An existing controller or background owner is reused. Process-exit shutdown explicitly blocks deferred restart. |
+| VPN attachment and AirPlay sessions | `CarPlayVpnService` owns `attachGeneration`, listener, TUN/bridge, and active sessions. `CarPlayController` owns the wired startup attempt and data-path generation. `CarPlayMediaEngine` owns current MAIN/ALT stream identities. | Accept, revoke, and listener callbacks compare the captured attachment generation and listener/attachment identity. Media callbacks compare `screenStreamOwners[type]` and the current `streams[streamKey]` before acting. | Stale attachment/session callbacks cannot detach or publish into their replacement. Existing bounded TCP/session limits and teardown order remain unchanged. |
+| Host Activity and background session | `CarPlayHostActivity` owns `restartGeneration` and `connectionEpoch`; `CarPlayBackgroundSession` transfers `ownerEpoch` and the controller/sink snapshot. | `restartAfterReconnectDelay` validates all three values through `ReconnectAfterLossGate`. Controller listeners validate restart generation, connection epoch, and current Activity owner before UI changes or teardown. | A stale timer/listener returns without stopping or replacing the current controller. USB attach uses the same startup guards rather than creating a second session. |
+| MAIN/ALT decoder and Surface | `AndroidMediaSink` owns per-type `videoStreamGenerations`, decoder identity, and retiring decoder references. `VideoDecoder` owns codec operations on its worker. `CarPlayHostActivity` / `SurfaceRetirementGate` retain SurfaceTexture generations until every decoder ACK arrives. | Recovery/keyframe callbacks check current stream generation and handler generation. First-frame callbacks check current generation and decoder identity. Decoder replacement requires both `isStopped()` and `surfaceReleaseSafe`. | Codec release gets at most two same-worker attempts per codec. Persistent failure retains decoder/Surface ownership, refuses replacement, and reports `SESSION_RESTART_REQUIRED`; no fake ACK or forced Surface release occurs. Surface-retirement backpressure remains capped at eight generations. |
+| AudioRenderer and DSP graph | `AndroidMediaSink` owns each renderer under an `AudioOwnerToken`. `AudioRenderer` owns its AudioTrack generation, DSP configuration generation, active graph, and one renderer epoch. `DspLiveUpdateController` prepares candidates; `DspPipelineReaper` owns detached native destruction. | Prepared candidates validate renderer/controller epoch, format, requested config generation, and `rendererReleased` at the synchronized publication/adoption points. DSP retirement failures are sticky for that renderer; an old renderer callback is ignored after release. | DSP OFF remains legacy PCM16 and zero added latency. Detached old graphs and pending candidates go to the reaper; close failures keep updates blocked until a new renderer reports its own active status. No old native handle is reused or cleared as successful. |
+
+## Review-fix sequence
+
+```mermaid
+flowchart LR
+  USB[Verified USB attach token] --> HOST[Host onNewIntent]
+  HOST --> READY[maybeStartCarPlay owner/readiness guards]
+  READY --> SESSION[Existing or single new controller session]
+  SESSION --> VPN[VPN attachment generation]
+  VPN --> AIRPLAY[AirPlaySession / MAIN and ALT stream generation]
+  AIRPLAY --> VIDEO[VideoDecoder worker / Surface ACK]
+  AIRPLAY --> AUDIO[AudioRenderer owner / AudioTrack generation]
+  AUDIO --> DSP[DSP config generation]
+  DSP --> RETIRE[Single-owner asynchronous native retirement]
+```

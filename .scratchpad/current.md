@@ -20,7 +20,7 @@
 
 ## Next
 
-1. REM-07 evidence tooling and validator hardening are on `codex/pr52-rem-07-evidence`: tracker covers 170 acceptance IDs and 25 REM/PKG IDs; PARTIAL rows state the unproven acceptance requirement; validation remains 0 PASS / 152 PARTIAL / 18 NOT_RUN until evidence is attached.
+1. REM-07 evidence tooling and validator hardening are on `codex/pr52-rem-07-evidence`: tracker covers 170 acceptance IDs plus 25 work packages with execution metadata; PARTIAL rows state the unproven acceptance requirement; validation remains 0 PASS / 152 PARTIAL / 18 NOT_RUN until evidence is attached.
 2. Commit and push the final run #506 evidence/review updates; verify the workflow triggered for that documentation head and keep the PR body linked to its result.
 3. Keep PR #52 open and unmerged. Do not modify PR #45 or `main`.
 4. Hardware, acoustic, performance, A/V, route calibration, and per-ID evidence remain open where measurements or one-to-one assertions are missing.

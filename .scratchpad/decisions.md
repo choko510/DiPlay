@@ -772,3 +772,5 @@ Smart Loudness headroom must bound the transient response of `sample - lowpass(s
 2026-10-27 REM-07 validator: Accept a remote Actions run artifact only when the URL points to this repository (`github.com/choko510/DiPlay/actions/runs/<id>`); a syntactically valid URL for another repository is not evidence for this tree.
 
 2026-10-27 REM-07: Keep `Missing fields` limited to absent evidence inputs and use a separate `What missing` column to identify the unproven acceptance subcase. This allows a PARTIAL row to contain complete execution metadata while still stating the requirement that remains unverified.
+
+2026-10-27 REM-07: Keep work-package execution tracking separate from the per-ID acceptance ledger. Use explicit `Not recorded` values for unavailable owners, dependencies, commits, commands, and reviews; only associate commits and tests where the project records provide a direct match.

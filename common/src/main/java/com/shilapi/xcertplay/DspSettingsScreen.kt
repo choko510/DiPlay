@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -55,6 +56,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.dsp.DspAudioProfile
@@ -283,6 +285,19 @@ internal fun DspSettingsScreen(
     var dspEnabled by remember(editorSession) { editorSession.masterEnabledMutableState }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var compactSection by rememberSaveable { mutableStateOf(DspStudioTab.STUDIO) }
+    val studioScrollState = rememberScrollState()
+    val eqScrollState = rememberScrollState()
+    val spatialScrollState = rememberScrollState()
+    val dynamicsScrollState = rememberScrollState()
+    val advancedScrollState = rememberScrollState()
+    val tabSaveableStateHolder = rememberSaveableStateHolder()
+    val activeTabScrollState = when (compactSection) {
+        DspStudioTab.STUDIO -> studioScrollState
+        DspStudioTab.EQ -> eqScrollState
+        DspStudioTab.SPATIAL -> spatialScrollState
+        DspStudioTab.DYNAMICS -> dynamicsScrollState
+        DspStudioTab.ADVANCED -> advancedScrollState
+    }
     var macroSettings by remember(studioSession) { mutableStateOf(studioSession.preview.macros) }
     var studioEditTransaction by remember(studioSession) { mutableStateOf<DspStudioEditTransaction?>(null) }
     var studioProfileSliderCommitPending by remember(studioSession) { mutableStateOf(false) }
@@ -838,7 +853,8 @@ internal fun DspSettingsScreen(
             modifier = compactBodyConstraint
                 .fillMaxSize()
                 .padding(insetPadding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(activeTabScrollState)
+                .testTag("dsp-tab-scroll-pane")
                 .padding(horizontal = if (compact) 8.dp else 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -1635,18 +1651,20 @@ internal fun DspSettingsScreen(
                         enabled = dynamicBassSettings.enabled && studioFeatureFlags.dynamicBassEnabled,
                     ),
                 )
-                DspEqEditorPane(
-                    profile = profile,
-                    onProfileChange = updateStudioProfile,
-                    onEditBandType = { bandTypeDialog = it },
-                    sampleRateHz = playbackSampleRateHz,
-                    modifier = Modifier.fillMaxWidth(),
-                    onEditFinished = finishStudioFeatureEdit,
-                    macroTone = tuning.runtimeConfig.macroTone,
-                    smartLoudness = tuning.runtimeConfig.smartLoudness,
-                    dynamicBassEnabled = tuning.runtimeConfig.dynamicBass.enabled,
-                    predictedPreampDb = tuning.runtimeConfig.gainDb,
-                )
+                tabSaveableStateHolder.SaveableStateProvider(DspStudioTab.EQ) {
+                    DspEqEditorPane(
+                        profile = profile,
+                        onProfileChange = updateStudioProfile,
+                        onEditBandType = { bandTypeDialog = it },
+                        sampleRateHz = playbackSampleRateHz,
+                        modifier = Modifier.fillMaxWidth(),
+                        onEditFinished = finishStudioFeatureEdit,
+                        macroTone = tuning.runtimeConfig.macroTone,
+                        smartLoudness = tuning.runtimeConfig.smartLoudness,
+                        dynamicBassEnabled = tuning.runtimeConfig.dynamicBass.enabled,
+                        predictedPreampDb = tuning.runtimeConfig.gainDb,
+                    )
+                }
             }
 
             if (showDynamics || showAdvanced) {

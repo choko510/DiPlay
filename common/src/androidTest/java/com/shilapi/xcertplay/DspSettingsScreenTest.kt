@@ -8,6 +8,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -18,9 +19,12 @@ import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.shilapi.xcertplay.dsp.DspFactoryPresets
@@ -47,6 +51,107 @@ import org.junit.runner.RunWith
 class DspSettingsScreenTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun compactTabScrollPositionsAreIndependentAndRestoredOnReturn() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-settings-tab-scroll-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        presentation = DspPresentationMode.COMPACT_SPLIT,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
+            val scrollPositions = mutableMapOf(
+                DspStudioTab.STUDIO to composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition(),
+            )
+            assertTrue("Studio tab should scroll", scrollPositions.getValue(DspStudioTab.STUDIO) > 0f)
+
+            val selectedBandDescription = context.getString(R.string.dsp_eq_select_band, 3)
+            val expectedGainDb = 3.0
+            val tabs = dspStudioTabs()
+            val visits = mutableMapOf<DspStudioTab, Int>()
+            repeat(100) { index ->
+                val tab = tabs[(index + 1) % tabs.size]
+                visits[tab] = (visits[tab] ?: 0) + 1
+                val firstVisit = tab !in scrollPositions
+                val expectedPosition = scrollPositions[tab] ?: 0f
+                composeRule.onNodeWithContentDescription(context.getString(tab.labelRes)).performClick()
+                assertEquals(
+                    "Tab ${tab.name} should begin at its own saved position",
+                    expectedPosition,
+                    composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition(),
+                )
+
+                if (firstVisit) {
+                    when (tab) {
+                        DspStudioTab.STUDIO ->
+                            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
+                        DspStudioTab.EQ -> {
+                            composeRule.onNodeWithContentDescription(selectedBandDescription)
+                                .performScrollTo()
+                                .performClick()
+                            val gainDescription = context.getString(R.string.dsp_eq_band_gain, 3)
+                            composeRule.onNodeWithContentDescription(gainDescription)
+                                .performScrollTo()
+                                .performSemanticsAction(SemanticsActions.SetProgress) { setProgress ->
+                                    setProgress(expectedGainDb.toFloat())
+                                }
+                            composeRule.waitUntil(timeoutMillis = 5_000) {
+                                runtime.editorSession.draftProfile.eqBands[2].gainDb == expectedGainDb
+                            }
+                            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
+                        }
+                        DspStudioTab.SPATIAL, DspStudioTab.DYNAMICS ->
+                            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
+                        DspStudioTab.ADVANCED -> {
+                            composeRule.onNode(isToggleable()).performClick()
+                            composeRule.onNodeWithText(context.getString(R.string.dsp_auto_headroom))
+                                .performScrollTo()
+                                .assertIsDisplayed()
+                        }
+                    }
+                    val position = composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition()
+                    assertTrue("${tab.name} tab should scroll", position > 0f)
+                    scrollPositions[tab] = position
+                } else if (tab == DspStudioTab.EQ) {
+                    assertEquals(
+                        context.getString(R.string.dsp_eq_selected),
+                        composeRule.onNodeWithContentDescription(selectedBandDescription)
+                            .fetchSemanticsNode().config[SemanticsProperties.StateDescription],
+                    )
+                    assertEquals(
+                        expectedGainDb,
+                        runtime.editorSession.draftProfile.eqBands[2].gainDb,
+                        0.05,
+                    )
+                }
+            }
+            tabs.forEach { tab -> assertEquals(20, visits[tab]) }
+        } finally {
+            runtime.closeForTesting()
+        }
+    }
+
+    private fun SemanticsNodeInteraction.verticalScrollPosition(): Float =
+        fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
 
     @Test
     fun macroPreviewSurvivesCompactAndFullLayoutsAndCancelRestoresCommittedState() {

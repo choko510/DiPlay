@@ -6,23 +6,28 @@ if ! adb logcat -c; then
     exit 1
 fi
 
-./gradlew :shared:connectedDebugAndroidTest --build-cache --stacktrace
+./gradlew -PsharedAndroidTestBuildType=release :shared:connectedReleaseAndroidTest --build-cache --stacktrace
 shared_test_result=$?
 
 ./gradlew :common:connectedDebugAndroidTest --build-cache --stacktrace
 common_test_result=$?
 
-mkdir -p shared/build/outputs/dsp-benchmark
-timeout 20s adb logcat -d -v threadtime -s DspPipelineBenchmark:I DspFinalIntegration:I > shared/build/outputs/dsp-benchmark/logcat.txt || true
+test_result=0
+if [ "$shared_test_result" -ne 0 ] || [ "$common_test_result" -ne 0 ]; then
+    test_result=1
+fi
 
-if [ "$shared_test_result" -eq 0 ] && [ "$common_test_result" -eq 0 ]; then
+mkdir -p shared/build/outputs/dsp-benchmark
+if command -v timeout >/dev/null 2>&1; then
+    timeout 20s adb logcat -d -v threadtime -s DspPipelineBenchmark:I DspFinalIntegration:I > shared/build/outputs/dsp-benchmark/logcat.txt || true
+else
+    adb logcat -d -v threadtime -s DspPipelineBenchmark:I DspFinalIntegration:I > shared/build/outputs/dsp-benchmark/logcat.txt || true
+fi
+
+if [ "$test_result" -eq 0 ]; then
     if ! bash scripts/check_android_instrumentation_evidence.sh shared/build/outputs/dsp-benchmark/logcat.txt; then
         exit 1
     fi
 fi
 
-if [ "$shared_test_result" -ne 0 ]; then
-    exit "$shared_test_result"
-fi
-
-exit "$common_test_result"
+exit "$test_result"

@@ -722,6 +722,8 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-27 B09 follow-up: run #495 passes all 56 median wall-p99 gates on x86_64, while the focused local arm64 class fails four wall-p99 assertions with lower thread-CPU p99. Keep the ABI results separate, retain the existing thresholds, and leave G4 partial until the local timing cause and target-device behavior are understood.
 
+2026-10-27 B09 Release instrumentation: make the Shared p99 harness opt into the optimized Release JNI variant (`NDK_DEBUG=0`) while keeping Debug as the default for other tasks. Run Shared Release and Common Debug in separate Gradle invocations to avoid overlapping instrumentation with build work. Preserve the earlier combined-run failures and all thresholds; Release emulator passes do not replace TS10/K706 acceptance.
+
 ## Retain Gradle test result XML in CI artifacts
 
 2026-10-27 B09: upload unit-test XML and connected AndroidTest XML/HTML with `if: always()` so a failed test remains diagnosable from the run artifact. Run #490 verified that the configured paths produce 865 unit-test and 20 instrumentation-test results; artifact retention itself does not change test scope or release status.

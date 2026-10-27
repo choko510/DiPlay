@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -278,6 +279,7 @@ internal fun DspSettingsScreen(
     val spatialScrollState = rememberScrollState()
     val dynamicsScrollState = rememberScrollState()
     val advancedScrollState = rememberScrollState()
+    val tabSaveableStateHolder = rememberSaveableStateHolder()
     val activeTabScrollState = when (compactSection) {
         DspStudioTab.STUDIO -> studioScrollState
         DspStudioTab.EQ -> eqScrollState
@@ -1588,18 +1590,20 @@ internal fun DspSettingsScreen(
                         enabled = dynamicBassSettings.enabled && studioFeatureFlags.dynamicBassEnabled,
                     ),
                 )
-                DspEqEditorPane(
-                    profile = profile,
-                    onProfileChange = updateStudioProfile,
-                    onEditBandType = { bandTypeDialog = it },
-                    sampleRateHz = playbackSampleRateHz,
-                    modifier = Modifier.fillMaxWidth(),
-                    onEditFinished = finishStudioFeatureEdit,
-                    macroTone = tuning.runtimeConfig.macroTone,
-                    smartLoudness = tuning.runtimeConfig.smartLoudness,
-                    dynamicBassEnabled = tuning.runtimeConfig.dynamicBass.enabled,
-                    predictedPreampDb = tuning.runtimeConfig.gainDb,
-                )
+                tabSaveableStateHolder.SaveableStateProvider(DspStudioTab.EQ) {
+                    DspEqEditorPane(
+                        profile = profile,
+                        onProfileChange = updateStudioProfile,
+                        onEditBandType = { bandTypeDialog = it },
+                        sampleRateHz = playbackSampleRateHz,
+                        modifier = Modifier.fillMaxWidth(),
+                        onEditFinished = finishStudioFeatureEdit,
+                        macroTone = tuning.runtimeConfig.macroTone,
+                        smartLoudness = tuning.runtimeConfig.smartLoudness,
+                        dynamicBassEnabled = tuning.runtimeConfig.dynamicBass.enabled,
+                        predictedPreampDb = tuning.runtimeConfig.gainDb,
+                    )
+                }
             }
 
             if (showDynamics || showAdvanced) {

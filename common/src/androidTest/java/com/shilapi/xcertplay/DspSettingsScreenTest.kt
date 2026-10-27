@@ -78,19 +78,72 @@ class DspSettingsScreenTest {
             }
 
             composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
-            val studioPosition = composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition()
-            assertTrue("Studio tab should scroll", studioPosition > 0f)
+            val scrollPositions = mutableMapOf(
+                DspStudioTab.STUDIO to composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition(),
+            )
+            assertTrue("Studio tab should scroll", scrollPositions.getValue(DspStudioTab.STUDIO) > 0f)
 
-            composeRule.onNodeWithContentDescription("Spatial").performClick()
-            assertEquals(0f, composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition())
-            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
-            val spatialPosition = composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition()
-            assertTrue("Spatial tab should scroll independently", spatialPosition > 0f)
+            val selectedBandDescription = context.getString(R.string.dsp_eq_select_band, 3)
+            val expectedGainDb = 3.0
+            val tabs = dspStudioTabs()
+            val visits = mutableMapOf<DspStudioTab, Int>()
+            repeat(100) { index ->
+                val tab = tabs[(index + 1) % tabs.size]
+                visits[tab] = (visits[tab] ?: 0) + 1
+                val firstVisit = tab !in scrollPositions
+                val expectedPosition = scrollPositions[tab] ?: 0f
+                composeRule.onNodeWithContentDescription(context.getString(tab.labelRes)).performClick()
+                assertEquals(
+                    "Tab ${tab.name} should begin at its own saved position",
+                    expectedPosition,
+                    composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition(),
+                )
 
-            composeRule.onNodeWithContentDescription("Studio").performClick()
-            assertEquals(studioPosition, composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition())
-            composeRule.onNodeWithContentDescription("Spatial").performClick()
-            assertEquals(spatialPosition, composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition())
+                if (firstVisit) {
+                    when (tab) {
+                        DspStudioTab.STUDIO ->
+                            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
+                        DspStudioTab.EQ -> {
+                            composeRule.onNodeWithContentDescription(selectedBandDescription)
+                                .performScrollTo()
+                                .performClick()
+                            val gainDescription = context.getString(R.string.dsp_eq_band_gain, 3)
+                            composeRule.onNodeWithContentDescription(gainDescription)
+                                .performScrollTo()
+                                .performSemanticsAction(SemanticsActions.SetProgress) { setProgress ->
+                                    setProgress(expectedGainDb.toFloat())
+                                }
+                            composeRule.waitUntil(timeoutMillis = 5_000) {
+                                runtime.editorSession.draftProfile.eqBands[2].gainDb == expectedGainDb
+                            }
+                            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
+                        }
+                        DspStudioTab.SPATIAL, DspStudioTab.DYNAMICS ->
+                            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
+                        DspStudioTab.ADVANCED -> {
+                            composeRule.onNode(isToggleable()).performClick()
+                            composeRule.onNodeWithText(context.getString(R.string.dsp_auto_headroom))
+                                .performScrollTo()
+                                .assertIsDisplayed()
+                        }
+                    }
+                    val position = composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition()
+                    assertTrue("${tab.name} tab should scroll", position > 0f)
+                    scrollPositions[tab] = position
+                } else if (tab == DspStudioTab.EQ) {
+                    assertEquals(
+                        context.getString(R.string.dsp_eq_selected),
+                        composeRule.onNodeWithContentDescription(selectedBandDescription)
+                            .fetchSemanticsNode().config[SemanticsProperties.StateDescription],
+                    )
+                    assertEquals(
+                        expectedGainDb,
+                        runtime.editorSession.draftProfile.eqBands[2].gainDb,
+                        0.05,
+                    )
+                }
+            }
+            tabs.forEach { tab -> assertEquals(20, visits[tab]) }
         } finally {
             runtime.closeForTesting()
         }

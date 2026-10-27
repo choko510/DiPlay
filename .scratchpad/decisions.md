@@ -781,4 +781,6 @@ Smart Loudness headroom must bound the transient response of `sample - lowpass(s
 
 2026-10-28 REM-07: Run `check_dsp_studio_evidence.py` in the Android `check` job after checkout/static checks and before Gradle setup, so every PR check enforces evidence ledger contracts. Workflow changes are classified workflow-sensitive and select full host plus instrumentation verification.
 
+2026-10-28 REM-07: Keep each §12.2 evidence dimension in its own column. PARTIAL's `Missing evidence` enumerates exactly blank evidence fields while `Unproven predicate` identifies the acceptance criterion still open; a PARTIAL row may have all execution metadata populated if the acceptance remains incomplete.
+
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

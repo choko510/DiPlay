@@ -70,7 +70,7 @@ internal interface NativeDspBindings {
         handle: Long,
         coefficients: DoubleArray,
         preparedValues: DoubleArray,
-        historyEpochSequence: LongArray,
+        historySequences: LongArray,
     ): Boolean = false
     fun enqueueLocalPeqUpdate(handle: Long, update: DspPreparedLocalPeqWarmUpdate): Int = -1
     fun cancelLocalPeqUpdate(handle: Long, generationToken: Int): Int = -1
@@ -184,8 +184,8 @@ internal object NativeDspJni : NativeDspBindings {
         handle: Long,
         coefficients: DoubleArray,
         preparedValues: DoubleArray,
-        historyEpochSequence: LongArray,
-    ): Boolean = nativePrepareLocalPeqUpdate(handle, coefficients, preparedValues, historyEpochSequence)
+        historySequences: LongArray,
+    ): Boolean = nativePrepareLocalPeqUpdate(handle, coefficients, preparedValues, historySequences)
 
     override fun enqueueLocalPeqUpdate(handle: Long, update: DspPreparedLocalPeqWarmUpdate): Int =
         nativeEnqueueLocalPeqUpdate(
@@ -197,6 +197,7 @@ internal object NativeDspJni : NativeDspBindings {
             update.hotContextToken,
             update.mediaRole,
             update.historyEpochSequence,
+            update.historyEndSequence,
             update.bandCount,
             update.preparedValues,
         )
@@ -294,7 +295,7 @@ internal object NativeDspJni : NativeDspBindings {
         handle: Long,
         eqCoefficients: DoubleArray,
         preparedValues: DoubleArray,
-        historyEpochSequence: LongArray,
+        historySequences: LongArray,
     ): Boolean
     private external fun nativeEnqueueLocalPeqUpdate(
         handle: Long,
@@ -305,6 +306,7 @@ internal object NativeDspJni : NativeDspBindings {
         hotContextToken: Int,
         mediaRole: Boolean,
         historyEpochSequence: Long,
+        historyEndSequence: Long,
         bandCount: Int,
         preparedValues: DoubleArray,
     ): Int
@@ -527,9 +529,9 @@ internal class NativeDspProcessor internal constructor(
         ) return null
         val bandCount = coefficients.size / DspEqDesigner.COEFFICIENTS_PER_BAND
         val preparedValues = DoubleArray(bandCount * DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND)
-        val historyEpochSequence = LongArray(1)
+        val historySequences = LongArray(2)
         val prepared = try {
-            bindings.prepareLocalPeqUpdate(handle, coefficients, preparedValues, historyEpochSequence)
+            bindings.prepareLocalPeqUpdate(handle, coefficients, preparedValues, historySequences)
         } catch (_: SecurityException) {
             false
         } catch (_: LinkageError) {
@@ -537,7 +539,9 @@ internal class NativeDspProcessor internal constructor(
         } catch (_: Exception) {
             false
         }
-        if (!prepared || preparedValues.any { !it.isFinite() } || historyEpochSequence[0] < 0L) return null
+        if (!prepared || preparedValues.any { !it.isFinite() } || historySequences[0] < 0L ||
+            historySequences[1] < historySequences[0]
+        ) return null
         return DspPreparedLocalPeqWarmUpdate(
             generation = generation,
             editorOwnerEpoch = editorOwnerEpoch,
@@ -546,7 +550,8 @@ internal class NativeDspProcessor internal constructor(
             hotContextToken = hotContextToken,
             mediaRole = mediaRole,
             bandCount = bandCount,
-            historyEpochSequence = historyEpochSequence[0],
+            historyEpochSequence = historySequences[0],
+            historyEndSequence = historySequences[1],
             preparedValues = preparedValues,
         )
     }

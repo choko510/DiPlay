@@ -659,7 +659,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativePrepareLocalPeqUpdate(
         coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 ||
         prepared_count != (coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT) *
             DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND ||
-        (*env)->GetArrayLength(env, history_epoch_sequence) != 1) return JNI_FALSE;
+        (*env)->GetArrayLength(env, history_epoch_sequence) != 2) return JNI_FALSE;
 
     double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0};
     double values[DSP_BIQUAD_MAX_BANDS * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0};
@@ -670,20 +670,22 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativePrepareLocalPeqUpdate(
     dsp_engine_lease lease = {0};
     if (!acquire_engine(handle, &lease)) return JNI_FALSE;
     unsigned long long history_epoch = 0;
+    unsigned long long history_end = 0;
     const int prepared = dsp_engine_prepare_local_peq_update(
         lease.engine,
         coefficient_count > 0 ? coefficients : NULL,
         (size_t)(coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT),
         prepared_count > 0 ? values : NULL,
         (size_t)prepared_count,
-        &history_epoch);
+        &history_epoch,
+        &history_end);
     if (prepared) {
         if (prepared_count > 0) {
             (*env)->SetDoubleArrayRegion(env, prepared_values, 0, prepared_count, values);
         }
         if (!(*env)->ExceptionCheck(env)) {
-            const jlong epoch = (jlong)history_epoch;
-            (*env)->SetLongArrayRegion(env, history_epoch_sequence, 0, 1, &epoch);
+            const jlong sequences[2] = {(jlong)history_epoch, (jlong)history_end};
+            (*env)->SetLongArrayRegion(env, history_epoch_sequence, 0, 2, sequences);
         }
     }
     const int failed = (*env)->ExceptionCheck(env);
@@ -703,11 +705,13 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeEnqueueLocalPeqUpdate(
     jint hot_context_token,
     jboolean media_role,
     jlong history_epoch_sequence,
+    jlong history_end_sequence,
     jint band_count,
     jdoubleArray prepared_values) {
     (void)receiver;
     if (prepared_values == NULL || generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 ||
-        pcm_format_epoch <= 0 || hot_context_token <= 0 || media_role != JNI_TRUE || band_count < 0 ||
+        pcm_format_epoch <= 0 || hot_context_token <= 0 || media_role != JNI_TRUE ||
+        history_epoch_sequence < 0 || history_end_sequence < history_epoch_sequence || band_count < 0 ||
         band_count > DSP_BIQUAD_MAX_BANDS ||
         (*env)->GetArrayLength(env, prepared_values) != band_count * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND) {
         return DSP_STATUS_INVALID_ARGUMENT;
@@ -728,6 +732,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeEnqueueLocalPeqUpdate(
         .renderer_owner_token = (uint64_t)renderer_owner_token,
         .pcm_format_epoch = (uint64_t)pcm_format_epoch,
         .history_epoch_sequence = (uint64_t)history_epoch_sequence,
+        .history_end_sequence = (uint64_t)history_end_sequence,
         .hot_context_token = (uint32_t)hot_context_token,
         .media_role = 1,
         .peq_count = (size_t)band_count,

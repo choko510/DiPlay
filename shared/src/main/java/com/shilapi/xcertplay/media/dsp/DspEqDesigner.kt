@@ -270,6 +270,7 @@ internal data class DspPreparedLocalPeqWarmUpdate(
     val mediaRole: Boolean,
     val bandCount: Int,
     val historyEpochSequence: Long,
+    val historyEndSequence: Long,
     val preparedValues: DoubleArray,
 ) {
     val generationToken: Int

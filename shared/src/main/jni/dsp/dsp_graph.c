@@ -5,6 +5,8 @@
 #include <string.h>
 
 #define DSP_PEQ_WARM_DECAY_FLOOR 1e-7
+#define DSP_PEQ_WARM_CONTROL_CATCH_UP_MAX 4096u
+#define DSP_PEQ_WARM_CONTROL_CATCH_UP_ATTEMPTS 3u
 
 _Static_assert(ATOMIC_LLONG_LOCK_FREE == 2, "PEQ input history requires lock-free 64-bit atomics");
 
@@ -55,27 +57,24 @@ static size_t biquad_warm_history_frames(const double *coefficients) {
     return (size_t)fmax(1.0, required);
 }
 
-static int snapshot_peq_history(
+static int snapshot_peq_history_range(
     const dsp_peq_input_history *history,
-    size_t required_frames,
-    float *destination,
-    unsigned long long *history_epoch_sequence) {
-    if (history == NULL || history->entries == NULL || required_frames > DSP_PEQ_WARM_HISTORY_CAPACITY ||
-        (required_frames > 0 && destination == NULL) || history_epoch_sequence == NULL) return 0;
-    if (required_frames == 0) {
-        *history_epoch_sequence = atomic_load_explicit(&history->reset_sequence, memory_order_acquire);
-        return 1;
-    }
+    unsigned long long expected_epoch_sequence,
+    unsigned long long first_sequence,
+    unsigned long long end_sequence,
+    float *destination) {
+    if (history == NULL || history->entries == NULL || destination == NULL ||
+        end_sequence < first_sequence || first_sequence <= expected_epoch_sequence ||
+        end_sequence - first_sequence >= DSP_PEQ_WARM_HISTORY_CAPACITY) return 0;
 
     const unsigned long long epoch_before = atomic_load_explicit(&history->reset_sequence, memory_order_acquire);
-    const unsigned long long end_sequence = atomic_load_explicit(&history->published_sequence, memory_order_acquire);
-    const unsigned long long epoch_after = atomic_load_explicit(&history->reset_sequence, memory_order_acquire);
-    if (epoch_before != epoch_after || end_sequence < epoch_before ||
-        end_sequence - epoch_before < required_frames) return 0;
-    const unsigned long long first_sequence = end_sequence - required_frames + 1;
-    if (first_sequence <= epoch_before) return 0;
+    const unsigned long long published_before =
+        atomic_load_explicit(&history->published_sequence, memory_order_acquire);
+    if (epoch_before != expected_epoch_sequence || published_before < end_sequence ||
+        published_before - first_sequence >= DSP_PEQ_WARM_HISTORY_CAPACITY) return 0;
 
-    for (size_t index = 0; index < required_frames; index++) {
+    const size_t frame_count = (size_t)(end_sequence - first_sequence + 1);
+    for (size_t index = 0; index < frame_count; index++) {
         const unsigned long long expected_sequence = first_sequence + index;
         const dsp_peq_history_entry *entry =
             &history->entries[(expected_sequence - 1) % DSP_PEQ_WARM_HISTORY_CAPACITY];
@@ -90,9 +89,50 @@ static int snapshot_peq_history(
     }
 
     const unsigned long long epoch_final = atomic_load_explicit(&history->reset_sequence, memory_order_acquire);
-    if (epoch_final != epoch_before) return 0;
-    *history_epoch_sequence = epoch_before;
+    const unsigned long long published_final =
+        atomic_load_explicit(&history->published_sequence, memory_order_acquire);
+    return epoch_final == expected_epoch_sequence && published_final >= end_sequence &&
+        published_final - first_sequence < DSP_PEQ_WARM_HISTORY_CAPACITY;
+}
+
+static int snapshot_peq_history_tail(
+    const dsp_peq_input_history *history,
+    size_t required_frames,
+    float *destination,
+    unsigned long long *history_epoch_sequence,
+    unsigned long long *history_end_sequence) {
+    if (history == NULL || history->entries == NULL || required_frames > DSP_PEQ_WARM_HISTORY_CAPACITY ||
+        (required_frames > 0 && destination == NULL) || history_epoch_sequence == NULL ||
+        history_end_sequence == NULL) return 0;
+
+    const unsigned long long epoch = atomic_load_explicit(&history->reset_sequence, memory_order_acquire);
+    const unsigned long long end_sequence =
+        atomic_load_explicit(&history->published_sequence, memory_order_acquire);
+    if (end_sequence < epoch || end_sequence - epoch < required_frames) return 0;
+    if (required_frames > 0) {
+        const unsigned long long first_sequence = end_sequence - required_frames + 1;
+        if (!snapshot_peq_history_range(
+                history, epoch, first_sequence, end_sequence, destination)) return 0;
+    }
+    if (atomic_load_explicit(&history->reset_sequence, memory_order_acquire) != epoch) return 0;
+    *history_epoch_sequence = epoch;
+    *history_end_sequence = end_sequence;
     return 1;
+}
+
+static void process_peq_history(
+    dsp_biquad *prepared_bands,
+    size_t peq_count,
+    const float *history_samples,
+    size_t frame_count) {
+    for (size_t frame = 0; frame < frame_count; frame++) {
+        float left = history_samples[frame * 2];
+        float right = history_samples[frame * 2 + 1];
+        for (size_t band = 0; band < peq_count; band++) {
+            left = dsp_biquad_process_sample(&prepared_bands[band], left, 0);
+            right = dsp_biquad_process_sample(&prepared_bands[band], right, 1);
+        }
+    }
 }
 
 int dsp_graph_prepare(
@@ -208,10 +248,11 @@ int dsp_graph_prepare_local_peq(
     const double *peq_coefficients,
     size_t peq_count,
     dsp_biquad *prepared_bands,
-    unsigned long long *history_epoch_sequence) {
+    unsigned long long *history_epoch_sequence,
+    unsigned long long *history_end_sequence) {
     if (graph == NULL || graph->peq_history.entries == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && (peq_coefficients == NULL || prepared_bands == NULL)) ||
-        history_epoch_sequence == NULL) return 0;
+        history_epoch_sequence == NULL || history_end_sequence == NULL) return 0;
 
     size_t required_frames = 0;
     for (size_t index = 0; index < peq_count; index++) {
@@ -222,41 +263,91 @@ int dsp_graph_prepare_local_peq(
         required_frames = required_frames > band_frames ? required_frames : band_frames;
     }
     if (required_frames == 0) {
-        return snapshot_peq_history(&graph->peq_history, 0, NULL, history_epoch_sequence);
+        return snapshot_peq_history_tail(
+            &graph->peq_history, 0, NULL, history_epoch_sequence, history_end_sequence);
     }
 
-    float *history_samples = (float *)malloc(required_frames * 2 * sizeof(*history_samples));
+    const size_t scratch_frames = required_frames > DSP_PEQ_WARM_CONTROL_CATCH_UP_MAX
+        ? required_frames
+        : DSP_PEQ_WARM_CONTROL_CATCH_UP_MAX;
+    float *history_samples = (float *)malloc(scratch_frames * 2 * sizeof(*history_samples));
     if (history_samples == NULL) return 0;
-    const int snapshot_ready = snapshot_peq_history(
-        &graph->peq_history, required_frames, history_samples, history_epoch_sequence);
+    const int snapshot_ready = snapshot_peq_history_tail(
+        &graph->peq_history, required_frames, history_samples, history_epoch_sequence, history_end_sequence);
     if (!snapshot_ready) {
         free(history_samples);
         return 0;
     }
 
-    for (size_t frame = 0; frame < required_frames; frame++) {
-        float left = history_samples[frame * 2];
-        float right = history_samples[frame * 2 + 1];
-        for (size_t band = 0; band < peq_count; band++) {
-            left = dsp_biquad_process_sample(&prepared_bands[band], left, 0);
-            right = dsp_biquad_process_sample(&prepared_bands[band], right, 1);
+    process_peq_history(prepared_bands, peq_count, history_samples, required_frames);
+    int caught_up = 0;
+    for (size_t attempt = 0; attempt < DSP_PEQ_WARM_CONTROL_CATCH_UP_ATTEMPTS; attempt++) {
+        if (atomic_load_explicit(&graph->peq_history.reset_sequence, memory_order_acquire) !=
+            *history_epoch_sequence) break;
+        const unsigned long long published_sequence =
+            atomic_load_explicit(&graph->peq_history.published_sequence, memory_order_acquire);
+        if (published_sequence < *history_end_sequence) break;
+        const unsigned long long frame_count = published_sequence - *history_end_sequence;
+        if (frame_count == 0) {
+            caught_up = 1;
+            break;
         }
+        if (frame_count > DSP_PEQ_WARM_CONTROL_CATCH_UP_MAX ||
+            !snapshot_peq_history_range(
+                &graph->peq_history,
+                *history_epoch_sequence,
+                *history_end_sequence + 1,
+                published_sequence,
+                history_samples)) break;
+        process_peq_history(prepared_bands, peq_count, history_samples, (size_t)frame_count);
+        *history_end_sequence = published_sequence;
     }
+
+    const unsigned long long latest_sequence =
+        atomic_load_explicit(&graph->peq_history.published_sequence, memory_order_acquire);
+    const unsigned long long final_epoch =
+        atomic_load_explicit(&graph->peq_history.reset_sequence, memory_order_acquire);
+    if (!caught_up && latest_sequence >= *history_end_sequence &&
+        latest_sequence - *history_end_sequence <= DSP_PEQ_WARM_AUDIO_CATCH_UP_MAX &&
+        final_epoch == *history_epoch_sequence) caught_up = 1;
     free(history_samples);
-    return 1;
+    return caught_up;
 }
 
 int dsp_graph_begin_local_peq(
     dsp_graph *graph,
     const dsp_biquad *prepared_bands,
-    size_t peq_count) {
+    size_t peq_count,
+    unsigned long long history_epoch_sequence,
+    unsigned long long history_end_sequence) {
     if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && prepared_bands == NULL) || graph->peq_transition_active) return 0;
     if (peq_count > 0) {
         memcpy(graph->peq_target, prepared_bands, peq_count * sizeof(*prepared_bands));
     }
+    const unsigned long long epoch =
+        atomic_load_explicit(&graph->peq_history.reset_sequence, memory_order_acquire);
+    const unsigned long long published_sequence =
+        atomic_load_explicit(&graph->peq_history.published_sequence, memory_order_acquire);
+    if (epoch != history_epoch_sequence || published_sequence < history_end_sequence ||
+        published_sequence - history_end_sequence > DSP_PEQ_WARM_AUDIO_CATCH_UP_MAX) return 0;
+    const unsigned long long catch_up_frames = published_sequence - history_end_sequence;
+    if (catch_up_frames > 0) {
+        float history_samples[DSP_PEQ_WARM_AUDIO_CATCH_UP_MAX * 2];
+        if (!snapshot_peq_history_range(
+                &graph->peq_history,
+                history_epoch_sequence,
+                history_end_sequence + 1,
+                published_sequence,
+                history_samples)) return 0;
+        process_peq_history(graph->peq_target, peq_count, history_samples, (size_t)catch_up_frames);
+    }
     graph->peq_target_count = peq_count;
     graph->peq_transition_position = 0;
+    graph->peq_transition_canceling = 0;
+    graph->peq_cancel_position = 0;
+    graph->peq_cancel_frames = 0;
+    graph->peq_cancel_start_mix = 0.0f;
     graph->peq_transition_active = 1;
     return 1;
 }
@@ -265,10 +356,34 @@ int dsp_graph_local_peq_transition_active(const dsp_graph *graph) {
     return graph != NULL && graph->peq_transition_active;
 }
 
+int dsp_graph_begin_cancel_local_peq(dsp_graph *graph) {
+    if (graph == NULL || !graph->peq_transition_active) return 0;
+    if (graph->peq_transition_canceling) return 1;
+
+    const size_t denominator = graph->peq_transition_frames > 1 ? graph->peq_transition_frames - 1 : 1;
+    const float current_mix = graph->peq_transition_frames > 1
+        ? (float)graph->peq_transition_position / (float)denominator
+        : 1.0f;
+    if (current_mix <= 0.0f) {
+        dsp_graph_cancel_local_peq(graph);
+        return 1;
+    }
+
+    graph->peq_transition_canceling = 1;
+    graph->peq_cancel_position = 0;
+    graph->peq_cancel_start_mix = current_mix;
+    graph->peq_cancel_frames = (size_t)ceil(current_mix * (float)denominator) + 1;
+    return 1;
+}
+
 void dsp_graph_cancel_local_peq(dsp_graph *graph) {
     if (graph == NULL) return;
     graph->peq_transition_active = 0;
+    graph->peq_transition_canceling = 0;
     graph->peq_transition_position = 0;
+    graph->peq_cancel_position = 0;
+    graph->peq_cancel_frames = 0;
+    graph->peq_cancel_start_mix = 0.0f;
     graph->peq_target_count = 0;
 }
 
@@ -359,21 +474,41 @@ void dsp_graph_process(
                 target_left = dsp_biquad_process_sample(&graph->peq_target[index], target_left, 0);
                 if (channels == 2) target_right = dsp_biquad_process_sample(&graph->peq_target[index], target_right, 1);
             }
-            const size_t denominator = graph->peq_transition_frames > 1 ? graph->peq_transition_frames - 1 : 1;
-            const float mix = graph->peq_transition_frames > 1
-                ? (float)graph->peq_transition_position / (float)denominator
-                : 1.0f;
+            float mix;
+            if (graph->peq_transition_canceling) {
+                const size_t cancel_denominator = graph->peq_cancel_frames > 1
+                    ? graph->peq_cancel_frames - 1
+                    : 1;
+                const float cancel_progress = graph->peq_cancel_frames > 1
+                    ? (float)graph->peq_cancel_position / (float)cancel_denominator
+                    : 1.0f;
+                mix = graph->peq_cancel_start_mix * (1.0f - cancel_progress);
+            } else {
+                const size_t denominator = graph->peq_transition_frames > 1
+                    ? graph->peq_transition_frames - 1
+                    : 1;
+                mix = graph->peq_transition_frames > 1
+                    ? (float)graph->peq_transition_position / (float)denominator
+                    : 1.0f;
+            }
             output_left += (target_left - output_left) * mix;
             if (channels == 2) output_right += (target_right - output_right) * mix;
-            graph->peq_transition_position++;
-            if (graph->peq_transition_position >= graph->peq_transition_frames) {
-                if (graph->peq_target_count > 0) {
-                    memcpy(graph->peq, graph->peq_target, graph->peq_target_count * sizeof(*graph->peq));
+            if (graph->peq_transition_canceling) {
+                graph->peq_cancel_position++;
+                if (graph->peq_cancel_position >= graph->peq_cancel_frames) {
+                    dsp_graph_cancel_local_peq(graph);
                 }
-                graph->peq_count = graph->peq_target_count;
-                graph->peq_target_count = 0;
-                graph->peq_transition_position = 0;
-                graph->peq_transition_active = 0;
+            } else {
+                graph->peq_transition_position++;
+                if (graph->peq_transition_position >= graph->peq_transition_frames) {
+                    if (graph->peq_target_count > 0) {
+                        memcpy(graph->peq, graph->peq_target, graph->peq_target_count * sizeof(*graph->peq));
+                    }
+                    graph->peq_count = graph->peq_target_count;
+                    graph->peq_target_count = 0;
+                    graph->peq_transition_position = 0;
+                    graph->peq_transition_active = 0;
+                }
             }
         } else {
             for (size_t index = 0; index < graph->peq_count; index++) {

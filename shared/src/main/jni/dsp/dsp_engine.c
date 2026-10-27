@@ -251,15 +251,21 @@ int dsp_engine_prepare_local_peq_update(
     size_t peq_count,
     double *prepared_values,
     size_t prepared_values_count,
-    unsigned long long *history_epoch_sequence) {
+    unsigned long long *history_epoch_sequence,
+    unsigned long long *history_end_sequence) {
     if (!engine_is_prepared(engine) || peq_count > DSP_BIQUAD_MAX_BANDS ||
         (peq_count > 0 && (peq_coefficients == NULL || prepared_values == NULL)) ||
         prepared_values_count != peq_count * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND ||
-        history_epoch_sequence == NULL) return 0;
+        history_epoch_sequence == NULL || history_end_sequence == NULL) return 0;
 
     dsp_biquad prepared_bands[DSP_BIQUAD_MAX_BANDS] = {0};
     if (!dsp_graph_prepare_local_peq(
-            &engine->graph, peq_coefficients, peq_count, prepared_bands, history_epoch_sequence)) return 0;
+            &engine->graph,
+            peq_coefficients,
+            peq_count,
+            prepared_bands,
+            history_epoch_sequence,
+            history_end_sequence)) return 0;
     for (size_t band = 0; band < peq_count; band++) {
         const size_t offset = band * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND;
         prepared_values[offset] = prepared_bands[band].b0;
@@ -297,6 +303,11 @@ int dsp_engine_enqueue_local_peq_update(dsp_engine *engine, const dsp_engine_loc
         update->generation <= atomic_load_explicit(&engine->local_peq_last_generation, memory_order_acquire) ||
         update->history_epoch_sequence != atomic_load_explicit(
             &engine->graph.peq_history.reset_sequence, memory_order_acquire)) return DSP_STATUS_STALE_UPDATE;
+
+    const uint64_t published_history_sequence = atomic_load_explicit(
+        &engine->graph.peq_history.published_sequence, memory_order_acquire);
+    if (update->history_end_sequence < update->history_epoch_sequence ||
+        update->history_end_sequence > published_history_sequence) return DSP_STATUS_STALE_UPDATE;
 
     const uint32_t write_index = atomic_load_explicit(&engine->local_peq_write_index, memory_order_relaxed);
     const uint32_t read_index = atomic_load_explicit(&engine->local_peq_read_index, memory_order_acquire);
@@ -398,15 +409,14 @@ static void begin_pending_local_peq_update(dsp_engine *engine) {
     const dsp_engine_local_peq_update *update =
         &engine->local_peq_updates[read_index % DSP_LOCAL_PEQ_QUEUE_CAPACITY];
     if (local_peq_update_context_is_current(engine, update)) {
-        if (update->history_epoch_sequence == atomic_load_explicit(
-                &engine->graph.peq_history.reset_sequence, memory_order_acquire)) {
-            if (dsp_graph_begin_local_peq(&engine->graph, update->peq, update->peq_count)) {
-                engine->active_local_peq_ack_token = update->generation_token;
-                engine->active_local_peq_context_token = update->hot_context_token;
-            } else {
-                atomic_store_explicit(
-                    &engine->local_peq_rejected_token, update->generation_token, memory_order_release);
-            }
+        if (dsp_graph_begin_local_peq(
+                &engine->graph,
+                update->peq,
+                update->peq_count,
+                update->history_epoch_sequence,
+                update->history_end_sequence)) {
+            engine->active_local_peq_ack_token = update->generation_token;
+            engine->active_local_peq_context_token = update->hot_context_token;
         } else {
             atomic_store_explicit(
                 &engine->local_peq_rejected_token, update->generation_token, memory_order_release);
@@ -422,7 +432,7 @@ static void cancel_requested_local_peq_update(dsp_engine *engine) {
     if (generation_token == 0) return;
 
     if (engine->active_local_peq_ack_token == generation_token) {
-        dsp_graph_cancel_local_peq(&engine->graph);
+        dsp_graph_begin_cancel_local_peq(&engine->graph);
         engine->active_local_peq_ack_token = 0;
         engine->active_local_peq_context_token = 0;
         atomic_store_explicit(&engine->local_peq_rejected_token, generation_token, memory_order_release);

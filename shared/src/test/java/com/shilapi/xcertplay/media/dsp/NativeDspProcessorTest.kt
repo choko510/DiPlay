@@ -237,6 +237,7 @@ class NativeDspProcessorTest {
         assertEquals(1, candidate.bandCount)
         assertEquals(DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND, candidate.preparedValues.size)
         assertEquals(3L, candidate.historyEpochSequence)
+        assertEquals(12L, candidate.historyEndSequence)
         assertEquals(0, processor.localPeqWarmAcknowledgedToken())
         assertEquals(0, processor.enqueueLocalPeqWarmUpdate(candidate))
         assertEquals(DspProcessStatus.SUCCESS, processor.process(floatBuffer(0.1f, -0.1f), ByteBuffer.allocateDirect(8), 1).status)
@@ -584,10 +585,11 @@ class NativeDspProcessorTest {
             handle: Long,
             coefficients: DoubleArray,
             preparedValues: DoubleArray,
-            historyEpochSequence: LongArray,
+            historySequences: LongArray,
         ): Boolean {
             if (coefficients.size % DspEqDesigner.COEFFICIENTS_PER_BAND != 0 ||
-                preparedValues.size != coefficients.size / 5 * DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND
+                preparedValues.size != coefficients.size / 5 * DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND ||
+                historySequences.size != 2
             ) return false
             repeat(coefficients.size / 5) { band ->
                 coefficients.copyInto(
@@ -597,7 +599,8 @@ class NativeDspProcessorTest {
                     endIndex = (band + 1) * 5,
                 )
             }
-            historyEpochSequence[0] = 3L
+            historySequences[0] = 3L
+            historySequences[1] = 12L
             return true
         }
         override fun enqueueLocalPeqUpdate(handle: Long, update: DspPreparedLocalPeqWarmUpdate): Int {

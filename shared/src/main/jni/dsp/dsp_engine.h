@@ -61,6 +61,7 @@ typedef struct {
     uint64_t renderer_owner_token;
     uint64_t pcm_format_epoch;
     uint64_t history_epoch_sequence;
+    uint64_t history_end_sequence;
     uint32_t hot_context_token;
     int media_role;
     size_t peq_count;
@@ -111,7 +112,8 @@ int dsp_engine_prepare_local_peq_update(
     size_t peq_count,
     double *prepared_values,
     size_t prepared_values_count,
-    unsigned long long *history_epoch_sequence);
+    unsigned long long *history_epoch_sequence,
+    unsigned long long *history_end_sequence);
 int dsp_engine_enqueue_local_peq_update(dsp_engine *engine, const dsp_engine_local_peq_update *update);
 int dsp_engine_cancel_local_peq_update(dsp_engine *engine, uint32_t generation_token);
 int dsp_engine_bind_hot_update_context(

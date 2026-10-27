@@ -2395,6 +2395,7 @@ class DspRendererProductionPathTest {
                 mediaRole = mediaRole,
                 bandCount = bandCount,
                 historyEpochSequence = 0L,
+                historyEndSequence = 0L,
                 preparedValues = preparedValues,
             )
         }

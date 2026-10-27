@@ -768,3 +768,7 @@ Smart Loudness headroom must bound the transient response of `sample - lowpass(s
 2026-10-27 REM-07: Do not inherit PASS from historical test-matrix rows into the per-ID evidence ledger. A row can be PASS only when method, exact command, result, full source SHA, and artifact are attached to that row; until then retain PARTIAL or NOT_RUN.
 
 2026-10-27 REM-07 validator: Resolve artifact paths within the repository and permit only direct GitHub Actions run URLs as remote artifacts. Resolve runbooks relative to the tracker directory, reject paths outside the repository, and compare each acceptance predicate against the canonical matrix text.
+
+2026-10-27 REM-07 validator: Accept a remote Actions run artifact only when the URL points to this repository (`github.com/choko510/DiPlay/actions/runs/<id>`); a syntactically valid URL for another repository is not evidence for this tree.
+
+2026-10-27 REM-07: Keep `Missing fields` limited to absent evidence inputs and use a separate `What missing` column to identify the unproven acceptance subcase. This allows a PARTIAL row to contain complete execution metadata while still stating the requirement that remains unverified.

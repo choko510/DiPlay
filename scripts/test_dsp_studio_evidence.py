@@ -52,7 +52,7 @@ class EvidenceLedgerContractTest(unittest.TestCase):
                 lines[index] = "|".join(cells)
                 break
         self.ledger.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        self.assertTrue(any("PARTIAL requires an explicit missing-fields list" in error for error in self.errors()))
+        self.assertTrue(any("Missing fields must exactly list blank evidence fields" in error for error in self.errors()))
 
     def test_not_run_requires_blocker_and_runbook(self) -> None:
         text = self.ledger.read_text(encoding="utf-8")
@@ -82,9 +82,18 @@ class EvidenceLedgerContractTest(unittest.TestCase):
         self.assertTrue(any("PASS artifact must resolve" in error for error in self.errors()))
 
     def test_pass_rejects_missing_fields_list(self) -> None:
-        self.update_row("PH01-T01", {3: " PASS ", 4: " testMethod ", 5: " ./gradlew test ", 6: " passed ", 7: " 0123456789abcdef0123456789abcdef01234567 ", 8: " https://github.com/acme/repo/actions/runs/123 " , 11: " Method "})
+        self.update_row("PH01-T01", {3: " PASS ", 4: " testMethod ", 5: " ./gradlew test ", 6: " passed ", 7: " 0123456789abcdef0123456789abcdef01234567 ", 8: " https://github.com/choko510/DiPlay/actions/runs/123 ", 11: " Method "})
         errors = self.errors()
         self.assertTrue(any("PASS must not list missing fields" in error for error in errors))
+        self.assertFalse(any("PASS artifact must resolve" in error for error in errors))
+
+    def test_pass_rejects_actions_run_url_for_another_repo(self) -> None:
+        self.update_row("PH01-T01", {3: " PASS ", 4: " testMethod ", 5: " ./gradlew test ", 6: " passed ", 7: " 0123456789abcdef0123456789abcdef01234567 ", 8: " https://github.com/acme/repo/actions/runs/123 "})
+        self.assertTrue(any("PASS artifact must resolve" in error for error in self.errors()))
+
+    def test_pass_accepts_actions_run_url_for_this_repo(self) -> None:
+        self.update_row("PH01-T01", {3: " PASS ", 4: " testMethod ", 5: " ./gradlew test ", 6: " passed ", 7: " 0123456789abcdef0123456789abcdef01234567 ", 8: " https://github.com/choko510/DiPlay/actions/runs/123 "})
+        errors = self.errors()
         self.assertFalse(any("PASS artifact must resolve" in error for error in errors))
 
     def test_partial_rejects_invalid_runbook_reference(self) -> None:
@@ -94,6 +103,14 @@ class EvidenceLedgerContractTest(unittest.TestCase):
     def test_acceptance_predicate_must_match_canonical_matrix(self) -> None:
         self.update_row("PH01-T01", {2: " different acceptance predicate "})
         self.assertTrue(any("acceptance predicate does not match" in error for error in self.errors()))
+
+    def test_partial_with_complete_evidence_requires_what_missing(self) -> None:
+        self.update_row("PH01-T01", {4: " testMethod ", 5: " ./gradlew test ", 6: " passed ", 7: " 0123456789abcdef0123456789abcdef01234567 ", 8: " docs/dsp-studio/RUNBOOK.md ", 11: " ", 12: " "})
+        self.assertTrue(any("PARTIAL requires a description of the unproven acceptance requirement" in error for error in self.errors()))
+
+    def test_partial_with_complete_evidence_and_what_missing_is_valid(self) -> None:
+        self.update_row("PH01-T01", {4: " testMethod ", 5: " ./gradlew test ", 6: " passed ", 7: " 0123456789abcdef0123456789abcdef01234567 ", 8: " docs/dsp-studio/RUNBOOK.md ", 11: " ", 12: " UI recreation path and persisted-state restoration remain unproven. "})
+        self.assertEqual([], self.errors())
 
 
 if __name__ == "__main__":

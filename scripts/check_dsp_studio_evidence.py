@@ -16,7 +16,7 @@ EXPECTED_COVERAGE = {f"REM-{n:02d}" for n in range(1, 13)} | {
 }
 EVIDENCE_FIELDS = ("Method", "Command", "Result", "Source SHA", "Artifact")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
-GITHUB_ACTIONS_RUN_RE = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+/actions/runs/\d+/?$")
+GITHUB_ACTIONS_RUN_RE = re.compile(r"^https://github\.com/choko510/DiPlay/actions/runs/\d+/?$")
 MARKDOWN_LINK_RE = re.compile(r"^\[[^\]]+\]\(([^)]+)\)$")
 
 
@@ -131,9 +131,9 @@ def create_tracker() -> None:
         "This ledger mirrors all acceptance IDs in [TEST_MATRIX_DETAILED.md](TEST_MATRIX_DETAILED.md). It records evidence independently and does not promote historical suite or CI results. No row is `PASS` because this branch has no per-ID evidence bundle tied to its source SHA.", "",
         "Counts: **170 acceptance rows** (60 PH-ID + 110 T-ID). Status counts are calculated by `python scripts/check_dsp_studio_evidence.py`.", "",
         "## Evidence ledger", "",
-        "`PASS` requires a method, exact command, observed result, full 40-character source SHA, and artifact. `PARTIAL` names every missing evidence field. `NOT_RUN` requires a runbook and a concrete blocker.", "",
-        "| ID | Acceptance case | Status | Method | Command | Result | Source SHA | Artifact | Runbook | Blocking reason | Missing fields |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "`PASS` requires a method, exact command, observed result, full 40-character source SHA, and artifact, with no missing fields. `PARTIAL` lists every blank evidence field and describes the acceptance requirement that remains unproven. `NOT_RUN` requires a runbook and a concrete blocker.", "",
+        "| ID | Acceptance case | Status | Method | Command | Result | Source SHA | Artifact | Runbook | Blocking reason | Missing fields | What missing |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for id_, acceptance, status_gap in source_rows:
         status, gap = status_gap.split("\t", 1)
@@ -146,14 +146,15 @@ def create_tracker() -> None:
             runbook = "[RUNBOOK.md](RUNBOOK.md)"
             blocker = gap.replace("|", "/")
             missing = "Method, Command, Result, Source SHA, Artifact"
-        lines.append(f"| {id_} | {acceptance} | {status} |  |  |  |  |  | {runbook} | {blocker} | {missing} |")
+        what_missing = f"Acceptance remains unproven: {gap}".replace("|", "/")
+        lines.append(f"| {id_} | {acceptance} | {status} |  |  |  |  |  | {runbook} | {blocker} | {missing} | {what_missing} |")
     lines.extend(["", "## REM / package coverage", "", "Coverage below is a traceability index to the existing requirement/package summaries. It is not a test result or completion claim.", "", "| Coverage ID | Requirement / package | Disposition | Evidence boundary |", "|---|---|---|---|"])
     for n in range(1, 13):
         lines.append(f"| REM-{n:02d} | REQ-{n:03d} | PARTIAL | Requirement summary only; acceptance details and evidence remain in the 170-row ledger above. |")
     for n in range(13):
         pkg = f"PKG-{n:02d}"
         lines.append(f"| PKG-R{n:02d} | {pkg} | PARTIAL | Package summary only; no per-ID PASS inferred from prior CI. |")
-    lines.extend(["", "## Running the check", "", "Run `python scripts/check_dsp_studio_evidence.py`. The validator compares IDs and acceptance predicates to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, validates artifact and runbook references, and enforces status-specific evidence fields.", ""])
+    lines.extend(["", "## Running the check", "", "Run `python scripts/check_dsp_studio_evidence.py`. The validator compares IDs and acceptance predicates to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, validates artifact and runbook references, enforces status-specific evidence fields, and requires PARTIAL rows to describe the unproven acceptance requirement.", ""])
     LEDGER.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -166,19 +167,19 @@ def validate() -> list[str]:
     canonical = canonical_acceptance_cases()
     if set(canonical) != ids:
         errors.append("canonical acceptance predicate rows do not match canonical IDs")
-    rows = table_rows(LEDGER, "| ID | Acceptance case | Status | Method | Command | Result | Source SHA | Artifact | Runbook | Blocking reason | Missing fields |")
+    rows = table_rows(LEDGER, "| ID | Acceptance case | Status | Method | Command | Result | Source SHA | Artifact | Runbook | Blocking reason | Missing fields | What missing |")
     if not rows:
         return errors + ["tracker evidence table was not found"]
     entries: dict[str, list[str]] = {}
     for row in rows:
-        if len(row) != 11:
-            errors.append(f"tracker row has {len(row)} columns, expected 11: {row[:1]}")
+        if len(row) != 12:
+            errors.append(f"tracker row has {len(row)} columns, expected 12: {row[:1]}")
             continue
         id_, status = row[0], row[2]
         if id_ in entries:
             errors.append(f"duplicate tracker ID {id_}")
         entries[id_] = row
-        fields = dict(zip(("ID", "Acceptance", "Status", *EVIDENCE_FIELDS, "Runbook", "Blocking reason", "Missing fields"), row))
+        fields = dict(zip(("ID", "Acceptance", "Status", *EVIDENCE_FIELDS, "Runbook", "Blocking reason", "Missing fields", "What missing"), row))
         if id_ in canonical and fields["Acceptance"] != canonical[id_]:
             errors.append(f"{id_}: acceptance predicate does not match TEST_MATRIX_DETAILED.md")
         if status not in {"PASS", "PARTIAL", "NOT_RUN"}:
@@ -204,14 +205,17 @@ def validate() -> list[str]:
                 errors.append(f"{id_}: PARTIAL requires a runbook reference")
             elif not valid_runbook(fields["Runbook"]):
                 errors.append(f"{id_}: runbook reference does not resolve to an existing repo file")
+            if not fields["What missing"]:
+                errors.append(f"{id_}: PARTIAL requires a description of the unproven acceptance requirement")
             missing = [part.strip() for part in fields["Missing fields"].split(",") if part.strip()]
-            if not missing:
-                errors.append(f"{id_}: PARTIAL requires an explicit missing-fields list")
             for field in missing:
                 if field not in EVIDENCE_FIELDS:
                     errors.append(f"{id_}: unknown missing field {field!r}")
                 elif fields[field]:
                     errors.append(f"{id_}: {field} is populated but listed as missing")
+            expected_missing = [field for field in EVIDENCE_FIELDS if not fields[field]]
+            if missing != expected_missing:
+                errors.append(f"{id_}: Missing fields must exactly list blank evidence fields")
     expected = ids
     actual = set(entries)
     if actual != expected:

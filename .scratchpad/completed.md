@@ -284,3 +284,5 @@
 - 2026-10-26: B08 added observation-only, attempt-relative Stage3 timing with bounded in-memory reporting and a reproducible host per-thread CPU/allocation comparison. Transmission behavior is unchanged; target-device causal timing remains blocked.
 - 2026-10-27: Added the PR #52 REM-07 evidence tracker and validator for all 170 PH/T acceptance IDs plus 25 REM/PKG coverage IDs. No unverified row was promoted; checker and four status-contract fixtures pass.
 - 2026-10-27: Hardened REM-07 validation to compare acceptance predicates, require valid repository-local runbooks, and resolve PASS artifacts to repository files or direct GitHub Actions run URLs. Nine validator fixtures pass; ledger remains 0 PASS / 152 PARTIAL / 18 NOT_RUN.
+- 2026-10-27: Restricted accepted GitHub Actions artifact URLs to `github.com/choko510/DiPlay/actions/runs/<id>` and added fixtures for other-repository rejection and this-repository acceptance.
+- 2026-10-27: Added the ledger's `What missing` requirement for every PARTIAL row and enforce an exact `Missing fields` list against blank evidence fields. Added valid/invalid partially covered fixtures.

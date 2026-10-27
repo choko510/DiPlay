@@ -123,7 +123,7 @@ class DspSettingsScreenTest {
                             composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
                         DspStudioTab.ADVANCED -> {
                             composeRule.onNode(isToggleable()).performClick()
-                            composeRule.onNodeWithText(context.getString(R.string.dsp_auto_headroom))
+                            composeRule.onAllNodesWithText(context.getString(R.string.dsp_auto_headroom))[0]
                                 .performScrollTo()
                                 .assertIsDisplayed()
                         }

@@ -32,6 +32,7 @@ import com.shilapi.xcertplay.media.dsp.DspConfigSnapshot
 import com.shilapi.xcertplay.media.dsp.DspAudioFormat
 import com.shilapi.xcertplay.media.dsp.DspBufferSizing
 import com.shilapi.xcertplay.media.dsp.DspLiveUpdateController
+import com.shilapi.xcertplay.media.dsp.DspLocalPeqWarmPreparation
 import com.shilapi.xcertplay.media.dsp.DspLatencyPreservingBypass
 import com.shilapi.xcertplay.media.dsp.DspPcmCrossfade
 import com.shilapi.xcertplay.media.dsp.DspPcmEncoding
@@ -43,6 +44,7 @@ import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyWarning
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import com.shilapi.xcertplay.media.dsp.DspRuntimeField
 import com.shilapi.xcertplay.media.dsp.DspStreamRole
 import com.shilapi.xcertplay.media.dsp.DspStreamPolicy
 import com.shilapi.xcertplay.media.dsp.DspUpdatePlan
@@ -2401,7 +2403,9 @@ internal class AudioRenderer(
                     } else {
                         runCatching { afterDspUpdateOwnerCheckForTest?.invoke() }
                         if (update.generation == requestedDspGeneration) livePreparationPending = false
-                        if (update.config.enabled && update.pipeline == null && update.hotUpdate == null) {
+                        if (update.config.enabled && update.pipeline == null && update.hotUpdate == null &&
+                            update.localPeqWarmUpdate == null
+                        ) {
                             failedStatus = DspRendererApplyStatus(
                                 update.generation,
                                 DspRendererApplyPhase.FAILED,
@@ -2411,12 +2415,14 @@ internal class AudioRenderer(
                             val warning = convolverApplyWarning(update.format, update.config)
                             val prepared = PreparedRendererDspUpdate(
                                 update = update,
-                                graphConfig = if (update.hotUpdate != null) {
+                                graphConfig = if (update.hotUpdate != null || update.localPeqWarmUpdate != null) {
                                     configuredDspGraph(update.format, update.config)
                                 } else {
                                     effectiveDspGraphConfig(update.format, update.config, update.pipeline)
                                 },
-                                latencyPreservingBypass = if (update.hotUpdate == null) {
+                                latencyPreservingBypass = if (update.hotUpdate == null &&
+                                    update.localPeqWarmUpdate == null
+                                ) {
                                     prepareLatencyPreservingBypass(update)
                                 } else {
                                     null
@@ -2512,6 +2518,7 @@ internal class AudioRenderer(
                         targetLatencyFrames = liveUpdateLatencyFrames.get(),
                         requiresStateContinuity = false,
                         mediaRole = classification.dspRole == DspStreamRole.MEDIA,
+                        studioLocalWarmEnabled = dspConfigProvider.studioLocalWarmEnabled(),
                     ) == DspUpdatePlan.HOT
                 ) {
                     snapshot.config.prepareHotUpdate(
@@ -2525,6 +2532,45 @@ internal class AudioRenderer(
                     )
                 } else {
                     null
+                }
+            },
+            localPeqWarmPreparer = { candidateFormat, snapshot ->
+                val current = activeDspConfig
+                val target = snapshot.config
+                val changed = DspUpdatePlanner.diff(current, target)
+                if (!dspConfigProvider.studioLocalWarmEnabled() || !trackGenerationContentCommitted ||
+                    classification.dspRole != DspStreamRole.MEDIA ||
+                    changed != setOf(DspRuntimeField.PEQ) || !current.enabled || !target.enabled ||
+                    hotBoundPipeline !== dspPipeline || dspPipeline?.format != candidateFormat ||
+                    candidateFormat != format
+                ) {
+                    null
+                } else {
+                    val currentPrepared = current.prepare(candidateFormat)
+                    val targetPrepared = target.prepare(candidateFormat)
+                    if (kotlin.math.abs(currentPrepared.appliedPreampDb - targetPrepared.appliedPreampDb) > 1e-9) {
+                        DspLocalPeqWarmPreparation(
+                            unavailableReason = "PEQ change also alters auto-headroom preamp; keeping the active pipeline until the next AudioTrack generation",
+                        )
+                    } else {
+                        val update = dspPipeline?.prepareLocalPeqWarmUpdate(
+                            coefficients = targetPrepared.eqCoefficients,
+                            generation = snapshot.generation,
+                            editorOwnerEpoch = controllerEpoch,
+                            rendererOwnerToken = rendererOwnerToken,
+                            pcmFormatEpoch = pcmFormatEpoch,
+                            hotContextToken = hotBoundContextToken,
+                            mediaRole = true,
+                        )
+                        DspLocalPeqWarmPreparation(
+                            update = update,
+                            unavailableReason = if (update == null) {
+                                "pre-PEQ processed history is insufficient for a safe PEQ local warm-up; keeping the active pipeline until the next AudioTrack generation"
+                            } else {
+                                null
+                            },
+                        )
+                    }
                 }
             },
         )
@@ -2692,6 +2738,22 @@ internal class AudioRenderer(
 
     private fun adoptPreparedDspUpdate() {
         discardStalePendingHotApply()
+        if (!dspConfigProvider.studioLocalWarmEnabled()) {
+            val pending = pendingHotApply.get()
+            val localUpdate = pending?.prepared?.update?.localPeqWarmUpdate
+            if (pending != null && localUpdate != null && pending.pipeline === dspPipeline &&
+                pending.pipeline.cancelLocalPeqWarmUpdate(localUpdate) == DSP_NATIVE_OK &&
+                pendingHotApply.compareAndSet(pending, null)
+            ) {
+                deferredDspGeneration = localUpdate.generation
+                reportDspApplyStatus(
+                    pending.prepared.deferredStatus.copy(
+                        reason = "PEQ local warm-up was disabled during its transition; keeping the active pipeline until the next AudioTrack generation",
+                    ),
+                )
+                liveUpdateController?.reprepareLatest(localUpdate.generation)
+            }
+        }
         if (liveFadeInProgress) return
         val prepared = pendingDspUpdate.get() ?: return
         val update = prepared.update
@@ -2708,11 +2770,22 @@ internal class AudioRenderer(
             return
         }
         val hotUpdate = update.hotUpdate
+        val localPeqWarmUpdate = update.localPeqWarmUpdate
         if (hotUpdate != null && (rendererReleased || hotUpdate.generation != update.generation ||
                 hotUpdate.editorOwnerEpoch != liveUpdateControllerEpoch.get() ||
                 hotUpdate.rendererOwnerToken != rendererOwnerToken ||
                 hotUpdate.pcmFormatEpoch != pcmFormatEpoch || hotUpdate.hotContextToken != hotBoundContextToken ||
                 !hotUpdate.mediaRole ||
+                classification.dspRole != DspStreamRole.MEDIA)
+        ) {
+            if (pendingDspUpdate.compareAndSet(prepared, null)) controller.retire(update.pipeline)
+            return
+        }
+        if (localPeqWarmUpdate != null && (rendererReleased || localPeqWarmUpdate.generation != update.generation ||
+                localPeqWarmUpdate.editorOwnerEpoch != liveUpdateControllerEpoch.get() ||
+                localPeqWarmUpdate.rendererOwnerToken != rendererOwnerToken ||
+                localPeqWarmUpdate.pcmFormatEpoch != pcmFormatEpoch ||
+                localPeqWarmUpdate.hotContextToken != hotBoundContextToken || !localPeqWarmUpdate.mediaRole ||
                 classification.dspRole != DspStreamRole.MEDIA)
         ) {
             if (pendingDspUpdate.compareAndSet(prepared, null)) controller.retire(update.pipeline)
@@ -2725,7 +2798,7 @@ internal class AudioRenderer(
             return
         }
         if (trackGenerationContentCommitted && deferredDspGeneration == update.generation &&
-            update.hotUpdate == null
+            update.hotUpdate == null && update.localPeqWarmUpdate == null
         ) return
         if (hotUpdate != null) {
             val pipeline = dspPipeline
@@ -2759,6 +2832,53 @@ internal class AudioRenderer(
             discardStalePendingHotApply()
             return
         }
+        if (localPeqWarmUpdate != null) {
+            val pipeline = dspPipeline
+            if (rendererReleased || !trackGenerationContentCommitted || hotBoundPipeline !== pipeline ||
+                pipeline == null || pipeline.format != update.format || pendingHotApply.get() != null
+            ) {
+                if (!trackGenerationContentCommitted && pendingDspUpdate.compareAndSet(prepared, null)) {
+                    controller.reprepareLatest(update.generation)
+                }
+                return
+            }
+            if (!dspConfigProvider.studioLocalWarmEnabled()) {
+                if (pendingDspUpdate.compareAndSet(prepared, null)) {
+                    deferredDspGeneration = update.generation
+                    reportDspApplyStatus(
+                        prepared.deferredStatus.copy(
+                            reason = "PEQ local warm-up was disabled before enqueue; keeping the active pipeline until the next AudioTrack generation",
+                        ),
+                    )
+                    controller.reprepareLatest(update.generation)
+                }
+                return
+            }
+            if (!pendingDspUpdate.compareAndSet(prepared, null)) return
+            val enqueueStatus = pipeline.enqueueLocalPeqWarmUpdate(localPeqWarmUpdate)
+            if (enqueueStatus == DSP_NATIVE_OK) {
+                pendingHotApply.set(PendingRendererHotApply(prepared, pipeline, localPeqWarmUpdate.hotContextToken))
+                discardStalePendingHotApply()
+                return
+            }
+            if (enqueueStatus == DSP_NATIVE_STALE_UPDATE) {
+                controller.reprepareLatest(update.generation)
+                reportDspApplyStatus(
+                    prepared.deferredStatus.copy(
+                        reason = "PEQ warm candidate was invalidated by a track or owner change; preparing a current candidate",
+                    ),
+                )
+                return
+            }
+            pendingDspUpdate.compareAndSet(null, prepared)
+            deferredDspGeneration = update.generation
+            reportDspApplyStatus(
+                prepared.deferredStatus.copy(
+                    reason = "native PEQ warm queue is busy; keeping the active pipeline and retrying",
+                ),
+            )
+            return
+        }
         val candidateLatencyFrames = when {
             !trackGenerationContentCommitted -> update.pipeline?.algorithmicLatencyFrames ?: 0
             update.pipeline == null -> trackGenerationLatencyFrames
@@ -2775,6 +2895,7 @@ internal class AudioRenderer(
             requiresStateContinuity = graphConfig.requiresStateContinuity(),
             mediaRole = classification.dspRole == DspStreamRole.MEDIA,
             studioHotUpdatesEnabled = dspConfigProvider.studioHotUpdatesEnabled(),
+            studioLocalWarmEnabled = dspConfigProvider.studioLocalWarmEnabled(),
         )
         val unsupportedLocalWarm = updateDecision.plan == DspUpdatePlan.LOCAL_WARM &&
             trackGenerationContentCommitted
@@ -2782,7 +2903,8 @@ internal class AudioRenderer(
             if (deferredDspGeneration != update.generation) {
                 deferredDspGeneration = update.generation
                 val reason = if (unsupportedLocalWarm) {
-                    "stage-local warm-up is unavailable; keeping the active pipeline until the next AudioTrack generation"
+                    update.localWarmFailureReason ?:
+                        "stage-local warm-up is unavailable; keeping the active pipeline until the next AudioTrack generation"
                 } else {
                     updateDecision.reason ?: "update is not safe for the committed track"
                 }
@@ -3021,6 +3143,17 @@ internal class AudioRenderer(
         }
         trackGenerationContentCommitted = false
         deferredDspGeneration = null
+        val controller = liveUpdateController
+        pendingDspUpdate.get()?.takeIf { it.update.localPeqWarmUpdate != null }?.let { pending ->
+            if (pendingDspUpdate.compareAndSet(pending, null)) {
+                controller?.reprepareLatest(pending.update.generation)
+            }
+        }
+        pendingHotApply.get()?.takeIf { it.prepared.update.localPeqWarmUpdate != null }?.let { pending ->
+            if (pendingHotApply.compareAndSet(pending, null)) {
+                controller?.reprepareLatest(pending.prepared.update.generation)
+            }
+        }
         trackGenerationLatencyFrames = dspPipeline?.algorithmicLatencyFrames ?: 0
         liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
         runCatching { dspPipeline?.reset() }
@@ -3118,10 +3251,24 @@ internal class AudioRenderer(
         val pending = pendingHotApply.get() ?: return
         val prepared = pending.prepared
         val update = prepared.update
-        val hotUpdate = update.hotUpdate ?: return
-        if (pipeline !== pending.pipeline || pipeline !== dspPipeline || !pipeline.hasAcknowledged(hotUpdate)) return
+        val hotUpdate = update.hotUpdate
+        val localPeqWarmUpdate = update.localPeqWarmUpdate
+        if (pipeline !== pending.pipeline || pipeline !== dspPipeline) return
+        if (localPeqWarmUpdate != null && pipeline.hasRejected(localPeqWarmUpdate)) {
+            if (pendingHotApply.compareAndSet(pending, null)) {
+                liveUpdateController?.reprepareLatest(update.generation)
+            }
+            return
+        }
+        val acknowledged = hotUpdate?.let(pipeline::hasAcknowledged)
+            ?: localPeqWarmUpdate?.let(pipeline::hasAcknowledged)
+            ?: false
+        if (!acknowledged) return
         runCatching { afterHotApplyPendingReadForTest?.invoke() }
         if (!pendingHotApply.compareAndSet(pending, null)) return
+        if (runCatching { dspConfigProvider.versionedSnapshot().generation }.getOrDefault(update.generation) !=
+            update.generation
+        ) return
         activeDspConfig = update.config
         activeDspGraphConfig = prepared.graphConfig
         activeDspGeneration = update.generation
@@ -3138,13 +3285,27 @@ internal class AudioRenderer(
 
     private fun discardStalePendingHotApply() {
         val pending = pendingHotApply.get() ?: return
+        val update = pending.prepared.update
         val hotUpdate = pending.prepared.update.hotUpdate
-        val current = !rendererReleased && hotUpdate != null && pending.pipeline === dspPipeline &&
+        val localPeqWarmUpdate = update.localPeqWarmUpdate
+        val contextIsCurrent = if (hotUpdate != null) {
+            hotUpdate.editorOwnerEpoch == liveUpdateControllerEpoch.get() &&
+                hotUpdate.rendererOwnerToken == rendererOwnerToken && hotUpdate.pcmFormatEpoch == pcmFormatEpoch &&
+                hotUpdate.hotContextToken == hotBoundContextToken
+        } else if (localPeqWarmUpdate != null) {
+            localPeqWarmUpdate.editorOwnerEpoch == liveUpdateControllerEpoch.get() &&
+                localPeqWarmUpdate.rendererOwnerToken == rendererOwnerToken &&
+                localPeqWarmUpdate.pcmFormatEpoch == pcmFormatEpoch &&
+                localPeqWarmUpdate.hotContextToken == hotBoundContextToken
+        } else {
+            false
+        }
+        val latestGeneration = runCatching { dspConfigProvider.versionedSnapshot().generation }
+            .getOrDefault(update.generation)
+        val current = !rendererReleased && contextIsCurrent && pending.pipeline === dspPipeline &&
             pending.pipeline === hotBoundPipeline && pending.hotContextToken == hotBoundContextToken &&
             pending.hotContextToken == pending.pipeline.hotUpdateContextToken() &&
-            hotUpdate.editorOwnerEpoch == liveUpdateControllerEpoch.get() &&
-            hotUpdate.rendererOwnerToken == rendererOwnerToken && hotUpdate.pcmFormatEpoch == pcmFormatEpoch &&
-            hotUpdate.hotContextToken == hotBoundContextToken
+            update.generation == latestGeneration
         if (current || !pendingHotApply.compareAndSet(pending, null)) return
         reportDspApplyStatus(pending.prepared.failedStatus)
     }
@@ -3769,6 +3930,8 @@ internal class AudioRenderer(
         const val INPUT_TIMEOUT_US = 10_000L
         const val AUDIO_POLL_MILLIS = 10L
         const val LIVE_CROSSFADE_DIVISOR = 50
+        const val DSP_NATIVE_OK = 0
+        const val DSP_NATIVE_STALE_UPDATE = 7
         const val AUDIO_WRITE_RETRY_MILLIS = 2L
         const val BUFFER_TAIL_WAIT_NS = 500_000_000L
         // Decoder/render queue for bursts; RTP ordering and its short jitter hold happen upstream.

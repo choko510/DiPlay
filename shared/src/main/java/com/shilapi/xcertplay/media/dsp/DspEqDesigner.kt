@@ -261,6 +261,26 @@ internal data class DspPreparedHotUpdate(
     }
 }
 
+internal data class DspPreparedLocalPeqWarmUpdate(
+    val generation: Long,
+    val editorOwnerEpoch: Long,
+    val rendererOwnerToken: Long,
+    val pcmFormatEpoch: Long,
+    val hotContextToken: Int,
+    val mediaRole: Boolean,
+    val bandCount: Int,
+    val historyEpochSequence: Long,
+    val preparedValues: DoubleArray,
+) {
+    val generationToken: Int
+        get() = ((generation and GENERATION_TOKEN_MASK).toInt()).let { if (it == 0) 1 else it }
+
+    companion object {
+        const val VALUES_PER_BAND = DspEqDesigner.COEFFICIENTS_PER_BAND + 4
+        private const val GENERATION_TOKEN_MASK = 0x7fffffffL
+    }
+}
+
 internal fun DspRuntimeConfig.prepareHotUpdate(
     format: DspAudioFormat,
     generation: Long,

@@ -68,6 +68,24 @@ internal interface DspProcessor : Closeable {
 
     fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = false
 
+    fun prepareLocalPeqWarmUpdate(
+        coefficients: DoubleArray,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): DspPreparedLocalPeqWarmUpdate? = null
+
+    fun enqueueLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int = -1
+
+    fun cancelLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int = -1
+
+    fun localPeqWarmAcknowledgedToken(): Int = 0
+
+    fun localPeqWarmRejectedToken(): Int = 0
+
     fun bindHotUpdateContext(
         editorOwnerEpoch: Long,
         rendererOwnerToken: Long,

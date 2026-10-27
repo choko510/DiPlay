@@ -1,31 +1,24 @@
 # Current Work — DiPlay DSP Studio PR #52 (2026-10-27)
 
-> Active goal: finish PR #52 implementation, evidence, reviews, and latest-head CI. Keep PR #52 open and unmerged; do not modify or merge PR #45 or `main`.
+> Active goal: complete the PR #52 implementation, evidence, reviews, and latest-head CI. Keep PR #52 open and unmerged; do not modify or merge PR #45 or `main`.
 
 ## Scope and invariants
 
-- Keep the 60 PH-ID and 110 T-ID acceptance rows traceable; incomplete evidence remains `PARTIAL` or `NOT_RUN`.
-- Preserve the zero-latency DSP-OFF contract. TS10/K706/iPhone acceptance remains `NOT_RUN` without measurements.
-- Work only in `/Users/choko/.codex/worktrees/dsp52-volume-monitor/DiPlay`; the root checkout has unrelated dirty changes and is untouched.
+- Keep all 60 PH-ID and 110 T-ID acceptance rows traceable; incomplete evidence remains `PARTIAL` or `NOT_RUN`.
+- Preserve zero-latency DSP-OFF behavior and MEDIA-only routing. TS10/K706/iPhone acceptance remains `NOT_RUN` without measurements.
+- Work in `/Users/choko/.codex/worktrees/dsp52-volume-monitor/DiPlay`; the root checkout has separate dirty changes and remains untouched.
+- The PR #52 base branch has advanced to `28a89d687fe804fa7bd6731a24b2c4f4529a3d7f`. Its regular merge into this integration branch is in progress; only Working Memory files conflicted, while code files auto-merged.
 
 ## Current integration state
 
-- PR #52 base `codex/step4-pr-00-test-baseline` is at `15fa5e06bd96af855aa168605f2ac4b7ad2e1b6d`. The PR branch has documentation-only commits after the latest tested code source head `6439a5b94e21da3bb5e2b921a2ac035c8d969079`.
-- `f9c9f56e` adds module-scoped A/B preview while keeping the editor draft intact. `ce3c87d7` restores draft audio preview after deleting the selected preset during active A/B; independent follow-up review closed the P2 finding.
-- The screen test initially exposed a missing assertion import and an A/B preview path that overwrote draft state. Both were corrected. The follow-up screen test now also guards against leaving the renderer on an obsolete comparison snapshot after deletion.
+- PR #65 (PEQ stage-local warm-up) was independently reviewed, passed its full hosted run [#40474134044](https://github.com/choko510/DiPlay/actions/runs/40474134044), and merged into `codex/dsp-studio-final` at `e3d7f076ba3cae6bebe626a331792a090f8ce913`. PR #52 remains open and unmerged.
+- Local checks at `e3d7f076`: Native and ASan/UBSan PASS; Shared/Common unit tests 947/947 PASS; three-ABI Native link, Mobile/Automotive Debug and Benchmark builds PASS; isolated API 35 DSP benchmark instrumentation 5/5 PASS.
+- A separate API 35 run from another worktree reported 3 p99 misses while an R8 benchmark build was running concurrently. It is recorded as a contaminated local sample, not a proven product regression; the p99 threshold was not changed and the isolated integration-head rerun passed.
+- PEQ local warm is opt-in and limited to PEQ. Bass Shelf, Cabin Correction, and IR remain deferred. Target-device evidence is still required.
 
-## Current test status
+## Next
 
-- Full local Gradle gates at `f9c9f56e`: Shared 668 + Common 271 = 939 tests, zero failures/errors/skips; Native, sanitizers, lint, debug/benchmark builds, JNI and repository checks passed.
-- At `6439a5b9`, Common unit tests passed 272/272, including `runtimeRecreationRestoresPersistedWorkspaceAndDiscardsPreviewDraft`. This test recreates the runtime in one process; it is not Android process-kill evidence.
-- Hosted manual run [#40374442067](https://github.com/choko510/DiPlay/actions/runs/40374442067) passed at `6439a5b9`: `changes`, `check` (Gradle gates, Native DSP, ASan/UBSan, and R8), `android-instrumentation` (JNI DSP smoke test), and `host-baseline` succeeded. `quick-baseline` and PR-only `verification-status` were skipped because this was `workflow_dispatch`; they are not counted as passes.
-- Earlier hosted run [#40370259506](https://github.com/choko510/DiPlay/actions/runs/40370259506) passed at `ce3c87d7`. Its `quick-baseline` and PR-only `verification-status` were skipped for `workflow_dispatch` and are not counted as passes.
-- Local API 35 emulator is test evidence only; it does not establish CarPlay host or target-device acceptance.
-
-## Next actions
-
-1. Update PR #52's body with the current branch head, tested source head `6439a5b9`, and run #487 evidence.
-2. Confirm whether the docs-only PR head receives a hosted workflow run; if GitHub starts one, verify it completes successfully.
-3. Continue remaining per-ID test evidence and hardware runbook gates; keep them open in the final report.
-3. Rerun the relevant checks if any production source changes; do not count skips as passes.
-4. Keep PR #52 unmerged and PR #45/`main` untouched.
+1. Resolve the four Working Memory conflicts while preserving both PR #45 and PR #52 entries.
+2. Finish the merge of base `28a89d68`, run full tests/builds/JNI/API 35 instrumentation on the resulting integration head, and record failures, skips, and limitations precisely.
+3. Update traceability, review, test, and final-report documents; commit and push the PR #52 branch and verify current-head Actions.
+4. Keep per-ID evidence and hardware acceptance open where measurements are missing. Keep PR #52 unmerged and PR #45/`main` untouched.

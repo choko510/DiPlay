@@ -135,6 +135,43 @@ class Ipv6NcmBridgeWiredPathDiagnosticsTest {
         }
     }
 
+    @Test
+    fun stage3TimingRunsWithDebugDiagnosticsOffAndPreservesTunPacketBytes() {
+        val disabledDiagnostics = WiredPathDiagnostics("debug-off", 2, enabled = false)
+        val timing = WiredStartupTiming(attemptId = 2L).also {
+            it.recordAttachGeneration(ATTACH_GENERATION)
+        }
+        val (ncm, script) = newBridge(disabledDiagnostics, timing)
+        val frame = ethernetIpv6(tcpFlags = TCP_SYN)
+        script.enqueueRead(UsbRequestWaitFixture.Completed(Ntb16Codec.build(frame, sequence = 3)))
+        val tunFd = ParcelFileDescriptor.createPipe().also { it[1].close() }[0]
+        val tunneledPackets = ByteArrayOutputStream()
+        val bridge = Ipv6NcmBridge(
+            ncm = ncm,
+            tun = tunFd,
+            hostMac = HOST_MAC,
+            onError = {},
+            wiredPathDiagnostics = disabledDiagnostics,
+            wiredStartupTiming = timing,
+            expectedAirPlayAddress = LOCAL_ADDRESS,
+            airPlayPort = AIRPLAY_PORT,
+            attachGeneration = ATTACH_GENERATION,
+        )
+        val fakeTun = connectFakeTun(bridge, tunFd, tunneledPackets)
+        fakeTun.inputToBridge.close()
+
+        try {
+            bridge.start()
+            assertTrue(waitFor { tunneledPackets.size() == frame.size - ETHERNET_HEADER_BYTES })
+            val expectedIpPacket = frame.copyOfRange(ETHERNET_HEADER_BYTES, frame.size)
+            assertTrue(tunneledPackets.toByteArray().contentEquals(expectedIpPacket))
+            assertTrue(timing.snapshot().firstValidAirPlaySynNs != null)
+            assertEquals(0L, count(disabledDiagnostics, WiredPathEvent.V6_SYN_TO_AIRPLAY))
+        } finally {
+            bridge.close()
+        }
+    }
+
     private fun newDiagnostics(): WiredPathDiagnostics = WiredPathDiagnostics(
         runId = "run-tun",
         wiredStartupAttempt = 1,
@@ -143,6 +180,7 @@ class Ipv6NcmBridgeWiredPathDiagnosticsTest {
 
     private fun newBridge(
         diagnostics: WiredPathDiagnostics,
+        timing: WiredStartupTiming? = null,
     ): Pair<NcmUsbBridge, ScriptedUsbDeviceConnectionShadow> {
         val connection = ReflectionHelpers.callConstructor(UsbDeviceConnection::class.java)
         val script = Shadow.extract<ScriptedUsbDeviceConnectionShadow>(connection)
@@ -161,6 +199,7 @@ class Ipv6NcmBridgeWiredPathDiagnosticsTest {
             diagnosticsEnabled = false,
             onDiagnosticLog = {},
             wiredPathDiagnostics = diagnostics,
+            wiredStartupTiming = timing,
         ) to script
     }
 

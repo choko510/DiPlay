@@ -711,6 +711,7 @@ class CarPlayVpnServiceAcceptGenerationTest {
             object : AirPlayMediaHandler {},
             null,
             usesVpn,
+            null,
         )
     }
 

@@ -33,6 +33,43 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class DspRendererProductionPathTest {
     @Test
+    fun processorProcessAndTrackResetStayOnTheAudioOwnerThread() {
+        val anyReset = CountDownLatch(1)
+        val anyProcess = CountDownLatch(1)
+        val processors = CopyOnWriteArrayList<TrackingProcessor>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = DspRuntimeConfig(enabled = true),
+            pipelinePreparer = { format, _ ->
+                TrackingProcessor(
+                    format = format,
+                    onProcess = anyProcess::countDown,
+                    onReset = anyReset::countDown,
+                ).also { processors += it }
+                    .let { DspPcmPipeline(format, it, forceInitialLatencySilence = false) }
+            },
+        )
+
+        try {
+            assertTrue(renderer.start())
+            assertTrue(anyReset.await(5, TimeUnit.SECONDS))
+            renderer.submit(lpcmRtp(IntArray(64) { 300 }), sample = 0)
+            assertTrue(anyProcess.await(5, TimeUnit.SECONDS))
+
+            assertTrue(
+                "the active graph must be reset and processed by the same audio owner",
+                processors.any { processor ->
+                    processor.operations.any { it.first == "reset" && it.second == "carplay-audio" } &&
+                        processor.operations.any { it.first == "process" && it.second == "carplay-audio" }
+                },
+            )
+            assertFalse(processors.any(TrackingProcessor::overlapped))
+        } finally {
+            renderer.close()
+        }
+    }
+
+    @Test
     fun dspOffLpcmProductionPathWritesTheOriginalPcm16Samples() {
         for (sampleRate in listOf(44_100, 48_000)) {
             for (channels in listOf(1, 2)) {
@@ -2251,6 +2288,44 @@ class DspRendererProductionPathTest {
             rtp[offset++] = (sample shr 8).toByte()
             rtp[offset++] = sample.toByte()
         }
+    }
+
+    private inner class TrackingProcessor(
+        override val format: DspAudioFormat,
+        private val onProcess: () -> Unit,
+        private val onReset: () -> Unit,
+    ) : DspProcessor {
+        override val latencyFrames = 0
+        val operations = CopyOnWriteArrayList<Pair<String, String>>()
+        private val activeCalls = AtomicInteger()
+        @Volatile var overlapped = false
+            private set
+
+        override fun process(input: ByteBuffer, output: ByteBuffer, frames: Int): DspProcessResult {
+            if (activeCalls.incrementAndGet() != 1) overlapped = true
+            try {
+                operations += "process" to Thread.currentThread().name
+                repeat(frames * format.channels) { output.putFloat(input.getFloat()) }
+                onProcess()
+                return DspProcessResult().success(frames, latencyFrames)
+            } finally {
+                activeCalls.decrementAndGet()
+            }
+        }
+
+        override fun reset() {
+            if (activeCalls.incrementAndGet() != 1) overlapped = true
+            try {
+                operations += "reset" to Thread.currentThread().name
+                onReset()
+            } finally {
+                activeCalls.decrementAndGet()
+            }
+        }
+
+        override fun diagnostics(): DspDiagnosticsSnapshot = DspDiagnosticsSnapshot.EMPTY
+
+        override fun close() = Unit
     }
 
     private fun readSample(bytes: ByteArray, offset: Int): Int =

@@ -35,6 +35,27 @@ class WiredTcpPacketClassifierTest {
     }
 
     @Test
+    fun targetSynAfterEightUnrelatedDestinationPortsIsStillClassified() {
+        repeat(8) { index ->
+            val unrelated = WiredTcpPacketClassifier.classifyRawIp(
+                ipv4Packet(tcpDestinationPort = AIRPLAY_PORT + index + 1),
+                expectedPort = AIRPLAY_PORT,
+            )
+
+            assertFalse(unrelated.portMatches)
+            assertTrue(unrelated.tcpSyn)
+        }
+
+        val target = WiredTcpPacketClassifier.classifyRawIp(
+            ipv4Packet(tcpDestinationPort = AIRPLAY_PORT),
+            expectedPort = AIRPLAY_PORT,
+        )
+
+        assertTrue(target.portMatches)
+        assertTrue(target.tcpSyn)
+    }
+
+    @Test
     fun ipv4FragmentsAndMalformedLengthsCannotBecomeSyns() {
         val fragmented = WiredTcpPacketClassifier.classifyRawIp(
             ipv4Packet(fragmentField = 0x2000),
@@ -192,9 +213,10 @@ class WiredTcpPacketClassifierTest {
         fragmentField: Int = 0,
         tcpDataOffsetWords: Int = 5,
         protocol: Int = IP_TCP,
+        tcpDestinationPort: Int = AIRPLAY_PORT,
     ): ByteArray {
         val headerBytes = ihlWords * 4
-        val tcp = tcpSegment(dataOffsetWords = tcpDataOffsetWords)
+        val tcp = tcpSegment(destinationPort = tcpDestinationPort, dataOffsetWords = tcpDataOffsetWords)
         val packet = ByteArray(headerBytes + tcp.size)
         packet[0] = ((IPV4_VERSION shl 4) or ihlWords).toByte()
         writeU16(packet, 2, totalLength ?: packet.size)

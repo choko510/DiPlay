@@ -1,12 +1,21 @@
 # Completed — dated history
 
-> 196 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
+> Append-only history, grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
 ## 2026-10-27
 
 - Added persisted-workspace restoration coverage for runtime reconstruction and preview discard in PR #52; Common unit tests passed 272/272 and hosted run #487 passed at `6439a5b9`. Process-death/Activity E2E remains open.
 
 - Fixed the PR #52 module A/B screen regressions: preview no longer overwrites the editor draft, and deleting the selected preset during A/B restores the renderer to Draft. API 35 `DspSettingsScreenTest` passed 4/4; hosted run #484 passed host, Native/ASan/UBSan, Android instrumentation, unit/lint/build/R8, and host-baseline jobs on `ce3c87d7`. Manual-dispatch-only skips remain explicit; PR #52 stays open and hardware/per-ID evidence remains incomplete.
+
+- Added test-only per-block thread-CPU p99 diagnostics. Run #495 passed the full current-code/test CI lane and all 56 x86_64 median wall-p99 gates; the focused local arm64 class still fails four wall-p99 assertions, so G4 remains partial and hardware evidence remains open.
+- PR #45 B09 verification: workflow-sensitive run #490 passed host/native/sanitizer/unit/lint/build/JNI/R8 and API 35 instrumentation. Retained CI XML confirms 659 Shared + 206 Common unit tests and 19 Shared + 1 Common instrumentation tests, all without failures, errors, or skips.
+- API 35 DSP distribution repeat passed Shared instrumentation 19/19; all median-of-three p99 gates stayed under the unchanged ceiling, while single-run tails exceeded it in both CI and local emulator samples and remain unresolved.
+- Completed B08 timing evidence and B10/B11/B12 result packages; API 35 Shared instrumentation later passed 19/19 while the earlier p99 failure remains recorded. Release stays `NO_GO_THIS_RUN` pending hardware, signing, and review gates.
+- Added the F-05 eight-prior-port classifier regression and testable fail-closed Android CI classification; local shared/common suites pass 864/864 and EX-08 fixtures pass 19/19. Run #481 passed full workflow-sensitive host/API 35 checks, and docs-only run #482 validated the published result package while PR #45 remained Draft.
+- Added VIDEO-02 MediaCodec release-failure injection: a failed release retains the decoder/Surface owner and blocks replacement until safe cleanup. Local shared/common tests pass 865/865; workflow-sensitive run #486 passed host/native/sanitizer/lint/build/JNI/R8 and API 35 Shared 19/19 + Common 1/1. F8 and DSP Split diagnostics/layout corrections are present; target-device, signing, and independent-review gates remain open.
+- PR #65 added opt-in PEQ stage-local warm-up with sequence/epoch fencing and bounded audio-thread catch-up. Independent review closed the stale-candidate and cancellation findings; hosted run #40474134044 passed the required check, Android instrumentation, host-baseline, and release-verification jobs. It was merged into PR #52's integration branch at `e3d7f076`; Bass/Cabin/IR warm-up remains deferred.
+- On integration head `e3d7f076`, local Native, ASan/UBSan, 947 Shared/Common unit tests, three-ABI Native build, Mobile/Automotive Debug and Benchmark builds, and isolated API 35 DSP benchmark instrumentation (5/5) passed. A separate concurrent local benchmark sample failed three p99 assertions while R8 ran; preserve it as an unisolated sample and keep the threshold unchanged.
 
 ## 2026-10-26
 
@@ -266,3 +275,5 @@
 - 2026-10-26: B03 serialized accepted-session ownership and scoped revoke/error callbacks; hosted run #455 passed. B04 added MAIN/ALT pre-RECORD recovery, production RTSP cap/fragmentation and four-session permit reuse regressions; local suites passed 845/845 and hosted run #462 passed the Draft lane. Supported-device gates remain open.
 - 2026-10-26: B05 caps active/retiring SurfaceTexture generations at eight, defers the latest texture under ACK pressure, and keeps same-Texture Surface release ACK-gated. Commit `ae63a36566871e1197cf9c736c411307aa0bbef7`; focused churn/ACK tests and full shared/common suites passed 849/849; hosted run #469 passed the Draft checks. TS10/K706 render/memory checks remain blocked on device evidence.
 - 2026-10-26: B06 added capture-loop proof that repeated zero AudioRecord reads send no packet and positive reads resume transmission, plus initial DSP-OFF PCM16 exactness across 44.1/48 kHz mono/stereo. Test commit `686516f5a3fbd220822c89e394c5c12222a24eb8`; full shared suite passed 646/646. Product behavior was already correct; physical audio validation remains `NOT_RUN`.
+- 2026-10-26: B07 recorded SHA-specific decisions for the fixed 111-commit overlay and classified all 51 merges. No new adaptation met the evidence bar; 37 reviewed rows remain evidence-gated. EX-08 regression tests passed 19/19 and the 1,289-row legacy prefix remains byte-identical.
+- 2026-10-26: B08 added observation-only, attempt-relative Stage3 timing with bounded in-memory reporting and a reproducible host per-thread CPU/allocation comparison. Transmission behavior is unchanged; target-device causal timing remains blocked.

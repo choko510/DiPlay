@@ -2,12 +2,6 @@
 
 > Unstarted or evidence-dependent work only. Read [current.md](current.md) for the active batch and exact CI/source status. These entries do not authorize a PR state change.
 
-## Ordered implementation
-
-- [ ] After B06, execute B07–B08 from the attached 2026-10-26 specification in order: verify/reproduce remaining source-level issues, make only minimal evidenced fixes, add focused regression coverage, record exact source SHA and rollback. Recheck current code first; do not reimplement completed fixes.
-- [ ] B09: run review-ready host/native, unit, lint/build, JNI/R8 and API 35 instrumentation gates on one exact source SHA; report every skipped job separately.
-- [ ] B10/B11/B12: prepare device, conditional no-go and final gate packages. Keep missing physical and signing evidence blocked; do not mark G8 pass.
-
 ## P0 — Review and acceptance blockers
 
 - [ ] Run the supported TS10/K706 + iPhone matrix: wired NCM/IPv6→TUN; Siri/call/AEC/AGC; MAIN/ALT and local Split continuity; Surface/rotation/HID/safeArea; DSP THD/headroom/latency/A-V/CPU/underruns; 30–60-minute soak; install/signature/update/rollback. SH M20 remains PARTIAL evidence only.

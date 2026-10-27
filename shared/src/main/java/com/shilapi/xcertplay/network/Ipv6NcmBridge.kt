@@ -8,6 +8,8 @@ import com.shilapi.xcertplay.transport.NcmSendResult
 import com.shilapi.xcertplay.transport.WiredPathDiagnostics
 import com.shilapi.xcertplay.transport.WiredPathEvent
 import com.shilapi.xcertplay.transport.WiredPacketClassification
+import com.shilapi.xcertplay.transport.WiredStartupTiming
+import com.shilapi.xcertplay.transport.WiredStartupTimingEvent
 import com.shilapi.xcertplay.transport.WiredTcpPacketClassifier
 import java.io.Closeable
 import java.io.FileInputStream
@@ -32,6 +34,7 @@ class Ipv6NcmBridge(
     private val onError: (Throwable) -> Unit,
     private val onBridgeStarted: () -> Unit = {},
     private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
+    private val wiredStartupTiming: WiredStartupTiming? = null,
     expectedAirPlayAddress: ByteArray? = null,
     private val airPlayPort: Int = -1,
     private val attachGeneration: Long? = null,
@@ -86,28 +89,33 @@ class Ipv6NcmBridge(
                 val frame = ncm.recv(READ_TIMEOUT_MILLIS) ?: continue
                 var synToAirPlay = false
                 var synFamily = WiredPacketClassification.FAMILY_UNKNOWN
-                if (wiredDiagnostics != null) {
+                if (wiredDiagnostics != null ||
+                    wiredStartupTiming?.has(WiredStartupTimingEvent.FIRST_VALID_AIRPLAY_SYN) == false
+                ) {
                     val classification = WiredTcpPacketClassifier.classifyEthernet(
                         frame,
                         expectedAddress = expectedAirPlayAddress,
                         expectedPort = airPlayPort,
                     )
-                    recordPacketClassification(classification)
+                    if (attachGeneration != null) {
+                        wiredStartupTiming?.recordAirPlaySyn(classification, attachGeneration)
+                    }
+                    if (wiredDiagnostics != null) recordPacketClassification(classification)
                     synToAirPlay = classification.tcpSyn && classification.portMatches
                     if (synToAirPlay) {
                         synFamily = classification.family
                         when (classification.family) {
                             WiredPacketClassification.FAMILY_IPV4 ->
-                                wiredDiagnostics.record(WiredPathEvent.V4_SYN_TO_AIRPLAY, attachGeneration)
+                                wiredDiagnostics?.record(WiredPathEvent.V4_SYN_TO_AIRPLAY, attachGeneration)
                             WiredPacketClassification.FAMILY_IPV6 -> {
-                                wiredDiagnostics.record(WiredPathEvent.V6_SYN_TO_AIRPLAY, attachGeneration)
+                                wiredDiagnostics?.record(WiredPathEvent.V6_SYN_TO_AIRPLAY, attachGeneration)
                                 val destinationEvent = when {
                                     classification.addressChecked && classification.addressMatches ->
                                         WiredPathEvent.V6_SYN_DEST_MATCH
                                     classification.addressChecked -> WiredPathEvent.V6_SYN_DEST_MISMATCH
                                     else -> WiredPathEvent.V6_SYN_DEST_UNVERIFIED
                                 }
-                                wiredDiagnostics.record(destinationEvent, attachGeneration)
+                                wiredDiagnostics?.record(destinationEvent, attachGeneration)
                             }
                             else -> Unit
                         }
@@ -153,22 +161,29 @@ class Ipv6NcmBridge(
                 }
                 var synAckFromTun = false
                 var rstFromTun = false
-                if (wiredDiagnostics != null) {
+                val timingNeedsSynAck = wiredStartupTiming != null &&
+                    !wiredStartupTiming.has(WiredStartupTimingEvent.FIRST_SYN_ACK_OUT)
+                if (wiredDiagnostics != null || timingNeedsSynAck) {
                     val classification = WiredTcpPacketClassifier.classifyRawIp(
                         buffer,
                         0,
                         length,
+                        expectedAddress = expectedAirPlayAddress,
+                        matchSourceAddress = true,
                         expectedPort = airPlayPort,
                         matchSourcePort = true,
                     )
-                    recordPacketClassification(classification)
                     synAckFromTun = classification.tcpSynAck && classification.portMatches
                     rstFromTun = classification.tcpRst && classification.portMatches
+                    if (synAckFromTun && attachGeneration != null) {
+                        wiredStartupTiming?.recordSynAckFromTun(classification, attachGeneration)
+                    }
+                    if (wiredDiagnostics != null) recordPacketClassification(classification)
                     if (synAckFromTun) {
-                        wiredDiagnostics.record(WiredPathEvent.TCP_SYN_ACK_FROM_TUN, attachGeneration)
+                        wiredDiagnostics?.record(WiredPathEvent.TCP_SYN_ACK_FROM_TUN, attachGeneration)
                     }
                     if (rstFromTun) {
-                        wiredDiagnostics.record(WiredPathEvent.TCP_RST_FROM_TUN, attachGeneration)
+                        wiredDiagnostics?.record(WiredPathEvent.TCP_RST_FROM_TUN, attachGeneration)
                     }
                 }
                 val tunPacket = buffer.copyOf(length)
@@ -193,6 +208,12 @@ class Ipv6NcmBridge(
                     pause = { delayMillis -> LockSupport.parkNanos(delayMillis * NANOS_PER_MILLISECOND) },
                 )
                 if (synAckFromTun) {
+                    if (attachGeneration != null) {
+                        wiredStartupTiming?.recordSynAckOut(
+                            sent = result == NcmSendResult.Sent,
+                            callbackGeneration = attachGeneration,
+                        )
+                    }
                     wiredDiagnostics?.record(
                         when (result) {
                             NcmSendResult.Sent -> WiredPathEvent.SYN_ACK_NCM_SENT

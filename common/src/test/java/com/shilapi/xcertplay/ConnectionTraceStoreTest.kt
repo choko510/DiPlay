@@ -133,6 +133,28 @@ class ConnectionTraceStoreTest {
         }
     }
 
+    @Test fun alwaysOnWiredStartupTimingIsValidatedAndRetainsOnlyThreeAttempts() {
+        val store = ConnectionTraceStore(File(RuntimeEnvironment.getApplication().cacheDir, "trace-stage3"))
+        try {
+            repeat(4) { index ->
+                store.appendWiredStartupTiming(validWiredStartupTiming(index + 1))
+            }
+            store.appendWiredStartupTiming(
+                validWiredStartupTiming(5).replace("teardown_ns=none", "teardown_ns=none token=example-token"),
+            )
+
+            val report = store.reportSection()
+            assertTrue(report.contains("always-on, attempt-relative monotonic ns; no packet data"))
+            assertFalse(report.contains("WIRED_STAGE3_V1 attempt=1 "))
+            assertTrue(report.contains("WIRED_STAGE3_V1 attempt=2 "))
+            assertTrue(report.contains("WIRED_STAGE3_V1 attempt=4 "))
+            assertFalse(report.contains("WIRED_STAGE3_V1 attempt=5 "))
+            assertFalse(report.contains("example-token"))
+        } finally {
+            store.closeForTests()
+        }
+    }
+
     private fun validWiredPathReport(): String {
         val eventKeys = listOf(
             "start",
@@ -183,6 +205,12 @@ class ConnectionTraceStoreTest {
         fields[8] = "start_first_ms=12"
         return "WIRED_PATH_V1 schema=1 ${fields.joinToString(" ")}"
     }
+
+    private fun validWiredStartupTiming(attempt: Int): String =
+        "WIRED_STAGE3_V1 attempt=$attempt attach_generation=7 " +
+            "start_session_ns=100 first_full_bulk_out_ns=50 first_valid_airplay_syn_ns=none " +
+            "syn_ack_tun_ns=none syn_ack_out_ns=none listener_accept_ns=none rtsp_record_ns=none " +
+            "main_setup_ns=none main_first_frame_ns=none teardown_ns=none syn_observation=UNKNOWN"
 
     @Test fun debugPreferenceDefaultsOffAndCanBeReturnedToOff() {
         val context = RuntimeEnvironment.getApplication()

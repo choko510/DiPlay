@@ -86,11 +86,16 @@ class DspPipelineBenchmarkInstrumentedTest {
                 assertNoSteadyStateAllocations(pipeline, latencyBypass, source)
                 val pipelineRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
                 val productionRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
+                val threadCpuRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
                 repeat(MEASURED_RUNS) { runIndex ->
                     pipeline.resetTimingMetrics()
                     val productionTiming = latencyBypass?.let { DspFixedHistogram() }
+                    val threadCpuTiming = DspFixedHistogram()
+                    val loopStartWallNs = System.nanoTime()
+                    val loopStartThreadCpuNs = Debug.threadCpuTimeNanos()
                     block = 0
                     while (block < MEASURED_BLOCKS) {
+                        val threadCpuStartedNs = Debug.threadCpuTimeNanos()
                         val startedNs = if (productionTiming != null) System.nanoTime() else 0L
                         val bypass = latencyBypass
                         if (bypass != null && bypass.process(source, 0, source.size, DspPcmEncoding.PCM16) != source.size) {
@@ -98,8 +103,27 @@ class DspPipelineBenchmarkInstrumentedTest {
                         }
                         val outputLength = pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16)
                         if (outputLength != source.size) throw AssertionError("DSP pipeline rejected block $block")
-                        productionTiming?.record(System.nanoTime() - startedNs)
+                        val endedNs = if (productionTiming != null) System.nanoTime() else 0L
+                        val threadCpuEndedNs = Debug.threadCpuTimeNanos()
+                        if (threadCpuStartedNs >= 0L && threadCpuEndedNs >= threadCpuStartedNs) {
+                            threadCpuTiming.record(threadCpuEndedNs - threadCpuStartedNs)
+                        }
+                        productionTiming?.record(endedNs - startedNs)
                         block++
+                    }
+                    val loopWallUs = (System.nanoTime() - loopStartWallNs) / NANOS_PER_MICROSECOND
+                    val loopEndThreadCpuNs = Debug.threadCpuTimeNanos()
+                    val loopThreadCpuUs = if (
+                        loopStartThreadCpuNs >= 0L && loopEndThreadCpuNs >= loopStartThreadCpuNs
+                    ) {
+                        (loopEndThreadCpuNs - loopStartThreadCpuNs) / NANOS_PER_MICROSECOND
+                    } else {
+                        -1L
+                    }
+                    val loopWallMinusThreadCpuUs = if (loopThreadCpuUs >= 0L) {
+                        (loopWallUs - loopThreadCpuUs).coerceAtLeast(0L)
+                    } else {
+                        -1L
                     }
                     val diagnostics = pipeline.diagnostics()
                     val native = diagnostics.nativeProcessUs
@@ -108,12 +132,17 @@ class DspPipelineBenchmarkInstrumentedTest {
                     assertEquals(MEASURED_BLOCKS.toLong(), fullPipeline.sampleCount)
                     pipelineRuns += fullPipeline
                     productionTiming?.snapshot()?.let(productionRuns::add)
+                    threadCpuRuns += threadCpuTiming.snapshot()
                     val production = productionTiming?.snapshot()?.toMetricString()
                         ?: "not-applicable"
                     Log.i(
                         TAG,
                         "DSP_BENCHMARK case=${benchmarkCase.name} sampleRate=$sampleRate channels=$channels " +
-                            "run=${runIndex + 1} blocks=$MEASURED_BLOCKS nativeProcessUs=${native.toMetricString()} " +
+                            "run=${runIndex + 1} blocks=$MEASURED_BLOCKS loopWallUs=$loopWallUs " +
+                            "loopThreadCpuUs=$loopThreadCpuUs " +
+                            "loopWallMinusThreadCpuUs=$loopWallMinusThreadCpuUs " +
+                            "threadCpuProcessUs=${threadCpuTiming.snapshot().toMetricString()} " +
+                            "nativeProcessUs=${native.toMetricString()} " +
                             "pipelineProcessUs=${fullPipeline.toMetricString()} " +
                             "latencyPreservingBypass=${latencyBypass != null} productionProcessUs=$production",
                     )
@@ -123,9 +152,16 @@ class DspPipelineBenchmarkInstrumentedTest {
                 val p99CeilingUs = blockDurationUs * 200L / 100L
                 val gateRuns = productionRuns.ifEmpty { pipelineRuns }
                 val medianPipelineP99Us = gateRuns.map(DspTimingSummary::p99Us).sorted()[MEASURED_RUNS / 2]
+                val validThreadCpuRuns = threadCpuRuns.filter { it.sampleCount == MEASURED_BLOCKS.toLong() }
+                val medianThreadCpuP99Us = if (validThreadCpuRuns.size == MEASURED_RUNS) {
+                    validThreadCpuRuns.map(DspTimingSummary::p99Us).sorted()[MEASURED_RUNS / 2]
+                } else {
+                    -1L
+                }
                 val metricName = if (productionRuns.isEmpty()) "pipeline" else "production pipeline"
                 assertTrue(
-                    "${benchmarkCase.name} median $metricName p99=${medianPipelineP99Us}us exceeded " +
+                    "${benchmarkCase.name} median $metricName p99=${medianPipelineP99Us}us " +
+                        "medianThreadCpuP99=${medianThreadCpuP99Us}us exceeded " +
                         "${p99CeilingUs}us over $MEASURED_RUNS runs",
                     medianPipelineP99Us < p99CeilingUs,
                 )
@@ -418,5 +454,6 @@ class DspPipelineBenchmarkInstrumentedTest {
         const val ALLOCATION_CHECK_BLOCKS = 64
         const val MEASURED_BLOCKS = 256
         const val MEASURED_RUNS = 3
+        const val NANOS_PER_MICROSECOND = 1_000L
     }
 }

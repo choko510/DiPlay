@@ -69,31 +69,14 @@ jobs:
             search_host_baselines="false"
             search_full_baselines="false"
           fi
-          if ! commit_history="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${PR_BASE_SHA}...${PR_HEAD_SHA}" --jq '(.commits // []) | reverse | .[:100] | .[].sha')"; then
-            echo "host=true" >> "$GITHUB_OUTPUT"
-            echo "full_host=true" >> "$GITHUB_OUTPUT"
-            echo "quick=true" >> "$GITHUB_OUTPUT"
-            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
-            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
-            echo "native=true" >> "$GITHUB_OUTPUT"
-            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
-            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
-            echo "android_mk=true" >> "$GITHUB_OUTPUT"
-            echo "safe=false" >> "$GITHUB_OUTPUT"
+          if ! all_commit_history="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${PR_BASE_SHA}...${PR_HEAD_SHA}" --jq '(.commits // []) | reverse | .[].sha')"; then
+            ci_write_safe_full_android_outputs "$GITHUB_OUTPUT"
             exit 0
           fi
+          commit_history="$(ci_limit_recent_commit_window "$all_commit_history")"
           mapfile -t commit_shas <<< "$commit_history"
           if [[ -z "${commit_shas[0]:-}" ]]; then
-            echo "host=true" >> "$GITHUB_OUTPUT"
-            echo "full_host=true" >> "$GITHUB_OUTPUT"
-            echo "quick=true" >> "$GITHUB_OUTPUT"
-            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
-            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
-            echo "native=true" >> "$GITHUB_OUTPUT"
-            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
-            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
-            echo "android_mk=true" >> "$GITHUB_OUTPUT"
-            echo "safe=false" >> "$GITHUB_OUTPUT"
+            ci_write_safe_full_android_outputs "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -110,16 +93,7 @@ jobs:
               checks="$(gh api --method GET --paginate "repos/${GITHUB_REPOSITORY}/commits/${sha}/check-runs" -f per_page=100 --jq "$2" | sort -u | paste -sd, -)"
               printf "%s\\t%s\\n" "$sha" "$checks"
             ' _ {} '.check_runs[] | select(.conclusion == "success") | .name')"; then
-              echo "host=true" >> "$GITHUB_OUTPUT"
-              echo "full_host=true" >> "$GITHUB_OUTPUT"
-              echo "quick=true" >> "$GITHUB_OUTPUT"
-              echo "quick_scope=both" >> "$GITHUB_OUTPUT"
-              echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
-              echo "native=true" >> "$GITHUB_OUTPUT"
-              echo "instrumentation=true" >> "$GITHUB_OUTPUT"
-              echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
-              echo "android_mk=true" >> "$GITHUB_OUTPUT"
-              echo "safe=false" >> "$GITHUB_OUTPUT"
+              ci_write_safe_full_android_outputs "$GITHUB_OUTPUT"
               exit 0
             fi
             inspected=$((inspected + ${#batch[@]}))
@@ -171,8 +145,8 @@ jobs:
           classify_since() {
             local baseline_sha="$1"
             local comparison
-            if [[ -z "$baseline_sha" ]]; then
-              echo "true true both all true true"
+            if ci_baseline_not_found_requires_full "$baseline_sha"; then
+              ci_android_full_scope
               return 0
             fi
             if ! comparison="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${baseline_sha}...${PR_HEAD_SHA}")"; then
@@ -181,142 +155,25 @@ jobs:
 
             local file_count
             file_count="$(jq '(.files // []) | length' <<< "$comparison")"
-            if (( file_count >= 300 )); then
-              echo "true true both all true true"
+            if ci_compare_file_list_requires_full "$file_count"; then
+              ci_android_full_scope
               return 0
             fi
-
-            local runtime=false
-            local native=false
-            local unscoped_runtime=false
-            local workflow_sensitive=false
-            local android_mk=false
-            local test_modules=,
-            local scoped_test_filters=""
-            local test_only_changes=true
-            while IFS=$'\t' read -r path status; do
-              if is_ci_docs_only_path "$path"; then
-                continue
-              fi
-              if is_ci_workflow_sensitive_path "$path"; then
-                workflow_sensitive=true
-              fi
-              case "$path" in
-                shared/src/test/java/*|shared/src/test/kotlin/*)
-                  runtime=true
-                  if [[ "$test_modules" != *",shared,"* ]]; then
-                    test_modules="${test_modules}shared,"
-                  fi
-                  if [[ ( "$status" == "added" || "$status" == "modified" ) && "${path##*/}" =~ Test(s|Case)?\.(kt|java)$ ]]; then
-                    test_root="shared/src/test/java/"
-                    if [[ "$path" == shared/src/test/kotlin/* ]]; then
-                      test_root="shared/src/test/kotlin/"
-                    fi
-                    test_class="${path#"$test_root"}"
-                    test_class="${test_class%.*}"
-                    test_class="${test_class//\//.}"
-                    scoped_test_filters="${scoped_test_filters}shared|${test_class},"
-                  else
-                    test_only_changes=false
-                  fi ;;
-                common/src/main/java/*|common/src/main/kotlin/*)
-                  runtime=true
-                  test_only_changes=false
-                  if [[ "$test_modules" != *",common,"* ]]; then
-                    test_modules="${test_modules}common,"
-                  fi ;;
-                common/src/test/java/*|common/src/test/kotlin/*)
-                  runtime=true
-                  if [[ "$test_modules" != *",common,"* ]]; then
-                    test_modules="${test_modules}common,"
-                  fi
-                  if [[ ( "$status" == "added" || "$status" == "modified" ) && "${path##*/}" =~ Test(s|Case)?\.(kt|java)$ ]]; then
-                    test_root="common/src/test/java/"
-                    if [[ "$path" == common/src/test/kotlin/* ]]; then
-                      test_root="common/src/test/kotlin/"
-                    fi
-                    test_class="${path#"$test_root"}"
-                    test_class="${test_class%.*}"
-                    test_class="${test_class//\//.}"
-                    scoped_test_filters="${scoped_test_filters}common|${test_class},"
-                  else
-                    test_only_changes=false
-                  fi ;;
-                *)
-                  runtime=true
-                  test_only_changes=false
-                  unscoped_runtime=true ;;
-              esac
-              if is_ci_native_path "$path"; then
-                runtime=true
-                native=true
-              fi
-              if is_ci_android_mk_link_path "$path"; then
-                runtime=true
-                native=true
-                android_mk=true
-              fi
-            done < <(jq -r '.files[]? | [.filename, .status] | @tsv' <<< "$comparison")
-            local test_scope=none
-            if [[ "$runtime" == "true" ]]; then
-              if [[ "$unscoped_runtime" == "true" ]]; then
-                test_scope=both
-              else
-                case "$test_modules" in
-                  *,shared,common,*|*,common,shared,*) test_scope=both ;;
-                  *,shared,*) test_scope=shared ;;
-                  *,common,*) test_scope=common ;;
-                  *) test_scope=both ;;
-                esac
-              fi
-            fi
-            local test_filters=all
-            if [[ "$runtime" != "true" ]]; then
-              test_filters=none
-            elif [[ "$test_only_changes" == "true" && -n "$scoped_test_filters" ]]; then
-              test_filters="${scoped_test_filters%,}"
-            fi
-            printf '%s %s %s %s %s %s\n' \
-              "$runtime" "$native" "$test_scope" "$test_filters" "$workflow_sensitive" "$android_mk"
+            local changed_paths
+            changed_paths="$(jq -r '.files[]? | [.filename, .status] | @tsv' <<< "$comparison")"
+            ci_classify_changed_paths "$changed_paths"
           }
 
           if ! host_paths="$(classify_since "$previous_host_sha")"; then
-            echo "host=true" >> "$GITHUB_OUTPUT"
-            echo "full_host=true" >> "$GITHUB_OUTPUT"
-            echo "quick=true" >> "$GITHUB_OUTPUT"
-            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
-            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
-            echo "native=true" >> "$GITHUB_OUTPUT"
-            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
-            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
-            echo "android_mk=true" >> "$GITHUB_OUTPUT"
-            echo "safe=false" >> "$GITHUB_OUTPUT"
+            ci_write_safe_full_android_outputs "$GITHUB_OUTPUT"
             exit 0
           fi
           if ! quick_paths="$(classify_since "$previous_quick_sha")"; then
-            echo "host=true" >> "$GITHUB_OUTPUT"
-            echo "full_host=true" >> "$GITHUB_OUTPUT"
-            echo "quick=true" >> "$GITHUB_OUTPUT"
-            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
-            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
-            echo "native=true" >> "$GITHUB_OUTPUT"
-            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
-            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
-            echo "android_mk=true" >> "$GITHUB_OUTPUT"
-            echo "safe=false" >> "$GITHUB_OUTPUT"
+            ci_write_safe_full_android_outputs "$GITHUB_OUTPUT"
             exit 0
           fi
           if ! instrumentation_paths="$(classify_since "$previous_full_sha")"; then
-            echo "host=true" >> "$GITHUB_OUTPUT"
-            echo "full_host=true" >> "$GITHUB_OUTPUT"
-            echo "quick=true" >> "$GITHUB_OUTPUT"
-            echo "quick_scope=both" >> "$GITHUB_OUTPUT"
-            echo "quick_test_filters=all" >> "$GITHUB_OUTPUT"
-            echo "native=true" >> "$GITHUB_OUTPUT"
-            echo "instrumentation=true" >> "$GITHUB_OUTPUT"
-            echo "workflow_sensitive=true" >> "$GITHUB_OUTPUT"
-            echo "android_mk=true" >> "$GITHUB_OUTPUT"
-            echo "safe=false" >> "$GITHUB_OUTPUT"
+            ci_write_safe_full_android_outputs "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -340,11 +197,8 @@ jobs:
             fi
           fi
 
-          full_host="$host"
-          if [[ "$PR_DRAFT" == "true" && "$workflow_sensitive" != "true" ]]; then
-            full_host=false
-            instrumentation=false
-          fi
+          draft_scope_flags="$(ci_draft_runtime_skip_policy "$PR_DRAFT" "$host" "$instrumentation" "$workflow_sensitive")"
+          read -r full_host instrumentation <<< "$draft_scope_flags"
 
           echo "host=$host" >> "$GITHUB_OUTPUT"
           echo "full_host=$full_host" >> "$GITHUB_OUTPUT"
@@ -451,6 +305,8 @@ jobs:
           path: |
             shared/build/reports/tests/
             common/build/reports/tests/
+            shared/build/test-results/testDebugUnitTest/*.xml
+            common/build/test-results/testDebugUnitTest/*.xml
             mobile/build/reports/lint-results-debug.html
             automotive/build/reports/lint-results-debug.html
 
@@ -529,6 +385,10 @@ jobs:
         with:
           name: test-reports-${{ github.job }}
           path: |
+            shared/build/outputs/androidTest-results/connected/debug/*.xml
+            common/build/outputs/androidTest-results/connected/debug/*.xml
+            shared/build/reports/androidTests/connected/debug/
+            common/build/reports/androidTests/connected/debug/
             shared/build/reports/tests/
             shared/build/outputs/dsp-benchmark/
 

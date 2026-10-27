@@ -356,6 +356,8 @@ For privacy review, check both the formatter and redactor behavior. A test showi
 
 For EX-08 content rows, compare the archived patch with fixed-main locale registration, resource keys, and runtime support. A translation or release note does not prove the described feature; finalize clear scope mismatches while keeping generic device claims pending without target evidence.
 
+For a fixed upstream range containing merges, classify every merge from its parent topology and first-parent patch, then link source-integration duplicates to source indexes. A complete SHA inventory is not a semantic review unless every row also records the fixed-main owner, concrete disposition reason, and the evidence needed for any pending decision.
+
 When an upstream runtime patch also edits repository configuration, inspect dependency-source changes as part of the aggregate. A later commit that removes an unapproved mirror can support rejecting the earlier aggregate without claiming the separate runtime behavior is disproven.
 
 For a commit that combines USB re-enumeration and audio PCM processing, classify the actual patch as a cross-gate aggregate. Preserve each narrow candidate's separate device, audio-quality, and rollback evidence requirements.
@@ -529,6 +531,8 @@ When initial hardware state and an asynchronous change listener can race, serial
 
 For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()` cannot be overridden. Capture the exact specs at the existing pane's `measureChildWithMargins` call, pass those specs to `child.measure()`, and record the child result afterward; do not report a reconstructed probe value or a parent's pre-measure size.
 
+For decoder retirement, a throwing `MediaCodec.release()` does not prove the old Surface is safe to reuse. Retain the old decoder/Surface owner and deny replacement until a later release retry succeeds; inject the release boundary with a callback that delegates directly to `codec.release()` by default so the ownership failure path is deterministic in Robolectric.
+
 For repeated UI diagnostics, a string-based dedupe API still allocates the candidate string before it can reject a duplicate. Compare primitive signature fields first, then allocate the retained signature and formatted log only when the value is new.
 
 For microphone zero-read coverage, inject a scripted initialized `AudioRecord` through the existing Builder shadow and exercise the real capture worker plus a loopback UDP receiver. Hold the recorder before its first positive frame so a timeout proves zero reads never synthesize or transmit silence; then assert exactly one packet follows the positive frame.
@@ -536,6 +540,8 @@ For microphone zero-read coverage, inject a scripted initialized `AudioRecord` t
 Keep log-volume limits separate from bounded recent-history storage: an evicted signature can otherwise be emitted again indefinitely. A process-wide emission counter provides a hard cap while retaining the rolling history for diagnostics.
 
 CI evidence tests should assert the meaning of a historical status record rather than an exact phrase that later becomes stale. Keep the run SHA and skipped job scope explicit when updating those records.
+
+For CI change classification, treat an empty or malformed compare-file list as incomplete evidence, not as an empty/docs-only diff. Exercise baseline lookup, file-count limits, unknown paths, Draft skips, and docs-after-source cases through the same helper used by the workflow.
 
 2026-10-26: A successful docs-only workflow run validates only its static checks. Record the workflow HEAD and each job/step's `success`, `failure`, or `skipped` result separately from the last passing source-test SHA; also exercise representative production paths through the current classifier.
 
@@ -562,3 +568,23 @@ For drag tests that cross touch slop in one movement, band hit-testing must use 
 If a benchmark threshold miss is rerun, keep the threshold fixed and record both the first failure and the same-revision retry outcome. Final CI evidence must name the exact head SHA.
 
 For Compose A/B regression tests, assert the displayed side, renderer configuration, editor draft, and unrelated module values. Include deleting the selected preset while A/B is active so a UI fallback cannot leave the renderer playing a stale comparison snapshot. Seed an already-synchronized editor draft before composition when the test starts from preexisting runtime state.
+
+For an upstream range with many merge commits, keep source and merge decisions separate. Use parent topology to label PR integration duplicates versus branch-sync merges, and make each pending source row name the exact evidence that would change its disposition. Keep the old ledger population frozen when adding a new overlay.
+
+For wired startup timing, use one monotonic origin per attempt and exact successful full-size NCM transfers. Generation-fence callbacks, retain only bounded numeric milestones, and keep packet diagnostics independently opt-in; model tests do not replace CPU/heap measurements or device traces.
+
+For a receive-path performance comparison, warm each mode, interleave the measurement order, and use per-thread CPU/allocation counters over enough iterations to rise above timer resolution. Record the host architecture/JDK and keep the result distinct from Android target-device profiling.
+
+Treat performance instrumentation as a distribution gate: retain both passing and failing runs at the exact SHA, do not average away a p99 breach, and do not claim a Draft workflow passed jobs it skipped. On macOS, run Android tests directly when the helper's GNU `timeout` dependency is unavailable, then capture the required filtered logcat separately.
+
+2026-10-27 B09: an API 35 Shared p99 failure can be followed by a full 19/19 pass on the same code/test head without source changes. Preserve both; a repeat establishes the current run result, not the cause or stability of the earlier outlier.
+
+2026-10-27 B09: verify CI report artifacts by opening the uploaded ZIP and checking that expected JUnit XML files and suite counts are present; a passing job alone does not prove reports needed to diagnose future failures were retained. Run #490 confirmed 865 unit-test and 20 connected-instrumentation results were archived.
+
+2026-10-27 B09: a median-of-three p99 gate can pass while individual runs exceed the ceiling. Preserve all per-run samples and report both the gate statistic and largest tail; do not treat a green instrumentation job as proof that every measured run stayed under budget.
+
+2026-10-27 B09: when API 35 wall p99 exceeds budget, compare per-block `Debug.threadCpuTimeNanos()` p99 with wall p99. A lower thread CPU p99 indicates time spent outside the measuring thread, but it does not establish real-device playback safety or excuse a wall-deadline breach.
+
+2026-10-27 B09: preserve benchmark results by ABI and exact run. A passing x86_64 CI median does not override a failing arm64 emulator wall-p99 assertion; thread-CPU measurements help characterize the gap but do not identify its cause.
+
+2026-10-27: If API 35 p99 failures overlap a CPU-heavy R8 build from another worktree, record the overlap and rerun the same benchmark alone at a named source SHA. A passing isolated run describes that run only; it does not retroactively prove why the concurrent samples failed.

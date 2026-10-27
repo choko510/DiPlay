@@ -78,6 +78,9 @@ import com.shilapi.xcertplay.transport.WiredPathDiagnostics
 import com.shilapi.xcertplay.transport.WiredPathEvent
 import com.shilapi.xcertplay.transport.WiredPathReportReason
 import com.shilapi.xcertplay.transport.WiredPathReportFormatter
+import com.shilapi.xcertplay.transport.WiredStartupTiming
+import com.shilapi.xcertplay.transport.WiredStartupTimingEvent
+import com.shilapi.xcertplay.transport.WiredStartupTimingFormatter
 import java.io.Closeable
 import java.io.IOException
 import java.net.InetAddress
@@ -154,6 +157,7 @@ class CarPlayController(
     private val connectionTraceEnabled: Boolean = false,
     private val onConnectionTrace: (ConnectionTraceEvent) -> Unit = {},
     private val onWiredPathReport: (String) -> Unit = {},
+    private val onWiredStartupTiming: (String) -> Unit = {},
 ) : Closeable {
     private data class WirelessStackResources(
         val tunnel: Iap2Session?,
@@ -259,6 +263,7 @@ class CarPlayController(
     private val wiredDataPathGeneration = WiredDataPathGeneration()
     private val wiredStartupAttempt = AtomicInteger(0)
     private val wiredPathDiagnosticsByAttempt = ConcurrentHashMap<Int, WiredPathDiagnostics>()
+    private val wiredStartupTimingByAttempt = ConcurrentHashMap<Int, WiredStartupTiming>()
     private val activeWiredStartupAttempt = AtomicInteger(0)
     private val wiredStartupTimeoutAttempt = AtomicInteger(0)
     private val wiredTransportFailureAttempt = AtomicInteger(0)
@@ -458,6 +463,7 @@ class CarPlayController(
                         closeBestEffort("wireless stack") { closeWirelessStack(service) }
                     } else {
                         teardownWiredTransport(service)
+                        wiredStartupTimingByAttempt.keys.toList().forEach(::finishWiredStartupTiming)
                     }
                     closeBestEffort("MFi") { mfiSession?.close() }
                     mfiSession = null
@@ -1848,6 +1854,8 @@ class CarPlayController(
         val dataPathGeneration = wiredDataPathGeneration.begin()
         val startupAttempt = wiredStartupAttempt.incrementAndGet()
         wiredPathDiagnosticsByAttempt.keys.toList().forEach(::finishWiredPathDiagnostics)
+        wiredStartupTimingByAttempt.keys.toList().forEach(::finishWiredStartupTiming)
+        wiredStartupTimingByAttempt[startupAttempt] = WiredStartupTiming(startupAttempt.toLong())
         if (connectionTraceEnabled) {
             val wiredDiagnostics = WiredPathDiagnostics(
                 runId = UUID.randomUUID().toString(),
@@ -1920,6 +1928,7 @@ class CarPlayController(
         if (!isCurrentWiredDataPath(dataPathGeneration)) return
         wiredDataPathGeneration.invalidate()
         finishWiredPathDiagnostics(startupAttempt)
+        finishWiredStartupTiming(startupAttempt)
         debugLog("wired $operation failed attempt=$startupAttempt", error)
         val deviceStillPresent = isUsbDevicePresent(device)
         val category = if (deviceStillPresent) connectionTraceError(error) else {
@@ -2010,6 +2019,7 @@ class CarPlayController(
                 diagnosticsEnabled = diagnosticsEnabled,
                 onDiagnosticLog = { message -> debugLog(message) },
                 wiredPathDiagnostics = wiredPathDiagnosticsByAttempt[startupAttempt],
+                wiredStartupTiming = wiredStartupTimingByAttempt[startupAttempt],
             )
         } finally {
             if (!connectionTransferred) runCatching { connection.close() }
@@ -2236,11 +2246,14 @@ class CarPlayController(
                 locationProvider = locationProvider,
                 onProgress = { message -> debugLog("wired $message") },
                 onTraceStage = { stage ->
-                    traceConnection(stage)
                     if (stage == ConnectionTraceStage.CARPLAY_START_SENT) {
+                        wiredStartupTimingByAttempt[startupAttempt]?.record(
+                            WiredStartupTimingEvent.FIRST_START_SESSION,
+                        )
                         ncm.markCarPlayStartSent()
                         armWiredStartupWatchdog(startupAttempt)
                     }
+                    traceConnection(stage)
                 },
             )
             if (!wiredStartupComplete.get()) {
@@ -2397,6 +2410,7 @@ class CarPlayController(
                 }
             }
             finishWiredPathDiagnostics(startupAttempt)
+            finishWiredStartupTiming(startupAttempt)
         }
     }
 
@@ -2577,7 +2591,10 @@ class CarPlayController(
             val resources = synchronized(wiredTeardownLock) stateLock@{
                 val attempt = activeWiredStartupAttempt.get()
                 if (expectedAttempt != null && attempt != expectedAttempt) return@stateLock null
-                if (attempt != 0) wiredTeardownAttempt.compareAndSet(0, attempt)
+                if (attempt != 0) {
+                    wiredTeardownAttempt.compareAndSet(0, attempt)
+                    wiredStartupTimingByAttempt[attempt]?.record(WiredStartupTimingEvent.TEARDOWN)
+                }
                 wiredStartupWatchdog.cancel()
                 WiredTeardownResources(csm, mux, wiredUsbSession, service).also {
                     csm = null
@@ -2938,6 +2955,7 @@ class CarPlayController(
                 listener = wiredSessionListener(attempt),
                 media = media,
                 wiredPathDiagnostics = wiredPathDiagnosticsByAttempt[attempt],
+                wiredStartupTiming = wiredStartupTimingByAttempt[attempt],
             )
         } catch (error: Throwable) {
             ncm.close()
@@ -3385,6 +3403,14 @@ class CarPlayController(
             }
             wiredPathDiagnosticsByAttempt.remove(attempt, diagnostics)
         }
+    }
+
+    private fun finishWiredStartupTiming(attempt: Int) {
+        val timing = wiredStartupTimingByAttempt[attempt] ?: return
+        timing.record(WiredStartupTimingEvent.TEARDOWN)
+        if (!wiredStartupTimingByAttempt.remove(attempt, timing)) return
+        val line = WiredStartupTimingFormatter.format(timing.snapshot())
+        runCatching { onWiredStartupTiming(line) }
     }
 
     private fun connectionTraceError(error: Throwable): ConnectionTraceError =

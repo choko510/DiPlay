@@ -32,9 +32,15 @@ Capture finite-checked PCM before gain or graph stages and pass it separately to
 
 Preserve the upstream catalog original source_review_state as provenance. Treat generated current_review_state and disposition as the present decision layer; NEED_EVIDENCE means a documented requirement remains unresolved, not semantic proof or parity. Report current totals from the generated ledger, never from stale catalog-state counts.
 
+## Review each delta-111 SHA before adoption
+
+The 111-commit overlay is a fixed, separate population from the frozen legacy 1,289 rows. Record one semantic decision per SHA and classify each merge from its parent topology as source integration or branch synchronization. Keep `ADAPT` behind a missing-required-behavior check, a failing fixed-main regression, and a narrow safe fix; send unsupported runtime claims to an explicit evidence gate.
+
 ## Keep documentation-only and workflow-only PR checks lightweight
 
 For pull requests, always run public-tree and EX-08 inventory checks. Compare host verification against the latest successful `host-baseline` marker and emulator instrumentation against the latest successful full `check` plus `android-instrumentation` run. Changes limited to `docs/`, `.scratchpad/`, `.github/workflows/`, Markdown files, or the exact audit-only `scripts/generate_step4_ex08_inventory.py` may skip product runtime checks; the inventory `--check` still runs on every PR. Unknown paths, missing/failed baselines, large diffs, and API errors require the relevant verification path. Pushes and manual runs use the full suite.
+
+Keep changed-path classification in a directly fixture-tested helper. A successful compare response with an empty or malformed file list is not evidence of a docs-only diff; select the full verification scope, and require workflow-sensitive changes to complete host and instrumentation gates even while the PR is Draft.
 
 ## Cache Gradle task outputs only within the same pull request
 
@@ -652,7 +658,7 @@ Declare `CarPlayVpnService` as a protected exported VpnService for Android's sys
 
 Treat an apparent consecutive NTH16 pair inside the unprotected tail of any declared block length as ambiguous and fail closed; never resynchronize into that tail. For a complete but incomplete-length NTB, fail the bridge after 30 seconds without new bytes while resetting the timer on progress.
 
-Keep TextureView SurfaceTexture ownership until each MAIN/ALT decoder worker acknowledges its surface transition. Release only after all owners acknowledge; if MediaCodec release fails, retain the old surface and prevent decoder replacement until safe release. Do not wait for a retiring decoder on the screen receive path.
+Keep TextureView SurfaceTexture ownership until each MAIN/ALT decoder worker acknowledges its surface transition. Release only after all owners acknowledge; if MediaCodec release fails, retain the old surface and prevent decoder replacement until safe release. Do not wait for a retiring decoder on the screen receive path. VIDEO-02 injects a release exception and verifies retention/replacement blocking before retrying cleanup.
 
 Keep video control/recovery work bounded and coalesce superseded surface/config jobs while carrying every surface-retirement callback forward. Scope one in-flight keyframe recovery request per stream type and bound the executor to two workers plus 16 queued jobs.
 
@@ -697,6 +703,28 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 2026-10-26 B00: treat C-00 as `USER_CONFIRMED_RESOLVED` for product behavior, while preserving any older `NOT_RUN` device measurements as such. Freeze the full current 1,289-row EX-08 CSV bytes and SHA-256 before building a separate 111-commit overlay; generated inventory consistency is not semantic review or device evidence.
 
 2026-10-26 B01: preserve the fixed EX-08 111-commit range as a separate metadata/patch overlay and keep every new row `NEED_EVIDENCE` until per-SHA semantic review. Protect the existing 1,289 CSV rows as a byte-identical prefix; do not treat compare stats, patch digests, or inventory checks as adoption or parity proof.
+
+2026-10-26 B07: classify each SHA independently against fixed main. `ADAPT` requires a fixed-main failing test and a narrow safe implementation; source commits already integrated by a merge are classified through their source rows, while branch-sync merges are never independent feature candidates. Keep `NEED_EVIDENCE` rows actionable with the exact target measurement or log needed to advance.
+
+2026-10-26 B08: keep Stage3 timestamps in a fixed-size attempt-local monotonic state and fence attachment callbacks by generation. Record only exact successful full-size NCM OUT; keep reports validated and bounded in memory, separate from debug packet diagnostics. Do not add a resend or timer without target-device causal evidence.
+
+2026-10-27 B08 performance evidence: measure the added allocation-free classifier/timing hot path with per-thread CPU/allocation counters and a fixed packet/iteration matrix. Host measurements do not substitute for TS10/K706 profiling; preserve `0x4301` retry as zero until the device trace proves its cause.
+
+2026-10-27 B09/B11: keep the 21.332 ms API 35 p99 limit unchanged after local reruns fail; a passing first run does not erase later failed evidence. Keep additional StartSession sends and all other conditional features off without the specified device reproduction and A/B proof.
+
+2026-10-27 B09 follow-up: the focused 48 kHz stereo case and full API 35 Shared suite subsequently passed 19/19 below the unchanged budget. At that point the full hosted lane was still skipped under Draft scope, so B09 remained partial. Later workflow-sensitive run #486 passed the full host and API 35 gates; retain the earlier p99 failure/crash and passing repeats separately because the transient cause is unknown.
+
+2026-10-27 B09 distribution: the current acceptance check uses the median of three per-configuration p99 samples. Run #490's API 35 x86_64 artifact and a local API 35 arm64-v8a repeat passed that gate, yet single-run p99s reached 41.636 ms and 84.009 ms respectively; the local maximum median was 20.020 ms against the unchanged 21.332 ms ceiling. Report the per-run distribution alongside the CI result and do not relax the ceiling or infer that the tails are harmless.
+
+## Pair wall p99 with per-block thread CPU timing
+
+2026-10-27 B09: retain the wall-clock p99 as the deadline gate, because audio delivery depends on elapsed time. Add per-block thread CPU timing only to the instrumentation benchmark so high wall p99 with lower CPU p99 can indicate time not charged to the measuring thread; this diagnostic does not prove the target audio path is safe and cannot replace TS10/K706 measurements or justify relaxing the limit.
+
+2026-10-27 B09 follow-up: run #495 passes all 56 median wall-p99 gates on x86_64, while the focused local arm64 class fails four wall-p99 assertions with lower thread-CPU p99. Keep the ABI results separate, retain the existing thresholds, and leave G4 partial until the local timing cause and target-device behavior are understood.
+
+## Retain Gradle test result XML in CI artifacts
+
+2026-10-27 B09: upload unit-test XML and connected AndroidTest XML/HTML with `if: always()` so a failed test remains diagnosable from the run artifact. Run #490 verified that the configured paths produce 865 unit-test and 20 instrumentation-test results; artifact retention itself does not change test scope or release status.
 
 2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
 

@@ -17,6 +17,11 @@ All final-run p99 values stayed below the 2.67 ms light and 5.33 ms heavy budget
 No DSP math, chunk-size, FFT-partition, JNI, or NEON changes were justified: measured p99 budgets passed, and no stable regression hotspot remained after repeat runs. Keep the portable scalar path and 128-frame convolver latency.
 # Performance Optimization Ledger
 
+## 2026-10-27 — Measure wired startup timing-path overhead
+
+- A warmed two-million-iteration, five-round host fixture compared the bare parser with timing-disabled and timing-enabled classifier/recorder paths using per-thread CPU/allocation counters. The two timing lanes were 16.6–21.4 ns/packet above the bare baseline; timing ON versus OFF was within host-run variation, with no measured incremental allocation beyond counter precision.
+- Treat these as host-JVM overhead bounds, not an Android or TS10/K706 profile. Keep the diagnostic path fixed-size and attempt-local; profile target CPU/heap separately before changing production behavior.
+
 ## 2026-10-25 — Keep DSP fallback and Surface churn work bounded
 
 - Replaced fallback-time full DSP graph preparation with a conservative scalar headroom estimate over bounded profile fields. It avoids EQ frequency scans and convolution sample copies on track-generation changes and no longer rethrows invalid PEQ configuration from the fallback path. Shared/common Kotlin compilation passed; no p99, allocation, underrun or hardware measurements were collected.

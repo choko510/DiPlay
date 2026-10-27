@@ -10,6 +10,7 @@ import shutil
 import tarfile
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 import generate_step4_ex08_inventory as inventory
@@ -22,6 +23,7 @@ from step4_ex08_delta111 import (
     OverlayError,
     load_and_validate_inputs,
     require_legacy_prefix,
+    render_review_markdown,
     serialize_rows,
     sha256,
     validate_commit_record,
@@ -102,13 +104,15 @@ class Delta111InventoryTest(unittest.TestCase):
             validate_commit_record(merge["local_index"], malformed, self.patches)
 
     def test_07_need_evidence_requires_missing_evidence(self) -> None:
-        override = dict(self.overrides[0], missing_evidence=[])
+        pending = next(row for row in self.overrides if row["disposition"] == "NEED_EVIDENCE")
+        override = dict(pending, missing_evidence=[])
         with self.assertRaises(OverlayError):
             validate_review_override(override)
 
     def test_08_adapt_and_fork_superior_require_proof(self) -> None:
+        reviewed = next(row for row in self.overrides if row["disposition"] == "NEED_EVIDENCE")
         for disposition in ("ADAPT", "FORK_SUPERIOR"):
-            override = dict(self.overrides[0], disposition=disposition, proof=[])
+            override = dict(reviewed, disposition=disposition, proof=[])
             with self.subTest(disposition=disposition), self.assertRaises(OverlayError):
                 validate_review_override(override)
 
@@ -170,6 +174,48 @@ class Delta111InventoryTest(unittest.TestCase):
     def test_17_legacy_prefix_check_is_independent_from_full_csv_header_count(self) -> None:
         require_legacy_prefix(self.legacy_bytes, LEDGER.read_bytes())
         self.assertEqual(1400, len(self.rows))
+
+    def test_18_every_current_delta_row_has_a_sha_specific_review_and_merge_fate(self) -> None:
+        reviews = {row["commit_sha"]: row for row in self.overrides}
+        self.assertEqual(EXPECTED_COMMITS, len(reviews))
+        self.assertTrue(all(row["current_review_state"] == "REVIEWED" for row in reviews.values()))
+        self.assertEqual(
+            Counter({"FORK_SUPERIOR": 2, "SKIP_OEM": 16, "REJECT_UNSAFE": 56, "NEED_EVIDENCE": 37}),
+            Counter(row["disposition"] for row in reviews.values()),
+        )
+        merge_shas = {row["commit_sha"] for row in self.commits if row["is_merge"]}
+        for sha_value, review in reviews.items():
+            with self.subTest(sha=sha_value):
+                self.assertTrue(review["decision_reason"].strip())
+                self.assertTrue(review["fixed_main_summary"].strip())
+                self.assertTrue(review["proof"])
+                if sha_value in merge_shas:
+                    self.assertIn(review["merge_relationship"], {
+                        "BRANCH_SYNC_ONLY",
+                        "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+                        "SOURCE_DOCS_INTEGRATION_DUPLICATE",
+                    })
+                else:
+                    self.assertEqual("", review["merge_relationship"])
+        review_by_index = {row["local_index"]: reviews[row["commit_sha"]] for row in self.commits}
+        self.assertIn("Geely/Lynk cluster projection", review_by_index[1]["fixed_main_summary"])
+        self.assertEqual("BRANCH_SYNC_ONLY", review_by_index[43]["merge_relationship"])
+        self.assertFalse(review_by_index[43]["merge_source_indexes"])
+        self.assertEqual("SOURCE_FEATURE_INTEGRATION_DUPLICATE", review_by_index[87]["merge_relationship"])
+        self.assertEqual([4], review_by_index[87]["merge_source_indexes"])
+
+    def test_19_review_report_renders_every_commit_and_evidence_link(self) -> None:
+        report = render_review_markdown(self.meta, self.commits, self.overrides)
+        for commit in self.commits:
+            with self.subTest(sha=commit["commit_sha"]):
+                self.assertIn(commit["commit_sha"][:12], report)
+        self.assertIn("source-feature/PR integration duplicate", report)
+        self.assertIn("branch-sync-only", report)
+        decision_rows = [
+            line for line in report.splitlines()
+            if line.startswith("| ") and line[2:].split(" |", 1)[0].isdigit()
+        ]
+        self.assertEqual(EXPECTED_COMMITS, len(decision_rows))
 
 
 if __name__ == "__main__":

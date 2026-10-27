@@ -649,15 +649,16 @@ class DspProfileRuntimeTest {
             assertTrue(runtime.apply(appliedProfile, enabled = false))
             assertEquals(appliedProfile.id, preferences.getString(KEY_SELECTED_PROFILE_ID, null))
 
-            val restoreResult = AtomicReference<Boolean>()
+            val restoreRequest = AtomicReference<DspStudioRestoreRequest?>()
             val restoreComplete = CountDownLatch(1)
-            runtime.restoreCommittedStudioWorkspaceAsync(enabled = true) {
-                restoreResult.set(it)
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(enabled = true) {
+                restoreRequest.set(it)
                 restoreComplete.countDown()
             }
             drainMainLooperUntil(restoreComplete)
 
-            assertEquals(true, restoreResult.get())
+            assertTrue(restoreRequest.get() != null)
+            assertNull(restoreRequest.get()?.rendererOwnerToken)
             assertEquals(committedProfile.id, preferences.getString(KEY_SELECTED_PROFILE_ID, null))
             assertTrue(preferences.getBoolean(KEY_DSP_ENABLED, false))
             assertTrue(runtime.isDspEnabled())
@@ -669,6 +670,79 @@ class DspProfileRuntimeTest {
             assertEquals(committedProfile, recreated.selectedProfile())
             assertTrue(recreated.isDspEnabled())
         } finally {
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
+    fun failedCommittedWorkspaceRestoreKeepsDraftUntilAConfirmedRetry() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.get(context)
+        val profile = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(
+            profileSourceId = profile.id,
+            baseProfileSnapshot = profile,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 90),
+        )
+        val saveResult = AtomicReference<DspWorkspaceSaveResult?>()
+        val saveComplete = CountDownLatch(1)
+
+        try {
+            runtime.saveStudioWorkspaceAsync(committed, enabled = true) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            drainMainLooperUntil(saveComplete)
+            assertEquals(DspWorkspaceSaveResult.SAVED, saveResult.get())
+
+            val session = runtime.createStudioSessionCoordinator()
+            session.edit { it.copy(macros = it.macros.copy(bassImpact = 10)) }
+            val draft = session.preview
+            val previewComplete = CountDownLatch(1)
+            runtime.previewStudioWorkspaceAsync(draft, enabled = true) { previewComplete.countDown() }
+            drainMainLooperUntil(previewComplete)
+
+            val failedOperation = requireNotNull(session.beginCancel())
+            runtime.beforeStudioWorkspaceRestoreForTest = { false }
+            val failedRequest = AtomicReference<DspStudioRestoreRequest?>()
+            val failedComplete = CountDownLatch(1)
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(enabled = true) {
+                failedRequest.set(it)
+                failedComplete.countDown()
+            }
+            drainMainLooperUntil(failedComplete)
+
+            assertNull(failedRequest.get())
+            assertTrue(session.failCancel(failedOperation))
+            assertEquals(draft, session.preview)
+            assertTrue(session.isDirty)
+            assertFalse(runtime.isCommittedStudioWorkspaceActive())
+
+            runtime.beforeStudioWorkspaceRestoreForTest = null
+            val retryOperation = requireNotNull(session.beginCancel())
+            val retryRequest = AtomicReference<DspStudioRestoreRequest?>()
+            val retryComplete = CountDownLatch(1)
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(enabled = true) {
+                retryRequest.set(it)
+                retryComplete.countDown()
+            }
+            drainMainLooperUntil(retryComplete)
+
+            assertTrue(retryRequest.get() != null)
+            assertNull(retryRequest.get()?.rendererOwnerToken)
+            assertTrue(session.commitCancel(retryOperation))
+            assertEquals(committed, session.preview)
+            assertFalse(session.isDirty)
+            assertTrue(runtime.isCommittedStudioWorkspaceActive())
+        } finally {
+            runtime.beforeStudioWorkspaceRestoreForTest = null
             DspProfileRuntime.resetForTesting()
             preferences.edit().clear().commit()
             workspaceFile.delete()

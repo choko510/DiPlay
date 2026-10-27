@@ -680,6 +680,34 @@ class DspStudioPersistenceTest {
         assertEquals(67, coordinator.preview.macros.bassImpact)
     }
 
+    @Test fun failedCancelPreservesDraftAndRetryCommitsOnlyAfterRestore() {
+        val initial = workspace()
+        val coordinator = DspStudioSessionCoordinator(initial, DspStudioWorkspaceRepository(temporaryFolder.root))
+        coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 80)) }
+        val draft = coordinator.preview
+
+        val failedOperation = requireNotNull(coordinator.beginCancel())
+        assertTrue(coordinator.isCancelPending)
+        assertEquals(draft, coordinator.preview)
+        assertNull(coordinator.beginEditTransaction())
+        coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 20)) }
+        assertEquals(draft, coordinator.preview)
+        assertTrue(coordinator.failCancel(failedOperation))
+
+        assertFalse(coordinator.isCancelPending)
+        assertEquals(draft, coordinator.preview)
+        assertTrue(coordinator.isDirty)
+        assertFalse(coordinator.commitCancel(failedOperation))
+
+        val retry = requireNotNull(coordinator.beginCancel())
+        assertTrue(coordinator.commitCancel(retry))
+
+        assertEquals(initial, coordinator.preview)
+        assertEquals(initial, coordinator.compareA())
+        assertFalse(coordinator.isDirty)
+        assertFalse(coordinator.isCancelPending)
+    }
+
     @Test fun commitSavedMovesTheBaselineAndClearsUndoHistory() {
         val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
         coordinator.edit { it.copy(macros = it.macros.copy(bassImpact = 80)) }

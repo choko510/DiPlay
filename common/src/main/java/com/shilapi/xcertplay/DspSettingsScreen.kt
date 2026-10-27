@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -55,6 +56,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.dsp.DspAudioProfile
@@ -76,6 +78,10 @@ import com.shilapi.xcertplay.dsp.DspFactoryPresets
 import com.shilapi.xcertplay.dsp.DspPresetStoreResult
 import com.shilapi.xcertplay.dsp.DspLoudnessCalibrationController
 import com.shilapi.xcertplay.dsp.DspWorkspaceSaveResult
+import com.shilapi.xcertplay.dsp.DspStudioCancelOperation
+import com.shilapi.xcertplay.dsp.DspStudioRestoreRequest
+import com.shilapi.xcertplay.dsp.DspStudioRestoreAcknowledgement
+import com.shilapi.xcertplay.dsp.evaluateStudioRestoreAcknowledgement
 import com.shilapi.xcertplay.dsp.DspSmartLoudnessPane
 import com.shilapi.xcertplay.dsp.DspDynamicBassSettingsPane
 import com.shilapi.xcertplay.dsp.DspEqEditorPane
@@ -264,6 +270,13 @@ internal fun DspSettingsScreen(
     val studioSession = remember(runtime) { runtime.createStudioSessionCoordinator() }
     var studioUiRevision by remember(studioSession) { mutableStateOf(0) }
     var studioOperationPending by remember(studioSession) { mutableStateOf(false) }
+    var studioCancelOperation by remember(studioSession) { mutableStateOf<DspStudioCancelOperation?>(null) }
+    var studioRestoreRequest by remember(studioSession) { mutableStateOf<DspStudioRestoreRequest?>(null) }
+    var studioCancelFailed by remember(studioSession) { mutableStateOf(false) }
+    DisposableEffect(studioSession, studioCancelOperation) {
+        val operation = studioCancelOperation
+        onDispose { if (operation != null) studioSession.failCancel(operation) }
+    }
     var studioFeatureOperationPending by remember(runtime) { mutableStateOf(false) }
     var studioFeatureFlags by remember(runtime) { mutableStateOf(runtime.currentStudioFeatureFlags()) }
     val operationPending = editorSession.pendingOperation != null || studioOperationPending || studioFeatureOperationPending
@@ -272,6 +285,19 @@ internal fun DspSettingsScreen(
     var dspEnabled by remember(editorSession) { editorSession.masterEnabledMutableState }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var compactSection by rememberSaveable { mutableStateOf(DspStudioTab.STUDIO) }
+    val studioScrollState = rememberScrollState()
+    val eqScrollState = rememberScrollState()
+    val spatialScrollState = rememberScrollState()
+    val dynamicsScrollState = rememberScrollState()
+    val advancedScrollState = rememberScrollState()
+    val tabSaveableStateHolder = rememberSaveableStateHolder()
+    val activeTabScrollState = when (compactSection) {
+        DspStudioTab.STUDIO -> studioScrollState
+        DspStudioTab.EQ -> eqScrollState
+        DspStudioTab.SPATIAL -> spatialScrollState
+        DspStudioTab.DYNAMICS -> dynamicsScrollState
+        DspStudioTab.ADVANCED -> advancedScrollState
+    }
     var macroSettings by remember(studioSession) { mutableStateOf(studioSession.preview.macros) }
     var studioEditTransaction by remember(studioSession) { mutableStateOf<DspStudioEditTransaction?>(null) }
     var studioProfileSliderCommitPending by remember(studioSession) { mutableStateOf(false) }
@@ -362,6 +388,82 @@ internal fun DspSettingsScreen(
         dynamicBassSettings = workspace.dynamicBass
         studioUiRevision += 1
     }
+    val finishStudioCancel: (DspStudioCancelOperation, Boolean) -> Unit = { operation, restored ->
+        if (studioCancelOperation == operation) {
+            val finished = if (restored) {
+                studioSession.commitCancel(operation)
+            } else {
+                studioSession.failCancel(operation)
+            }
+            if (finished) {
+                if (restored) {
+                    syncStudioDraftToScreen(studioSession.preview)
+                    editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
+                } else {
+                    studioCancelFailed = true
+                    if (screenActive.get()) {
+                        Toast.makeText(context, R.string.dsp_studio_restore_failed, Toast.LENGTH_LONG).show()
+                    }
+                }
+                studioUiRevision += 1
+                if (leaveAfterRestore) {
+                    leaveAfterRestore = false
+                    if (restored) onBack()
+                }
+            }
+            studioRestoreRequest = null
+            studioCancelOperation = null
+            studioOperationPending = false
+        }
+    }
+    val requestCommittedStudioRestore: () -> Unit = {
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
+        val operation = studioSession.beginCancel()
+        if (operation != null) {
+            studioCancelFailed = false
+            studioCancelOperation = operation
+            studioRestoreRequest = null
+            studioOperationPending = true
+            calibrationController.cancel()
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(dspEnabled) { request ->
+                if (studioCancelOperation == operation) {
+                    if (request == null) finishStudioCancel(operation, false)
+                    else studioRestoreRequest = request
+                }
+            }
+        }
+    }
+    LaunchedEffect(studioCancelOperation, studioRestoreRequest, isVisible) {
+        val operation = studioCancelOperation ?: return@LaunchedEffect
+        val request = studioRestoreRequest ?: return@LaunchedEffect
+        if (request.rendererOwnerToken == null) {
+            finishStudioCancel(operation, true)
+            return@LaunchedEffect
+        }
+        val deadline = System.currentTimeMillis() + STUDIO_RESTORE_ACK_TIMEOUT_MS
+        while (isVisible) {
+            val status = runtime.configProvider.rendererApplyStatus()
+            rendererApplyStatus = status
+            when (evaluateStudioRestoreAcknowledgement(
+                request = request,
+                status = status,
+                committedWorkspaceActive = runtime.isCommittedStudioWorkspaceActive(),
+                timedOut = System.currentTimeMillis() >= deadline,
+            )) {
+                DspStudioRestoreAcknowledgement.APPLIED -> {
+                    finishStudioCancel(operation, true)
+                    return@LaunchedEffect
+                }
+                DspStudioRestoreAcknowledgement.REJECTED -> {
+                    finishStudioCancel(operation, false)
+                    return@LaunchedEffect
+                }
+                DspStudioRestoreAcknowledgement.WAITING -> Unit
+            }
+            delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
+        }
+    }
     val updateStudioFeatureWorkspace: ((DspStudioWorkspace) -> DspStudioWorkspace) -> Unit = { transform ->
         val current = studioSession.preview
         val next = transform(current)
@@ -449,19 +551,7 @@ internal fun DspSettingsScreen(
         updateStudioFeatureFlags(studioFeatureFlags.disableEnhancedDsp())
     }
     val restoreSavedStudioProfile: () -> Unit = {
-        studioOperationPending = true
-        studioSession.cancelPreview()
-        studioEditTransaction = null
-        syncStudioDraftToScreen(studioSession.preview)
-        calibrationController.cancel()
-        runtime.restoreCommittedStudioWorkspaceAsync(dspEnabled) { restored ->
-            studioOperationPending = false
-            editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
-            studioUiRevision += 1
-            if (!restored && screenActive.get()) {
-                Toast.makeText(context, R.string.dsp_studio_restore_failed, Toast.LENGTH_LONG).show()
-            }
-        }
+        requestCommittedStudioRestore()
     }
     val previewStudioWorkspace: (DspStudioWorkspace) -> Unit = { workspace ->
         studioOperationPending = true
@@ -588,24 +678,7 @@ internal fun DspSettingsScreen(
         }
     }
     val cancelStudioChanges: () -> Unit = {
-        studioEditTransaction?.let(studioSession::commitEditTransaction)
-        studioEditTransaction = null
-        studioOperationPending = true
-        calibrationController.cancel()
-        studioSession.cancelPreview()
-        syncStudioDraftToScreen(studioSession.preview)
-        runtime.restoreCommittedStudioWorkspaceAsync(dspEnabled) { restored ->
-            studioOperationPending = false
-            editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
-            studioUiRevision += 1
-            if (!restored && screenActive.get()) {
-                Toast.makeText(context, R.string.dsp_studio_restore_failed, Toast.LENGTH_LONG).show()
-            }
-            if (leaveAfterRestore) {
-                leaveAfterRestore = false
-                if (restored) onBack()
-            }
-        }
+        requestCommittedStudioRestore()
     }
     val undoStudioChange: () -> Unit = {
         studioEditTransaction?.let(studioSession::commitEditTransaction)
@@ -780,7 +853,8 @@ internal fun DspSettingsScreen(
             modifier = compactBodyConstraint
                 .fillMaxSize()
                 .padding(insetPadding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(activeTabScrollState)
+                .testTag("dsp-tab-scroll-pane")
                 .padding(horizontal = if (compact) 8.dp else 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -980,6 +1054,9 @@ internal fun DspSettingsScreen(
                         }) { Text(stringResource(R.string.dsp_preview)) }
                         Button(enabled = !operationPending, onClick = saveStudioWorkspace) { Text(stringResource(R.string.dsp_save)) }
                         OutlinedButton(enabled = !operationPending, onClick = cancelStudioChanges) { Text(stringResource(R.string.dsp_cancel_preview)) }
+                    }
+                    if (studioCancelFailed) {
+                        Text(stringResource(R.string.dsp_studio_cancel_restore_retry), style = MaterialTheme.typography.bodySmall)
                     }
                     Text(stringResource(R.string.dsp_studio_macro_independent_hint), style = MaterialTheme.typography.bodySmall)
                 } else {
@@ -1574,18 +1651,20 @@ internal fun DspSettingsScreen(
                         enabled = dynamicBassSettings.enabled && studioFeatureFlags.dynamicBassEnabled,
                     ),
                 )
-                DspEqEditorPane(
-                    profile = profile,
-                    onProfileChange = updateStudioProfile,
-                    onEditBandType = { bandTypeDialog = it },
-                    sampleRateHz = playbackSampleRateHz,
-                    modifier = Modifier.fillMaxWidth(),
-                    onEditFinished = finishStudioFeatureEdit,
-                    macroTone = tuning.runtimeConfig.macroTone,
-                    smartLoudness = tuning.runtimeConfig.smartLoudness,
-                    dynamicBassEnabled = tuning.runtimeConfig.dynamicBass.enabled,
-                    predictedPreampDb = tuning.runtimeConfig.gainDb,
-                )
+                tabSaveableStateHolder.SaveableStateProvider(DspStudioTab.EQ) {
+                    DspEqEditorPane(
+                        profile = profile,
+                        onProfileChange = updateStudioProfile,
+                        onEditBandType = { bandTypeDialog = it },
+                        sampleRateHz = playbackSampleRateHz,
+                        modifier = Modifier.fillMaxWidth(),
+                        onEditFinished = finishStudioFeatureEdit,
+                        macroTone = tuning.runtimeConfig.macroTone,
+                        smartLoudness = tuning.runtimeConfig.smartLoudness,
+                        dynamicBassEnabled = tuning.runtimeConfig.dynamicBass.enabled,
+                        predictedPreampDb = tuning.runtimeConfig.gainDb,
+                    )
+                }
             }
 
             if (showDynamics || showAdvanced) {
@@ -2083,3 +2162,4 @@ private fun showProfileSaveResult(context: Context, result: DspProfileSaveResult
 
 private const val CUSTOM_PROFILE_1 = "custom1"
 private const val CUSTOM_PROFILE_2 = "custom2"
+private const val STUDIO_RESTORE_ACK_TIMEOUT_MS = 10_000L

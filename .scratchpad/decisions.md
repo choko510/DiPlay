@@ -767,3 +767,5 @@ Smart Loudness headroom must bound the transient response of `sample - lowpass(s
 # Preamp HOT uses its own fenced command path
 
 Keep the preamp-only HOT payload and single-slot mailbox separate from the existing Macro/Loudness/Dynamic Bass payload. Require Auto Headroom, at least 6 dB of applied preamp reserve, and a current MEDIA owner/format tuple; ramp native linear gain over 20 ms and ACK only after the ramp finishes. On rebind, cancel an active ramp at its last-good value.
+
+REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

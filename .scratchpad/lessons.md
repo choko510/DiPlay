@@ -529,6 +529,8 @@ When initial hardware state and an asynchronous change listener can race, serial
 
 For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()` cannot be overridden. Capture the exact specs at the existing pane's `measureChildWithMargins` call, pass those specs to `child.measure()`, and record the child result afterward; do not report a reconstructed probe value or a parent's pre-measure size.
 
+For decoder retirement, a throwing `MediaCodec.release()` does not prove the old Surface is safe to reuse. Retain the old decoder/Surface owner and deny replacement until a later release retry succeeds; inject the release boundary with a callback that delegates directly to `codec.release()` by default so the ownership failure path is deterministic in Robolectric.
+
 For repeated UI diagnostics, a string-based dedupe API still allocates the candidate string before it can reject a duplicate. Compare primitive signature fields first, then allocate the retained signature and formatted log only when the value is new.
 
 For microphone zero-read coverage, inject a scripted initialized `AudioRecord` through the existing Builder shadow and exercise the real capture worker plus a loopback UDP receiver. Hold the recorder before its first positive frame so a timeout proves zero reads never synthesize or transmit silence; then assert exactly one packet follows the positive frame.
@@ -571,3 +573,7 @@ For a receive-path performance comparison, warm each mode, interleave the measur
 Treat performance instrumentation as a distribution gate: retain both passing and failing runs at the exact SHA, do not average away a p99 breach, and do not claim a Draft workflow passed jobs it skipped. On macOS, run Android tests directly when the helper's GNU `timeout` dependency is unavailable, then capture the required filtered logcat separately.
 
 2026-10-27 B09: an API 35 Shared p99 failure can be followed by a full 19/19 pass on the same code/test head without source changes. Preserve both; a repeat establishes the current run result, not the cause or stability of the earlier outlier.
+
+2026-10-27 B09: verify CI report artifacts by opening the uploaded ZIP and checking that expected JUnit XML files and suite counts are present; a passing job alone does not prove reports needed to diagnose future failures were retained. Run #490 confirmed 865 unit-test and 20 connected-instrumentation results were archived.
+
+2026-10-27 B09: a median-of-three p99 gate can pass while individual runs exceed the ceiling. Preserve all per-run samples and report both the gate statistic and largest tail; do not treat a green instrumentation job as proof that every measured run stayed under budget.

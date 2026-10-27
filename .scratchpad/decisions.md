@@ -658,7 +658,7 @@ Declare `CarPlayVpnService` as a protected exported VpnService for Android's sys
 
 Treat an apparent consecutive NTH16 pair inside the unprotected tail of any declared block length as ambiguous and fail closed; never resynchronize into that tail. For a complete but incomplete-length NTB, fail the bridge after 30 seconds without new bytes while resetting the timer on progress.
 
-Keep TextureView SurfaceTexture ownership until each MAIN/ALT decoder worker acknowledges its surface transition. Release only after all owners acknowledge; if MediaCodec release fails, retain the old surface and prevent decoder replacement until safe release. Do not wait for a retiring decoder on the screen receive path.
+Keep TextureView SurfaceTexture ownership until each MAIN/ALT decoder worker acknowledges its surface transition. Release only after all owners acknowledge; if MediaCodec release fails, retain the old surface and prevent decoder replacement until safe release. Do not wait for a retiring decoder on the screen receive path. VIDEO-02 injects a release exception and verifies retention/replacement blocking before retrying cleanup.
 
 Keep video control/recovery work bounded and coalesce superseded surface/config jobs while carrying every surface-retirement callback forward. Scope one in-flight keyframe recovery request per stream type and bound the executor to two workers plus 16 queued jobs.
 
@@ -712,7 +712,13 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-27 B09/B11: keep the 21.332 ms API 35 p99 limit unchanged after local reruns fail; a passing first run does not erase later failed evidence. Keep additional StartSession sends and all other conditional features off without the specified device reproduction and A/B proof.
 
-2026-10-27 B09 follow-up: the exact-head focused 48 kHz stereo case and full API 35 Shared suite subsequently passed 19/19 below the unchanged budget. Keep the earlier p99 failure/crash as separate evidence; the transient cause is unknown. The full hosted lane remains skipped under Draft scope, so B09 stays partial.
+2026-10-27 B09 follow-up: the focused 48 kHz stereo case and full API 35 Shared suite subsequently passed 19/19 below the unchanged budget. At that point the full hosted lane was still skipped under Draft scope, so B09 remained partial. Later workflow-sensitive run #486 passed the full host and API 35 gates; retain the earlier p99 failure/crash and passing repeats separately because the transient cause is unknown.
+
+2026-10-27 B09 distribution: the current acceptance check uses the median of three per-configuration p99 samples. Run #490's API 35 x86_64 artifact and a local API 35 arm64-v8a repeat passed that gate, yet single-run p99s reached 41.636 ms and 84.009 ms respectively; the local maximum median was 20.020 ms against the unchanged 21.332 ms ceiling. Report the per-run distribution alongside the CI result and do not relax the ceiling or infer that the tails are harmless.
+
+## Retain Gradle test result XML in CI artifacts
+
+2026-10-27 B09: upload unit-test XML and connected AndroidTest XML/HTML with `if: always()` so a failed test remains diagnosable from the run artifact. Run #490 verified that the configured paths produce 865 unit-test and 20 instrumentation-test results; artifact retention itself does not change test scope or release status.
 
 2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
 

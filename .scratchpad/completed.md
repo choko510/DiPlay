@@ -1,26 +1,24 @@
 # Completed — dated history
 
-> 196 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
+> 221 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
 ## 2026-10-27
 
+- PR #45 B09 verification: workflow-sensitive run #490 passed host/native/sanitizer/unit/lint/build/JNI/R8 and API 35 instrumentation. Retained CI XML confirms 659 Shared + 206 Common unit tests and 19 Shared + 1 Common instrumentation tests, all without failures, errors, or skips.
+- API 35 DSP distribution repeat passed Shared instrumentation 19/19; all median-of-three p99 gates stayed under the unchanged ceiling, while single-run tails exceeded it in both CI and local emulator samples and remain unresolved.
+- Completed B08 timing evidence and B10/B11/B12 result packages; API 35 Shared instrumentation later passed 19/19 while the earlier p99 failure remains recorded. Release stays `NO_GO_THIS_RUN` pending hardware, signing, and review gates.
+- Added the F-05 eight-prior-port classifier regression and testable fail-closed Android CI classification; local shared/common suites pass 864/864 and EX-08 fixtures pass 19/19. Run #481 passed full workflow-sensitive host/API 35 checks, and docs-only run #482 validated the published result package while PR #45 remained Draft.
+- Added VIDEO-02 MediaCodec release-failure injection: a failed release retains the decoder/Surface owner and blocks replacement until safe cleanup. Local shared/common tests pass 865/865; workflow-sensitive run #486 passed host/native/sanitizer/lint/build/JNI/R8 and API 35 Shared 19/19 + Common 1/1. F8 and DSP Split diagnostics/layout corrections are present; target-device, signing, and independent-review gates remain open.
 - Added persisted-workspace restoration coverage for runtime reconstruction and preview discard in PR #52; Common unit tests passed 272/272 and hosted run #487 passed at `6439a5b9`. Process-death/Activity E2E remains open.
-
-- Fixed the PR #52 module A/B screen regressions: preview no longer overwrites the editor draft, and deleting the selected preset during A/B restores the renderer to Draft. API 35 `DspSettingsScreenTest` passed 4/4; hosted run #484 passed host, Native/ASan/UBSan, Android instrumentation, unit/lint/build/R8, and host-baseline jobs on `ce3c87d7`. Manual-dispatch-only skips remain explicit; PR #52 stays open and hardware/per-ID evidence remains incomplete.
+- Fixed PR #52 module A/B preview regressions: preview no longer overwrites the editor draft, and deleting the selected preset during A/B restores the renderer to Draft. API 35 `DspSettingsScreenTest` passed 4/4; hosted run #484 passed on `ce3c87d7`. Hardware and per-ID evidence remain incomplete.
 
 ## 2026-10-26
 
-- Merged PR #63 into PR #52 at head 8660c613. Final child head c56cba9 passed hosted run #468; independent review closed both P2 findings. Recorded the earlier FullHeavyChain p99 threshold miss and same-commit retry pass without changing the threshold. PR #52 remains open.
-
-- Replaced the DSP Studio four-item navigation with horizontally reachable Studio/EQ/Spatial/Dynamics/Advanced tabs, reassigned existing controls by domain, and extended the UI contract and screen tests. Common unit contract (4/4), production Kotlin compilation, Android-test Kotlin compilation, and `git diff --check` pass; connected instrumentation and physical host acceptance are `NOT_RUN` without a device.
-- Fixed CR-007 on the PR #52 child branch by feeding Dynamic Bass a sanitized raw-input detector tap while retaining its existing output-stage position. Native graph test, native DSP suite, and ASan/UBSan passed; LeakSanitizer is unsupported on this host.
-- Added isolated DSP Studio workspace schema-v1, module/macro preset persistence, and draft/preview/commit session coordination. Kotlin compilation passed; focused Robolectric tests were blocked by `No space left on device` while initializing the native runtime.
-- Completed the DSP Studio source and review evidence on `codex/dsp-studio-final`. The 860 Shared/Common unit tests, Native suite and sanitizers, and static checks pass; connected instrumentation and TS10/K706 hardware gates remain blocked or not run.
-
-## 2026-10-27
-
-- Completed B08 timing evidence and B10/B11/B12 result packages; API 35 Shared instrumentation later passed 19/19 while the earlier p99 failure remains recorded. Release stays `NO_GO_THIS_RUN` pending hardware, signing, and review gates.
-- Added the F-05 eight-prior-port classifier regression and testable fail-closed Android CI classification; local shared/common suites pass 864/864 and EX-08 fixtures pass 19/19. Run #481 passed full workflow-sensitive host/API 35 checks, and docs-only run #482 validated the published result package while PR #45 remained Draft.
+- Merged PR #63 into PR #52 at head 8660c613; hosted run #468 passed and independent review closed two P2 findings. The earlier FullHeavyChain p99 miss and same-commit retry pass were both retained without changing the threshold.
+- Replaced the DSP Studio four-item navigation with Studio/EQ/Spatial/Dynamics/Advanced tabs, moved controls by domain, and extended UI contract tests. Kotlin compile and `git diff --check` passed; connected instrumentation and physical host acceptance remained `NOT_RUN`.
+- Fixed CR-007 by adding a sanitized raw-input Dynamic Bass detector tap while retaining the existing output-stage position. Native graph tests, Native suite, and ASan/UBSan passed; LeakSanitizer was unsupported on macOS.
+- Added isolated schema-v1 workspace/module-preset persistence and draft/preview/commit coordination. Focused Robolectric setup was blocked by `No space left on device`.
+- Recorded PR #52 source/review evidence at that time: Shared/Common tests, Native, sanitizers, and static checks passed; connected instrumentation and TS10/K706 hardware gates remained not run.
 
 ## 2026-10-23
 
@@ -261,10 +259,6 @@
 - 2026-10-26: PR run #391 passed the Draft unit tests and Draft scope after the queue and DSP retirement test fixes; full host, JNI and instrumentation gates remain skipped for this draft.
 - 2026-10-26: Implemented eighth-review fixes in PR #45: recover wired startup on a post-SETUP/pre-RECORD control disconnect, bound RTSP headers/bodies and simultaneous control sessions, replace repeated buffer concatenation with incremental RTSP/encrypted-frame decoding, quiet duplicate DSP measurement logs, correct Scaffold inset/scroll order, and capture the exact MeasureSpecs passed to ComposeView from the existing pane. Shared 625/625 and common 193/193 unit tests pass; target-device and hosted CI checks remain open.
 - 2026-10-26: Fixed PR run #394's decoder-retirement test failure by making its stop gate survive the expected worker shutdown interrupt and widening the completion wait. The focused test and full shared/common local unit suites pass; PR run #395 passed Draft unit tests and scope.
-- 2026-10-26: Added the Smart Loudness volume-source/calibration controller and reusable settings pane on `codex/dsp-studio-smart-loudness`; focused source/resolver tests pass (11 tests). Android stream correlation remains hardware-unverified.
-- 2026-10-26: Connected playback `AudioTrack` route changes and Android music-stream volume events to the shared DSP runtime, with route-hashed identity and AUTO kept unavailable pending verified OEM correlation. Full shared/common unit suites and `:common:assembleDebug` pass; hardware route calibration remains NOT_RUN.
-- 2026-10-26: Added Compose instrumentation for production EQ graph drag mapping and HIGH_PASS gain preservation on PR #62. Android-test Kotlin compilation and focused EQ pane unit tests pass; API 36.1 connected execution fails in Espresso initialization before gesture injection (`InputManager.getInstance` missing).
-- 2026-10-26: Fixed PR #62 EQ graph drag hit testing by choosing the band from the initial down point before touch slop; the focused graph instrumentation passes 3/3 on API 35, Android-test Kotlin compilation and focused pane unit tests pass, and `git diff --check` passes.
 - 2026-10-26: B00 fixed the PR #45 current-head evidence boundary, classifier fixture status, C-00 user-confirmed status, and the immutable SHA-256/Git-blob baseline for the 1,289-row EX-08 ledger; added the evidence schema and remaining-gate register.
 - 2026-10-26: B01 added and validated the fixed 111-commit EX-08 metadata/patch overlay without importing upstream code; all new rows remain `NEED_EVIDENCE`.
 - 2026-10-26: B02 added NCM NDP-cycle, 16-bit sequence-wrap, 10,000 one-byte completion, and USB cancel-failure teardown regressions; refined DSP measurement logging to compare primitive signatures and cap emissions at 64 per process. Full common/shared suites passed 825/825, focused classes passed 42/42 and 3/3, and hosted run #450 passed the Draft unit lane. Physical-device gates remain open.

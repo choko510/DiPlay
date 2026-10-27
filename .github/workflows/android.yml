@@ -305,6 +305,8 @@ jobs:
           path: |
             shared/build/reports/tests/
             common/build/reports/tests/
+            shared/build/test-results/testDebugUnitTest/*.xml
+            common/build/test-results/testDebugUnitTest/*.xml
             mobile/build/reports/lint-results-debug.html
             automotive/build/reports/lint-results-debug.html
 
@@ -383,6 +385,10 @@ jobs:
         with:
           name: test-reports-${{ github.job }}
           path: |
+            shared/build/outputs/androidTest-results/connected/debug/*.xml
+            common/build/outputs/androidTest-results/connected/debug/*.xml
+            shared/build/reports/androidTests/connected/debug/
+            common/build/reports/androidTests/connected/debug/
             shared/build/reports/tests/
             shared/build/outputs/dsp-benchmark/
 

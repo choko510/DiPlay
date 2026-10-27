@@ -15,6 +15,7 @@ is_ci_workflow_sensitive_path() {
         scripts/run_android_instrumentation.sh|scripts/test_dsp_native.sh|scripts/check_jni_mapping.py|\
         scripts/check_public_tree.py|scripts/check_android_instrumentation_evidence.sh|\
         scripts/test_android_instrumentation_evidence.sh|\
+        shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt|\
         shared/src/androidTest/java/com/shilapi/xcertplay/media/dsp/DspPipelineBenchmarkInstrumentedTest.kt)
             return 0
             ;;

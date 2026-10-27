@@ -8,13 +8,13 @@
 
 ## State
 
-- Workflow-sensitive run #490 passed the full host, sanitizer, unit/build, JNI/R8 and API 35 lanes on PR #45 before the latest test-only timing diagnostic. Its reports confirm 865 unit tests and 20 API 35 instrumentation tests passed.
-- Added per-block thread-CPU p99 beside wall p99 in the DSP instrumentation benchmark. Local API 35 arm64 runs still fail benchmark wall-p99 assertions; the latest focused class reports 10.9–18.06 ms thread-CPU p99 while wall p99 is 27.5–147.6 ms. The 21.332/23.218 ms wall ceilings remain unchanged; this points to timing gaps but does not establish their cause or target-device behavior. Current test-code CI is pending.
+- Workflow-sensitive run #495 passed the full host, sanitizer, unit/build, JNI/R8 and API 35 lanes on code/test HEAD `6392b56f`; its artifacts confirm 865 unit tests and 20 API 35 instrumentation tests passed. All 56 x86_64 median wall-p99 gates passed (max median 15.440 ms, max single-run p99 17.720 ms, max thread-CPU p99 4.760 ms).
+- Added per-block thread-CPU p99 beside wall p99 in the DSP instrumentation benchmark. The focused local API 35 arm64 class fails four wall-p99 assertions; matching thread-CPU p99 medians are 10.9–18.06 ms while wall p99 is 27.5–147.6 ms. The 21.332/23.218 ms wall ceilings remain unchanged; this points to time outside the measuring thread but does not establish its cause or target-device behavior.
 - Preserve run #490's 41.636 ms single-run tail, local prior 84.009 ms tail, and the earlier failed p99 run. Local macOS LeakSanitizer is unavailable; hosted Linux sanitizer passed.
 - Software implementation and its regression coverage are recorded in `completed.md` and the Step4 result package.
 - TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
 
 ## Next
 
-1. Run the workflow-sensitive host/API 35 gate for the new test-only timing metric, then update B09 with its artifact and CI result.
+1. Commit and push the updated B09/B12 evidence record; inspect its docs-only CI result without treating skipped runtime jobs as new runtime evidence.
 2. Keep PR #45 Draft and G8 `NO_GO_THIS_RUN`; device acceptance and signed update still require TS10/K706+iPhone hardware and authorized signing credentials.

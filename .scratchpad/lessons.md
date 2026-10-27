@@ -554,3 +554,5 @@ Treat performance instrumentation as a distribution gate: retain both passing an
 2026-10-27 B09: a median-of-three p99 gate can pass while individual runs exceed the ceiling. Preserve all per-run samples and report both the gate statistic and largest tail; do not treat a green instrumentation job as proof that every measured run stayed under budget.
 
 2026-10-27 B09: when API 35 wall p99 exceeds budget, compare per-block `Debug.threadCpuTimeNanos()` p99 with wall p99. A lower thread CPU p99 indicates time spent outside the measuring thread, but it does not establish real-device playback safety or excuse a wall-deadline breach.
+
+2026-10-27 B09: preserve benchmark results by ABI and exact run. A passing x86_64 CI median does not override a failing arm64 emulator wall-p99 assertion; thread-CPU measurements help characterize the gap but do not identify its cause.

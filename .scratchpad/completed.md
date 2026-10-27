@@ -1,9 +1,10 @@
 # Completed — dated history
 
-> 214 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
+> 215 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
 ## 2026-10-27
 
+- Added test-only per-block thread-CPU p99 diagnostics. Run #495 passed the full current-code/test CI lane and all 56 x86_64 median wall-p99 gates; the focused local arm64 class still fails four wall-p99 assertions, so G4 remains partial and hardware evidence remains open.
 - PR #45 B09 verification: workflow-sensitive run #490 passed host/native/sanitizer/unit/lint/build/JNI/R8 and API 35 instrumentation. Retained CI XML confirms 659 Shared + 206 Common unit tests and 19 Shared + 1 Common instrumentation tests, all without failures, errors, or skips.
 - API 35 DSP distribution repeat passed Shared instrumentation 19/19; all median-of-three p99 gates stayed under the unchanged ceiling, while single-run tails exceeded it in both CI and local emulator samples and remain unresolved.
 - Completed B08 timing evidence and B10/B11/B12 result packages; API 35 Shared instrumentation later passed 19/19 while the earlier p99 failure remains recorded. Release stays `NO_GO_THIS_RUN` pending hardware, signing, and review gates.

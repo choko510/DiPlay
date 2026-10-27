@@ -514,6 +514,11 @@ internal fun DspStudioWorkspace.deepCopy(): DspStudioWorkspace = copy(
 
 internal class DspStudioEditTransaction internal constructor(val id: Long)
 
+internal class DspStudioCancelOperation internal constructor(
+    val id: Long,
+    val editEpoch: Long,
+)
+
 internal data class DspStudioComparisonSnapshot(
     val scopeKey: String,
     val a: DspStudioWorkspace,
@@ -536,7 +541,9 @@ internal class DspStudioSessionCoordinator(
     private val redo = mutableListOf<DspStudioWorkspace>()
     private var generation = 0L
     private var nextTransactionId = 0L
+    private var nextCancelOperationId = 0L
     private var activeTransaction: ActiveTransaction? = null
+    private var activeCancelOperation: DspStudioCancelOperation? = null
     private var comparisonSnapshot: DspStudioComparisonSnapshot? = null
 
     var comparisonSide: DspStudioComparisonSide = DspStudioComparisonSide.DRAFT
@@ -549,9 +556,10 @@ internal class DspStudioSessionCoordinator(
 
     val canUndo: Boolean get() = undo.isNotEmpty()
     val canRedo: Boolean get() = redo.isNotEmpty()
+    val isCancelPending: Boolean get() = activeCancelOperation != null
 
     @Synchronized fun beginEditTransaction(): DspStudioEditTransaction? {
-        if (activeTransaction != null) return null
+        if (activeTransaction != null || activeCancelOperation != null) return null
         nextTransactionId += 1
         val transaction = DspStudioEditTransaction(nextTransactionId)
         activeTransaction = ActiveTransaction(transaction, draft.deepCopy())
@@ -559,6 +567,7 @@ internal class DspStudioSessionCoordinator(
     }
 
     @Synchronized fun edit(transform: (DspStudioWorkspace) -> DspStudioWorkspace): Long {
+        if (activeCancelOperation != null) return generation
         finishActiveTransaction()
         return updateDraft(transform, recordUndo = true)
     }
@@ -567,7 +576,7 @@ internal class DspStudioSessionCoordinator(
         transaction: DspStudioEditTransaction,
         transform: (DspStudioWorkspace) -> DspStudioWorkspace,
     ): Long? {
-        if (activeTransaction?.token != transaction) return null
+        if (activeCancelOperation != null || activeTransaction?.token != transaction) return null
         return updateDraft(transform, recordUndo = false)
     }
 
@@ -593,6 +602,7 @@ internal class DspStudioSessionCoordinator(
     }
 
     @Synchronized fun undo(): Boolean {
+        if (activeCancelOperation != null) return false
         finishActiveTransaction()
         if (undo.isEmpty()) return false
         resetComparison()
@@ -604,6 +614,7 @@ internal class DspStudioSessionCoordinator(
     }
 
     @Synchronized fun redo(): Boolean {
+        if (activeCancelOperation != null) return false
         finishActiveTransaction()
         if (redo.isEmpty()) return false
         resetComparison()
@@ -615,6 +626,24 @@ internal class DspStudioSessionCoordinator(
     }
 
     @Synchronized fun cancelPreview(): Long {
+        val operation = beginCancel() ?: return generation
+        commitCancel(operation)
+        return generation
+    }
+
+    @Synchronized fun beginCancel(): DspStudioCancelOperation? {
+        if (activeCancelOperation != null) return null
+        finishActiveTransaction()
+        generation++
+        nextCancelOperationId++
+        return DspStudioCancelOperation(nextCancelOperationId, generation).also {
+            activeCancelOperation = it
+        }
+    }
+
+    @Synchronized fun commitCancel(operation: DspStudioCancelOperation): Boolean {
+        if (activeCancelOperation != operation) return false
+        activeCancelOperation = null
         resetComparison()
         activeTransaction = null
         draft = committed.deepCopy()
@@ -622,7 +651,13 @@ internal class DspStudioSessionCoordinator(
         redo.clear()
         updatePreviewAndDirty()
         generation++
-        return generation
+        return true
+    }
+
+    @Synchronized fun failCancel(operation: DspStudioCancelOperation): Boolean {
+        if (activeCancelOperation != operation) return false
+        activeCancelOperation = null
+        return true
     }
 
     @Synchronized fun compareA(): DspStudioWorkspace = committed.deepCopy()
@@ -646,12 +681,13 @@ internal class DspStudioSessionCoordinator(
     }
 
     @Synchronized fun beginModuleComparison(moduleKey: String): DspStudioComparisonSnapshot? =
-        compareModule(moduleKey)?.also { snapshot ->
+        if (activeCancelOperation != null) null else compareModule(moduleKey)?.also { snapshot ->
             comparisonSnapshot = snapshot
             comparisonSide = DspStudioComparisonSide.DRAFT
         }
 
     @Synchronized fun selectComparisonSide(side: DspStudioComparisonSide): DspStudioWorkspace? {
+        if (activeCancelOperation != null) return null
         if (side == DspStudioComparisonSide.DRAFT) {
             resetComparison()
             return draft.deepCopy()
@@ -671,6 +707,7 @@ internal class DspStudioSessionCoordinator(
     }
 
     @Synchronized fun clearSelectedPresetReference(moduleKey: String, presetId: String): Boolean {
+        if (activeCancelOperation != null) return false
         resetComparison()
         fun clear(workspace: DspStudioWorkspace): DspStudioWorkspace =
             if (workspace.selectedModulePresetIds[moduleKey] == presetId) {
@@ -698,6 +735,7 @@ internal class DspStudioSessionCoordinator(
     }
 
     @Synchronized fun save(): DspWorkspaceSaveResult {
+        if (activeCancelOperation != null) return DspWorkspaceSaveResult.STALE
         finishActiveTransaction()
         val result = repository.save(draft)
         if (result == DspWorkspaceSaveResult.SAVED) {
@@ -711,6 +749,7 @@ internal class DspStudioSessionCoordinator(
     }
 
     @Synchronized fun commitSaved(workspace: DspStudioWorkspace) {
+        if (activeCancelOperation != null) return
         resetComparison()
         finishActiveTransaction()
         committed = workspace.deepCopy()

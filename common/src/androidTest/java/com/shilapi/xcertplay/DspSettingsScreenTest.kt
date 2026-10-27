@@ -25,6 +25,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.shilapi.xcertplay.dsp.DspFactoryPresets
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
+import com.shilapi.xcertplay.dsp.DspStudioRestoreRequest
 import com.shilapi.xcertplay.dsp.DspPresetStoreResult
 import com.shilapi.xcertplay.dsp.DspRuntimeConfigStore
 import com.shilapi.xcertplay.dsp.DspStudioComparisonSide
@@ -504,10 +505,10 @@ class DspSettingsScreenTest {
     }
 
     private fun restoreCommittedWorkspace(runtime: DspProfileRuntime) {
-        val result = AtomicReference<Boolean?>()
-        runtime.restoreCommittedStudioWorkspaceAsync(runtime.isDspEnabled()) { result.set(it) }
-        composeRule.waitUntil(timeoutMillis = 5_000) { result.get() != null }
-        assertTrue("committed DSP Studio workspace must restore", result.get() == true)
+        val request = AtomicReference<DspStudioRestoreRequest?>()
+        runtime.requestCommittedStudioWorkspaceRestoreAsync(runtime.isDspEnabled()) { request.set(it) }
+        composeRule.waitUntil(timeoutMillis = 5_000) { request.get() != null }
+        assertTrue("screen test has no active renderer owner", request.get()?.rendererOwnerToken == null)
     }
 
     private companion object {

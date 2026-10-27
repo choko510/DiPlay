@@ -76,6 +76,8 @@ import com.shilapi.xcertplay.dsp.DspFactoryPresets
 import com.shilapi.xcertplay.dsp.DspPresetStoreResult
 import com.shilapi.xcertplay.dsp.DspLoudnessCalibrationController
 import com.shilapi.xcertplay.dsp.DspWorkspaceSaveResult
+import com.shilapi.xcertplay.dsp.DspStudioCancelOperation
+import com.shilapi.xcertplay.dsp.DspStudioRestoreRequest
 import com.shilapi.xcertplay.dsp.DspSmartLoudnessPane
 import com.shilapi.xcertplay.dsp.DspDynamicBassSettingsPane
 import com.shilapi.xcertplay.dsp.DspEqEditorPane
@@ -264,6 +266,13 @@ internal fun DspSettingsScreen(
     val studioSession = remember(runtime) { runtime.createStudioSessionCoordinator() }
     var studioUiRevision by remember(studioSession) { mutableStateOf(0) }
     var studioOperationPending by remember(studioSession) { mutableStateOf(false) }
+    var studioCancelOperation by remember(studioSession) { mutableStateOf<DspStudioCancelOperation?>(null) }
+    var studioRestoreRequest by remember(studioSession) { mutableStateOf<DspStudioRestoreRequest?>(null) }
+    var studioCancelFailed by remember(studioSession) { mutableStateOf(false) }
+    DisposableEffect(studioSession, studioCancelOperation) {
+        val operation = studioCancelOperation
+        onDispose { if (operation != null) studioSession.failCancel(operation) }
+    }
     var studioFeatureOperationPending by remember(runtime) { mutableStateOf(false) }
     var studioFeatureFlags by remember(runtime) { mutableStateOf(runtime.currentStudioFeatureFlags()) }
     val operationPending = editorSession.pendingOperation != null || studioOperationPending || studioFeatureOperationPending
@@ -362,6 +371,85 @@ internal fun DspSettingsScreen(
         dynamicBassSettings = workspace.dynamicBass
         studioUiRevision += 1
     }
+    val finishStudioCancel: (DspStudioCancelOperation, Boolean) -> Unit = { operation, restored ->
+        if (studioCancelOperation == operation) {
+            val finished = if (restored) {
+                studioSession.commitCancel(operation)
+            } else {
+                studioSession.failCancel(operation)
+            }
+            if (finished) {
+                if (restored) {
+                    syncStudioDraftToScreen(studioSession.preview)
+                    editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
+                } else {
+                    studioCancelFailed = true
+                    if (screenActive.get()) {
+                        Toast.makeText(context, R.string.dsp_studio_restore_failed, Toast.LENGTH_LONG).show()
+                    }
+                }
+                studioUiRevision += 1
+                if (leaveAfterRestore) {
+                    leaveAfterRestore = false
+                    if (restored) onBack()
+                }
+            }
+            studioRestoreRequest = null
+            studioCancelOperation = null
+            studioOperationPending = false
+        }
+    }
+    val requestCommittedStudioRestore: () -> Unit = {
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
+        val operation = studioSession.beginCancel()
+        if (operation != null) {
+            studioCancelFailed = false
+            studioCancelOperation = operation
+            studioRestoreRequest = null
+            studioOperationPending = true
+            calibrationController.cancel()
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(dspEnabled) { request ->
+                if (studioCancelOperation == operation) {
+                    if (request == null) finishStudioCancel(operation, false)
+                    else studioRestoreRequest = request
+                }
+            }
+        }
+    }
+    LaunchedEffect(studioCancelOperation, studioRestoreRequest, isVisible) {
+        val operation = studioCancelOperation ?: return@LaunchedEffect
+        val request = studioRestoreRequest ?: return@LaunchedEffect
+        if (request.rendererOwnerToken == null) {
+            finishStudioCancel(operation, true)
+            return@LaunchedEffect
+        }
+        val deadline = System.currentTimeMillis() + STUDIO_RESTORE_ACK_TIMEOUT_MS
+        while (isVisible) {
+            val status = runtime.configProvider.rendererApplyStatus()
+            rendererApplyStatus = status
+            if (status == null || status.rendererOwnerToken == null) {
+                finishStudioCancel(operation, true)
+                return@LaunchedEffect
+            }
+            if (status.generation >= request.configGeneration &&
+                status.phase == DspRendererApplyPhase.ACTIVE &&
+                (status.activeGeneration ?: status.generation) >= request.configGeneration &&
+                runtime.isCommittedStudioWorkspaceActive()
+            ) {
+                finishStudioCancel(operation, true)
+                return@LaunchedEffect
+            }
+            if ((status.generation >= request.configGeneration &&
+                    status.phase in setOf(DspRendererApplyPhase.DEFERRED, DspRendererApplyPhase.FAILED)) ||
+                status.generation > request.configGeneration || System.currentTimeMillis() >= deadline
+            ) {
+                finishStudioCancel(operation, false)
+                return@LaunchedEffect
+            }
+            delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
+        }
+    }
     val updateStudioFeatureWorkspace: ((DspStudioWorkspace) -> DspStudioWorkspace) -> Unit = { transform ->
         val current = studioSession.preview
         val next = transform(current)
@@ -449,19 +537,7 @@ internal fun DspSettingsScreen(
         updateStudioFeatureFlags(studioFeatureFlags.disableEnhancedDsp())
     }
     val restoreSavedStudioProfile: () -> Unit = {
-        studioOperationPending = true
-        studioSession.cancelPreview()
-        studioEditTransaction = null
-        syncStudioDraftToScreen(studioSession.preview)
-        calibrationController.cancel()
-        runtime.restoreCommittedStudioWorkspaceAsync(dspEnabled) { restored ->
-            studioOperationPending = false
-            editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
-            studioUiRevision += 1
-            if (!restored && screenActive.get()) {
-                Toast.makeText(context, R.string.dsp_studio_restore_failed, Toast.LENGTH_LONG).show()
-            }
-        }
+        requestCommittedStudioRestore()
     }
     val previewStudioWorkspace: (DspStudioWorkspace) -> Unit = { workspace ->
         studioOperationPending = true
@@ -588,24 +664,7 @@ internal fun DspSettingsScreen(
         }
     }
     val cancelStudioChanges: () -> Unit = {
-        studioEditTransaction?.let(studioSession::commitEditTransaction)
-        studioEditTransaction = null
-        studioOperationPending = true
-        calibrationController.cancel()
-        studioSession.cancelPreview()
-        syncStudioDraftToScreen(studioSession.preview)
-        runtime.restoreCommittedStudioWorkspaceAsync(dspEnabled) { restored ->
-            studioOperationPending = false
-            editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
-            studioUiRevision += 1
-            if (!restored && screenActive.get()) {
-                Toast.makeText(context, R.string.dsp_studio_restore_failed, Toast.LENGTH_LONG).show()
-            }
-            if (leaveAfterRestore) {
-                leaveAfterRestore = false
-                if (restored) onBack()
-            }
-        }
+        requestCommittedStudioRestore()
     }
     val undoStudioChange: () -> Unit = {
         studioEditTransaction?.let(studioSession::commitEditTransaction)
@@ -980,6 +1039,9 @@ internal fun DspSettingsScreen(
                         }) { Text(stringResource(R.string.dsp_preview)) }
                         Button(enabled = !operationPending, onClick = saveStudioWorkspace) { Text(stringResource(R.string.dsp_save)) }
                         OutlinedButton(enabled = !operationPending, onClick = cancelStudioChanges) { Text(stringResource(R.string.dsp_cancel_preview)) }
+                    }
+                    if (studioCancelFailed) {
+                        Text(stringResource(R.string.dsp_studio_cancel_restore_retry), style = MaterialTheme.typography.bodySmall)
                     }
                     Text(stringResource(R.string.dsp_studio_macro_independent_hint), style = MaterialTheme.typography.bodySmall)
                 } else {
@@ -2083,3 +2145,4 @@ private fun showProfileSaveResult(context: Context, result: DspProfileSaveResult
 
 private const val CUSTOM_PROFILE_1 = "custom1"
 private const val CUSTOM_PROFILE_2 = "custom2"
+private const val STUDIO_RESTORE_ACK_TIMEOUT_MS = 10_000L

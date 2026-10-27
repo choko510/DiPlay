@@ -291,3 +291,4 @@
 - 2026-10-27: Replaced REM/PKG placeholders with a 25-row work-package tracker recording owner, dependencies, paths, implementation commit, test command/results, unresolved risk, review, and QA; undocumented fields remain explicitly unrecorded.
 - 2026-10-27: Mapped PKG-R11 to the existing CarPlay/device runbook and unrun hardware gates, and PKG-R12 to documented quality integration, independent reviews, rollback, and PR disposition; both remain PARTIAL.
 - 2026-10-27: Realigned all REM work-package IDs to completion-spec §0.2 and PKG-R00..R12 to §2; REM-07 now owns the 170-row evidence tool, PKG-R10 tracks that evidence package, and REM-12 tracks full code-head CI.
+- 2026-10-28: Added the DSP evidence validator to the Android `check` job before Gradle setup, asserted workflow-sensitive classifier routing, and applied current primary/subtask owner assignments. Local checker and fixture suites pass; hosted workflow for this change has not run yet.

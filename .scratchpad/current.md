@@ -18,6 +18,7 @@
 - Software implementation and its regression coverage are recorded in `completed.md` and the Step4 result package.
 - TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
 - Workflow-sensitive [run #502](https://github.com/choko510/DiPlay/actions/runs/40487578349) passed on `df3977d4`: classifier, EX-08, host native, ASan/UBSan, full unit/lint/build/JNI/R8, API 35 instrumentation, host-baseline, and Draft scope succeeded. `quick-baseline` and separate Draft unit lane were skipped because full-host scope ran. Shared Release and Common Debug reports were uploaded as artifacts 12726236011 and 12727040240.
+- Docs-only [run #503](https://github.com/choko510/DiPlay/actions/runs/40489671828) on current HEAD `e8de90e3` passed the EX-08 delta-111 test, generated-ledger check, public-tree check, and Draft scope; product runtime jobs were skipped. Current generated totals are 11 `ADAPT`, 27 `FORK_SUPERIOR`, 207 `SKIP_OEM`, 765 `REJECT_UNSAFE`, and 390 `NEED_EVIDENCE` across 1,400 unique SHAs. The 111-row overlay has 2 `FORK_SUPERIOR`, 16 `SKIP_OEM`, 56 `REJECT_UNSAFE`, 37 `NEED_EVIDENCE`, and 0 `ADAPT`.
 
 ## Next
 

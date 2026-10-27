@@ -1,9 +1,10 @@
 # Completed — dated history
 
-> 219 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
+> 220 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
 ## 2026-10-27
 
+- Corrected the B01 gate summary against the current generated EX-08 ledger and run #503: the 111-row overlay is classified across four dispositions, not uniformly `NEED_EVIDENCE`; preserved the distinct B07 local semantic-review status and the 1,289-row frozen-prefix invariant.
 - Added an opt-in Release Shared instrumentation target and made the CI runner execute Shared Release before Common Debug. Local API 35 arm64 script run passed Shared 19/19, Common 1/1, evidence validation and all 56 p99 gates; max median p99 1.56 ms. One earlier combined invocation's three p99 failures remain recorded. Workflow-sensitive run #502 passed the full host and API 35 release-target lanes.
 - Revalidated the EX-08 generator (1,400 unique SHAs) and delta-111 fixture (19/19). Confirmed the Shared module defaults to Debug instrumentation and now supports an opt-in Release JNI p99 target.
 - Rechecked the F8 and DSP Split findings against PR #45; the recovery, bounded RTSP parser, connection cap, measurement-log cap, inset/scroll order, and exact ComposeView MeasureSpec capture are covered. Added the actual-ComposeView Robolectric regression; focused tests passed 9/9, the change was pushed, and docs-only run #499 passed.

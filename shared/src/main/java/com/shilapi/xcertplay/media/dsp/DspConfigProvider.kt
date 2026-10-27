@@ -27,6 +27,7 @@ data class DspRendererApplyStatus(
     val retiredPipelineId: Int? = null,
     val updatesBlocked: Boolean = false,
     val reason: String? = null,
+    val rendererOwnerToken: Long? = null,
 )
 
 fun interface DspConfigProvider {
@@ -41,6 +42,8 @@ fun interface DspConfigProvider {
     fun reportPlaybackSampleRate(owner: Any, sampleRateHz: Int?) = Unit
 
     fun rendererApplyStatus(): DspRendererApplyStatus? = null
+
+    fun claimRendererApplyStatusOwner(ownerToken: Long) = Unit
 
     fun reportRendererApplyStatus(status: DspRendererApplyStatus) = Unit
 

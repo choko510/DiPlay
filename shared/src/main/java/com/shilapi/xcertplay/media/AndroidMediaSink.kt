@@ -71,6 +71,7 @@ import java.util.concurrent.TimeUnit
 
 private const val VIDEO_RECOVERY_WORKER_COUNT = 2
 private const val VIDEO_RECOVERY_QUEUE_CAPACITY = 16
+private const val MAX_LOCAL_PEQ_WARM_RETRIES = 2
 private val playbackRouteOwnerTokens = AtomicLong()
 
 internal fun interface AudioTrackWriteAdapterForTest {
@@ -1145,6 +1146,7 @@ internal class AudioRenderer(
         val pipeline: DspPcmPipeline,
         val hotContextToken: Int,
     )
+    private data class LocalPeqWarmRetryState(val generation: Long, val retries: Int)
     private data class LiveUpdateTransition(
         val epoch: Long,
         val previousController: DspLiveUpdateController?,
@@ -1172,6 +1174,7 @@ internal class AudioRenderer(
     @Volatile internal var dspPipeline: DspPcmPipeline? = null
     private val pendingDspUpdate = AtomicReference<PreparedRendererDspUpdate?>(null)
     private val pendingHotApply = AtomicReference<PendingRendererHotApply?>(null)
+    private val localPeqWarmRetryState = AtomicReference<LocalPeqWarmRetryState?>(null)
     private val dspUpdatePublicationLock = Any()
     private var liveUpdateController: DspLiveUpdateController? = null
     private val liveUpdateControllerEpoch = AtomicLong()
@@ -1212,6 +1215,9 @@ internal class AudioRenderer(
     @Volatile private var deferredDspGeneration: Long? = null
     @Volatile private var requestedDspGeneration = dspConfigGeneration
     private val reportsDspApplyStatus = classification.dspRole == DspStreamRole.MEDIA
+    init {
+        if (reportsDspApplyStatus) dspConfigProvider.claimRendererApplyStatusOwner(rendererOwnerToken)
+    }
     private var pcm = ByteArray(DspBufferSizing.MAX_DECODER_PCM_BYTES)
     private var normalizedPcm = ByteArray(64 * 1024)
     private var activeDecoderPcmFormat: DecoderPcmFormat? = null
@@ -2247,7 +2253,9 @@ internal class AudioRenderer(
     }
 
     private fun reportDspApplyStatus(status: DspRendererApplyStatus) {
-        if (reportsDspApplyStatus) dspConfigProvider.reportRendererApplyStatus(status)
+        if (reportsDspApplyStatus) {
+            dspConfigProvider.reportRendererApplyStatus(status.copy(rendererOwnerToken = rendererOwnerToken))
+        }
     }
 
     private fun convolverApplyWarning(
@@ -3264,7 +3272,13 @@ internal class AudioRenderer(
         if (pipeline !== pending.pipeline || pipeline !== dspPipeline) return
         if (localPeqWarmUpdate != null && pipeline.hasRejected(localPeqWarmUpdate)) {
             if (pendingHotApply.compareAndSet(pending, null)) {
-                liveUpdateController?.reprepareLatest(update.generation)
+                val latestGeneration = runCatching { dspConfigProvider.versionedSnapshot().generation }
+                    .getOrDefault(update.generation)
+                if (latestGeneration == update.generation) {
+                    retryRejectedLocalPeqWarmUpdate(prepared)
+                } else {
+                    liveUpdateController?.reprepareLatest(latestGeneration)
+                }
             }
             return
         }
@@ -3274,15 +3288,56 @@ internal class AudioRenderer(
         if (!acknowledged) return
         runCatching { afterHotApplyPendingReadForTest?.invoke() }
         if (!pendingHotApply.compareAndSet(pending, null)) return
-        if (runCatching { dspConfigProvider.versionedSnapshot().generation }.getOrDefault(update.generation) !=
-            update.generation
-        ) return
         activeDspConfig = update.config
         activeDspGraphConfig = prepared.graphConfig
         activeDspGeneration = update.generation
         liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
         deferredDspGeneration = null
+        if (localPeqWarmUpdate != null) localPeqWarmRetryState.set(null)
+        val latestGeneration = runCatching { dspConfigProvider.versionedSnapshot().generation }
+            .getOrDefault(update.generation)
+        if (latestGeneration != update.generation) {
+            val obsoletePipeline = synchronized(dspUpdatePublicationLock) {
+                val next = pendingDspUpdate.get()
+                if (next != null && next.update.generation > update.generation &&
+                    pendingDspUpdate.compareAndSet(next, null)
+                ) {
+                    next.update.pipeline
+                } else {
+                    null
+                }
+            }
+            liveUpdateController?.retire(obsoletePipeline)
+            liveUpdateController?.reprepareLatest(latestGeneration)
+            return
+        }
         reportDspApplyStatus(prepared.activeStatus)
+    }
+
+    private fun retryRejectedLocalPeqWarmUpdate(prepared: PreparedRendererDspUpdate) {
+        val generation = prepared.update.generation
+        var retries = 0
+        while (true) {
+            val previous = localPeqWarmRetryState.get()
+            val next = LocalPeqWarmRetryState(
+                generation = generation,
+                retries = if (previous?.generation == generation) previous.retries + 1 else 1,
+            )
+            if (localPeqWarmRetryState.compareAndSet(previous, next)) {
+                retries = next.retries
+                break
+            }
+        }
+        if (retries <= MAX_LOCAL_PEQ_WARM_RETRIES) {
+            liveUpdateController?.reprepareLatest(generation)
+            return
+        }
+        deferredDspGeneration = generation
+        reportDspApplyStatus(
+            prepared.deferredStatus.copy(
+                reason = "native renderer rejected the PEQ warm transition after $MAX_LOCAL_PEQ_WARM_RETRIES retries; keeping the active pipeline until the next AudioTrack generation",
+            ),
+        )
     }
 
     private fun takePendingHotApplyForPipeline(pipeline: DspPcmPipeline): PreparedRendererDspUpdate? {
@@ -3312,9 +3367,14 @@ internal class AudioRenderer(
             .getOrDefault(update.generation)
         val current = !rendererReleased && contextIsCurrent && pending.pipeline === dspPipeline &&
             pending.pipeline === hotBoundPipeline && pending.hotContextToken == hotBoundContextToken &&
+            pending.hotContextToken == pending.pipeline.hotUpdateContextToken()
+        val inFlight = !rendererReleased && contextIsCurrent && pending.pipeline === dspPipeline &&
+            pending.pipeline === hotBoundPipeline && pending.hotContextToken == hotBoundContextToken &&
             pending.hotContextToken == pending.pipeline.hotUpdateContextToken() &&
-            update.generation == latestGeneration
-        if (current || !pendingHotApply.compareAndSet(pending, null)) return
+            (hotUpdate != null || localPeqWarmUpdate != null)
+        if ((current && update.generation == latestGeneration) || inFlight ||
+            !pendingHotApply.compareAndSet(pending, null)
+        ) return
         reportDspApplyStatus(pending.prepared.failedStatus)
     }
 

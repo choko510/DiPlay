@@ -14,18 +14,25 @@ internal sealed interface DspWorkspaceReadResult {
     data object Invalid : DspWorkspaceReadResult
 }
 
-internal enum class DspWorkspaceSaveResult { SAVED, FUTURE_SCHEMA_PRESERVED, INVALID, WRITE_FAILED }
+internal enum class DspWorkspaceSaveResult { SAVED, STALE, FUTURE_SCHEMA_PRESERVED, INVALID, WRITE_FAILED }
 
 internal class DspStudioWorkspaceRepository(
     private val filesDirectory: File,
     private val writer: (File, ByteArray) -> Unit = ::atomicWrite,
 ) {
     private val file = File(File(filesDirectory, "dsp"), "workspace/current.json")
+    private val backupFile = File(file.path + ".bak")
 
     fun load(): DspWorkspaceReadResult {
-        if (!file.isFile) return DspWorkspaceReadResult.NotFound
+        if (!file.exists() && !backupFile.exists()) return DspWorkspaceReadResult.NotFound
         return try {
-            require(file.length() <= MAX_BYTES)
+            for (candidate in listOf(file, backupFile)) {
+                if (candidate.exists()) {
+                    require(candidate.isFile && candidate.canonicalFile.parentFile == file.parentFile?.canonicalFile)
+                }
+            }
+            val recoverySource = if (backupFile.isFile) backupFile else file
+            require(recoverySource.length() <= MAX_BYTES)
             val json = JSONObject(AtomicFile(file).openRead().bufferedReader(StandardCharsets.UTF_8).use { it.readText() })
             val schema = json.optInt("workspaceSchema", 0)
             if (schema > SCHEMA) return DspWorkspaceReadResult.FutureSchema(schema)
@@ -50,9 +57,29 @@ internal class DspStudioWorkspaceRepository(
         } catch (_: Exception) { DspWorkspaceReadResult.Invalid }
     }
 
+    fun referencesImpulseResponse(id: String): Boolean = when (val result = load()) {
+        is DspWorkspaceReadResult.Loaded -> result.workspace.baseProfileSnapshot.convolver.impulseResponseId == id
+        is DspWorkspaceReadResult.FutureSchema, DspWorkspaceReadResult.Invalid -> true
+        DspWorkspaceReadResult.NotFound -> false
+    }
+
     @Synchronized fun save(workspace: DspStudioWorkspace, updatedAtMs: Long = System.currentTimeMillis()): DspWorkspaceSaveResult {
         if (!validWorkspace(workspace) || updatedAtMs < 0L) return DspWorkspaceSaveResult.INVALID
-        if (file.isFile && readSchema(file)?.let { it > SCHEMA } == true) return DspWorkspaceSaveResult.FUTURE_SCHEMA_PRESERVED
+        if (file.exists() || backupFile.exists()) {
+            for (candidate in listOf(file, backupFile)) {
+                if (candidate.exists() &&
+                    (!candidate.isFile || candidate.canonicalFile.parentFile != file.parentFile?.canonicalFile)
+                ) {
+                    return DspWorkspaceSaveResult.INVALID
+                }
+            }
+            when (load()) {
+                is DspWorkspaceReadResult.Loaded -> Unit
+                is DspWorkspaceReadResult.FutureSchema -> return DspWorkspaceSaveResult.FUTURE_SCHEMA_PRESERVED
+                DspWorkspaceReadResult.Invalid -> return DspWorkspaceSaveResult.INVALID
+                DspWorkspaceReadResult.NotFound -> return DspWorkspaceSaveResult.WRITE_FAILED
+            }
+        }
         val parent = file.parentFile ?: return DspWorkspaceSaveResult.WRITE_FAILED
         if (!parent.exists() && !parent.mkdirs()) return DspWorkspaceSaveResult.WRITE_FAILED
         return try {
@@ -70,7 +97,6 @@ internal class DspStudioWorkspaceRepository(
         } catch (_: Exception) { DspWorkspaceSaveResult.WRITE_FAILED }
     }
 
-    private fun readSchema(target: File): Int? = try { JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }).optInt("workspaceSchema", 0) } catch (_: Exception) { null }
     private fun validWorkspace(value: DspStudioWorkspace): Boolean = ID.matches(value.profileSourceId) && value.profileSourceId == value.baseProfileSnapshot.id && value.baseProfileSnapshot.hasValidEqCapacity() && value.selectedModulePresetIds.size <= MODULES.size && value.selectedModulePresetIds.all { (key, id) -> key in MODULES && PRESET_ID.matches(id) }
     private fun JSONObject.toMap(): Map<String, String> { require(length() <= MODULES.size); return keys().asSequence().associateWith { getString(it) } }
     companion object { const val SCHEMA = 1; private const val WORKSPACE_ID = "active_dsp_studio"; private const val MAX_BYTES = 1_048_576L; private val ID = Regex("^[A-Za-z0-9_-]{1,64}$"); private val PRESET_ID = ID; private val MODULES = setOf("peq", "bass", "seat", "advanced_ms", "compressor", "multiband", "dynamic_eq", "harmonic", "limiter", "convolver", "cabin", "smart_loudness", "dynamic_bass", "macros") }
@@ -89,8 +115,11 @@ internal class DspModulePresetRepository(
     fun save(preset: DspModulePreset): DspPresetStoreResult {
         if (preset.factory || !validId(preset.id) || preset.moduleKey !in MODULES || preset.name.isBlank() || preset.name.length > 48 || !validPayload(preset.moduleKey, preset.payload) || preset.payload.toString().length > MAX_PAYLOAD_CHARS) return DspPresetStoreResult.INVALID
         if (!validReferences(preset.moduleKey, preset.payload)) return DspPresetStoreResult.INVALID
-        val dir = File(File(filesDirectory, "dsp/modules"), preset.moduleKey)
+        val dir = moduleDirectory(preset.moduleKey) ?: return DspPresetStoreResult.INVALID
         val target = File(dir, "${preset.id}.json")
+        if (target.exists() && (!target.isFile || target.canonicalFile.parentFile != dir.canonicalFile)) {
+            return DspPresetStoreResult.INVALID
+        }
         if (target.isFile && schema(target)?.let { it > SCHEMA } == true) return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
         if ((dir.listFiles()?.count { it.extension == "json" } ?: 0) >= MAX_PRESETS && !target.exists()) return DspPresetStoreResult.INVALID
         if (!dir.exists() && !dir.mkdirs()) return DspPresetStoreResult.WRITE_FAILED
@@ -98,51 +127,97 @@ internal class DspModulePresetRepository(
     }
     fun load(moduleKey: String, id: String): DspModulePreset? {
         if (moduleKey !in MODULES || !validId(id)) return null
-        val target = File(File(filesDirectory, "dsp/modules"), "$moduleKey/$id.json")
-        return try {
-            if (target.length() > MAX_PAYLOAD_CHARS) return null
-            val json = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() })
-            if (json.getInt("schemaVersion") != SCHEMA || json.getInt("payloadVersion") != 1 ||
-                json.getString("id") != id || json.getString("moduleKey") != moduleKey ||
-                json.getString("origin") != "USER"
-            ) return null
-            val payload = json.getJSONObject("payload")
-            val name = json.getString("name")
-            if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) {
-                null
-            } else {
-                DspModulePreset(id, moduleKey, name, payload)
+        val directory = moduleDirectory(moduleKey) ?: return null
+        val target = File(directory, "$id.json")
+        if (!safeModulePresetFiles(directory, id)) return null
+        val backup = File(target.path + ".bak")
+        return try { if (target.length() > MAX_PAYLOAD_CHARS || backup.length() > MAX_PAYLOAD_CHARS) return null; val j = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }); if (j.getInt("schemaVersion") != SCHEMA || j.getInt("payloadVersion") != 1 || j.getString("id") != id || j.getString("moduleKey") != moduleKey || j.optString("origin") != "USER") return null; val payload = j.getJSONObject("payload"); val name = j.getString("name"); if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) null else DspModulePreset(id, moduleKey, name, payload) } catch (_: Exception) { null }
+    }
+    fun userPresets(moduleKey: String): List<DspModulePreset> {
+        val directory = moduleDirectory(moduleKey) ?: return emptyList()
+        return directory.listFiles()
+            ?.asSequence()
+            ?.mapNotNull { file ->
+                when {
+                    file.name.endsWith(".json.bak") -> file.name.removeSuffix(".json.bak")
+                    file.name.endsWith(".json") -> file.name.removeSuffix(".json")
+                    else -> null
+                }
             }
-        } catch (_: Exception) {
-            null
+            ?.filter(::validId)
+            ?.distinct()
+            ?.filter { id -> safeModulePresetFiles(directory, id) }
+            ?.mapNotNull { load(moduleKey, it) }
+            ?.sortedBy(DspModulePreset::name)
+            ?.toList()
+            .orEmpty()
+    }
+
+    fun referencesImpulseResponse(id: String): Boolean {
+        val directory = moduleDirectory("convolver") ?: return true
+        if (!directory.exists()) return false
+        val files = directory.listFiles() ?: return true
+        val presetFiles = files
+            .filter { it.name.endsWith(".json") || it.name.endsWith(".json.bak") }
+            .map { file -> if (file.name.endsWith(".bak")) File(file.path.removeSuffix(".bak")) else file }
+            .distinctBy(File::getAbsolutePath)
+        return presetFiles.any { target ->
+            val backup = File(target.path + ".bak")
+            if ((target.exists() && (!target.isFile || target.canonicalFile.parentFile != directory.canonicalFile)) ||
+                (backup.exists() && (!backup.isFile || backup.canonicalFile.parentFile != directory.canonicalFile)) ||
+                target.length() > MAX_PAYLOAD_CHARS || backup.length() > MAX_PAYLOAD_CHARS
+            ) {
+                true
+            } else {
+                runCatching {
+                    val json = JSONObject(AtomicFile(target).openRead().bufferedReader(StandardCharsets.UTF_8).use { it.readText() })
+                    val version = json.optInt("schemaVersion", 0)
+                    if (version != SCHEMA || json.optInt("payloadVersion", 0) != 1 ||
+                        json.optString("moduleKey") != "convolver"
+                    ) {
+                        true
+                    } else {
+                        val payload = json.optJSONObject("payload") ?: return@runCatching true
+                        payload.optString("impulseResponseId") == id
+                    }
+                }.getOrDefault(true)
+            }
         }
     }
 
     fun deleteUserPreset(moduleKey: String, id: String): DspPresetStoreResult {
-        if (moduleKey !in MODULES || !validId(id) ||
-            DspFactoryPresets.modulePresets().any { it.moduleKey == moduleKey && it.id == id }
-        ) return DspPresetStoreResult.INVALID
-        val target = File(File(filesDirectory, "dsp/modules"), "$moduleKey/$id.json")
-        if (!target.isFile) return DspPresetStoreResult.NOT_FOUND
-        if (schema(target)?.let { it > SCHEMA } == true) return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
-        if (load(moduleKey, id) == null) return DspPresetStoreResult.INVALID
+        if (moduleKey !in MODULES || !validId(id)) return DspPresetStoreResult.INVALID
+        if (DspFactoryPresets.modulePresets().any { it.moduleKey == moduleKey && it.id == id }) {
+            return DspPresetStoreResult.INVALID
+        }
+        val directory = moduleDirectory(moduleKey) ?: return DspPresetStoreResult.INVALID
+        val target = File(directory, "$id.json")
+        val backup = File(target.path + ".bak")
+        if (!target.exists() && !backup.exists()) return DspPresetStoreResult.NOT_FOUND
+        if (!safeModulePresetFiles(directory, id)) {
+            return DspPresetStoreResult.INVALID
+        }
         return try {
+            if (target.length() > MAX_PAYLOAD_CHARS || backup.length() > MAX_PAYLOAD_CHARS) {
+                return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+            }
+            val json = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() })
+            val version = json.optInt("schemaVersion", 0)
+            if (version > SCHEMA || json.optInt("payloadVersion", 0) != 1) {
+                return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+            }
+            if (version != SCHEMA || json.optString("origin") != "USER" || json.optString("id") != id ||
+                json.optString("moduleKey") != moduleKey
+            ) return DspPresetStoreResult.INVALID
             AtomicFile(target).delete()
-            if (target.exists()) DspPresetStoreResult.WRITE_FAILED else DspPresetStoreResult.DELETED
+            if (!target.exists() && !File(target.path + ".bak").exists()) {
+                DspPresetStoreResult.DELETED
+            } else {
+                DspPresetStoreResult.WRITE_FAILED
+            }
         } catch (_: Exception) {
             DspPresetStoreResult.WRITE_FAILED
         }
-    }
-    fun userPresets(moduleKey: String): List<DspModulePreset> {
-        if (moduleKey !in MODULES) return emptyList()
-        val directory = File(File(filesDirectory, "dsp/modules"), moduleKey)
-        return directory.listFiles()
-            ?.asSequence()
-            ?.filter { it.isFile && it.extension == "json" }
-            ?.mapNotNull { load(moduleKey, it.nameWithoutExtension) }
-            ?.sortedBy(DspModulePreset::name)
-            ?.toList()
-            .orEmpty()
     }
 
     fun saveCurrent(
@@ -241,6 +316,26 @@ internal class DspModulePresetRepository(
         val id = p.optString("impulseResponseId").takeIf { it.isNotEmpty() && !p.isNull("impulseResponseId") } ?: return false
         return irReferenceExists(id)
     }
+    private fun moduleDirectory(moduleKey: String): File? {
+        if (moduleKey !in MODULES) return null
+        return runCatching {
+            val appDirectory = filesDirectory.canonicalFile
+            val moduleRoot = File(File(appDirectory, "dsp"), "modules").canonicalFile
+            if (!moduleRoot.path.startsWith(appDirectory.path + File.separator)) return null
+            val directory = File(moduleRoot, moduleKey)
+            if (directory.canonicalFile.parentFile != moduleRoot) return null
+            directory
+        }.getOrNull()
+    }
+    private fun safeModulePresetFiles(directory: File, id: String): Boolean {
+        val target = File(directory, "$id.json")
+        val backup = File(target.path + ".bak")
+        return runCatching {
+            listOf(target, backup).all { file ->
+                !file.exists() || (file.isFile && file.canonicalFile.parentFile == directory.canonicalFile)
+            }
+        }.getOrDefault(false)
+    }
     private fun readEq(a: JSONArray): List<com.shilapi.xcertplay.media.dsp.DspEqBand>? = try { require(a.length() <= DspAudioProfile.MAX_EQ_BANDS); List(a.length()) { i -> val b = a.getJSONObject(i); com.shilapi.xcertplay.media.dsp.DspEqBand(com.shilapi.xcertplay.media.dsp.DspEqType.valueOf(b.getString("type")), b.getDouble("frequencyHz"), b.getDouble("gainDb"), b.getDouble("q"), b.getBoolean("enabled")) } } catch (_: Exception) { null }
     private fun schema(f: File): Int? = try { JSONObject(AtomicFile(f).openRead().bufferedReader().use { it.readText() }).optInt("schemaVersion", 0) } catch (_: Exception) { null }
     private fun validId(id: String) = ID.matches(id) && !id.contains("..")
@@ -248,33 +343,96 @@ internal class DspModulePresetRepository(
 }
 
 internal class DspMacroPresetRepository(private val directory: File, private val writer: (File, ByteArray) -> Unit = ::atomicWrite) {
+    private val filesRoot = directory.canonicalFile
+
     fun load(id: String): Pair<String, DspSoundMacroSettings>? {
-        if (!ID.matches(id) || id.contains("..")) return null
-        val file = File(directory, "dsp/macros/$id.json")
+        val file = macroFile(id) ?: return null
+        val backup = File(file.path + ".bak")
         return try {
-            if (file.length() > 16_384L) return null
+            if (backup.exists() && (!backup.isFile || backup.canonicalFile.parentFile != file.parentFile)) return null
+            if (file.length() > MAX_BYTES || backup.length() > MAX_BYTES) return null
+            if (!file.isFile && !backup.isFile) return null
             val root = JSONObject(AtomicFile(file).openRead().bufferedReader().use { it.readText() })
-            if (root.getInt("schemaVersion") != 1 || root.getInt("payloadVersion") != 1 || root.getString("id") != id) return null
+            if (root.getInt("schemaVersion") != SCHEMA || root.getInt("payloadVersion") != PAYLOAD_VERSION || root.getString("id") != id) return null
             val payload = root.getJSONObject("payload")
             val name = root.getString("name").also { require(it.isNotBlank() && it.length <= 48) }
             name to DspSoundMacroSettings(payload.getBoolean("enabled"), payload.getInt("bassImpact"), payload.getInt("vocalPresence"), payload.getInt("airDetail"), payload.getInt("soundstageWidth"))
         } catch (_: Exception) { null }
     }
     fun save(id: String, name: String, settings: DspSoundMacroSettings): DspPresetStoreResult {
-        if (!ID.matches(id) || id.contains("..") || name.isBlank() || name.length > 48) return DspPresetStoreResult.INVALID
-        val file = File(directory, "dsp/macros/$id.json")
-        if (file.parentFile?.listFiles()?.count { it.extension == "json" }?.let { it >= 100 && !file.exists() } == true) return DspPresetStoreResult.INVALID
-        if (file.isFile && runCatching { JSONObject(AtomicFile(file).openRead().bufferedReader().use { it.readText() }).optInt("schemaVersion") }.getOrNull()?.let { it > 1 } == true) return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
-        val parent = file.parentFile!!; if (!parent.exists() && !parent.mkdirs()) return DspPresetStoreResult.WRITE_FAILED
-        return try { writer(file, JSONObject().put("schemaVersion", 1).put("id", id).put("name", name).put("origin", "USER").put("payloadVersion", 1).put("payload", JSONObject().put("enabled", settings.enabled).put("bassImpact", settings.bassImpact).put("vocalPresence", settings.vocalPresence).put("airDetail", settings.airDetail).put("soundstageWidth", settings.soundstageWidth)).toString().toByteArray()); DspPresetStoreResult.SAVED } catch (_: Exception) { DspPresetStoreResult.WRITE_FAILED }
+        if (macroFile(id) == null || name.isBlank() || name.length > 48) return DspPresetStoreResult.INVALID
+        val file = requireNotNull(macroFile(id))
+        val parent = file.parentFile ?: return DspPresetStoreResult.INVALID
+        val backup = File(file.path + ".bak")
+        if ((file.exists() && (!file.isFile || file.canonicalFile.parentFile != parent)) ||
+            (backup.exists() && (!backup.isFile || backup.canonicalFile.parentFile != parent))
+        ) return DspPresetStoreResult.INVALID
+        if (file.length() > MAX_BYTES || backup.length() > MAX_BYTES) return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+        if (file.exists() || backup.exists()) {
+            val existing = runCatching {
+                JSONObject(AtomicFile(file).openRead().bufferedReader().use { it.readText() })
+            }.getOrElse { return DspPresetStoreResult.INVALID }
+            if (existing.optInt("schemaVersion", 0) > SCHEMA || existing.optInt("payloadVersion", 0) > PAYLOAD_VERSION) {
+                return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+            }
+            if (existing.optInt("schemaVersion", 0) != SCHEMA ||
+                existing.optInt("payloadVersion", 0) != PAYLOAD_VERSION ||
+                existing.optString("origin") != "USER" || existing.optString("id") != id
+            ) return DspPresetStoreResult.INVALID
+        }
+        val presetFiles = if (parent.exists()) parent.listFiles() ?: return DspPresetStoreResult.WRITE_FAILED else emptyArray()
+        if (presetFiles.count { it.extension == "json" } >= MAX_PRESETS && !file.exists() && !backup.exists()) {
+            return DspPresetStoreResult.INVALID
+        }
+        if (!parent.exists() && !parent.mkdirs()) return DspPresetStoreResult.WRITE_FAILED
+        val json = JSONObject()
+            .put("schemaVersion", SCHEMA)
+            .put("id", id)
+            .put("name", name)
+            .put("origin", "USER")
+            .put("payloadVersion", PAYLOAD_VERSION)
+            .put("payload", JSONObject().put("enabled", settings.enabled).put("bassImpact", settings.bassImpact)
+                .put("vocalPresence", settings.vocalPresence).put("airDetail", settings.airDetail)
+                .put("soundstageWidth", settings.soundstageWidth))
+        return try {
+            writer(file, json.toString().toByteArray())
+            DspPresetStoreResult.SAVED
+        } catch (_: Exception) {
+            DspPresetStoreResult.WRITE_FAILED
+        }
     }
-    companion object { private val ID = Regex("^[A-Za-z0-9_-]{1,64}$") }
+
+    private fun macroFile(id: String): File? {
+        if (!ID.matches(id) || id.contains("..")) return null
+        return runCatching {
+            val macroDirectory = File(filesRoot, "dsp/macros").canonicalFile
+            if (!macroDirectory.path.startsWith(filesRoot.path + File.separator)) return null
+            val file = File(macroDirectory, "$id.json").canonicalFile
+            file.takeIf { it.parentFile == macroDirectory }
+        }.getOrNull()
+    }
+
+    private companion object {
+        const val SCHEMA = 1
+        const val PAYLOAD_VERSION = 1
+        const val MAX_PRESETS = 100
+        const val MAX_BYTES = 16_384L
+        val ID = Regex("^[A-Za-z0-9_-]{1,64}$")
+    }
 }
 
 internal object DspFactoryPresets {
+    val macroPresets: Map<String, DspSoundMacroSettings> = linkedMapOf(
+        "macro_neutral_v1" to DspSoundMacroSettings(),
+        "macro_vocal_v1" to DspSoundMacroSettings(true, vocalPresence = 75, airDetail = 60, soundstageWidth = 55),
+        "macro_punch_v1" to DspSoundMacroSettings(true, bassImpact = 80, vocalPresence = 55, airDetail = 55, soundstageWidth = 55),
+        "macro_clearwide_v1" to DspSoundMacroSettings(true, vocalPresence = 65, airDetail = 70, soundstageWidth = 80),
+        "macro_warm_v1" to DspSoundMacroSettings(true, bassImpact = 65, airDetail = 40, soundstageWidth = 45),
+        "macro_night_v1" to DspSoundMacroSettings(true, bassImpact = 40, vocalPresence = 60, airDetail = 40, soundstageWidth = 45),
+    )
+
     fun modulePresets(): List<DspModulePreset> {
         val flat = DspProfilePresets.find("flat")!!
-        val macros = DspSoundMacroSettings()
         val loudness = DspSmartLoudnessSettings()
         val dynamicBass = DspDynamicBassSettings()
         return listOf(
@@ -291,15 +449,39 @@ internal object DspFactoryPresets {
             DspModulePreset("factory-cabin-off", "cabin", "Off", JSONObject().put("enabled", false).put("measurement", JSONObject.NULL).put("notches", JSONArray()), true),
             DspModulePreset("factory-loudness-off", "smart_loudness", "Off", loudness.toJson(), true),
             DspModulePreset("factory-dynamic-bass-off", "dynamic_bass", "Off", dynamicBass.toJson(), true),
-            DspModulePreset("factory-macros-neutral", "macros", "Neutral", macros.toMacroJson(), true),
-        )
+        ) + macroPresets.map { (id, settings) ->
+            val name = when (id) {
+                "macro_neutral_v1" -> "Neutral"
+                "macro_vocal_v1" -> "Vocal"
+                "macro_punch_v1" -> "Punch"
+                "macro_clearwide_v1" -> "Clear Wide"
+                "macro_warm_v1" -> "Warm"
+                else -> "Night"
+            }
+            DspModulePreset(id, "macros", name, settings.toMacroJson(), true)
+        }
     }
-    val macroPresets: Map<String, DspSoundMacroSettings> = mapOf(
-        "neutral" to DspSoundMacroSettings(),
-        "warm" to DspSoundMacroSettings(true, bassImpact = 60),
-        "vocal" to DspSoundMacroSettings(true, vocalPresence = 65),
-        "air" to DspSoundMacroSettings(true, airDetail = 65),
-    )
+
+    fun neutralModulePreset(moduleKey: String): DspModulePreset? {
+        val id = when (moduleKey) {
+            "peq" -> "factory-peq-flat"
+            "bass" -> "factory-bass-neutral"
+            "seat" -> "factory-seat-center"
+            "advanced_ms" -> "factory-advanced-ms-neutral"
+            "compressor" -> "factory-compressor-off"
+            "multiband" -> "factory-multiband-off"
+            "dynamic_eq" -> "factory-dynamic-eq-off"
+            "harmonic" -> "factory-harmonic-off"
+            "limiter" -> "factory-limiter-safe"
+            "convolver" -> "factory-convolver-off"
+            "cabin" -> "factory-cabin-off"
+            "smart_loudness" -> "factory-loudness-off"
+            "dynamic_bass" -> "factory-dynamic-bass-off"
+            "macros" -> "macro_neutral_v1"
+            else -> return null
+        }
+        return modulePresets().firstOrNull { it.moduleKey == moduleKey && it.id == id }
+    }
 }
 
 private fun compressorJson(c: DspCompressorConfig) = JSONObject().put("enabled", c.enabled).put("thresholdDb", c.thresholdDb).put("ratio", c.ratio).put("attackMs", c.attackMs).put("releaseMs", c.releaseMs).put("kneeDb", c.kneeDb).put("makeupDb", c.makeupDb)
@@ -344,17 +526,18 @@ internal class DspStudioSessionCoordinator(
     private var activeTransaction: ActiveTransaction? = null
     private var comparisonSnapshot: DspStudioComparisonSnapshot? = null
 
+    var comparisonSide: DspStudioComparisonSide = DspStudioComparisonSide.DRAFT
+        private set
+
     var preview: DspStudioWorkspace = draft.deepCopy()
         private set
     var isDirty: Boolean = false
-        private set
-    var comparisonSide: DspStudioComparisonSide = DspStudioComparisonSide.DRAFT
         private set
 
     val canUndo: Boolean get() = undo.isNotEmpty()
     val canRedo: Boolean get() = redo.isNotEmpty()
 
-    fun beginEditTransaction(): DspStudioEditTransaction? {
+    @Synchronized fun beginEditTransaction(): DspStudioEditTransaction? {
         if (activeTransaction != null) return null
         nextTransactionId += 1
         val transaction = DspStudioEditTransaction(nextTransactionId)
@@ -362,12 +545,12 @@ internal class DspStudioSessionCoordinator(
         return transaction
     }
 
-    fun edit(transform: (DspStudioWorkspace) -> DspStudioWorkspace): Long {
+    @Synchronized fun edit(transform: (DspStudioWorkspace) -> DspStudioWorkspace): Long {
         finishActiveTransaction()
         return updateDraft(transform, recordUndo = true)
     }
 
-    fun edit(
+    @Synchronized fun edit(
         transaction: DspStudioEditTransaction,
         transform: (DspStudioWorkspace) -> DspStudioWorkspace,
     ): Long? {
@@ -375,7 +558,7 @@ internal class DspStudioSessionCoordinator(
         return updateDraft(transform, recordUndo = false)
     }
 
-    fun commitEditTransaction(transaction: DspStudioEditTransaction): Boolean {
+    @Synchronized fun commitEditTransaction(transaction: DspStudioEditTransaction): Boolean {
         val active = activeTransaction?.takeIf { it.token == transaction } ?: return false
         activeTransaction = null
         if (draft != active.before) {
@@ -385,11 +568,10 @@ internal class DspStudioSessionCoordinator(
         return true
     }
 
-    fun cancelEditTransaction(transaction: DspStudioEditTransaction): Boolean {
+    @Synchronized fun cancelEditTransaction(transaction: DspStudioEditTransaction): Boolean {
         val active = activeTransaction?.takeIf { it.token == transaction } ?: return false
         activeTransaction = null
         if (draft != active.before) {
-            resetComparison()
             draft = active.before.deepCopy()
             updatePreviewAndDirty()
             generation++
@@ -397,7 +579,7 @@ internal class DspStudioSessionCoordinator(
         return true
     }
 
-    fun undo(): Boolean {
+    @Synchronized fun undo(): Boolean {
         finishActiveTransaction()
         if (undo.isEmpty()) return false
         resetComparison()
@@ -408,7 +590,7 @@ internal class DspStudioSessionCoordinator(
         return true
     }
 
-    fun redo(): Boolean {
+    @Synchronized fun redo(): Boolean {
         finishActiveTransaction()
         if (redo.isEmpty()) return false
         resetComparison()
@@ -419,7 +601,7 @@ internal class DspStudioSessionCoordinator(
         return true
     }
 
-    fun cancelPreview(): Long {
+    @Synchronized fun cancelPreview(): Long {
         resetComparison()
         activeTransaction = null
         draft = committed.deepCopy()
@@ -430,17 +612,17 @@ internal class DspStudioSessionCoordinator(
         return generation
     }
 
-    fun compareA(): DspStudioWorkspace = committed.deepCopy()
+    @Synchronized fun compareA(): DspStudioWorkspace = committed.deepCopy()
 
-    fun compareB(): DspStudioWorkspace = draft.deepCopy()
+    @Synchronized fun compareB(): DspStudioWorkspace = draft.deepCopy()
 
-    fun compareWorkspace(): DspStudioComparisonSnapshot = DspStudioComparisonSnapshot(
+    @Synchronized fun compareWorkspace(): DspStudioComparisonSnapshot = DspStudioComparisonSnapshot(
         scopeKey = WORKSPACE_SCOPE,
         a = committed.deepCopy(),
         b = draft.deepCopy(),
     )
 
-    fun compareModule(moduleKey: String): DspStudioComparisonSnapshot? {
+    @Synchronized fun compareModule(moduleKey: String): DspStudioComparisonSnapshot? {
         val currentDraft = draft.deepCopy()
         val fromCommitted = currentDraft.copyModuleValuesFrom(committed, moduleKey)?.deepCopy() ?: return null
         return DspStudioComparisonSnapshot(
@@ -450,13 +632,13 @@ internal class DspStudioSessionCoordinator(
         )
     }
 
-    fun beginModuleComparison(moduleKey: String): DspStudioComparisonSnapshot? =
+    @Synchronized fun beginModuleComparison(moduleKey: String): DspStudioComparisonSnapshot? =
         compareModule(moduleKey)?.also { snapshot ->
             comparisonSnapshot = snapshot
             comparisonSide = DspStudioComparisonSide.DRAFT
         }
 
-    fun selectComparisonSide(side: DspStudioComparisonSide): DspStudioWorkspace? {
+    @Synchronized fun selectComparisonSide(side: DspStudioComparisonSide): DspStudioWorkspace? {
         if (side == DspStudioComparisonSide.DRAFT) {
             resetComparison()
             return draft.deepCopy()
@@ -470,12 +652,12 @@ internal class DspStudioSessionCoordinator(
         }
     }
 
-    fun resetComparison() {
+    @Synchronized fun resetComparison() {
         comparisonSnapshot = null
         comparisonSide = DspStudioComparisonSide.DRAFT
     }
 
-    fun clearSelectedPresetReference(moduleKey: String, presetId: String): Boolean {
+    @Synchronized fun clearSelectedPresetReference(moduleKey: String, presetId: String): Boolean {
         resetComparison()
         fun clear(workspace: DspStudioWorkspace): DspStudioWorkspace =
             if (workspace.selectedModulePresetIds[moduleKey] == presetId) {
@@ -502,7 +684,7 @@ internal class DspStudioSessionCoordinator(
         return changed
     }
 
-    fun save(): DspWorkspaceSaveResult {
+    @Synchronized fun save(): DspWorkspaceSaveResult {
         finishActiveTransaction()
         val result = repository.save(draft)
         if (result == DspWorkspaceSaveResult.SAVED) {
@@ -515,7 +697,7 @@ internal class DspStudioSessionCoordinator(
         return result
     }
 
-    fun commitSaved(workspace: DspStudioWorkspace) {
+    @Synchronized fun commitSaved(workspace: DspStudioWorkspace) {
         resetComparison()
         finishActiveTransaction()
         committed = workspace.deepCopy()
@@ -536,13 +718,28 @@ internal class DspStudioSessionCoordinator(
         generation++
     }
 
-    fun generation(): Long = generation
+    @Synchronized fun generation(): Long = generation
+
+    @Synchronized fun referencesImpulseResponse(id: String): Boolean =
+        referencesImpulseResponseLocked(id)
+
+    @Synchronized fun deleteImpulseResponseIfUnreferenced(id: String, delete: () -> Boolean): Boolean {
+        if (referencesImpulseResponseLocked(id)) return false
+        return delete()
+    }
+
+    private fun referencesImpulseResponseLocked(id: String): Boolean {
+        fun DspStudioWorkspace.references(): Boolean = baseProfileSnapshot.convolver.impulseResponseId == id
+        return committed.references() || draft.references() || undo.any { it.references() } ||
+            redo.any { it.references() } || activeTransaction?.before?.references() == true ||
+            comparisonSnapshot?.let { it.a.references() || it.b.references() } == true
+    }
 
     private fun updateDraft(
         transform: (DspStudioWorkspace) -> DspStudioWorkspace,
         recordUndo: Boolean,
     ): Long {
-        val candidate = transform(draft).deepCopy()
+        val candidate = invalidateChangedPresetSelections(draft, transform(draft)).deepCopy()
         if (candidate == draft) return generation
         resetComparison()
         if (recordUndo) {
@@ -553,6 +750,38 @@ internal class DspStudioSessionCoordinator(
         updatePreviewAndDirty()
         generation++
         return generation
+    }
+
+    private fun invalidateChangedPresetSelections(
+        previous: DspStudioWorkspace,
+        candidate: DspStudioWorkspace,
+    ): DspStudioWorkspace {
+        val before = previous.baseProfileSnapshot
+        val after = candidate.baseProfileSnapshot
+        val changedModules = buildSet {
+            if (before.eqBands != after.eqBands) add("peq")
+            if (before.bass != after.bass) add("bass")
+            if (before.seatAlignment != after.seatAlignment) add("seat")
+            if (before.advancedMs != after.advancedMs) add("advanced_ms")
+            if (before.compressor != after.compressor) add("compressor")
+            if (before.multiband != after.multiband) add("multiband")
+            if (before.dynamicEq != after.dynamicEq) add("dynamic_eq")
+            if (before.harmonic != after.harmonic) add("harmonic")
+            if (before.limiter != after.limiter) add("limiter")
+            if (before.convolver != after.convolver) add("convolver")
+            if (before.cabinCorrection != after.cabinCorrection) add("cabin")
+            if (previous.macros != candidate.macros) add("macros")
+            if (previous.smartLoudness != candidate.smartLoudness) add("smart_loudness")
+            if (previous.dynamicBass != candidate.dynamicBass) add("dynamic_bass")
+        }
+        if (changedModules.isEmpty()) return candidate
+        val selected = candidate.selectedModulePresetIds.toMutableMap()
+        changedModules.forEach { moduleKey ->
+            if (selected[moduleKey] == previous.selectedModulePresetIds[moduleKey]) {
+                selected.remove(moduleKey)
+            }
+        }
+        return candidate.copy(selectedModulePresetIds = selected)
     }
 
     private fun finishActiveTransaction() {

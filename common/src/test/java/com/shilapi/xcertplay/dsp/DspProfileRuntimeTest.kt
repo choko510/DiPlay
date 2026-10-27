@@ -55,6 +55,14 @@ class DspProfileRuntimeTest {
         assertTrue(defaults.nativeHotUpdatesEnabled)
         assertFalse(defaults.localWarmEnabled)
         assertFalse(defaults.irWarmBudgetEnabled)
+        val disabled = defaults.disableEnhancedDsp()
+        assertFalse(disabled.workspaceUiEnabled)
+        assertFalse(disabled.macroOverlayEnabled)
+        assertFalse(disabled.smartLoudnessEnabled)
+        assertFalse(disabled.dynamicBassEnabled)
+        assertFalse(disabled.nativeHotUpdatesEnabled)
+        assertFalse(disabled.localWarmEnabled)
+        assertFalse(disabled.irWarmBudgetEnabled)
 
         val persisted = defaults.copy(
             macroOverlayEnabled = false,
@@ -459,7 +467,8 @@ class DspProfileRuntimeTest {
         val presetId = "user_bass_delete_runtime"
         val workspace = DspStudioWorkspace(
             profileSourceId = profile.id,
-            baseProfileSnapshot = profile,
+            baseProfileSnapshot = profile.copy(bass = profile.bass.copy(enabled = true, gainDb = 8.0)),
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 77),
             selectedModulePresetIds = mapOf("bass" to presetId),
         )
         val modulePresets = DspModulePresetRepository(filesDirectory)
@@ -482,9 +491,15 @@ class DspProfileRuntimeTest {
             drainMainLooperUntil(complete)
 
             assertEquals(DspPresetStoreResult.DELETED, result.get())
-            assertNull((workspaceRepository.load() as DspWorkspaceReadResult.Loaded).workspace.selectedModulePresetIds["bass"])
+            val saved = (workspaceRepository.load() as DspWorkspaceReadResult.Loaded).workspace
+            assertNull(saved.selectedModulePresetIds["bass"])
             assertNull(session.compareA().selectedModulePresetIds["bass"])
             assertNull(session.preview.selectedModulePresetIds["bass"])
+            assertEquals(8.0, saved.baseProfileSnapshot.bass.gainDb, 0.0)
+            assertEquals(8.0, session.preview.baseProfileSnapshot.bass.gainDb, 0.0)
+            assertEquals(77, saved.macros.bassImpact)
+            assertEquals(77, session.preview.macros.bassImpact)
+            assertFalse(session.isDirty)
             assertNull(modulePresets.load("bass", presetId))
         } finally {
             runtime.closeForTesting()

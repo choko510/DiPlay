@@ -3,6 +3,7 @@ package com.shilapi.xcertplay
 import android.content.Context
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -32,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -40,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -51,6 +54,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.dsp.DspAudioProfile
@@ -59,15 +63,15 @@ import com.shilapi.xcertplay.dsp.DspProfileSaveResult
 import com.shilapi.xcertplay.dsp.DspImpulseImportResult
 import com.shilapi.xcertplay.dsp.DspEditorOperationKind
 import com.shilapi.xcertplay.dsp.DspStudioEditTransaction
+import com.shilapi.xcertplay.dsp.DspStudioComparisonSide
 import com.shilapi.xcertplay.dsp.DspStudioFeature
 import com.shilapi.xcertplay.dsp.DspStudioFeatureFlags
 import com.shilapi.xcertplay.dsp.DspStudioSessionCoordinator
-import com.shilapi.xcertplay.dsp.DspStudioComparisonSide
 import com.shilapi.xcertplay.dsp.DspSoundMacroSettings
 import com.shilapi.xcertplay.dsp.DspSmartLoudnessSettings
 import com.shilapi.xcertplay.dsp.DspDynamicBassSettings
+import com.shilapi.xcertplay.dsp.DspTuningResolver
 import com.shilapi.xcertplay.dsp.DspStudioWorkspace
-import com.shilapi.xcertplay.dsp.DspModulePreset
 import com.shilapi.xcertplay.dsp.DspFactoryPresets
 import com.shilapi.xcertplay.dsp.DspPresetStoreResult
 import com.shilapi.xcertplay.dsp.DspLoudnessCalibrationController
@@ -76,6 +80,7 @@ import com.shilapi.xcertplay.dsp.DspSmartLoudnessPane
 import com.shilapi.xcertplay.dsp.DspDynamicBassSettingsPane
 import com.shilapi.xcertplay.dsp.DspEqEditorPane
 import com.shilapi.xcertplay.dsp.DspModulePresetPane
+import com.shilapi.xcertplay.dsp.filterLabelResource
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
@@ -138,6 +143,9 @@ internal enum class DspStudioTab(val labelRes: Int) {
 }
 
 internal fun dspStudioTabs(): List<DspStudioTab> = DspStudioTab.values().toList()
+
+internal fun dspModulePresetKeys(): List<String> =
+    DspStudioWorkspace.MODULE_KEYS
 
 @Composable
 private fun DspStudioNavigation(
@@ -212,6 +220,10 @@ private fun rendererApplyWarningText(status: DspRendererApplyStatus?): String? =
         stringResource(R.string.dsp_renderer_apply_convolver_rate_mismatch)
 }
 
+private val LocalDspStudioEditStarted = staticCompositionLocalOf<() -> Unit> { {} }
+private val LocalDspStudioProfileSliderChanged = staticCompositionLocalOf<() -> Unit> { {} }
+private val LocalDspStudioEditFinished = staticCompositionLocalOf<() -> Unit> { {} }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DspSettingsScreen(
@@ -221,17 +233,33 @@ internal fun DspSettingsScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val closeSettingsDescription = stringResource(R.string.dsp_close_settings)
+    val customProfile1Name = stringResource(R.string.dsp_preset_custom_1)
+    val customProfile2Name = stringResource(R.string.dsp_preset_custom_2)
+    val cabinMeasurementImportedFormat = stringResource(R.string.dsp_cabin_measurement_imported)
+    val studioSaveSuccessText = stringResource(R.string.dsp_studio_save_success)
+    val studioSaveStaleText = stringResource(R.string.dsp_studio_save_stale)
+    val studioSaveFutureText = stringResource(R.string.dsp_studio_save_future)
+    val studioSaveInvalidText = stringResource(R.string.dsp_studio_save_invalid)
+    val studioSaveFailedText = stringResource(R.string.dsp_studio_save_failed)
+    val modulePresetSaveInvalidText = stringResource(R.string.dsp_module_preset_save_invalid)
+    val modulePresetDeleteSuccessText = stringResource(R.string.dsp_module_preset_delete_success)
+    val modulePresetSaveFutureText = stringResource(R.string.dsp_module_preset_save_future)
+    val modulePresetSaveFailedText = stringResource(R.string.dsp_module_preset_save_failed)
+    val modulePresetNotFoundText = stringResource(R.string.dsp_module_preset_not_found)
+    val modulePresetSavedText = stringResource(R.string.dsp_module_preset_saved)
+    val modulePresetDeleteNotFoundText = stringResource(R.string.dsp_module_preset_delete_not_found)
+    val modulePresetDeleteInvalidText = stringResource(R.string.dsp_module_preset_delete_invalid)
+    val modulePresetDeleteFutureText = stringResource(R.string.dsp_module_preset_delete_future)
+    val modulePresetDeleteFailedText = stringResource(R.string.dsp_module_preset_delete_failed)
+    val unexpectedPresetResultText = stringResource(R.string.dsp_module_preset_unexpected_result)
+    val impulseResponseNoneLabel = stringResource(R.string.dsp_ir_none)
     val screenActive = remember { AtomicBoolean(true) }
     DisposableEffect(screenActive) {
         onDispose { screenActive.set(false) }
     }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val leaveEditor = {
-        focusManager.clearFocus()
-        keyboardController?.hide()
-        onBack()
-    }
     val editorSession = remember(runtime) { runtime.editorSession }
     val studioSession = remember(runtime) { runtime.createStudioSessionCoordinator() }
     var studioUiRevision by remember(studioSession) { mutableStateOf(0) }
@@ -245,10 +273,23 @@ internal fun DspSettingsScreen(
     var advanced by rememberSaveable { mutableStateOf(false) }
     var compactSection by rememberSaveable { mutableStateOf(DspStudioTab.STUDIO) }
     var macroSettings by remember(studioSession) { mutableStateOf(studioSession.preview.macros) }
-    var macroEditTransaction by remember(studioSession) { mutableStateOf<DspStudioEditTransaction?>(null) }
+    var studioEditTransaction by remember(studioSession) { mutableStateOf<DspStudioEditTransaction?>(null) }
+    var studioProfileSliderCommitPending by remember(studioSession) { mutableStateOf(false) }
+    var studioProfileSliderChangedPending by remember(studioSession) { mutableStateOf(false) }
+    var leaveConfirmationVisible by remember { mutableStateOf(false) }
+    var leaveAfterSave by remember { mutableStateOf(false) }
+    var leaveAfterRestore by remember { mutableStateOf(false) }
+    val leaveEditor = {
+        focusManager.clearFocus()
+        keyboardController?.hide()
+        if (!operationPending) {
+            if (studioSession.isDirty) leaveConfirmationVisible = true else onBack()
+        }
+    }
+    BackHandler(enabled = !operationPending) { leaveEditor() }
     var loudnessSettings by remember(studioSession) { mutableStateOf(studioSession.preview.smartLoudness) }
     var dynamicBassSettings by remember(studioSession) { mutableStateOf(studioSession.preview.dynamicBass) }
-    val modulePresetKeys = remember { DspFactoryPresets.modulePresets().map(DspModulePreset::moduleKey) }
+    val modulePresetKeys = remember { dspModulePresetKeys() }
     var selectedModulePresetModule by rememberSaveable { mutableStateOf("macros") }
     var selectedModulePresetId by rememberSaveable { mutableStateOf<String?>(null) }
     var modulePresets by remember(runtime) {
@@ -272,8 +313,25 @@ internal fun DspSettingsScreen(
                 smartLoudness = loudnessSettings,
                 dynamicBass = dynamicBassSettings,
             )
+            var workspaceChanged = false
             if (candidate != studioSession.preview) {
-                studioSession.edit { candidate }
+                val selectedPresetBefore = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+                val transaction = studioEditTransaction
+                val updated = transaction?.let { studioSession.edit(it) { candidate } }
+                if (updated == null) studioSession.edit { candidate }
+                val selectedPresetAfter = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+                if (selectedPresetBefore != selectedPresetAfter) selectedModulePresetId = selectedPresetAfter
+                workspaceChanged = true
+                studioUiRevision += 1
+            }
+            if (studioProfileSliderCommitPending) {
+                studioEditTransaction?.let(studioSession::commitEditTransaction)
+                studioEditTransaction = null
+                studioProfileSliderCommitPending = false
+                if (workspaceChanged || studioProfileSliderChangedPending) {
+                    runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
+                }
+                studioProfileSliderChangedPending = false
                 studioUiRevision += 1
             }
         }
@@ -304,31 +362,76 @@ internal fun DspSettingsScreen(
         dynamicBassSettings = workspace.dynamicBass
         studioUiRevision += 1
     }
-    val updateMacroSettings: (DspSoundMacroSettings) -> Unit = { settings ->
-        macroSettings = settings
-        if (settings != studioSession.preview.macros) {
-            var transaction = macroEditTransaction
-            val edited = transaction?.let { token ->
-                studioSession.edit(token) { workspace -> workspace.copy(macros = settings) }
-            }
+    val updateStudioFeatureWorkspace: ((DspStudioWorkspace) -> DspStudioWorkspace) -> Unit = { transform ->
+        val current = studioSession.preview
+        val next = transform(current)
+        if (next != current) {
+            val selectedPresetBefore = current.selectedModulePresetIds[selectedModulePresetModule]
+            var transaction = studioEditTransaction
+            val edited = transaction?.let { studioSession.edit(it, transform) }
             if (edited == null) {
                 transaction = studioSession.beginEditTransaction()
-                macroEditTransaction = transaction
-                if (transaction != null) {
-                    studioSession.edit(transaction) { workspace -> workspace.copy(macros = settings) }
-                } else {
-                    studioSession.edit { workspace -> workspace.copy(macros = settings) }
-                }
+                studioEditTransaction = transaction
+                if (transaction != null) studioSession.edit(transaction, transform)
+                else studioSession.edit(transform)
             }
+            val selectedPresetAfter = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+            if (selectedPresetBefore != selectedPresetAfter) selectedModulePresetId = selectedPresetAfter
             studioUiRevision += 1
             runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
         }
     }
-    val finishMacroEdit: () -> Unit = {
-        macroEditTransaction?.let(studioSession::commitEditTransaction)
-        macroEditTransaction = null
+    val updateMacroSettings: (DspSoundMacroSettings) -> Unit = { settings ->
+        macroSettings = settings
+        updateStudioFeatureWorkspace { it.copy(macros = settings) }
+    }
+    val updateLoudnessSettings: (DspSmartLoudnessSettings) -> Unit = { settings ->
+        loudnessSettings = settings
+        updateStudioFeatureWorkspace { it.copy(smartLoudness = settings) }
+    }
+    val updateDynamicBassSettings: (DspDynamicBassSettings) -> Unit = { settings ->
+        dynamicBassSettings = settings
+        updateStudioFeatureWorkspace { it.copy(dynamicBass = settings) }
+    }
+    val finishStudioFeatureEdit: () -> Unit = {
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
         studioUiRevision += 1
         runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
+    }
+    val finishStudioProfileSliderEdit: () -> Unit = {
+        studioProfileSliderCommitPending = true
+    }
+    val syncStudioProfileSliderEdit: () -> Unit = {
+        val currentProfile = editorSession.draftProfile.copy(
+            convolver = editorSession.draftProfile.convolver.copy(impulseResponse = null),
+        )
+        val currentWorkspace = studioSession.preview
+        val candidate = currentWorkspace.copy(
+            profileSourceId = currentProfile.id,
+            baseProfileSnapshot = currentProfile,
+        )
+        if (candidate != currentWorkspace) {
+            val selectedPresetBefore = currentWorkspace.selectedModulePresetIds[selectedModulePresetModule]
+            val transaction = studioEditTransaction
+            val updated = transaction?.let { studioSession.edit(it) { candidate } }
+            if (updated == null) studioSession.edit { candidate }
+            val selectedPresetAfter = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+            if (selectedPresetBefore != selectedPresetAfter) selectedModulePresetId = selectedPresetAfter
+            studioProfileSliderChangedPending = true
+            studioUiRevision += 1
+        }
+    }
+    val updateStudioProfile: (DspAudioProfile) -> Unit = { next ->
+        if (!next.hasValidEqCapacity()) {
+            Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
+        } else {
+            val candidate = next.copy(convolver = next.convolver.copy(impulseResponse = null))
+            profile = candidate
+            updateStudioFeatureWorkspace {
+                it.copy(profileSourceId = candidate.id, baseProfileSnapshot = candidate)
+            }
+        }
     }
     val updateStudioFeatureFlags: (DspStudioFeatureFlags) -> Unit = { updatedFlags ->
         studioFeatureOperationPending = true
@@ -343,22 +446,12 @@ internal fun DspSettingsScreen(
         }
     }
     val disableEnhancedDsp: () -> Unit = {
-        updateStudioFeatureFlags(
-            studioFeatureFlags.copy(
-                workspaceUiEnabled = false,
-                macroOverlayEnabled = false,
-                smartLoudnessEnabled = false,
-                dynamicBassEnabled = false,
-                nativeHotUpdatesEnabled = false,
-                localWarmEnabled = false,
-                irWarmBudgetEnabled = false,
-            ),
-        )
+        updateStudioFeatureFlags(studioFeatureFlags.disableEnhancedDsp())
     }
     val restoreSavedStudioProfile: () -> Unit = {
         studioOperationPending = true
         studioSession.cancelPreview()
-        macroEditTransaction = null
+        studioEditTransaction = null
         syncStudioDraftToScreen(studioSession.preview)
         calibrationController.cancel()
         runtime.restoreCommittedStudioWorkspaceAsync(dspEnabled) { restored ->
@@ -366,7 +459,7 @@ internal fun DspSettingsScreen(
             editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             if (!restored && screenActive.get()) {
-                Toast.makeText(context, "Could not restore the saved DSP Studio", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, R.string.dsp_studio_restore_failed, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -377,7 +470,7 @@ internal fun DspSettingsScreen(
             if (applied) editorSession.refreshAppliedStateFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             if (!applied && screenActive.get()) {
-                Toast.makeText(context, "Could not preview DSP Studio settings", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, R.string.dsp_studio_preview_failed, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -413,8 +506,9 @@ internal fun DspSettingsScreen(
                         }
                     }
                     if (result is DspImpulseImportResult.Imported && !adopted) {
-                        runtime.discardImportedImpulseResponse(result.impulseResponse.id)
-                        if (screenActive.get()) impulseResponseIds = runtime.availableImpulseResponseIds()
+                        runtime.discardImportedImpulseResponseAsync(result.impulseResponse.id) {
+                            if (screenActive.get()) impulseResponseIds = runtime.availableImpulseResponseIds()
+                        }
                     }
                 }
             }
@@ -435,7 +529,7 @@ internal fun DspSettingsScreen(
                                 profile = profile.copy(cabinCorrection = result.correction)
                                 Toast.makeText(
                                     context,
-                                    context.getString(R.string.dsp_cabin_measurement_imported, result.suggestedNotchCount),
+                                    String.format(Locale.getDefault(), cabinMeasurementImportedFormat, result.suggestedNotchCount),
                                     Toast.LENGTH_LONG,
                                 ).show()
                             }
@@ -449,8 +543,8 @@ internal fun DspSettingsScreen(
         }
     }
 
-    val saveCustomProfile: (String, Int) -> Unit = { id, nameResource ->
-        val custom = profile.copy(id = id, name = context.getString(nameResource))
+    val saveCustomProfile: (String, String) -> Unit = { id, name ->
+        val custom = profile.copy(id = id, name = name)
         val operation = editorSession.beginOperation(DspEditorOperationKind.SAVE)
         if (operation != null) {
             runtime.saveCustomAsync(custom, dspEnabled) { result ->
@@ -470,8 +564,8 @@ internal fun DspSettingsScreen(
         }
     }
     val saveStudioWorkspace: () -> Unit = {
-        macroEditTransaction?.let(studioSession::commitEditTransaction)
-        macroEditTransaction = null
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
         val workspace = studioSession.preview
         studioOperationPending = true
         runtime.saveStudioWorkspaceAsync(workspace, dspEnabled) { result ->
@@ -480,17 +574,22 @@ internal fun DspSettingsScreen(
             editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             val message = when (result) {
-                DspWorkspaceSaveResult.SAVED -> "DSP Studio saved"
-                DspWorkspaceSaveResult.FUTURE_SCHEMA_PRESERVED -> "Newer DSP Studio data was preserved; save skipped"
-                DspWorkspaceSaveResult.INVALID -> "DSP Studio settings are invalid"
-                DspWorkspaceSaveResult.WRITE_FAILED -> "Could not save DSP Studio"
+                DspWorkspaceSaveResult.SAVED -> studioSaveSuccessText
+                DspWorkspaceSaveResult.STALE -> studioSaveStaleText
+                DspWorkspaceSaveResult.FUTURE_SCHEMA_PRESERVED -> studioSaveFutureText
+                DspWorkspaceSaveResult.INVALID -> studioSaveInvalidText
+                DspWorkspaceSaveResult.WRITE_FAILED -> studioSaveFailedText
             }
             if (screenActive.get()) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            if (leaveAfterSave) {
+                leaveAfterSave = false
+                if (result == DspWorkspaceSaveResult.SAVED) onBack()
+            }
         }
     }
     val cancelStudioChanges: () -> Unit = {
-        macroEditTransaction?.let(studioSession::commitEditTransaction)
-        macroEditTransaction = null
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
         studioOperationPending = true
         calibrationController.cancel()
         studioSession.cancelPreview()
@@ -500,21 +599,25 @@ internal fun DspSettingsScreen(
             editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             if (!restored && screenActive.get()) {
-                Toast.makeText(context, "Could not restore the saved DSP Studio", Toast.LENGTH_LONG).show()
+                Toast.makeText(context, R.string.dsp_studio_restore_failed, Toast.LENGTH_LONG).show()
+            }
+            if (leaveAfterRestore) {
+                leaveAfterRestore = false
+                if (restored) onBack()
             }
         }
     }
     val undoStudioChange: () -> Unit = {
-        macroEditTransaction?.let(studioSession::commitEditTransaction)
-        macroEditTransaction = null
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
         if (studioSession.undo()) {
             syncStudioDraftToScreen(studioSession.preview)
             previewStudioWorkspace(studioSession.preview)
         }
     }
     val redoStudioChange: () -> Unit = {
-        macroEditTransaction?.let(studioSession::commitEditTransaction)
-        macroEditTransaction = null
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
         if (studioSession.redo()) {
             syncStudioDraftToScreen(studioSession.preview)
             previewStudioWorkspace(studioSession.preview)
@@ -595,6 +698,15 @@ internal fun DspSettingsScreen(
         Modifier
     }
 
+    CompositionLocalProvider(
+        LocalDspStudioEditStarted provides {
+            if (studioEditTransaction == null) {
+                studioEditTransaction = studioSession.beginEditTransaction()
+            }
+        },
+        LocalDspStudioProfileSliderChanged provides syncStudioProfileSliderEdit,
+        LocalDspStudioEditFinished provides finishStudioProfileSliderEdit,
+    ) {
     Scaffold(
         modifier = if (compact) {
             // Cap an unbounded OEM pane to the current window before its body creates a scroll viewport.
@@ -616,7 +728,7 @@ internal fun DspSettingsScreen(
                         )
                         TextButton(onClick = leaveEditor) {
                             Text("×", modifier = Modifier.semantics {
-                                contentDescription = context.getString(R.string.dsp_close_settings)
+                                contentDescription = closeSettingsDescription
                             })
                         }
                     }
@@ -648,12 +760,12 @@ internal fun DspSettingsScreen(
                             OutlinedButton(
                                 enabled = !operationPending,
                                 modifier = Modifier.weight(1f),
-                                onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
+                                onClick = { saveCustomProfile(CUSTOM_PROFILE_1, customProfile1Name) },
                             ) { Text(stringResource(R.string.dsp_save_custom_1)) }
                             OutlinedButton(
                                 enabled = !operationPending,
                                 modifier = Modifier.weight(1f),
-                                onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
+                                onClick = { saveCustomProfile(CUSTOM_PROFILE_2, customProfile2Name) },
                             ) { Text(stringResource(R.string.dsp_save_custom_2)) }
                         }
                     }
@@ -694,14 +806,49 @@ internal fun DspSettingsScreen(
                     onApply = { preset ->
                         val applied = runtime.applyStudioModulePreset(studioSession.preview, preset)
                         if (applied == null) {
-                            Toast.makeText(context, "Could not apply this module preset", Toast.LENGTH_LONG).show()
+                            Toast.makeText(context, R.string.dsp_studio_module_apply_failed, Toast.LENGTH_LONG).show()
                         } else {
                             val selected = applied.copy(
                                 selectedModulePresetIds = applied.selectedModulePresetIds + (preset.moduleKey to preset.id),
                             )
                             studioSession.edit { selected }
                             syncStudioDraftToScreen(studioSession.preview)
+                            selectedModulePresetId = preset.id
                         }
+                    },
+                    onFactoryReset = {
+                        val preset = DspFactoryPresets.neutralModulePreset(selectedModulePresetModule)
+                        val reset = preset?.let {
+                            runtime.applyStudioModulePreset(studioSession.preview, it)?.copy(
+                                selectedModulePresetIds = studioSession.preview.selectedModulePresetIds +
+                                    (selectedModulePresetModule to it.id),
+                            )
+                        }
+                        if (reset == null) {
+                            Toast.makeText(context, R.string.dsp_module_factory_reset_unavailable, Toast.LENGTH_LONG).show()
+                        } else {
+                            studioSession.edit { reset }
+                            syncStudioDraftToScreen(studioSession.preview)
+                            selectedModulePresetId = preset.id
+                        }
+                    },
+                    onCompareA = {
+                        studioEditTransaction?.let(studioSession::commitEditTransaction)
+                        studioEditTransaction = null
+                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
+                            studioSession.beginModuleComparison(selectedModulePresetModule)
+                        }
+                        studioSession.selectComparisonSide(DspStudioComparisonSide.A)?.let(previewStudioWorkspace)
+                        studioUiRevision += 1
+                    },
+                    onCompareB = {
+                        studioEditTransaction?.let(studioSession::commitEditTransaction)
+                        studioEditTransaction = null
+                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
+                            studioSession.beginModuleComparison(selectedModulePresetModule)
+                        }
+                        studioSession.selectComparisonSide(DspStudioComparisonSide.B)?.let(previewStudioWorkspace)
+                        studioUiRevision += 1
                     },
                     onSave = { name ->
                         val moduleKey = selectedModulePresetModule
@@ -719,125 +866,122 @@ internal fun DspSettingsScreen(
                                 runtime.loadModulePresetsAsync(moduleKey) {
                                     if (selectedModulePresetModule == moduleKey) modulePresets = it
                                 }
-                                if (screenActive.get()) Toast.makeText(context, "User preset saved", Toast.LENGTH_SHORT).show()
+                                if (screenActive.get()) Toast.makeText(context, modulePresetSavedText, Toast.LENGTH_SHORT).show()
                             } else if (screenActive.get()) {
                                 val message = when (result) {
-                                    DspPresetStoreResult.INVALID -> "Preset is invalid or the module preset limit was reached"
-                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> "Newer preset data was preserved; save skipped"
-                                    DspPresetStoreResult.WRITE_FAILED -> "Could not save module preset"
-                                    DspPresetStoreResult.NOT_FOUND -> "Module preset was not found"
-                                    DspPresetStoreResult.SAVED -> "User preset saved"
-                                    DspPresetStoreResult.DELETED -> "User preset deleted"
+                                    DspPresetStoreResult.INVALID -> modulePresetSaveInvalidText
+                                    DspPresetStoreResult.DELETED -> modulePresetDeleteSuccessText
+                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> modulePresetSaveFutureText
+                                    DspPresetStoreResult.WRITE_FAILED -> modulePresetSaveFailedText
+                                    DspPresetStoreResult.NOT_FOUND -> modulePresetNotFoundText
+                                    DspPresetStoreResult.SAVED -> modulePresetSavedText
                                 }
                                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                             }
                         }
                     },
-                    onDelete = { presetId ->
-                        val moduleKey = selectedModulePresetModule
+                    onDelete = { preset ->
+                        val selectedPresetWasDeleted = selectedModulePresetId == preset.id ||
+                            studioSession.preview.selectedModulePresetIds[preset.moduleKey] == preset.id
                         val restoreDraftPreview = studioSession.comparisonSide != DspStudioComparisonSide.DRAFT
                         studioOperationPending = true
-                        runtime.deleteModulePresetAsync(moduleKey, presetId) { result ->
+                        runtime.deleteModulePresetAsync(preset.moduleKey, preset.id) { result ->
                             studioOperationPending = false
                             studioUiRevision += 1
                             if (result == DspPresetStoreResult.DELETED) {
-                                syncStudioDraftToScreen(studioSession.preview)
-                                selectedModulePresetId = null
-                                if (restoreDraftPreview) previewStudioWorkspace(studioSession.preview)
-                                runtime.loadModulePresetsAsync(moduleKey) {
-                                    if (selectedModulePresetModule == moduleKey) modulePresets = it
+                                if (selectedPresetWasDeleted) {
+                                    studioSession.clearSelectedPresetReference(preset.moduleKey, preset.id)
+                                    if (selectedModulePresetModule == preset.moduleKey) selectedModulePresetId = null
+                                    syncStudioDraftToScreen(studioSession.preview)
                                 }
-                                if (screenActive.get()) Toast.makeText(context, "User preset deleted", Toast.LENGTH_SHORT).show()
+                                if (restoreDraftPreview) previewStudioWorkspace(studioSession.preview)
+                                runtime.loadModulePresetsAsync(preset.moduleKey) {
+                                    if (selectedModulePresetModule == preset.moduleKey) modulePresets = it
+                                }
+                                if (screenActive.get()) {
+                                    Toast.makeText(context, modulePresetDeleteSuccessText, Toast.LENGTH_SHORT).show()
+                                }
                             } else if (screenActive.get()) {
                                 val message = when (result) {
-                                    DspPresetStoreResult.INVALID -> "Only valid user presets can be deleted"
-                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> "Newer preset data was preserved"
-                                    DspPresetStoreResult.NOT_FOUND -> "User preset was not found"
-                                    DspPresetStoreResult.WRITE_FAILED -> "Could not delete user preset"
-                                    DspPresetStoreResult.SAVED -> "User preset saved"
-                                    DspPresetStoreResult.DELETED -> "User preset deleted"
+                                    DspPresetStoreResult.DELETED -> modulePresetDeleteSuccessText
+                                    DspPresetStoreResult.NOT_FOUND -> modulePresetDeleteNotFoundText
+                                    DspPresetStoreResult.INVALID -> modulePresetDeleteInvalidText
+                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> modulePresetDeleteFutureText
+                                    DspPresetStoreResult.WRITE_FAILED -> modulePresetDeleteFailedText
+                                    DspPresetStoreResult.SAVED -> unexpectedPresetResultText
                                 }
                                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                             }
                         }
                     },
-                    onFactoryReset = {
-                        val factoryPreset = modulePresets.firstOrNull { it.factory }
-                        val applied = factoryPreset?.let { runtime.applyStudioModulePreset(studioSession.preview, it) }
-                        if (factoryPreset == null || applied == null) {
-                            Toast.makeText(context, "Could not reset this module", Toast.LENGTH_LONG).show()
-                        } else {
-                            val reset = applied.copy(
-                                selectedModulePresetIds = applied.selectedModulePresetIds +
-                                    (factoryPreset.moduleKey to factoryPreset.id),
-                            )
-                            studioSession.edit { reset }
-                            syncStudioDraftToScreen(studioSession.preview)
-                            selectedModulePresetId = factoryPreset.id
-                        }
-                    },
-                    onCompareA = {
-                        macroEditTransaction?.let(studioSession::commitEditTransaction)
-                        macroEditTransaction = null
-                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
-                            studioSession.beginModuleComparison(selectedModulePresetModule)
-                        }
-                        studioSession.selectComparisonSide(DspStudioComparisonSide.A)?.let(previewStudioWorkspace)
-                        studioUiRevision += 1
-                    },
-                    onCompareB = {
-                        macroEditTransaction?.let(studioSession::commitEditTransaction)
-                        macroEditTransaction = null
-                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
-                            studioSession.beginModuleComparison(selectedModulePresetModule)
-                        }
-                        studioSession.selectComparisonSide(DspStudioComparisonSide.B)?.let(previewStudioWorkspace)
-                        studioUiRevision += 1
-                    },
-                    comparisonSide = studioSession.comparisonSide,
-                    rendererStatusText = rendererApplyStatusText(rendererApplyStatus),
                     )
                     if (studioFeatureFlags.macroOverlayEnabled) {
                         DspMacroStudio(
                             settings = macroSettings,
                             enabled = !operationPending,
                             onSettingsChange = updateMacroSettings,
-                            onSettingsChangeFinished = finishMacroEdit,
+                            onSettingsChangeFinished = finishStudioFeatureEdit,
                         )
                     } else {
                         Text(stringResource(R.string.dsp_macro_overlay_disabled), style = MaterialTheme.typography.bodySmall)
                     }
-                    Text(if (studioDirty) "Unsaved DSP Studio draft" else "Saved DSP Studio workspace", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        stringResource(if (studioDirty) R.string.dsp_studio_unsaved_draft else R.string.dsp_studio_saved_workspace),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        OutlinedButton(enabled = canUndoStudio && !operationPending, onClick = undoStudioChange) { Text("Undo") }
-                        OutlinedButton(enabled = canRedoStudio && !operationPending, onClick = redoStudioChange) { Text("Redo") }
-                        OutlinedButton(enabled = !operationPending, onClick = {
-                            macroEditTransaction?.let(studioSession::commitEditTransaction)
-                            macroEditTransaction = null
-                            studioSession.resetComparison()
-                            previewStudioWorkspace(studioSession.compareA())
-                            studioUiRevision += 1
-                        }) { Text("A") }
-                        OutlinedButton(enabled = !operationPending, onClick = {
-                            macroEditTransaction?.let(studioSession::commitEditTransaction)
-                            macroEditTransaction = null
-                            studioSession.resetComparison()
-                            previewStudioWorkspace(studioSession.compareB())
-                            studioUiRevision += 1
-                        }) { Text("B") }
+                        OutlinedButton(enabled = canUndoStudio && !operationPending, onClick = undoStudioChange) { Text(stringResource(R.string.dsp_undo)) }
+                        OutlinedButton(enabled = canRedoStudio && !operationPending, onClick = redoStudioChange) { Text(stringResource(R.string.dsp_redo)) }
+                    }
+                    Text(
+                        stringResource(
+                            R.string.dsp_module_compare_status,
+                            selectedModulePresetModule,
+                            studioSession.comparisonSide.label,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    val levelMatchLabel = stringResource(R.string.dsp_module_level_match_label)
+                    val levelMatchUnavailable = stringResource(R.string.dsp_module_level_match_unavailable)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(levelMatchLabel, Modifier.weight(1f))
+                        Switch(
+                            checked = false,
+                            onCheckedChange = {},
+                            enabled = false,
+                            modifier = Modifier.semantics {
+                                contentDescription = levelMatchLabel
+                                stateDescription = levelMatchUnavailable
+                            },
+                        )
+                    }
+                    if (playbackSampleRateHz == null) {
+                        Text(stringResource(R.string.dsp_renderer_apply_waiting), style = MaterialTheme.typography.bodySmall)
+                        rendererApplyStatus?.let { lastStatus ->
+                            Text(
+                                stringResource(R.string.dsp_renderer_last_report, rendererApplyStatusText(lastStatus)),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    } else {
+                        Text(rendererApplyStatusText(rendererApplyStatus), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(stringResource(R.string.dsp_renderer_apply_status_note), style = MaterialTheme.typography.bodySmall)
+                    rendererApplyWarningText(rendererApplyStatus)?.let { warning ->
+                        Text(warning, style = MaterialTheme.typography.bodySmall)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Button(enabled = !operationPending, onClick = {
-                            macroEditTransaction?.let(studioSession::commitEditTransaction)
-                            macroEditTransaction = null
+                            studioEditTransaction?.let(studioSession::commitEditTransaction)
+                            studioEditTransaction = null
                             studioSession.resetComparison()
-                            previewStudioWorkspace(studioSession.preview)
                             studioUiRevision += 1
-                        }) { Text("Preview") }
-                        Button(enabled = !operationPending, onClick = saveStudioWorkspace) { Text("Save") }
-                        OutlinedButton(enabled = !operationPending, onClick = cancelStudioChanges) { Text("Cancel preview") }
+                            previewStudioWorkspace(studioSession.preview)
+                        }) { Text(stringResource(R.string.dsp_preview)) }
+                        Button(enabled = !operationPending, onClick = saveStudioWorkspace) { Text(stringResource(R.string.dsp_save)) }
+                        OutlinedButton(enabled = !operationPending, onClick = cancelStudioChanges) { Text(stringResource(R.string.dsp_cancel_preview)) }
                     }
-                    Text("Base EQ and profile controls stay independent of these macros.", style = MaterialTheme.typography.bodySmall)
+                    Text(stringResource(R.string.dsp_studio_macro_independent_hint), style = MaterialTheme.typography.bodySmall)
                 } else {
                     Text(stringResource(R.string.dsp_studio_workspace_disabled), style = MaterialTheme.typography.bodySmall)
                 }
@@ -848,22 +992,24 @@ internal fun DspSettingsScreen(
                     DspSmartLoudnessPane(
                         settings = loudnessSettings,
                         volumeReading = volumeReading,
-                        onSettingsChange = { loudnessSettings = it },
+                        onSettingsChange = updateLoudnessSettings,
+                        onSettingsChangeFinished = finishStudioFeatureEdit,
                         enabled = !operationPending,
                         onCaptureQuietPoint = {
                             if (!calibrationController.captureQuietPoint(volumeReading)) {
-                                Toast.makeText(context, "A trusted reading is required for calibration", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, R.string.dsp_capture_quiet_untrusted, Toast.LENGTH_LONG).show()
                             }
                         },
                         onCaptureReferencePoint = {
                             val calibration = calibrationController.captureReferencePoint(volumeReading)
                             if (calibration == null) {
-                                Toast.makeText(context, "Capture a higher trusted volume on the same route", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, R.string.dsp_capture_reference_higher, Toast.LENGTH_LONG).show()
                             } else {
-                                loudnessSettings = loudnessSettings.copy(
+                                updateLoudnessSettings(loudnessSettings.copy(
                                     mode = com.shilapi.xcertplay.dsp.DspSmartLoudnessMode.AUTO_CALIBRATED,
                                     calibration = calibration,
-                                )
+                                ))
+                                finishStudioFeatureEdit()
                             }
                         },
                     )
@@ -873,7 +1019,8 @@ internal fun DspSettingsScreen(
                 if (studioFeatureFlags.dynamicBassEnabled) {
                     DspDynamicBassSettingsPane(
                         settings = dynamicBassSettings,
-                        onSettingsChange = { dynamicBassSettings = it },
+                        onSettingsChange = updateDynamicBassSettings,
+                        onSettingsChangeFinished = finishStudioFeatureEdit,
                         enabled = !operationPending,
                     )
                 } else {
@@ -1410,19 +1557,36 @@ internal fun DspSettingsScreen(
                 }
             }
 
-            if (showEq) DspEqEditorPane(
-                profile = profile,
-                onProfileChange = { next ->
-                    if (!next.hasValidEqCapacity()) {
-                        Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
+            if (showEq) {
+                val tuning = DspTuningResolver.resolve(
+                    profile = profile,
+                    masterEnabled = dspEnabled,
+                    macros = macroSettings.copy(
+                        enabled = macroSettings.enabled && studioFeatureFlags.macroOverlayEnabled,
+                    ),
+                    loudness = if (studioFeatureFlags.smartLoudnessEnabled) {
+                        loudnessSettings
                     } else {
-                        profile = next
-                    }
-                },
-                onEditBandType = { bandTypeDialog = it },
-                sampleRateHz = playbackSampleRateHz,
-                modifier = Modifier.fillMaxWidth(),
-            )
+                        DspSmartLoudnessSettings()
+                    },
+                    volumeReading = volumeReading,
+                    dynamicBass = dynamicBassSettings.copy(
+                        enabled = dynamicBassSettings.enabled && studioFeatureFlags.dynamicBassEnabled,
+                    ),
+                )
+                DspEqEditorPane(
+                    profile = profile,
+                    onProfileChange = updateStudioProfile,
+                    onEditBandType = { bandTypeDialog = it },
+                    sampleRateHz = playbackSampleRateHz,
+                    modifier = Modifier.fillMaxWidth(),
+                    onEditFinished = finishStudioFeatureEdit,
+                    macroTone = tuning.runtimeConfig.macroTone,
+                    smartLoudness = tuning.runtimeConfig.smartLoudness,
+                    dynamicBassEnabled = tuning.runtimeConfig.dynamicBass.enabled,
+                    predictedPreampDb = tuning.runtimeConfig.gainDb,
+                )
+            }
 
             if (showDynamics || showAdvanced) {
                 if (showDynamics) SectionCard(title = stringResource(R.string.dsp_compressor)) {
@@ -1431,7 +1595,7 @@ internal fun DspSettingsScreen(
                         checked = profile.compressor.enabled,
                         onCheckedChange = { profile = profile.copy(compressor = profile.compressor.copy(enabled = it)) },
                     )
-                    DspValueSlider(stringResource(R.string.dsp_threshold), profile.compressor.thresholdDb, -60.0..0.0, "dB") {
+                    DspValueSlider(stringResource(R.string.dsp_compressor_threshold), profile.compressor.thresholdDb, -60.0..0.0, "dB") {
                         profile = profile.copy(compressor = profile.compressor.copy(thresholdDb = it))
                     }
                     DspValueSlider(stringResource(R.string.dsp_ratio), profile.compressor.ratio, 1.0..20.0, ":1") {
@@ -1518,7 +1682,7 @@ internal fun DspSettingsScreen(
                         checked = profile.limiter.enabled,
                         onCheckedChange = { profile = profile.copy(limiter = profile.limiter.copy(enabled = it)) },
                     )
-                    DspValueSlider(stringResource(R.string.dsp_threshold), profile.limiter.thresholdDb, -12.0..0.0, "dB") {
+                    DspValueSlider(stringResource(R.string.dsp_limiter_threshold), profile.limiter.thresholdDb, -12.0..0.0, "dB") {
                         profile = profile.copy(limiter = profile.limiter.copy(thresholdDb = it))
                     }
                     DspValueSlider(stringResource(R.string.dsp_release), profile.limiter.releaseMs, 1.0..500.0, "ms") {
@@ -1544,7 +1708,7 @@ internal fun DspSettingsScreen(
                         choices = listOf(stringResource(R.string.dsp_ir_none)) + impulseResponseIds,
                         enabled = !operationPending,
                         onSelect = { selected ->
-                            val id = selected.takeUnless { it == context.getString(R.string.dsp_ir_none) }
+                            val id = selected.takeUnless { it == impulseResponseNoneLabel }
                             profile = profile.copy(
                                 convolver = profile.convolver.copy(
                                     enabled = id != null,
@@ -1595,16 +1759,17 @@ internal fun DspSettingsScreen(
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
                         enabled = !operationPending,
-                        onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
+                        onClick = { saveCustomProfile(CUSTOM_PROFILE_1, customProfile1Name) },
                     ) { Text(stringResource(R.string.dsp_save_custom_1)) }
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
                         enabled = !operationPending,
-                        onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
+                        onClick = { saveCustomProfile(CUSTOM_PROFILE_2, customProfile2Name) },
                     ) { Text(stringResource(R.string.dsp_save_custom_2)) }
                 }
             }
         }
+    }
     }
 
     bandTypeDialog?.let { index ->
@@ -1617,16 +1782,50 @@ internal fun DspSettingsScreen(
                     DspEqType.entries.forEach { type ->
                         TextButton(
                             onClick = {
-                                profile = profile.copy(eqBands = profile.eqBands.toMutableList().apply {
+                                updateStudioProfile(profile.copy(eqBands = profile.eqBands.toMutableList().apply {
                                     set(index, band.copy(type = type))
-                                })
+                                }))
+                                finishStudioFeatureEdit()
                                 bandTypeDialog = null
                             },
-                        ) { Text(type.name) }
+                        ) { Text(stringResource(type.filterLabelResource())) }
                     }
                 }
             },
             confirmButton = { TextButton(onClick = { bandTypeDialog = null }) { Text(stringResource(R.string.dsp_done)) } },
+        )
+    }
+
+    if (leaveConfirmationVisible) {
+        AlertDialog(
+            onDismissRequest = { leaveConfirmationVisible = false },
+            title = { Text(stringResource(R.string.dsp_studio_leave_title)) },
+            text = { Text(stringResource(R.string.dsp_studio_leave_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        leaveConfirmationVisible = false
+                        leaveAfterSave = true
+                        saveStudioWorkspace()
+                    },
+                    enabled = !operationPending,
+                ) { Text(stringResource(R.string.dsp_studio_leave_save)) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            leaveConfirmationVisible = false
+                            leaveAfterRestore = true
+                            cancelStudioChanges()
+                        },
+                        enabled = !operationPending,
+                    ) { Text(stringResource(R.string.dsp_studio_leave_discard)) }
+                    TextButton(onClick = { leaveConfirmationVisible = false }) {
+                        Text(stringResource(R.string.dsp_studio_leave_continue))
+                    }
+                }
+            },
         )
     }
 }
@@ -1673,13 +1872,25 @@ private fun DspValueSlider(
     unit: String,
     onChange: (Double) -> Unit,
 ) {
+    val editStarted = LocalDspStudioEditStarted.current
+    val profileSliderChanged = LocalDspStudioProfileSliderChanged.current
+    val editFinished = LocalDspStudioEditFinished.current
     Column {
         val formatted = String.format(Locale.getDefault(), "%.1f", value)
         Text(if (unit.isBlank()) "$title: $formatted" else "$title: $formatted $unit")
         Slider(
             value = value.toFloat().coerceIn(range.start.toFloat(), range.endInclusive.toFloat()),
-            onValueChange = { onChange(it.toDouble()) },
+            onValueChange = {
+                editStarted()
+                onChange(it.toDouble())
+                profileSliderChanged()
+            },
+            onValueChangeFinished = editFinished,
             valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
+            modifier = Modifier.semantics {
+                contentDescription = title
+                stateDescription = if (unit.isBlank()) formatted else "$formatted $unit"
+            },
         )
     }
 }

@@ -16,15 +16,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.shilapi.xcertplay.host.R
 import java.util.Locale
 
 @Composable
 fun DspDynamicBassSettingsPane(
     settings: DspDynamicBassSettings,
     onSettingsChange: (DspDynamicBassSettings) -> Unit,
+    onSettingsChangeFinished: () -> Unit = {},
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
+    val switchDescription = stringResource(if (settings.enabled) R.string.dsp_db_switch_on else R.string.dsp_db_switch_off)
     Card(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -36,98 +40,109 @@ fun DspDynamicBassSettingsPane(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Dynamic Bass", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.dsp_module_dynamic_bass), style = MaterialTheme.typography.titleMedium)
                     Text(
-                        if (settings.enabled) "Enabled · follows the input bass level" else "Off · no dynamic bass lift",
+                        stringResource(if (settings.enabled) R.string.dsp_db_enabled else R.string.dsp_db_disabled),
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
                 Switch(
                     checked = settings.enabled,
                     enabled = enabled,
-                    onCheckedChange = { onSettingsChange(settings.copy(enabled = it)) },
+                    onCheckedChange = {
+                        onSettingsChange(settings.copy(enabled = it))
+                        onSettingsChangeFinished()
+                    },
                     modifier = Modifier.semantics {
-                        contentDescription = "Dynamic Bass enabled, ${if (settings.enabled) "on" else "off"}"
+                        contentDescription = switchDescription
                     },
                 )
             }
             Text(
-                "A linked low-frequency detector reads the input before this lift. Quiet bass can receive more lift; stronger bass receives less, up to the shared gain-safety budget.",
+                stringResource(R.string.dsp_db_description),
                 style = MaterialTheme.typography.bodySmall,
             )
             val controlsEnabled = enabled && settings.enabled
             val thresholdGap = minOf(0.1, (settings.highThresholdDbfs - settings.lowThresholdDbfs) * 0.5)
             DspDynamicBassSlider(
-                label = "Strength",
+                label = stringResource(R.string.dsp_db_strength),
                 value = settings.strength,
                 range = 0.0..1.0,
                 unit = "%",
                 enabled = controlsEnabled,
                 valueScale = 100.0,
-                explanation = "Scales the requested lift: 0% is neutral; 100% allows the full configured maximum.",
+                explanation = stringResource(R.string.dsp_db_strength_help),
+                onValueChangeFinished = onSettingsChangeFinished,
                 onValueChange = { onSettingsChange(settings.copy(strength = it)) },
             )
             DspDynamicBassSlider(
-                label = "Maximum lift",
+                label = stringResource(R.string.dsp_db_max_lift),
                 value = settings.maxBoostDb,
                 range = 0.0..3.0,
                 unit = "dB",
                 enabled = controlsEnabled,
-                explanation = "Upper limit for the lift; the shared safety budget can reduce the effective amount.",
+                explanation = stringResource(R.string.dsp_db_max_lift_help),
+                onValueChangeFinished = onSettingsChangeFinished,
                 onValueChange = { onSettingsChange(settings.copy(maxBoostDb = it)) },
             )
             DspDynamicBassSlider(
-                label = "Detector cutoff",
+                label = stringResource(R.string.dsp_db_detector_cutoff),
                 value = settings.detectorCutoffHz,
                 range = 80.0..160.0,
                 unit = "Hz",
                 enabled = controlsEnabled,
-                explanation = "Cutoff of the low-pass detector that measures bass before the lift is applied.",
+                explanation = stringResource(R.string.dsp_db_detector_cutoff_help),
+                onValueChangeFinished = onSettingsChangeFinished,
                 onValueChange = { onSettingsChange(settings.copy(detectorCutoffHz = it)) },
             )
             DspDynamicBassSlider(
-                label = "Silence gate",
+                label = stringResource(R.string.dsp_db_silence_gate),
                 value = settings.silenceGateDbfs,
                 range = -90.0..-30.0,
                 unit = "dBFS",
                 enabled = controlsEnabled,
-                explanation = "Bass below this detector level is treated as silence and receives no lift.",
+                explanation = stringResource(R.string.dsp_db_silence_gate_help),
+                onValueChangeFinished = onSettingsChangeFinished,
                 onValueChange = { onSettingsChange(settings.copy(silenceGateDbfs = it)) },
             )
             DspDynamicBassSlider(
-                label = "Full-lift threshold",
+                label = stringResource(R.string.dsp_db_full_lift_threshold),
                 value = settings.lowThresholdDbfs,
                 range = -60.0..(settings.highThresholdDbfs - thresholdGap),
                 unit = "dBFS",
                 enabled = controlsEnabled,
-                explanation = "At or below this bass level, the requested lift reaches its maximum.",
+                explanation = stringResource(R.string.dsp_db_full_lift_threshold_help),
+                onValueChangeFinished = onSettingsChangeFinished,
                 onValueChange = { onSettingsChange(settings.copy(lowThresholdDbfs = it)) },
             )
             DspDynamicBassSlider(
-                label = "No-lift threshold",
+                label = stringResource(R.string.dsp_db_no_lift_threshold),
                 value = settings.highThresholdDbfs,
                 range = (settings.lowThresholdDbfs + thresholdGap)..0.0,
                 unit = "dBFS",
                 enabled = controlsEnabled,
-                explanation = "At or above this bass level, no dynamic lift is requested.",
+                explanation = stringResource(R.string.dsp_db_no_lift_threshold_help),
+                onValueChangeFinished = onSettingsChangeFinished,
                 onValueChange = { onSettingsChange(settings.copy(highThresholdDbfs = it)) },
             )
             DspDynamicBassSlider(
-                label = "Attack",
+                label = stringResource(R.string.dsp_db_attack),
                 value = settings.attackMs,
                 range = 10.0..200.0,
                 unit = "ms",
                 enabled = controlsEnabled,
-                explanation = "How quickly the detector envelope and requested lift respond to level changes.",
+                explanation = stringResource(R.string.dsp_db_attack_help),
+                onValueChangeFinished = onSettingsChangeFinished,
                 onValueChange = { onSettingsChange(settings.copy(attackMs = it)) },
             )
             DspDynamicBassSlider(
-                label = "Release",
+                label = stringResource(R.string.dsp_db_release),
                 value = settings.releaseMs,
                 range = 50.0..1_000.0,
                 unit = "ms",
                 enabled = controlsEnabled,
-                explanation = "How gradually the lift settles after the bass level changes.",
+                explanation = stringResource(R.string.dsp_db_release_help),
+                onValueChangeFinished = onSettingsChangeFinished,
                 onValueChange = { onSettingsChange(settings.copy(releaseMs = it)) },
             )
         }
@@ -143,8 +158,16 @@ private fun DspDynamicBassSlider(
     enabled: Boolean,
     valueScale: Double = 1.0,
     explanation: String? = null,
+    onValueChangeFinished: () -> Unit,
     onValueChange: (Double) -> Unit,
 ) {
+    val sliderDescription = stringResource(
+        R.string.dsp_db_slider_range,
+        label,
+        formatDspDynamicBassValue(value * valueScale, unit),
+        formatDspDynamicBassValue(range.start * valueScale, unit),
+        formatDspDynamicBassValue(range.endInclusive * valueScale, unit),
+    )
     Column {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -159,12 +182,11 @@ private fun DspDynamicBassSlider(
         Slider(
             value = value.toFloat(),
             onValueChange = { onValueChange(it.toDouble().coerceIn(range.start, range.endInclusive)) },
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
             enabled = enabled,
             modifier = Modifier.semantics {
-                contentDescription = "$label, ${formatDspDynamicBassValue(value * valueScale, unit)}, range " +
-                    "${formatDspDynamicBassValue(range.start * valueScale, unit)} to " +
-                    formatDspDynamicBassValue(range.endInclusive * valueScale, unit)
+                contentDescription = sliderDescription
             },
         )
         if (explanation != null) Text(explanation, style = MaterialTheme.typography.bodySmall)

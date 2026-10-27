@@ -181,6 +181,7 @@ internal object DspAutoHeadroom {
         advancedMsBoostDb: Double = 0.0,
         harmonicBoostDb: Double = 0.0,
         macroWidthFactor: Double = 1.0,
+        convolverBoostDb: Double = 0.0,
     ): DspHeadroomResult {
         require(sampleRate in 8_000..192_000)
         require(preampDb.isFinite())
@@ -190,6 +191,7 @@ internal object DspAutoHeadroom {
         require(seatTrimDb.isFinite())
         require(advancedMsBoostDb.isFinite())
         require(harmonicBoostDb.isFinite())
+        require(convolverBoostDb.isFinite() && convolverBoostDb >= 0.0)
         require(stereoWidth.isFinite() && stereoWidth in 0.0..2.0)
         require(macroWidthFactor.isFinite() && macroWidthFactor in 0.75..1.25)
         require(marginDb.isFinite() && marginDb >= 0.0)
@@ -215,7 +217,7 @@ internal object DspAutoHeadroom {
         val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
             max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) +
             max(0.0, seatTrimDb) + widthWorstCaseDb +
-            max(0.0, advancedMsBoostDb) + max(0.0, harmonicBoostDb)
+            max(0.0, advancedMsBoostDb) + max(0.0, harmonicBoostDb) + convolverBoostDb
         return DspHeadroomResult(
             filterPeakDb = peakDb,
             reductionDb = max(0.0, staticWorstCaseDb + marginDb),
@@ -347,6 +349,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     }
     val impulseResponse = convolver.impulseResponse
     val activeImpulseResponse = impulseResponse?.takeIf { convolver.enabled && convolver.wet > 0.0 }
+    val sampleRateMatchedImpulseResponse = activeImpulseResponse?.takeIf { it.sampleRate == format.sampleRate }
     val convolverEnabled = activeImpulseResponse != null
     val convolverSamples = activeImpulseResponse?.copySamples() ?: FloatArray(0)
     if (multiband.enabled) {
@@ -361,17 +364,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         },
     )
     val dynamicEqNativeValues = rateSafeDynamicEq.toNativeValues()
-    val studioToneBands = buildList {
-        if (macroTone.enabled) {
-            add(DspEqBand(DspEqType.LOW_SHELF, 80.0, gainDb = macroTone.bassGainDb))
-            add(DspEqBand(DspEqType.PEAK, 2_400.0, gainDb = macroTone.vocalGainDb, q = 0.8))
-            add(DspEqBand(DspEqType.HIGH_SHELF, minOf(8_000.0, format.sampleRate * 0.4), gainDb = macroTone.airGainDb))
-        }
-        if (smartLoudness.enabled) {
-            add(DspEqBand(DspEqType.LOW_SHELF, 100.0, gainDb = smartLoudness.lowGainDb))
-            add(DspEqBand(DspEqType.HIGH_SHELF, minOf(8_000.0, format.sampleRate * 0.4), gainDb = smartLoudness.highGainDb))
-        }
-    }
+    val studioToneBoostDb = macroTone.conservativeBoostDb() + smartLoudness.conservativeBoostDb()
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
@@ -387,7 +380,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             } else {
                 0.0
             },
-            dynamicBoostDb = (if (rateSafeDynamicEq.enabled) {
+            dynamicBoostDb = studioToneBoostDb + (if (rateSafeDynamicEq.enabled) {
                 rateSafeDynamicEq.bands.filter { it.enabled && it.mode == DspDynamicEqMode.BOOST }
                     .sumOf(DspDynamicEqBandConfig::maxBoostDb)
             } else {
@@ -399,7 +392,6 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             advancedMsBoostDb = if (format.channels == 2) advancedMs.worstCaseBoostDb else 0.0,
             harmonicBoostDb = harmonic.worstCaseBoostDb,
             marginDb = autoHeadroomMarginDb,
-            studioToneBands = studioToneBands,
             staticBassBands = if (bass.enabled) {
                 listOf(
                     DspEqBand(
@@ -411,6 +403,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             } else {
                 emptyList()
             },
+            convolverBoostDb = sampleRateMatchedImpulseResponse?.conservativePeakGainDb(convolver.wet) ?: 0.0,
         )
     } else {
         DspHeadroomResult(filterPeakDb = 0.0, reductionDb = 0.0)

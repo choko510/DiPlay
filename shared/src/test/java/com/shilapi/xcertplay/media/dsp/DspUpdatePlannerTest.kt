@@ -37,43 +37,7 @@ class DspUpdatePlannerTest {
     }
 
     @Test
-    fun disabledStudioHotUpdatesDoNotPlanAHotApply() {
-        val current = DspRuntimeConfig(enabled = true)
-        val target = DspRuntimeConfig(
-            enabled = true,
-            macroTone = DspMacroToneConfig(enabled = true, vocalGainDb = 1.0),
-        )
-
-        assertEquals(
-            DspUpdateDecision(DspUpdatePlan.DEFERRED, "Native HOT updates are disabled"),
-            DspUpdatePlanner.decide(
-                current = current,
-                target = target,
-                hasActivePipeline = true,
-                trackGenerationCommitted = true,
-                currentLatencyFrames = 0,
-                targetLatencyFrames = 0,
-                requiresStateContinuity = false,
-                studioHotUpdatesEnabled = false,
-            ),
-        )
-        assertEquals(
-            DspUpdatePlan.WARM,
-            DspUpdatePlanner.classify(
-                current = current,
-                target = target,
-                hasActivePipeline = true,
-                trackGenerationCommitted = false,
-                currentLatencyFrames = 0,
-                targetLatencyFrames = 0,
-                requiresStateContinuity = false,
-                studioHotUpdatesEnabled = false,
-            ),
-        )
-    }
-
-    @Test
-    fun preampChangesWaitForANewTrackUntilNativeRampingIsAvailable() {
+    fun preampChangesAreNotHotUntilTheNativeGainPathHasASampleRamp() {
         val current = DspRuntimeConfig(enabled = true, gainDb = 0.0)
         val target = DspRuntimeConfig(enabled = true, gainDb = -3.0)
 
@@ -257,6 +221,24 @@ class DspUpdatePlannerTest {
                 "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
             ),
             DspUpdatePlanner.decide(current, preampEdit, true, true, 0, 0, false),
+        )
+    }
+
+    @Test
+    fun disablingStudioHotUpdatesDefersCommittedHotChanges() {
+        val current = DspRuntimeConfig(enabled = true)
+        val target = DspRuntimeConfig(
+            enabled = true,
+            macroTone = DspMacroToneConfig(enabled = true, vocalGainDb = 1.0),
+        )
+
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, target, true, true, 0, 0, true, studioHotUpdatesEnabled = false),
+        )
+        assertEquals(
+            DspUpdatePlan.WARM,
+            DspUpdatePlanner.classify(current, target, true, false, 0, 0, true, studioHotUpdatesEnabled = false),
         )
     }
 

@@ -237,16 +237,33 @@ static dsp_engine *create_test_engine_with_spatial(
         &bypass_harmonic);
 }
 
+static dsp_engine *create_test_engine_with_convolver_and_gain(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const dsp_convolver_config *convolver_config);
+
 static dsp_engine *create_test_engine_with_convolver(
     int sample_rate,
     int channels,
     int max_frames,
     const dsp_convolver_config *convolver_config) {
+    return create_test_engine_with_convolver_and_gain(
+        sample_rate, channels, max_frames, 0.0, convolver_config);
+}
+
+static dsp_engine *create_test_engine_with_convolver_and_gain(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const dsp_convolver_config *convolver_config) {
     return dsp_engine_create(
         sample_rate,
         channels,
         max_frames,
-        0.0,
+        gain_db,
         NULL,
         0,
         &bypass_dynamics,
@@ -2252,6 +2269,38 @@ static void test_convolver_ir_sizes_and_validation(void) {
         "finite but unbounded IR amplitudes are rejected before FFT preparation");
 }
 
+static void test_high_gain_convolver_stays_below_full_scale_with_headroom(void) {
+    const int frame_count = DSP_CONVOLVER_MAX_IR_FRAMES;
+    float *impulse = (float *)malloc((size_t)frame_count * sizeof(float));
+    assert_true(impulse != NULL, "high-gain IR test buffer allocates");
+    for (int frame = 0; frame < frame_count; frame++) impulse[frame] = 1.0f;
+    const dsp_convolver_config config = {
+        1, 48000, 1, frame_count, (size_t)frame_count, 1.0f, impulse,
+    };
+    const double gain_db = -20.0 * log10((double)frame_count) - 1.0;
+    dsp_engine *engine = create_test_engine_with_convolver_and_gain(48000, 1, 256, gain_db, &config);
+    assert_true(engine != NULL, "maximum valid high-gain IR prepares with auto-headroom attenuation");
+
+    float input[256];
+    float output[256];
+    double maximum_absolute_output = 0.0;
+    const int total_frames = frame_count + 512;
+    for (int offset = 0; offset < total_frames; offset += 256) {
+        for (size_t index = 0; index < 256; index++) input[index] = 0.05f;
+        assert_true(
+            dsp_engine_process(engine, input, 256, output, 256, 256, 1) == DSP_STATUS_OK,
+            "attenuated high-gain convolution processes constant PCM");
+        for (size_t index = 0; index < 256; index++) {
+            const double magnitude = fabs((double)output[index]);
+            if (magnitude > maximum_absolute_output) maximum_absolute_output = magnitude;
+        }
+    }
+    assert_true(maximum_absolute_output < 0.05,
+        "convolver output stays below full scale after the full IR history warms");
+    dsp_engine_destroy(engine);
+    free(impulse);
+}
+
 static void test_convolver_sparse_sentinel_taps_reach_their_output_frames(void) {
     const int sizes[] = {4096, 16384, DSP_CONVOLVER_MAX_IR_FRAMES};
     const float tap_values[] = {0.125f, -0.25f, 0.375f, -0.5f, 0.625f, -0.75f, 0.875f};
@@ -2326,6 +2375,205 @@ static dsp_engine *create_studio_test_engine(
         macro,
         loudness,
         dynamic_bass);
+}
+
+static dsp_engine *create_studio_test_engine_with_gain(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const dsp_macro_config *macro,
+    const dsp_smart_loudness_config *loudness,
+    const dsp_dynamic_bass_config *dynamic_bass) {
+    return dsp_engine_create_with_studio(
+        sample_rate,
+        channels,
+        max_frames,
+        gain_db,
+        NULL,
+        0,
+        &bypass_dynamics,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        &bypass_convolver,
+        &bypass_harmonic,
+        macro,
+        loudness,
+        dynamic_bass);
+}
+
+typedef struct {
+    double real;
+    double imaginary;
+} native_test_complex;
+
+static native_test_complex native_test_one_pole_response(double cutoff_hz, double frequency_hz, int sample_rate) {
+    const double pi = 3.14159265358979323846;
+    const double alpha = 1.0 - exp(-2.0 * pi * cutoff_hz / (double)sample_rate);
+    const double pole = 1.0 - alpha;
+    const double omega = 2.0 * pi * frequency_hz / (double)sample_rate;
+    const double denominator_real = 1.0 - pole * cos(omega);
+    const double denominator_imaginary = pole * sin(omega);
+    const double denominator_magnitude_squared =
+        denominator_real * denominator_real + denominator_imaginary * denominator_imaginary;
+    return (native_test_complex) {
+        alpha * denominator_real / denominator_magnitude_squared,
+        -alpha * denominator_imaginary / denominator_magnitude_squared,
+    };
+}
+
+static native_test_complex native_test_complex_add(native_test_complex left, native_test_complex right) {
+    return (native_test_complex) {left.real + right.real, left.imaginary + right.imaginary};
+}
+
+static native_test_complex native_test_complex_subtract(native_test_complex left, native_test_complex right) {
+    return (native_test_complex) {left.real - right.real, left.imaginary - right.imaginary};
+}
+
+static native_test_complex native_test_complex_scale(native_test_complex value, double scale) {
+    return (native_test_complex) {value.real * scale, value.imaginary * scale};
+}
+
+static double native_test_complex_magnitude(native_test_complex value) {
+    return hypot(value.real, value.imaginary);
+}
+
+static double native_test_macro_response(
+    const dsp_macro_config *config,
+    double frequency_hz,
+    int sample_rate) {
+    const native_test_complex unity = {1.0, 0.0};
+    const native_test_complex bass = native_test_one_pole_response(180.0, frequency_hz, sample_rate);
+    const native_test_complex vocal_low = native_test_one_pole_response(500.0, frequency_hz, sample_rate);
+    const native_test_complex vocal_high = native_test_one_pole_response(4000.0, frequency_hz, sample_rate);
+    const native_test_complex air = native_test_one_pole_response(8000.0, frequency_hz, sample_rate);
+    native_test_complex response = unity;
+    response = native_test_complex_add(response, native_test_complex_scale(
+        bass, pow(10.0, config->bass_gain_db / 20.0) - 1.0));
+    response = native_test_complex_add(response, native_test_complex_scale(
+        native_test_complex_subtract(vocal_high, vocal_low), pow(10.0, config->vocal_gain_db / 20.0) - 1.0));
+    response = native_test_complex_add(response, native_test_complex_scale(
+        native_test_complex_subtract(unity, air), pow(10.0, config->air_gain_db / 20.0) - 1.0));
+    return native_test_complex_magnitude(response);
+}
+
+static double native_test_loudness_response(
+    const dsp_smart_loudness_config *config,
+    double frequency_hz,
+    int sample_rate) {
+    const native_test_complex unity = {1.0, 0.0};
+    const native_test_complex low = native_test_one_pole_response(100.0, frequency_hz, sample_rate);
+    const native_test_complex high = native_test_one_pole_response(8000.0, frequency_hz, sample_rate);
+    native_test_complex response = unity;
+    response = native_test_complex_add(response, native_test_complex_scale(
+        low, pow(10.0, config->low_gain_db / 20.0) - 1.0));
+    response = native_test_complex_add(response, native_test_complex_scale(
+        native_test_complex_subtract(unity, high), pow(10.0, config->high_gain_db / 20.0) - 1.0));
+    return native_test_complex_magnitude(response);
+}
+
+static void test_studio_native_macro_and_loudness_frequency_response(void) {
+    const dsp_macro_config macro = {1, 3.0, 1.5, 1.0, 1.0};
+    const dsp_macro_config neutral_macro = {1, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {1, 2.5, 1.0};
+    const dsp_smart_loudness_config neutral_loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {
+        0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0,
+    };
+    const double frequencies[] = {40.0, 1000.0, 10000.0};
+    for (size_t index = 0; index < sizeof(frequencies) / sizeof(frequencies[0]); index++) {
+        const double frequency_hz = frequencies[index];
+        dsp_engine *macro_engine = create_studio_test_engine(
+            48000, 2, 512, &macro, &neutral_loudness, &dynamic_bass);
+        assert_true(macro_engine != NULL, "macro frequency-response engine creates");
+        assert_near(
+            measure_sine_gain(macro_engine, frequency_hz, 2),
+            native_test_macro_response(&macro, frequency_hz, 48000),
+            0.01,
+            "native macro sine response matches its first-order transfer model");
+        dsp_engine_destroy(macro_engine);
+
+        dsp_engine *loudness_engine = create_studio_test_engine(
+            48000, 2, 512, &neutral_macro, &loudness, &dynamic_bass);
+        assert_true(loudness_engine != NULL, "Smart Loudness frequency-response engine creates");
+        assert_near(
+            measure_sine_gain(loudness_engine, frequency_hz, 2),
+            native_test_loudness_response(&loudness, frequency_hz, 48000),
+            0.01,
+            "native Smart Loudness sine response matches its first-order transfer model");
+        dsp_engine_destroy(loudness_engine);
+    }
+}
+
+static void test_studio_hot_refund_waits_for_stage_gain_release(void) {
+    const dsp_macro_config initial_macro = {1, 4.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config initial_loudness = {1, 3.0, 0.0};
+    const dsp_dynamic_bass_config initial_dynamic_bass = {
+        1, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 1000.0,
+    };
+    dsp_engine *engine = create_studio_test_engine_with_gain(
+        48000, 2, 512, -12.0, &initial_macro, &initial_loudness, &initial_dynamic_bass);
+    assert_true(engine != NULL, "headroom refund test creates a studio engine");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "headroom refund test binds a MEDIA owner context");
+
+    float output[1024];
+    for (size_t block = 0; block < 180; block++) {
+        float quiet_input[1024];
+        for (size_t frame = 0; frame < 512; frame++) {
+            const float sample = (float)(0.001 * sin(2.0 * 3.14159265358979323846 * 40.0 *
+                (double)(block * 512u + frame) / 48000.0));
+            quiet_input[frame * 2] = sample;
+            quiet_input[frame * 2 + 1] = sample;
+        }
+        assert_true(dsp_engine_process(engine, quiet_input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "quiet low-frequency blocks raise Dynamic Bass toward its boost ceiling");
+    }
+
+    const dsp_engine_hot_update disable_update = {
+        .generation_token = 42,
+        .generation = 42,
+        .editor_owner_epoch = 7,
+        .renderer_owner_token = 9,
+        .pcm_format_epoch = 3,
+        .hot_context_token = 1,
+        .media_role = 1,
+        .gain_db = 0.0,
+        .macro = {0, 0.0, 0.0, 0.0, 1.0},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 1000.0},
+    };
+    assert_true(dsp_engine_enqueue_hot_update(engine, &disable_update),
+        "headroom refund test queues module disable");
+
+    double maximum_absolute_output = 0.0;
+    size_t absolute_frame = 180u * 512u;
+    for (size_t block = 0; block < 140; block++) {
+        float full_scale_input[1024];
+        for (size_t frame = 0; frame < 512; frame++) {
+            const float sample = (float)sin(2.0 * 3.14159265358979323846 * 40.0 *
+                (double)(absolute_frame + frame) / 48000.0);
+            full_scale_input[frame * 2] = sample;
+            full_scale_input[frame * 2 + 1] = sample;
+        }
+        assert_true(dsp_engine_process(engine, full_scale_input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "full-scale low-frequency blocks process while old stage gains release");
+        for (size_t sample = 0; sample < 1024; sample++) {
+            const double absolute_output = fabs((double)output[sample]);
+            if (absolute_output > maximum_absolute_output) maximum_absolute_output = absolute_output;
+        }
+        absolute_frame += 512;
+    }
+    assert_true(maximum_absolute_output <= 1.001,
+        "preamp refund waits for Macro, Loudness, and Dynamic Bass to leave their old boost envelope");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 42,
+        "headroom refund HOT update is acknowledged after its first processed block");
+    dsp_engine_destroy(engine);
 }
 
 static void test_local_peq_warm_preserves_downstream_state_and_latency(void) {
@@ -2513,6 +2761,68 @@ static void test_local_peq_candidate_catches_up_or_rejects_stale_history(void) {
         "candidate older than the catch-up cap is rejected");
     assert_true(dsp_engine_get_local_peq_ack_token(engine) != stale.generation_token,
         "stale candidate never receives an ACK");
+    dsp_engine_destroy(engine);
+}
+
+static void test_rejected_local_peq_generation_retries_with_fresh_history(void) {
+    enum { HISTORY_FRAMES = 4096, MAX_FRAMES = 1024, STALE_FRAMES = 513 };
+    double identity[DSP_BIQUAD_COEFFICIENT_COUNT] = {1.0, 0.0, 0.0, 0.0, 0.0};
+    double target_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_test_peak_coefficients(48000.0, 1200.0, 6.0, 1.0, target_coefficients);
+    float input[MAX_FRAMES * 2];
+    float output[MAX_FRAMES * 2] = {0.0f};
+    dsp_engine *engine = create_test_engine(48000, 2, MAX_FRAMES, 0.0, identity, 1);
+    assert_true(engine != NULL, "local PEQ same-generation retry graph creates");
+    for (size_t frame = 0; frame < MAX_FRAMES; frame++) {
+        const float sample = 0.15f * sinf((float)(2.0 * acos(-1.0) * 1200.0 * (double)frame / 48000.0));
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = -0.7f * sample;
+    }
+    for (size_t processed = 0; processed < HISTORY_FRAMES; processed += MAX_FRAMES) {
+        assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+                MAX_FRAMES * 2, MAX_FRAMES, 2) == DSP_STATUS_OK,
+            "local PEQ same-generation retry history processes");
+    }
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "local PEQ same-generation retry owner binds");
+
+    double stale_values[DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0.0};
+    unsigned long long stale_epoch = 0;
+    unsigned long long stale_end = 0;
+    assert_true(dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, stale_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &stale_epoch, &stale_end),
+        "first local PEQ candidate prepares");
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, STALE_FRAMES, 2) == DSP_STATUS_OK,
+        "first local PEQ candidate ages beyond the render-thread catch-up bound");
+    dsp_engine_local_peq_update stale = local_peq_update_from_prepared_values(
+        52, 7, 9, 3, 1, stale_epoch, stale_end, 1, stale_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &stale) == DSP_STATUS_OK,
+        "aged local PEQ candidate enters the native queue");
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, 1, 2) == DSP_STATUS_OK,
+        "render thread rejects an over-age local PEQ candidate");
+    assert_true(dsp_engine_get_local_peq_rejected_token(engine) == stale.generation_token,
+        "over-age candidate publishes a retryable rejection token");
+
+    double fresh_values[DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0.0};
+    unsigned long long fresh_epoch = 0;
+    unsigned long long fresh_end = 0;
+    assert_true(dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, fresh_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &fresh_epoch, &fresh_end),
+        "fresh local PEQ candidate prepares for the same config generation");
+    assert_true(fresh_end > stale_end, "retry candidate uses a newer pre-PEQ history snapshot");
+    dsp_engine_local_peq_update retry = local_peq_update_from_prepared_values(
+        52, 7, 9, 3, 1, fresh_epoch, fresh_end, 1, fresh_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &retry) == DSP_STATUS_OK,
+        "same config generation can be retried after render-thread rejection");
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, MAX_FRAMES, 2) == DSP_STATUS_OK,
+        "fresh local PEQ retry transitions without blocking the render thread");
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) == retry.generation_token,
+        "same-generation fresh candidate receives an active acknowledgment");
     dsp_engine_destroy(engine);
 }
 
@@ -3130,10 +3440,48 @@ static void test_dynamic_bass_graph_detector_uses_raw_input(void) {
             break;
         }
     }
-    assert_true(output_changed, "upstream compressor and IR still change the audio output");
+    assert_true(output_changed, "downstream compressor and IR still change the audio output");
 
     dsp_graph_close(&processed_graph);
     dsp_graph_close(&unprocessed_graph);
+}
+
+static void test_dynamic_bass_precedes_compressor_processing(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamics_config compressor = {1, -40.0, 10.0, 1.0, 100.0, 0.0, 0.0, 0, -1.0, 60.0};
+    dsp_dynamic_bass_config enabled_bass = dynamic_bass_test_config;
+    dsp_dynamic_bass_config disabled_bass = dynamic_bass_test_config;
+    disabled_bass.enabled = 0;
+    enum { FRAME_COUNT = 4096 };
+    float input[FRAME_COUNT];
+    float enabled_output[FRAME_COUNT] = {0.0f};
+    float disabled_output[FRAME_COUNT] = {0.0f};
+    for (int frame = 0; frame < FRAME_COUNT; frame++) {
+        input[frame] = 0.05f * sinf(2.0f * 3.14159265358979323846f * 80.0f * (float)frame / 48000.0f);
+    }
+    dsp_graph enabled_graph = {0};
+    dsp_graph disabled_graph = {0};
+    assert_true(dsp_graph_prepare(
+            &enabled_graph, 48000, 1, 0.0, NULL, 0, &compressor, &bypass_multiband,
+            &bypass_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver,
+            &bypass_harmonic, &macro, &loudness, &enabled_bass),
+        "Dynamic Bass and compressor graph prepares");
+    assert_true(dsp_graph_prepare(
+            &disabled_graph, 48000, 1, 0.0, NULL, 0, &compressor, &bypass_multiband,
+            &bypass_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver,
+            &bypass_harmonic, &macro, &loudness, &disabled_bass),
+        "compressor-only comparison graph prepares");
+
+    uint64_t non_finite = 0;
+    dsp_graph_process(&enabled_graph, input, enabled_output, FRAME_COUNT, 1, &non_finite, NULL);
+    dsp_graph_process(&disabled_graph, input, disabled_output, FRAME_COUNT, 1, &non_finite, NULL);
+
+    assert_true(enabled_graph.dynamic_bass.current_gain > 1.0, "Dynamic Bass increases the low-frequency stage signal");
+    assert_true(enabled_graph.dynamics.compressor_envelope > disabled_graph.dynamics.compressor_envelope,
+        "compressor detector follows the pre-compressor Dynamic Bass output");
+    dsp_graph_close(&enabled_graph);
+    dsp_graph_close(&disabled_graph);
 }
 
 static void test_dynamic_bass_graph_is_block_boundary_invariant(void) {
@@ -3204,7 +3552,10 @@ int main(void) {
     test_convolver_impulse_direct_convolution_and_latency();
     test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass();
     test_convolver_ir_sizes_and_validation();
+    test_high_gain_convolver_stays_below_full_scale_with_headroom();
     test_convolver_sparse_sentinel_taps_reach_their_output_frames();
+    test_studio_native_macro_and_loudness_frequency_response();
+    test_studio_hot_refund_waits_for_stage_gain_release();
     test_studio_neutral_macro_preserves_exact_samples();
     test_studio_hot_command_is_acknowledged_after_its_block();
     test_studio_hot_update_rejects_invalid_module_configs_atomically();
@@ -3216,9 +3567,11 @@ int main(void) {
     test_dynamic_bass_attack_release_and_linked_detection();
     test_dynamic_bass_stereo_link_preserves_channel_ratio();
     test_dynamic_bass_graph_detector_uses_raw_input();
+    test_dynamic_bass_precedes_compressor_processing();
     test_dynamic_bass_graph_is_block_boundary_invariant();
     test_local_peq_warm_preserves_downstream_state_and_latency();
     test_local_peq_candidate_catches_up_or_rejects_stale_history();
+    test_rejected_local_peq_generation_retries_with_fresh_history();
     test_local_peq_cancel_fades_back_smoothly_at_early_middle_and_late_points();
     test_local_peq_rollout_cancel_stops_queued_and_active_transitions();
     test_local_peq_candidate_history_and_owner_fences();

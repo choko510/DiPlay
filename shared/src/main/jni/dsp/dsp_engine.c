@@ -300,7 +300,10 @@ int dsp_engine_enqueue_local_peq_update(dsp_engine *engine, const dsp_engine_loc
         update->editor_owner_epoch != atomic_load_explicit(&engine->hot_editor_owner_epoch, memory_order_acquire) ||
         update->renderer_owner_token != atomic_load_explicit(&engine->hot_renderer_owner_token, memory_order_acquire) ||
         update->pcm_format_epoch != atomic_load_explicit(&engine->hot_pcm_format_epoch, memory_order_acquire) ||
-        update->generation <= atomic_load_explicit(&engine->local_peq_last_generation, memory_order_acquire) ||
+        update->generation < atomic_load_explicit(&engine->local_peq_last_generation, memory_order_acquire) ||
+        (update->generation == atomic_load_explicit(&engine->local_peq_last_generation, memory_order_acquire) &&
+            update->generation_token != atomic_load_explicit(
+                &engine->local_peq_rejected_token, memory_order_acquire)) ||
         update->history_epoch_sequence != atomic_load_explicit(
             &engine->graph.peq_history.reset_sequence, memory_order_acquire)) return DSP_STATUS_STALE_UPDATE;
 

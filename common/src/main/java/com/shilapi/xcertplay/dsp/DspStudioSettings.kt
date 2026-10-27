@@ -120,7 +120,7 @@ data class DspStudioWorkspace(
     companion object {
         private val PROFILE_ID_PATTERN = Regex("^[A-Za-z0-9_-]{1,64}$")
         private val PRESET_ID_PATTERN = Regex("^[A-Za-z0-9_-]{1,64}$")
-        private val MODULE_KEYS = setOf(
+        internal val MODULE_KEYS = listOf(
             "peq", "bass", "seat", "advanced_ms", "compressor", "multiband", "dynamic_eq",
             "harmonic", "limiter", "convolver", "cabin", "smart_loudness", "dynamic_bass", "macros",
         )
@@ -146,6 +146,16 @@ internal data class DspStudioFeatureFlags(
     val localWarmEnabled: Boolean = false,
     val irWarmBudgetEnabled: Boolean = false,
 ) {
+    fun disableEnhancedDsp(): DspStudioFeatureFlags = copy(
+        workspaceUiEnabled = false,
+        macroOverlayEnabled = false,
+        smartLoudnessEnabled = false,
+        dynamicBassEnabled = false,
+        nativeHotUpdatesEnabled = false,
+        localWarmEnabled = false,
+        irWarmBudgetEnabled = false,
+    )
+
     fun isEnabled(feature: DspStudioFeature): Boolean = when (feature) {
         DspStudioFeature.WORKSPACE_UI -> workspaceUiEnabled
         DspStudioFeature.MACRO_OVERLAY -> macroOverlayEnabled

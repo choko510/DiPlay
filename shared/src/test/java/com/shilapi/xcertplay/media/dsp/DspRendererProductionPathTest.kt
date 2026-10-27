@@ -645,6 +645,80 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun replacedRendererCloseCannotRegressNewOwnerActiveStatus() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val oldProcessorRef = AtomicReference<HotProcessor?>()
+        val oldRenderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initial,
+            provider = provider,
+            rendererOwnerToken = 100L,
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).also(oldProcessorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        var newRenderer: AudioRenderer? = null
+        try {
+            oldRenderer.prepareLpcmPipelineForTesting()
+            oldRenderer.beginTrackGenerationForTesting()
+            oldRenderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 300),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+            oldProcessorRef.get()?.suppressAcknowledgement = true
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    macroTone = DspMacroToneConfig(enabled = true, bassGainDb = 1.0),
+                ),
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            oldRenderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 400),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 200L,
+            )
+            assertTrue(oldRenderer.hasPendingHotApplyForTesting)
+
+            val replacement = renderer(
+                format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+                initialConfig = provider.snapshot(),
+                provider = provider,
+                rendererOwnerToken = 101L,
+                pipelinePreparer = { audioFormat, _ -> pipeline(audioFormat, latencyFrames = 0, gain = 1.0f) },
+            )
+            newRenderer = replacement
+            replacement.prepareLpcmPipelineForTesting()
+            assertEquals(DspRendererApplyPhase.ACTIVE, provider.rendererApplyStatus()?.phase)
+            assertEquals(101L, provider.rendererApplyStatus()?.rendererOwnerToken)
+
+            oldRenderer.close()
+
+            assertFalse(oldRenderer.hasPendingHotApplyForTesting)
+            assertEquals(
+                DspRendererApplyStatus(
+                    1L,
+                    DspRendererApplyPhase.ACTIVE,
+                    activeGeneration = 1L,
+                    rendererOwnerToken = 101L,
+                ),
+                provider.rendererApplyStatus(),
+            )
+        } finally {
+            oldRenderer.releaseForTesting()
+            newRenderer?.releaseForTesting()
+        }
+    }
+
+    @Test
     fun rendererCloseWinsWhenAckHasReadPendingHotGeneration() {
         val initial = DspRuntimeConfig(enabled = true)
         val provider = MutableConfigProvider(initial)
@@ -1569,11 +1643,160 @@ class DspRendererProductionPathTest {
                 pcm16(frames = 64, channels = 1, sample = 700), 0, 128,
                 AndroidAudioFormat.ENCODING_PCM_16BIT, 30L,
             )
+            val retryDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            var retrySample = 800
+            while (renderer.dspGenerationForTesting != 2L && System.nanoTime() < retryDeadline) {
+                renderer.processDecodedPcmForTesting(
+                    pcm16(frames = 64, channels = 1, sample = retrySample++), 0, 128,
+                    AndroidAudioFormat.ENCODING_PCM_16BIT, retrySample.toLong(),
+                )
+                Thread.sleep(5)
+            }
 
             assertEquals(listOf(1L, 2L), processor.localPeqWarmEnqueuedGenerations.toList())
             assertEquals(2L, renderer.dspGenerationForTesting)
             assertFalse(renderer.hasPendingHotApplyForTesting)
             awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation = 2L)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun rejectedPeqWarmRetriesAreBoundedAndReportDeferred() {
+        val initialConfig = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
+        val provider = MutableConfigProvider(initialConfig, localWarmEnabled = true)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).also(processorRef::set)
+                    .let { DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false) }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 500), 0, 128,
+                AndroidAudioFormat.ENCODING_PCM_16BIT, 10L,
+            )
+            val processor = checkNotNull(processorRef.get())
+            processor.rejectLocalPeqWarmTransitionCount = 3
+
+            provider.update(initialConfig.withPeqBandsForTest(listOf(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 3.0))))
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+
+            repeat(3) { attempt ->
+                renderer.processDecodedPcmForTesting(
+                    pcm16(frames = 64, channels = 1, sample = 600 + attempt), 0, 128,
+                    AndroidAudioFormat.ENCODING_PCM_16BIT, (20L + attempt),
+                )
+                if (attempt < 2) assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            }
+
+            awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+            assertEquals(listOf(1L, 1L, 1L), processor.localPeqWarmEnqueuedGenerations.toList())
+            assertEquals(listOf(1L, 2L, 3L), processor.localPeqWarmPreparedHistoryEnds.toList())
+            assertEquals(0L, renderer.dspGenerationForTesting)
+            assertEquals(1L, renderer.deferredDspGenerationForTesting)
+            assertEquals(
+                "native renderer rejected the PEQ warm transition after 2 retries; keeping the active pipeline until the next AudioTrack generation",
+                provider.rendererApplyStatus()?.reason,
+            )
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun acknowledgedPeqGenerationRepreparesOverlappingMacroChangeFromActiveState() {
+        val impulseResponse = DspImpulseResponse("peq_macro_overlap", 48_000, 1, floatArrayOf(1.0f))
+        fun config(
+            peq: DspEqBand,
+            macro: DspMacroToneConfig = DspMacroToneConfig(),
+        ) = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            compressor = DspCompressorConfig(enabled = true, thresholdDb = -30.0),
+            convolver = DspConvolverConfig(
+                enabled = true,
+                impulseResponseId = impulseResponse.id,
+                impulseResponse = impulseResponse,
+            ),
+            peqBands = listOf(peq),
+            macroTone = macro,
+        )
+        val initialConfig = config(DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 1.0))
+        val provider = MutableConfigProvider(initialConfig, localWarmEnabled = true)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val processorRef = AtomicReference<HotProcessor?>()
+        val pipelinePreparations = AtomicInteger()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, _ ->
+                pipelinePreparations.incrementAndGet()
+                HotProcessor(audioFormat).also(processorRef::set)
+                    .let { DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false) }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 500), 0, 128,
+                AndroidAudioFormat.ENCODING_PCM_16BIT, 10L,
+            )
+            val processor = checkNotNull(processorRef.get())
+            processor.suppressLocalPeqWarmAcknowledgement = true
+
+            provider.update(config(DspEqBand(DspEqType.PEAK, 1_200.0, gainDb = 3.0)))
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 600), 0, 128,
+                AndroidAudioFormat.ENCODING_PCM_16BIT, 20L,
+            )
+            assertTrue(renderer.hasPendingHotApplyForTesting)
+
+            provider.update(
+                config(
+                    DspEqBand(DspEqType.PEAK, 1_200.0, gainDb = 3.0),
+                    DspMacroToneConfig(enabled = true, bassGainDb = 1.0),
+                ),
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 2L)
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 700), 0, 128,
+                AndroidAudioFormat.ENCODING_PCM_16BIT, 30L,
+            )
+            assertEquals(DspRendererApplyPhase.DEFERRED, provider.rendererApplyStatus()?.phase)
+
+            processor.suppressLocalPeqWarmAcknowledgement = false
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 800), 0, 128,
+                AndroidAudioFormat.ENCODING_PCM_16BIT, 40L,
+            )
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 900), 0, 128,
+                AndroidAudioFormat.ENCODING_PCM_16BIT, 50L,
+            )
+
+            assertEquals(2L, renderer.dspGenerationForTesting)
+            assertEquals(1, processor.hotUpdateEnqueueAttempts)
+            assertEquals(2, pipelinePreparations.get())
+            assertEquals(DspRendererApplyPhase.ACTIVE, provider.rendererApplyStatus()?.phase)
+            assertEquals(2L, provider.rendererApplyStatus()?.activeGeneration)
         } finally {
             renderer.releaseForTesting()
         }
@@ -1924,7 +2147,12 @@ class DspRendererProductionPathTest {
             assertTrue(renderer.effectiveConvolverEnabledForTesting)
             assertNull(renderer.deferredDspGenerationForTesting)
             assertEquals(
-                DspRendererApplyStatus(1L, DspRendererApplyPhase.ACTIVE, activeGeneration = 1L),
+                DspRendererApplyStatus(
+                    1L,
+                    DspRendererApplyPhase.ACTIVE,
+                    activeGeneration = 1L,
+                    rendererOwnerToken = 1L,
+                ),
                 provider.rendererApplyStatus(),
             )
         } finally {
@@ -2015,7 +2243,12 @@ class DspRendererProductionPathTest {
 
             assertEquals(0L, renderer.dspGenerationForTesting)
             assertEquals(
-                DspRendererApplyStatus(1L, DspRendererApplyPhase.FAILED, activeGeneration = 0L),
+                DspRendererApplyStatus(
+                    1L,
+                    DspRendererApplyPhase.FAILED,
+                    activeGeneration = 0L,
+                    rendererOwnerToken = 1L,
+                ),
                 provider.rendererApplyStatus(),
             )
         } finally {
@@ -2186,6 +2419,7 @@ class DspRendererProductionPathTest {
         beforeDspUpdatePublish: () -> Unit = {},
         afterDspUpdateOwnerCheck: () -> Unit = {},
         onPrepared: () -> Unit = {},
+        rendererOwnerToken: Long = 1L,
         pipelinePreparer: DspPipelinePreparer,
     ): AudioRenderer {
         val classification = AudioStreamClassifier.classify(
@@ -2209,6 +2443,7 @@ class DspRendererProductionPathTest {
             audioTrackWriteAdapterForTest = writeAdapter,
             beforeDspUpdatePublishForTest = beforeDspUpdatePublish,
             onDspUpdatePreparedForTest = onPrepared,
+            rendererOwnerToken = rendererOwnerToken,
         )
         renderer.afterDspUpdateOwnerCheckForTest = afterDspUpdateOwnerCheck
         return renderer
@@ -2400,8 +2635,10 @@ class DspRendererProductionPathTest {
         var rejectNextHotUpdate = false
         var hotUpdateEnqueueAttempts = 0
         var localPeqWarmEnqueueAttempts = 0
+        var rejectLocalPeqWarmTransitionCount = 0
         var suppressLocalPeqWarmAcknowledgement = false
         val localPeqWarmEnqueuedGenerations = CopyOnWriteArrayList<Long>()
+        val localPeqWarmPreparedHistoryEnds = CopyOnWriteArrayList<Long>()
         val localPeqWarmCancelledGenerations = CopyOnWriteArrayList<Long>()
         var suppressAcknowledgement = false
         private var hotContextToken = 0
@@ -2410,6 +2647,7 @@ class DspRendererProductionPathTest {
         private var queuedLocalPeqToken = 0
         private var acknowledgedLocalPeqToken = 0
         private var rejectedLocalPeqToken = 0
+        private var localPeqHistoryEndSequence = 0L
         override fun process(input: ByteBuffer, output: ByteBuffer, frames: Int): DspProcessResult {
             if (failProcessing.get()) {
                 return result.failure(frames, latencyFrames, DspBypassReason.NATIVE_FAILURE, errorCode = 1)
@@ -2421,7 +2659,12 @@ class DspRendererProductionPathTest {
             input.position(start + frames * format.channels * Float.SIZE_BYTES)
             if (!suppressAcknowledgement) acknowledgedGenerationToken = queuedGenerationToken
             if (!suppressLocalPeqWarmAcknowledgement && queuedLocalPeqToken != 0) {
-                acknowledgedLocalPeqToken = queuedLocalPeqToken
+                if (rejectLocalPeqWarmTransitionCount > 0) {
+                    rejectLocalPeqWarmTransitionCount--
+                    rejectedLocalPeqToken = queuedLocalPeqToken
+                } else {
+                    acknowledgedLocalPeqToken = queuedLocalPeqToken
+                }
                 queuedLocalPeqToken = 0
             }
             return result.success(frames, latencyFrames)
@@ -2453,6 +2696,8 @@ class DspRendererProductionPathTest {
             val bandCount = coefficients.size / 5
             val valuesPerBand = DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND
             val preparedValues = DoubleArray(bandCount * valuesPerBand)
+            val historyEndSequence = ++localPeqHistoryEndSequence
+            localPeqWarmPreparedHistoryEnds.add(historyEndSequence)
             repeat(bandCount) { band ->
                 coefficients.copyInto(
                     preparedValues,
@@ -2470,7 +2715,7 @@ class DspRendererProductionPathTest {
                 mediaRole = mediaRole,
                 bandCount = bandCount,
                 historyEpochSequence = 0L,
-                historyEndSequence = 0L,
+                historyEndSequence = historyEndSequence,
                 preparedValues = preparedValues,
             )
         }
@@ -2482,6 +2727,7 @@ class DspRendererProductionPathTest {
                 return 7
             }
             localPeqWarmEnqueuedGenerations.add(update.generation)
+            rejectedLocalPeqToken = 0
             queuedLocalPeqToken = update.generationToken
             return 0
         }
@@ -2528,6 +2774,7 @@ class DspRendererProductionPathTest {
     ) : DspConfigProvider {
         private val current = AtomicReference(DspConfigSnapshot(0L, initial))
         private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
+        private val applyStatusOwner = AtomicReference<Long?>(null)
         private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
         private val hotUpdatesEnabled = AtomicBoolean(true)
         private val localWarmUpdatesEnabled = AtomicBoolean(localWarmEnabled)
@@ -2542,8 +2789,12 @@ class DspRendererProductionPathTest {
 
         override fun rendererApplyStatus(): DspRendererApplyStatus? = applyStatus.get()
 
+        override fun claimRendererApplyStatusOwner(ownerToken: Long) {
+            applyStatusOwner.set(ownerToken)
+        }
+
         override fun reportRendererApplyStatus(status: DspRendererApplyStatus) {
-            if (current.get().generation != status.generation) return
+            if (current.get().generation != status.generation || applyStatusOwner.get() != status.rendererOwnerToken) return
             while (true) {
                 val previous = applyStatus.get()
                 if (previous?.generation == status.generation && !canAdvance(previous.phase, status.phase)) return
@@ -2563,7 +2814,14 @@ class DspRendererProductionPathTest {
             val activeGeneration = previous?.activeGeneration ?: previous?.generation?.takeIf {
                 previous.phase == DspRendererApplyPhase.ACTIVE
             }
-            applyStatus.set(DspRendererApplyStatus(next.generation, DspRendererApplyPhase.REQUESTED, activeGeneration))
+            applyStatus.set(
+                DspRendererApplyStatus(
+                    next.generation,
+                    DspRendererApplyPhase.REQUESTED,
+                    activeGeneration,
+                    rendererOwnerToken = applyStatusOwner.get(),
+                ),
+            )
             listeners.forEach { it(next) }
         }
 

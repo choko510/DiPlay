@@ -1,11 +1,16 @@
 package com.shilapi.xcertplay
 
+import android.content.res.Configuration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -28,8 +33,10 @@ import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -56,6 +63,7 @@ class DspSettingsScreenTest {
         )
         try {
             restoreCommittedWorkspace(runtime)
+            val studioSession = runtime.createStudioSessionCoordinator()
             val initialConfig = runtime.configProvider.snapshot()
             val expectedMacroPowerEnabled = !initialConfig.macroTone.enabled
             val presentation = mutableStateOf(DspPresentationMode.COMPACT_SPLIT)
@@ -70,7 +78,7 @@ class DspSettingsScreenTest {
                 }
             }
 
-            val deferredReason = "stage-local warm-up is unavailable; keeping the active pipeline until the next AudioTrack generation"
+            val deferredReason = "PEQ local warm-up is disabled; keeping the active pipeline until the next AudioTrack generation"
             val configStore = runtime.configProvider as DspRuntimeConfigStore
             val generation = runtime.configProvider.versionedSnapshot().generation
             configStore.reportRendererApplyStatus(
@@ -88,10 +96,35 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithContentDescription("Dynamics").performScrollTo().performClick()
             composeRule.onNodeWithContentDescription("Dynamics, selected").assertExists()
             composeRule.onNodeWithText("Dynamic Bass").assertExists()
+            val thresholdBeforeDrag = studioSession.preview.baseProfileSnapshot.compressor.thresholdDb
+            val thresholdAfterDrag = if (thresholdBeforeDrag < -20.0) -10.0f else -50.0f
+            composeRule.onNodeWithContentDescription("Compressor threshold")
+                .performScrollTo()
+                .performSemanticsAction(SemanticsActions.SetProgress) { setProgress -> setProgress(thresholdAfterDrag) }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                kotlin.math.abs(
+                    runtime.editorSession.draftProfile.compressor.thresholdDb - thresholdAfterDrag.toDouble(),
+                ) < 0.05
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                kotlin.math.abs(
+                    studioSession.preview.baseProfileSnapshot.compressor.thresholdDb - thresholdAfterDrag.toDouble(),
+                ) < 0.05
+            }
             composeRule.onNodeWithContentDescription("Advanced").performScrollTo().performClick()
             composeRule.onNodeWithContentDescription("Advanced, selected").assertExists()
             composeRule.onNodeWithContentDescription("Studio").performClick()
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
+            composeRule.onNodeWithContentDescription("Level match").assertIsNotEnabled()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_renderer_apply_waiting)).assertExists()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText("Undo").performScrollTo().assertIsEnabled().performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                studioSession.preview.baseProfileSnapshot.compressor.thresholdDb == thresholdBeforeDrag
+            }
+            assertFalse(studioSession.canUndo)
             composeRule.onNodeWithText("Bass Impact").assertExists()
             composeRule.onNodeWithContentDescription("Macro Power").performClick()
             assertMacroPowerEnabled(expectedMacroPowerEnabled)
@@ -171,6 +204,62 @@ class DspSettingsScreenTest {
     }
 
     @Test
+    fun eqFilterTypeChooserShowsLocalizedLabels() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val japaneseConfiguration = Configuration(context.resources.configuration).apply {
+            setLocale(Locale.JAPANESE)
+        }
+        val japaneseContext = context.createConfigurationContext(japaneseConfiguration)
+        val filesDirectory = File(context.cacheDir, "dsp-eq-filter-localization-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            composeRule.setContent {
+                CompositionLocalProvider(
+                    LocalConfiguration provides japaneseConfiguration,
+                    LocalResources provides japaneseContext.resources,
+                ) {
+                    MaterialTheme {
+                        DspSettingsScreen(
+                            runtime = runtime,
+                            presentation = DspPresentationMode.COMPACT_SPLIT,
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+
+            composeRule.onNodeWithContentDescription(japaneseContext.getString(R.string.dsp_studio_tab_eq))
+                .performScrollTo()
+                .performClick()
+            val filterTypeButton = japaneseContext.getString(
+                R.string.dsp_eq_filter_type_summary,
+                japaneseContext.getString(R.string.dsp_eq_filter_peak),
+            )
+            composeRule.onAllNodesWithText(filterTypeButton)[0].performScrollTo().performClick()
+            composeRule.onNodeWithText(japaneseContext.getString(R.string.dsp_eq_filter_low_shelf)).assertIsDisplayed()
+            assertTrue(composeRule.onAllNodesWithText("LOW_SHELF").fetchSemanticsNodes().isEmpty())
+        } finally {
+            try {
+                restoreCommittedWorkspace(runtime)
+            } finally {
+                runtime.closeForTesting()
+                preferences.edit().clear().commit()
+                filesDirectory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
     fun moduleFactoryResetChangesOnlyTheSelectedModuleDraft() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val filesDirectory = File(context.cacheDir, "dsp-module-factory-reset-test").apply {
@@ -205,9 +294,6 @@ class DspSettingsScreenTest {
 
             composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
             composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
-            }
             composeRule.onNodeWithText("Factory reset module").performScrollTo().performClick()
             composeRule.onNodeWithText("Reset module").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
@@ -381,7 +467,8 @@ class DspSettingsScreenTest {
             }
             assertEquals(DspStudioComparisonSide.A, studioSession.comparisonSide)
 
-            composeRule.onNodeWithText("Delete user preset").performScrollTo().performClick()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_module_preset_delete_action))
+                .performScrollTo().performClick()
             composeRule.onNodeWithText("Delete").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 "bass" !in studioSession.preview.selectedModulePresetIds
@@ -390,7 +477,7 @@ class DspSettingsScreenTest {
                 runtime.selectedProfile().bass.gainDb == beforeDelete.baseProfileSnapshot.bass.gainDb
             }
             composeRule.waitUntil(timeoutMillis = 5_000) {
-                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
+                composeRule.onAllNodesWithText("Custom values · not saved").fetchSemanticsNodes().isNotEmpty()
             }
 
             assertEquals(DspStudioComparisonSide.DRAFT, studioSession.comparisonSide)

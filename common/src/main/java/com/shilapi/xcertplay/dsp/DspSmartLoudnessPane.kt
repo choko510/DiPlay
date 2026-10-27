@@ -17,6 +17,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.shilapi.xcertplay.host.R
 import java.util.Locale
 
 /** Reusable Smart Loudness editor; the host owns persistence and volume polling. */
@@ -25,6 +27,7 @@ fun DspSmartLoudnessPane(
     settings: DspSmartLoudnessSettings,
     volumeReading: DspVolumeReading,
     onSettingsChange: (DspSmartLoudnessSettings) -> Unit,
+    onSettingsChangeFinished: () -> Unit = {},
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     onCaptureQuietPoint: (() -> Unit)? = null,
@@ -50,73 +53,89 @@ fun DspSmartLoudnessPane(
         DspSmartLoudnessMode.OFF -> 0.0
         else -> level?.let { loudnessCompensation(it, settings.quietListeningLevel, settings.referenceListeningLevel, settings.maxHighBoostDb, settings.strength) } ?: 0.0
     }
+    val switchStateDescription = when {
+        settings.mode == DspSmartLoudnessMode.OFF -> stringResource(R.string.dsp_off)
+        settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED && !autoAvailable ->
+            stringResource(R.string.dsp_smart_loudness_unavailable_state)
+        else -> stringResource(R.string.dsp_smart_loudness_on_state, stringResource(settings.mode.accessibilityLabelResource()))
+    }
+    val switchDescription = stringResource(R.string.dsp_smart_loudness_switch)
+    val status = when {
+        settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED && !autoAvailable -> R.string.dsp_smart_status_auto_unavailable
+        settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED -> R.string.dsp_smart_status_auto_calibrated
+        settings.mode == DspSmartLoudnessMode.MANUAL_ESTIMATE -> R.string.dsp_smart_status_manual
+        settings.mode == DspSmartLoudnessMode.FIXED -> R.string.dsp_smart_status_fixed
+        else -> R.string.dsp_smart_status_off
+    }
+    val currentCorrection = if (active) {
+        stringResource(R.string.dsp_smart_maximum_low_high_format, formatDbValue(lowDb), formatDbValue(highDb))
+    } else {
+        stringResource(R.string.dsp_smart_zero_correction)
+    }
 
     Column(modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Smart Loudness", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.dsp_smart_loudness_title), style = MaterialTheme.typography.titleMedium)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Enabled")
+            Text(stringResource(R.string.dsp_macro_enabled))
             Switch(
                 checked = settings.mode != DspSmartLoudnessMode.OFF,
                 enabled = enabled,
                 modifier = Modifier.semantics {
-                    contentDescription = "Smart Loudness enabled"
-                    stateDescription = when {
-                        settings.mode == DspSmartLoudnessMode.OFF -> "Off"
-                        settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED && !autoAvailable -> "On, automatic mode unavailable for this route"
-                        else -> "On, ${settings.mode.accessibilityLabel()} mode"
-                    }
+                    contentDescription = switchDescription
+                    stateDescription = switchStateDescription
                 },
                 onCheckedChange = { enabled ->
                     onSettingsChange(settings.copy(mode = if (enabled) DspSmartLoudnessMode.MANUAL_ESTIMATE else DspSmartLoudnessMode.OFF))
+                    onSettingsChangeFinished()
                 },
             )
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             ModeButton("OFF", settings.mode == DspSmartLoudnessMode.OFF, Modifier.weight(1f), enabled = enabled) {
                 onSettingsChange(settings.copy(mode = DspSmartLoudnessMode.OFF))
+                onSettingsChangeFinished()
             }
             ModeButton("AUTO", settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED, Modifier.weight(1f), enabled = enabled && autoAvailable) {
                 onSettingsChange(settings.copy(mode = DspSmartLoudnessMode.AUTO_CALIBRATED))
+                onSettingsChangeFinished()
             }
             ModeButton("MANUAL", settings.mode == DspSmartLoudnessMode.MANUAL_ESTIMATE, Modifier.weight(1f), enabled = enabled) {
                 onSettingsChange(settings.copy(mode = DspSmartLoudnessMode.MANUAL_ESTIMATE))
+                onSettingsChangeFinished()
             }
             ModeButton("FIXED", settings.mode == DspSmartLoudnessMode.FIXED, Modifier.weight(1f), enabled = enabled) {
                 onSettingsChange(settings.copy(mode = DspSmartLoudnessMode.FIXED))
+                onSettingsChangeFinished()
             }
         }
-        Text(when {
-            settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED && !autoAvailable -> "AUTO_UNAVAILABLE · playback-volume input is unvalidated for this route; use MANUAL or FIXED"
-            settings.mode == DspSmartLoudnessMode.AUTO_CALIBRATED -> "AUTO_CALIBRATED · trusted route input"
-            settings.mode == DspSmartLoudnessMode.MANUAL_ESTIMATE -> "MANUAL · declared listening level; device volume is unchanged"
-            settings.mode == DspSmartLoudnessMode.FIXED -> "FIXED · constant compensation"
-            else -> "OFF"
-        })
-        Text("Input: ${volumeInputLabel(settings.calibration, volumeReading)}")
-        Text("Current correction: ${if (active) formatDb(lowDb, highDb) else "0.0 / 0.0 dB"}")
+        Text(stringResource(status))
+        Text(stringResource(R.string.dsp_smart_input, stringResource(volumeInputLabelResource(settings.calibration, volumeReading))))
+        Text(stringResource(R.string.dsp_smart_correction, currentCorrection))
 
         if (settings.mode == DspSmartLoudnessMode.MANUAL_ESTIMATE) {
-            LoudnessSlider("Manual listening level", settings.manualListeningLevel, enabled) {
+            LoudnessSlider(stringResource(R.string.dsp_smart_manual_level), settings.manualListeningLevel, enabled, onSettingsChangeFinished) {
                 onSettingsChange(settings.copy(manualListeningLevel = it))
             }
         }
         if (settings.mode == DspSmartLoudnessMode.FIXED) {
-            LoudnessSlider("Fixed amount", settings.fixedAmount, enabled) {
+            LoudnessSlider(stringResource(R.string.dsp_smart_fixed_amount), settings.fixedAmount, enabled, onSettingsChangeFinished) {
                 onSettingsChange(settings.copy(fixedAmount = it))
             }
         }
         if (settings.mode != DspSmartLoudnessMode.OFF) {
-            LoudnessSlider("Strength", settings.strength, enabled) { onSettingsChange(settings.copy(strength = it)) }
-            Text("Maximum: low ${settings.maxLowBoostDb} dB · high ${settings.maxHighBoostDb} dB")
+            LoudnessSlider(stringResource(R.string.dsp_smart_strength), settings.strength, enabled, onSettingsChangeFinished) {
+                onSettingsChange(settings.copy(strength = it))
+            }
+            Text(stringResource(R.string.dsp_smart_maximum, settings.maxLowBoostDb.toString(), settings.maxHighBoostDb.toString()))
         }
         if (onCaptureQuietPoint != null || onCaptureReferencePoint != null) {
-            Text("Capture requires trusted readings for the current route. Calibration is a listening-level preference, not an SPL measurement.")
+            Text(stringResource(R.string.dsp_smart_capture_help))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { onCaptureQuietPoint?.invoke() }, enabled = enabled && volumeReading.trustworthy && volumeReading.routeToken != null) {
-                    Text("Capture quiet")
+                    Text(stringResource(R.string.dsp_smart_capture_quiet))
                 }
                 Button(onClick = { onCaptureReferencePoint?.invoke() }, enabled = enabled && volumeReading.trustworthy && volumeReading.routeToken != null) {
-                    Text("Capture reference")
+                    Text(stringResource(R.string.dsp_smart_capture_reference))
                 }
             }
         }
@@ -131,17 +150,25 @@ private fun ModeButton(label: String, selected: Boolean, modifier: Modifier = Mo
 }
 
 @Composable
-private fun LoudnessSlider(label: String, value: Double, enabled: Boolean, onValueChange: (Double) -> Unit) {
+private fun LoudnessSlider(
+    label: String,
+    value: Double,
+    enabled: Boolean,
+    onValueChangeFinished: () -> Unit,
+    onValueChange: (Double) -> Unit,
+) {
+    val percentDescription = stringResource(R.string.dsp_smart_percent, (value * 100).toInt())
     Column {
-        Text("$label · ${(value * 100).toInt()}%")
+        Text(stringResource(R.string.dsp_smart_slider_value, label, (value * 100).toInt()))
         Slider(
             value = value.toFloat(),
             onValueChange = { onValueChange(it.toDouble().coerceIn(0.0, 1.0)) },
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = 0f..1f,
             enabled = enabled,
             modifier = Modifier.semantics {
                 contentDescription = label
-                stateDescription = "${(value * 100).toInt()} percent"
+                stateDescription = percentDescription
             },
         )
     }
@@ -160,19 +187,19 @@ private fun loudnessCompensation(level: Double, quiet: Double, reference: Double
     return maxDb * strength * normalized * normalized
 }
 
-private fun volumeInputLabel(calibration: DspLoudnessCalibration?, reading: DspVolumeReading): String = when {
-    !reading.trustworthy -> "untrusted / unavailable"
-    reading.routeToken == null || reading.volumeFraction == null -> "invalid reading"
-    calibration == null -> "trusted reading · not calibrated"
-    reading.routeToken != calibration.routeToken -> "route mismatch · AUTO unavailable"
-    else -> "trusted · calibrated route"
+private fun volumeInputLabelResource(calibration: DspLoudnessCalibration?, reading: DspVolumeReading): Int = when {
+    !reading.trustworthy -> R.string.dsp_smart_input_untrusted
+    reading.routeToken == null || reading.volumeFraction == null -> R.string.dsp_smart_input_invalid
+    calibration == null -> R.string.dsp_smart_input_not_calibrated
+    reading.routeToken != calibration.routeToken -> R.string.dsp_smart_input_route_mismatch
+    else -> R.string.dsp_smart_input_calibrated
 }
 
-private fun formatDb(low: Double, high: Double): String = String.format(Locale.ROOT, "%.1f / %.1f dB (low / high)", low, high)
+private fun formatDbValue(value: Double): String = String.format(Locale.ROOT, "%.1f", value)
 
-private fun DspSmartLoudnessMode.accessibilityLabel(): String = when (this) {
-    DspSmartLoudnessMode.OFF -> "off"
-    DspSmartLoudnessMode.AUTO_CALIBRATED -> "automatic"
-    DspSmartLoudnessMode.MANUAL_ESTIMATE -> "manual"
-    DspSmartLoudnessMode.FIXED -> "fixed"
+private fun DspSmartLoudnessMode.accessibilityLabelResource(): Int = when (this) {
+    DspSmartLoudnessMode.OFF -> R.string.dsp_smart_mode_off
+    DspSmartLoudnessMode.AUTO_CALIBRATED -> R.string.dsp_smart_mode_automatic
+    DspSmartLoudnessMode.MANUAL_ESTIMATE -> R.string.dsp_smart_mode_manual
+    DspSmartLoudnessMode.FIXED -> R.string.dsp_smart_mode_fixed
 }

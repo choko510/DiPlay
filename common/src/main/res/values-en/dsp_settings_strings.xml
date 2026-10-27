@@ -209,6 +209,7 @@
     <string name="dsp_studio_save_invalid">DSP Studio settings are invalid</string>
     <string name="dsp_studio_save_failed">Could not save DSP Studio</string>
     <string name="dsp_studio_restore_failed">Could not restore the saved DSP Studio</string>
+    <string name="dsp_studio_cancel_restore_retry">Audio restore was not confirmed. Your draft is still here. Retry Cancel preview or continue editing.</string>
     <string name="dsp_studio_preview_failed">Could not preview DSP Studio settings</string>
     <string name="dsp_studio_module_apply_failed">Could not apply this module preset</string>
     <string name="dsp_module_preset_saved">User preset saved</string>

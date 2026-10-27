@@ -778,3 +778,5 @@ Smart Loudness headroom must bound the transient response of `sample - lowpass(s
 2026-10-27 REM-07: PKG-R11 is PARTIAL because a device runbook exists but its hardware gates have not run; PKG-R12 is PARTIAL because integration, independent reviews, and rollback evidence are recorded while per-ID/hardware and merge gates remain open.
 
 2026-10-27 REM-07: Use the completion spec's REM-01..12 and PKG-R00..12 scopes verbatim as tracker keys; do not substitute REQ-001..012 for REM IDs or reuse the earlier package-summary grouping. REM-07 is the 170-ID evidence package; REM-12 is the full code-head CI package.
+
+REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

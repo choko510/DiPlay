@@ -22,6 +22,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
+internal data class DspStudioRestoreRequest(
+    val configGeneration: Long,
+    val rendererOwnerToken: Long?,
+)
+
 internal class DspProfileRuntime private constructor(
     context: Context,
     filesDirectory: File = context.applicationContext.filesDir,
@@ -50,6 +55,7 @@ internal class DspProfileRuntime private constructor(
     private val studioApplyGeneration = AtomicLong()
     internal var afterStudioFeatureFlagRuntimeApplyForTest: (() -> Unit)? = null
     internal var afterStudioWorkspaceApplyForTest: (() -> Unit)? = null
+    internal var beforeStudioWorkspaceRestoreForTest: (() -> Boolean)? = null
     internal var persistStudioFeatureFlagsForTest: (() -> Boolean)? = null
     private val activeStudioWorkspace: AtomicReference<DspStudioWorkspace>
     private val committedStudioWorkspace: AtomicReference<DspStudioWorkspace>
@@ -328,22 +334,34 @@ internal class DspProfileRuntime private constructor(
         }
     }
 
-    fun restoreCommittedStudioWorkspaceAsync(enabled: Boolean, onComplete: (Boolean) -> Unit = {}) {
+    fun requestCommittedStudioWorkspaceRestoreAsync(
+        enabled: Boolean,
+        onComplete: (DspStudioRestoreRequest?) -> Unit,
+    ) {
         val generation = studioApplyGeneration.incrementAndGet()
         ioExecutor.execute {
             val workspace = committedStudioWorkspace.get().deepCopy()
-            val restored = generation == studioApplyGeneration.get() && runCatching {
-                applyStudioWorkspace(workspace, enabled, impulseResponseFor(workspace.baseProfileSnapshot))
-            }.getOrDefault(false)
-            if (restored) {
+            val restored = generation == studioApplyGeneration.get() &&
+                (beforeStudioWorkspaceRestoreForTest?.invoke() != false) &&
+                runCatching {
+                    applyStudioWorkspace(workspace, enabled, impulseResponseFor(workspace.baseProfileSnapshot))
+                }.getOrDefault(false) && generation == studioApplyGeneration.get()
+            val request = if (restored) {
+                val snapshot = runtimeConfig.versionedSnapshot()
+                val rendererOwnerToken = runtimeConfig.rendererApplyStatus()?.rendererOwnerToken
                 preferences.edit {
                     putBoolean(KEY_DSP_ENABLED, enabled)
                     putString(KEY_SELECTED_PROFILE_ID, workspace.profileSourceId)
                 }
+                DspStudioRestoreRequest(snapshot.generation, rendererOwnerToken)
+            } else {
+                null
             }
-            Handler(Looper.getMainLooper()).post { onComplete(restored) }
+            Handler(Looper.getMainLooper()).post { onComplete(request) }
         }
     }
+
+    fun isCommittedStudioWorkspaceActive(): Boolean = activeStudioWorkspace.get() == committedStudioWorkspace.get()
 
     fun availableImpulseResponseIds(): List<String> = impulseRepository.ids()
 

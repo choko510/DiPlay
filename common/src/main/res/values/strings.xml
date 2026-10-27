@@ -74,6 +74,7 @@
     <string name="dsp_studio_save_invalid">DSP Studio の設定が不正です</string>
     <string name="dsp_studio_save_failed">DSP Studio を保存できませんでした</string>
     <string name="dsp_studio_restore_failed">保存済み DSP Studio を復元できませんでした</string>
+    <string name="dsp_studio_cancel_restore_retry">保存済み設定の音声反映を確認できませんでした。下書きは保持されています。プレビューを取り消すを再試行するか、編集を続けてください。</string>
     <string name="dsp_studio_preview_failed">DSP Studio の設定をプレビューできませんでした</string>
     <string name="dsp_studio_module_apply_failed">このモジュールプリセットを適用できませんでした</string>
     <string name="dsp_module_preset_saved">ユーザープリセットを保存しました</string>

@@ -77,7 +77,7 @@ class DspSettingsScreenTest {
                 }
             }
 
-            val deferredReason = "stage-local warm-up is unavailable; keeping the active pipeline until the next AudioTrack generation"
+            val deferredReason = "PEQ local warm-up is disabled; keeping the active pipeline until the next AudioTrack generation"
             val configStore = runtime.configProvider as DspRuntimeConfigStore
             val generation = runtime.configProvider.versionedSnapshot().generation
             configStore.reportRendererApplyStatus(

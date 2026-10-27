@@ -355,7 +355,7 @@
     <string name="dsp_rollout_native_hot_description">Allow supported Macro, Loudness, and Bass changes to update during MEDIA playback.</string>
     <string name="dsp_rollout_local_warm">Stage-local warm-up</string>
     <string name="dsp_rollout_local_warm_description">Enables in-track PEQ updates; Bass and Cabin Correction still wait for a new track.</string>
-    <string name="dsp_rollout_local_warm_unavailable">Unavailable; remains off until stage-local processing is implemented.</string>
+    <string name="dsp_rollout_local_warm_unavailable">PEQ updates can apply during playback; Bass Shelf and Cabin Correction still wait for a new track.</string>
     <string name="dsp_rollout_ir_warm">IR warm-up and budget</string>
     <string name="dsp_rollout_ir_warm_unavailable">Unavailable; remains off until IR warm switching is implemented.</string>
     <string name="dsp_rollout_disable_all">Disable enhanced DSP</string>

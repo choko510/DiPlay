@@ -36,7 +36,7 @@
     <string name="dsp_rollout_native_hot_description">MEDIA 再生中に対応する Macro、Loudness、Bass の変更を適用します。</string>
     <string name="dsp_rollout_local_warm">ステージ単位の Warm-up</string>
     <string name="dsp_rollout_local_warm_description">再生中のPEQ変更を有効にします。BassとCabin Correctionは次のトラックまで反映を待ちます。</string>
-    <string name="dsp_rollout_local_warm_unavailable">未実装のため利用できません。対応するまで無効のままです。</string>
+    <string name="dsp_rollout_local_warm_unavailable">PEQの再生中変更は利用できます。Bass ShelfとCabin Correctionの変更は次のトラックまで待ちます。</string>
     <string name="dsp_rollout_ir_warm">IR Warm-up と予算</string>
     <string name="dsp_rollout_ir_warm_unavailable">IR の Warm 切替は未実装のため利用できません。無効のままです。</string>
     <string name="dsp_rollout_disable_all">拡張 DSP を無効化</string>

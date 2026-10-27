@@ -10,6 +10,7 @@
 - Preserve the existing zero-latency DSP-OFF contract and avoid claiming hardware acceptance from emulator or source checks.
 
 ## Current integration state
+- The current PR #45 base branch head is `e8de90e3`; workflow-sensitive run [#502](https://github.com/choko510/DiPlay/actions/runs/40487578349) passed its full Release-target checks at `df3977d4`, and docs-only run [#503](https://github.com/choko510/DiPlay/actions/runs/40489671828) passed at `e8de90e3`. PR #52 must merge this latest base before its final push and CI.
 - Workflow-sensitive run #495 passed the full host, sanitizer, unit/build, JNI/R8 and API 35 lanes for PR #45's then-current code/test head; its artifacts confirm 865 unit tests and 20 API 35 instrumentation tests passed. All 56 x86_64 median wall-p99 gates passed. Later PR #45 runs #497–#499 were docs-only or Draft unit-only and add no full-runtime evidence.
 - PR #45 also added test-only per-block thread-CPU p99 diagnostics and an actual ComposeView measurement regression. The focused layout/diagnostics suites passed 9/9; two local API 35 arm64 Debug runs still failed different performance cases. Wall thresholds stayed unchanged, cause is unresolved, and target-device behavior is unverified.
 - Preserve run #490's 41.636 ms single-run tail, local prior 84.009 ms tail, and the earlier failed p99 run. Local macOS LeakSanitizer is unavailable; hosted Linux sanitizer passed.
@@ -20,7 +21,7 @@
 - PR #63 Smart Loudness route monitoring was merged into PR #52 at commit 8660c6132926f5d0c1f74e7629e2205c9d68a8ec. Its final source head c56cba9ddd379e69f82cd2696ce41578a92e1d98 passed hosted run #468, including Android instrumentation, unit tests/lint/build/R8, host baseline, and release verification.
 - PR #63's earlier FullHeavyChain instrumentation attempt measured p99 31,579 us against the existing 21,332 us threshold. The same case passed on retry at that commit; the threshold was unchanged. Latest hosted instrumentation also passed.
 - Independent review of PR #63's final head confirmed both prior P2 findings were fixed: only MEDIA routes publish the active playback sample rate, and route reads/listeners/release are serialized to prevent stale route publication. No P0–P2 findings remain.
-- PR #52 head is 8660c6132926f5d0c1f74e7629e2205c9d68a8ec. Its base branch codex/step4-pr-00-test-baseline advanced to 15fa5e06bd96af855aa168605f2ac4b7ad2e1b6d; GitHub currently reports the PR as not mergeable with a stale base snapshot.
+- PR #52's previously reported head `8660c6132926f5d0c1f74e7629e2205c9d68a8ec` and base `15fa5e06bd96af855aa168605f2ac4b7ad2e1b6d` are historical; the remote PR now points to `e3d7f076` and its base branch head is `e8de90e3`.
 
 ## Historical test status before this remediation run
 

@@ -45,6 +45,7 @@ assert_classification 'true false both all true false' \
 assert_classification 'true false both all true false' \
     $'shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt\tmodified'
 is_ci_workflow_sensitive_path ".github/workflows/android.yml"
+assert_classification 'true false both all true false' $'.github/workflows/android.yml\tmodified'
 is_ci_workflow_sensitive_path "scripts/run_android_instrumentation.sh"
 is_ci_workflow_sensitive_path "scripts/android_ci_classifier.sh"
 is_ci_workflow_sensitive_path "scripts/test_android_ci_classifier.sh"

@@ -41,6 +41,18 @@ WORK_PACKAGE_ROWS = [
     ("PKG-R11", "CarPlay/device runbook", "PARTIAL", "Not recorded", "Integrated PR #52 candidate and PR #45 baseline comparison, as specified by RUNBOOK.md.", "docs/dsp-studio/RUNBOOK.md<br>docs/dsp-studio/REMEDIATION_SPEC.md<br>docs/dsp-studio/REVIEW_MATRIX.md", "No package-specific commit recorded; runbook exists in the PR #52 integrated tree.", "Hardware procedure commands are in docs/dsp-studio/RUNBOOK.md; no device command has been executed.", "Runbook defines TS10/K706/iPhone workflow; device results are explicitly absent and remain NOT_RUN.", "No physical measurements for CarPlay geometry/session/Surface/touch, route calibration, acoustics, A/V, performance, or soak.", "REVIEW_MATRIX.md records hardware gaps as NOT_RUN; no hardware sign-off recorded.", "PARTIAL: runbook is defined; target-hardware gates have not run."),
     ("PKG-R12", "Quality/review/CI", "PARTIAL", "Not recorded", "PR #52 integrated source and the four independent review tracks in REMEDIATION_SPEC.md/REVIEW_MATRIX.md.", "docs/dsp-studio/REVIEW_MATRIX.md<br>docs/dsp-studio/FINAL_IMPLEMENTATION_REPORT.md<br>docs/dsp-studio/TEST_MATRIX.md<br>.github/workflows/android.yml<br>common/src/main/java/com/shilapi/xcertplay/dsp/DspProfileRuntime.kt", "Integrated source tested at fe083f4f524fa6ee1038860343e4f100aee8dad6; hosted documentation head 1e4a8962cedcc90fbf505c5f01346408e2842b77.", "./gradlew --no-daemon --max-workers=1 --console=plain :shared:testDebugUnitTest :common:testDebugUnitTest; bash scripts/test_dsp_native.sh; hosted run #506.", "Shared/Common 1002/1002, Native/sanitizer and rollback regression gates reported PASS; run #506 required jobs passed.", "P1 per-ID evidence gate and hardware gates remain open; MERGE_READY=false.", "REVIEW_MATRIX.md records four independent review tracks and follow-ups; project disposition remains open for evidence/hardware.", "PARTIAL: software rollback and integration QA recorded; PR #52 remains open/unmerged pending evidence and hardware."),
 ]
+WORK_PACKAGE_OWNER_OVERRIDES = {
+    "REM-01": "Luna /root/preamp_hot",
+    "REM-05": "Luna /root/tab_scroll",
+    "REM-07": "Luna /root/evidence_ledger",
+    "PKG-R02": "Luna /root/tab_scroll",
+    "PKG-R04": "Luna /root/preamp_hot",
+    "PKG-R10": "Luna /root/evidence_ledger",
+}
+WORK_PACKAGE_ROWS = [
+    (row[0], row[1], row[2], WORK_PACKAGE_OWNER_OVERRIDES.get(row[0], "/root (pending work)"), *row[4:])
+    for row in WORK_PACKAGE_ROWS
+]
 EXPECTED_WORK_PACKAGE_NAMES = {row[0]: row[1] for row in WORK_PACKAGE_ROWS}
 EVIDENCE_FIELDS = ("Method", "Command", "Result", "Source SHA", "Artifact")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
@@ -176,7 +188,7 @@ def create_tracker() -> None:
             missing = "Method, Command, Result, Source SHA, Artifact"
         what_missing = f"Acceptance remains unproven: {gap}".replace("|", "/")
         lines.append(f"| {id_} | {acceptance} | {status} |  |  |  |  |  | {runbook} | {blocker} | {missing} | {what_missing} |")
-    lines.extend(["", "## Work package tracker", "", "This table tracks execution ownership, dependencies, paths, implementation commits, tests, risks, review, and QA separately from acceptance evidence. `NOT_STARTED` means no implementation/package definition is recorded, `IN_PROGRESS` means tracked work remains active, and `PARTIAL` means some implementation or verification exists but the package is not closed. `Not recorded` means the available project records do not identify that field; no owner, dependency, commit, or test is inferred.", "", "| Work ID | Work package | Status | Owner | Dependencies | Relevant paths | Implementation commit | Test command | Test result | Unresolved risk | Review state | QA state |", "|---|---|---|---|---|---|---|---|---|---|---|---|"])
+    lines.extend(["", "## Work package tracker", "", "This table tracks execution ownership, dependencies, paths, implementation commits, tests, risks, review, and QA separately from acceptance evidence. `NOT_STARTED` means no implementation/package definition is recorded, `IN_PROGRESS` means tracked work remains active, and `PARTIAL` means some implementation or verification exists but the package is not closed. Owners show current task assignments: `/root (pending work)` is the primary owner unless an explicit subtask owner is listed. Historical PR author/model attribution is not inferred. `Not recorded` marks unavailable dependencies, commits, commands, results, or reviews.", "", "| Work ID | Work package | Status | Owner | Dependencies | Relevant paths | Implementation commit | Test command | Test result | Unresolved risk | Review state | QA state |", "|---|---|---|---|---|---|---|---|---|---|---|---|"])
     for package in WORK_PACKAGE_ROWS:
         lines.append("| " + " | ".join(package) + " |")
     lines.extend(["", "## Running the check", "", "Run `python scripts/check_dsp_studio_evidence.py`. The validator compares IDs and acceptance predicates to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, validates artifact and runbook references, enforces status-specific evidence fields, and requires PARTIAL rows to describe the unproven acceptance requirement.", ""])

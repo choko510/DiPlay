@@ -4,6 +4,10 @@
 
 ## 2026-10-27
 
+- Rechecked the F8 and DSP Split findings against PR #45; recovery, bounded RTSP parsing, connection and measurement-log caps, inset/scroll order, and exact ComposeView MeasureSpec capture are covered. Added the actual-ComposeView Robolectric regression; focused tests passed 9/9 and docs-only run #499 passed.
+- Added Robolectric coverage for the DSP pane's actual ComposeView measurement path; focused Host-layout and diagnostic suites pass 9/9 locally, and Draft run #498 passed its unit job. SH-M27 rendering and inset acceptance remains device-gated.
+- PR #45 run #495 passed its full current-code/test lane and all 56 x86_64 median wall-p99 gates; run #497 passed docs/static checks after the evidence update. Two local arm64 Debug runs fail different performance cases; the latest has two thread-CPU p99 breaches, so G4 remains partial and hardware evidence remains open.
+
 - Added persisted-workspace restoration coverage for runtime reconstruction and preview discard in PR #52; Common unit tests passed 272/272 and hosted run #487 passed at `6439a5b9`. Process-death/Activity E2E remains open.
 
 - Fixed the PR #52 module A/B screen regressions: preview no longer overwrites the editor draft, and deleting the selected preset during A/B restores the renderer to Draft. API 35 `DspSettingsScreenTest` passed 4/4; hosted run #484 passed host, Native/ASan/UBSan, Android instrumentation, unit/lint/build/R8, and host-baseline jobs on `ce3c87d7`. Manual-dispatch-only skips remain explicit; PR #52 stays open and hardware/per-ID evidence remains incomplete.

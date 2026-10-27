@@ -177,6 +177,20 @@ class DspProfileRepositoryTest {
     }
 
     @Test
+    fun profileStoreRejectsSymlinkedDirectoryToSiblingAppStorage() {
+        val root = temporaryFolder.newFolder("profile-sibling-root")
+        val repository = DspProfileRepository(root)
+        val siblingDirectory = File(root, "dsp/modules/bass").apply { mkdirs() }
+        val preserved = File(siblingDirectory, "keep.json").apply { writeText("keep") }
+        repository.profilesDirectory.parentFile!!.mkdirs()
+        Files.createSymbolicLink(repository.profilesDirectory.toPath(), siblingDirectory.toPath())
+
+        assertEquals(null, repository.profileFileForTesting("custom1"))
+        assertEquals(DspProfileSaveResult.INVALID_PROFILE_ID, repository.save(DspProfilePresets.customProfile("custom1")))
+        assertEquals("keep", preserved.readText())
+    }
+
+    @Test
     fun profileMapsToAnImmutableRuntimeSnapshotAndRespectsTheMasterSwitch() {
         val profile = DspAudioProfile(
             id = "custom2",

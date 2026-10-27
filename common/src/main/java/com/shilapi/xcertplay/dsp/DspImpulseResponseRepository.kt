@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
+import java.nio.file.Files
 
 internal sealed interface DspImpulseImportResult {
     data class Imported(val impulseResponse: DspImpulseResponse) : DspImpulseImportResult
@@ -19,7 +20,9 @@ internal class DspImpulseResponseRepository(
     filesDirectory: File,
     private val atomicWriter: (File, ByteArray) -> Unit = ::writeImpulseAtomically,
 ) {
-    internal val impulseDirectory = File(File(filesDirectory, "dsp"), "irs")
+    private val filesRoot = filesDirectory.canonicalFile
+    private val dspDirectory = File(filesRoot, "dsp")
+    internal val impulseDirectory = File(dspDirectory, "irs")
 
     fun import(id: String, input: InputStream): DspImpulseImportResult {
         val file = impulseFile(id) ?: run {
@@ -32,7 +35,9 @@ internal class DspImpulseResponseRepository(
             WavReadResult.Invalid -> return DspImpulseImportResult.InvalidWav
         }
         val impulse = parseWav(id, contents) ?: return DspImpulseImportResult.InvalidWav
-        if (!impulseDirectory.exists() && !impulseDirectory.mkdirs()) return DspImpulseImportResult.WriteFailed
+        val safeDirectory = safeImpulseDirectory() ?: return DspImpulseImportResult.WriteFailed
+        if (!safeDirectory.exists() && !safeDirectory.mkdirs()) return DspImpulseImportResult.WriteFailed
+        if (safeImpulseDirectory() != safeDirectory || impulseFile(id) != file) return DspImpulseImportResult.WriteFailed
         return try {
             atomicWriter(file, contents)
             DspImpulseImportResult.Imported(impulse)
@@ -54,10 +59,14 @@ internal class DspImpulseResponseRepository(
         return parseWav(id, contents)
     }
 
-    fun ids(): List<String> = impulseDirectory.listFiles()
+    fun ids(): List<String> = (safeImpulseDirectory() ?: return emptyList()).listFiles()
         .orEmpty()
         .asSequence()
-        .filter { it.isFile && it.extension.equals(WAV_EXTENSION, ignoreCase = true) }
+        .filter {
+            !Files.isSymbolicLink(it.toPath()) && it.isFile &&
+                it.canonicalFile.parentFile == safeImpulseDirectory() &&
+                it.extension.equals(WAV_EXTENSION, ignoreCase = true)
+        }
         .map { it.nameWithoutExtension }
         .filter(::isValidId)
         .distinct()
@@ -76,10 +85,17 @@ internal class DspImpulseResponseRepository(
 
     private fun impulseFile(id: String): File? {
         if (!isValidId(id)) return null
-        val directory = impulseDirectory.canonicalFile
-        val file = File(directory, "$id.$WAV_EXTENSION").canonicalFile
-        return file.takeIf { it.parentFile == directory }
+        val directory = safeImpulseDirectory() ?: return null
+        val candidate = DspStoragePaths.fileIn(directory, "$id.$WAV_EXTENSION") ?: return null
+        val backup = DspStoragePaths.fileIn(directory, "${candidate.name}.bak") ?: return null
+        if ((DspStoragePaths.entryExists(candidate) && !candidate.isFile) ||
+            (DspStoragePaths.entryExists(backup) && !backup.isFile)
+        ) return null
+        return candidate
     }
+
+    private fun safeImpulseDirectory(): File? =
+        DspStoragePaths.directoryUnder(filesRoot, "dsp", "irs")
 
     private fun readBounded(input: InputStream): WavReadResult {
         return try {

@@ -387,6 +387,10 @@ class NativeDspBridgeInstrumentedTest {
             bass = DspBassConfig(enabled = true, gainDb = 6.0, frequencyHz = 80.0),
             safetyLimiter = DspSafetyLimiterConfig(enabled = false),
         )
+        assertEquals(
+            DspEqDesigner.COEFFICIENTS_PER_BAND,
+            bassConfig.prepare(DspAudioFormat(48_000, 1)).eqCoefficients.size,
+        )
         assertEquals(10.0.pow(6.0 / 20.0), measureNativeToneGain(bassConfig, 1, 20.0), 0.03)
         assertEquals(1.0, measureNativeToneGain(bassConfig, 1, 20_000.0), 0.03)
 
@@ -400,6 +404,86 @@ class NativeDspBridgeInstrumentedTest {
             val ratio = 120.0 / frequency
             val expected = 1.0 / sqrt(1.0 + ratio * ratio * ratio * ratio)
             assertEquals(expected, measureNativeToneGain(monoBassConfig, 2, frequency, antiPhase = true), 0.03)
+        }
+    }
+
+    @Test
+    fun nativeLocalWarmAcceptsFifteenPeqBandsPlusStaticBassShelf() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val bands = (0 until DspEqDesigner.MAX_BANDS).map { index ->
+            DspEqBand(DspEqType.PEAK, 200.0 + index * 100.0, gainDb = 0.5)
+        }
+        val initial = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            peqBands = bands,
+        )
+        val target = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            peqBands = bands,
+            bass = DspBassConfig(enabled = true, gainDb = 3.0, frequencyHz = 90.0),
+        )
+        val format = DspAudioFormat(48_000, 1)
+        val targetCoefficients = target.prepare(format).eqCoefficients
+        assertEquals(
+            DspEqDesigner.MAX_GRAPH_FILTERS * DspEqDesigner.COEFFICIENTS_PER_BAND,
+            targetCoefficients.size,
+        )
+        val processor = NativeDspProcessor.createOrNull(format, initial)
+        assertNotNull(processor)
+        processor ?: return
+
+        try {
+            assertTrue(processor.bindHotUpdateContext(1L, 1L, 1L, 1, mediaRole = true))
+            val historyFrames = 8_192
+            val warmInput = ByteBuffer.allocateDirect(historyFrames * Float.SIZE_BYTES)
+                .order(ByteOrder.nativeOrder())
+            repeat(historyFrames) { frame ->
+                warmInput.putFloat((0.1 * sin(2.0 * PI * 200.0 * frame / format.sampleRate)).toFloat())
+            }
+            warmInput.flip()
+            val warmOutput = ByteBuffer.allocateDirect(historyFrames * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            var processedFrames = 0
+            while (processedFrames < historyFrames) {
+                val chunkFrames = minOf(DspBufferSizing.PROCESSING_CHUNK_FRAMES, historyFrames - processedFrames)
+                val startByte = processedFrames * Float.SIZE_BYTES
+                val endByte = startByte + chunkFrames * Float.SIZE_BYTES
+                val inputChunk = warmInput.duplicate().apply { position(startByte); limit(endByte) }
+                val outputChunk = warmOutput.duplicate().apply { position(startByte); limit(endByte) }
+                assertEquals(DspProcessStatus.SUCCESS, processor.process(inputChunk, outputChunk, chunkFrames).status)
+                processedFrames += chunkFrames
+            }
+
+            val update = processor.prepareLocalPeqWarmUpdate(
+                coefficients = targetCoefficients,
+                generation = 1L,
+                editorOwnerEpoch = 1L,
+                rendererOwnerToken = 1L,
+                pcmFormatEpoch = 1L,
+                hotContextToken = 1,
+                mediaRole = true,
+            )
+            assertNotNull(update)
+            update ?: return
+            assertEquals(0, processor.enqueueLocalPeqWarmUpdate(update))
+
+            val transitionFrames = 512
+            val transitionInput = ByteBuffer.allocateDirect(transitionFrames * Float.SIZE_BYTES)
+                .order(ByteOrder.nativeOrder())
+            repeat(transitionFrames) { frame ->
+                transitionInput.putFloat((0.1 * sin(2.0 * PI * 200.0 * frame / format.sampleRate)).toFloat())
+            }
+            transitionInput.flip()
+            val transitionOutput = ByteBuffer.allocateDirect(transitionFrames * Float.SIZE_BYTES)
+                .order(ByteOrder.nativeOrder())
+            assertEquals(
+                DspProcessStatus.SUCCESS,
+                processor.process(transitionInput, transitionOutput, transitionFrames).status,
+            )
+            assertEquals(update.generationToken, processor.localPeqWarmAcknowledgedToken())
+        } finally {
+            processor.close()
         }
     }
 

@@ -2558,7 +2558,8 @@ internal class AudioRenderer(
                 val changed = DspUpdatePlanner.diff(current, target)
                 if (!dspConfigProvider.studioLocalWarmEnabled() || !trackGenerationContentCommitted ||
                     classification.dspRole != DspStreamRole.MEDIA ||
-                    changed != setOf(DspRuntimeField.PEQ) || !current.enabled || !target.enabled ||
+                    changed.isEmpty() || changed.any { it !in setOf(DspRuntimeField.PEQ, DspRuntimeField.BASS) } ||
+                    !current.enabled || !target.enabled ||
                     hotBoundPipeline !== dspPipeline || dspPipeline?.format != candidateFormat ||
                     candidateFormat != format
                 ) {
@@ -2568,7 +2569,7 @@ internal class AudioRenderer(
                     val targetPrepared = target.prepare(candidateFormat)
                     if (kotlin.math.abs(currentPrepared.appliedPreampDb - targetPrepared.appliedPreampDb) > 1e-9) {
                         DspLocalPeqWarmPreparation(
-                            unavailableReason = "PEQ change also alters auto-headroom preamp; keeping the active pipeline until the next AudioTrack generation",
+                            unavailableReason = "PEQ or Bass Shelf change also alters auto-headroom preamp; keeping the active pipeline until the next AudioTrack generation",
                         )
                     } else {
                         val update = dspPipeline?.prepareLocalPeqWarmUpdate(
@@ -2583,7 +2584,7 @@ internal class AudioRenderer(
                         DspLocalPeqWarmPreparation(
                             update = update,
                             unavailableReason = if (update == null) {
-                                "pre-PEQ processed history is insufficient for a safe PEQ local warm-up; keeping the active pipeline until the next AudioTrack generation"
+                                "pre-equalization processed history is insufficient for a safe PEQ or Bass Shelf local warm-up; keeping the active pipeline until the next AudioTrack generation"
                             } else {
                                 null
                             },

@@ -50,7 +50,7 @@ class DspUpdatePlannerTest {
     }
 
     @Test
-    fun peqChangesUseLocalWarmWhenEnabledEvenWithUnrelatedStatefulStages() {
+    fun peqAndBassShelfChangesUseLocalWarmWhenEnabledEvenWithUnrelatedStatefulStages() {
         val current = DspRuntimeConfig(enabled = true)
         val target = DspRuntimeConfig(
             enabled = true,
@@ -125,7 +125,7 @@ class DspUpdatePlannerTest {
             convolver = target.convolver,
         )
         assertEquals(
-            DspUpdatePlan.DEFERRED,
+            DspUpdatePlan.LOCAL_WARM,
             DspUpdatePlanner.classify(
                 currentWithConvolver,
                 bassOnlyWithConvolver,
@@ -136,6 +136,18 @@ class DspUpdatePlannerTest {
                 true,
                 studioLocalWarmEnabled = true,
             ),
+        )
+        assertEquals(
+            "PEQ and Bass Shelf local warm-up are disabled; keeping the active pipeline until the next AudioTrack generation",
+            DspUpdatePlanner.decide(
+                currentWithConvolver,
+                bassOnlyWithConvolver,
+                true,
+                true,
+                0,
+                0,
+                true,
+            ).reason,
         )
         val cabinOnly = DspRuntimeConfig(
             enabled = true,

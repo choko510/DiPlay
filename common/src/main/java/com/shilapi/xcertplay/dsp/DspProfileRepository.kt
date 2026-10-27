@@ -152,10 +152,10 @@ internal class DspProfileRepository(
 
     private fun profileFile(profileId: String): File? {
         if (!isValidProfileId(profileId)) return null
-        val directory = profilesDirectory.canonicalFile
-        if (!directory.path.startsWith(appFilesDirectory.path + File.separator)) return null
-        val file = File(directory, "$profileId.$PROFILE_EXTENSION").canonicalFile
-        return file.takeIf { it.parentFile == directory }
+        val directory = DspStoragePaths.directoryUnder(appFilesDirectory, PROFILE_DIRECTORY, "profiles") ?: return null
+        val file = DspStoragePaths.fileIn(directory, "$profileId.$PROFILE_EXTENSION") ?: return null
+        DspStoragePaths.fileIn(directory, "${file.name}.bak") ?: return null
+        return file
     }
 
     private fun decode(profileId: String, json: JSONObject, schemaVersion: Int): DspAudioProfile {

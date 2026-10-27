@@ -166,7 +166,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     const jsize smart_loudness_count = (*env)->GetArrayLength(env, smart_loudness_values);
     const jsize dynamic_bass_count = (*env)->GetArrayLength(env, dynamic_bass_values);
     if (coefficient_count < 0 || coefficient_count >
-            DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
+            DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_BIQUAD_COEFFICIENT_COUNT ||
         coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10 ||
         multiband_count != DSP_MULTIBAND_VALUES_COUNT ||
         dynamic_eq_count != DSP_DYNAMIC_EQ_VALUES_COUNT ||
@@ -178,7 +178,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         convolver_sample_count > DSP_CONVOLVER_MAX_IR_FRAMES * 2) {
         return 0;
     }
-    double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT];
+    double coefficients[DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_BIQUAD_COEFFICIENT_COUNT];
     double multiband_values_data[DSP_MULTIBAND_VALUES_COUNT];
     double dynamic_eq_values_data[DSP_DYNAMIC_EQ_VALUES_COUNT];
     double bass_coefficients_values[DSP_BIQUAD_COEFFICIENT_COUNT];
@@ -655,14 +655,14 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativePrepareLocalPeqUpdate(
     if (eq_coefficients == NULL || prepared_values == NULL || history_epoch_sequence == NULL) return JNI_FALSE;
     const jsize coefficient_count = (*env)->GetArrayLength(env, eq_coefficients);
     const jsize prepared_count = (*env)->GetArrayLength(env, prepared_values);
-    if (coefficient_count < 0 || coefficient_count > DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
+    if (coefficient_count < 0 || coefficient_count > DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_BIQUAD_COEFFICIENT_COUNT ||
         coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 ||
         prepared_count != (coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT) *
             DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND ||
         (*env)->GetArrayLength(env, history_epoch_sequence) != 2) return JNI_FALSE;
 
-    double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0};
-    double values[DSP_BIQUAD_MAX_BANDS * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0};
+    double coefficients[DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_BIQUAD_COEFFICIENT_COUNT] = {0};
+    double values[DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0};
     if (coefficient_count > 0) {
         (*env)->GetDoubleArrayRegion(env, eq_coefficients, 0, coefficient_count, coefficients);
         if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
@@ -712,12 +712,12 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeEnqueueLocalPeqUpdate(
     if (prepared_values == NULL || generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 ||
         pcm_format_epoch <= 0 || hot_context_token <= 0 || media_role != JNI_TRUE ||
         history_epoch_sequence < 0 || history_end_sequence < history_epoch_sequence || band_count < 0 ||
-        band_count > DSP_BIQUAD_MAX_BANDS ||
+        band_count > DSP_GRAPH_EQ_FILTER_CAPACITY ||
         (*env)->GetArrayLength(env, prepared_values) != band_count * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND) {
         return DSP_STATUS_INVALID_ARGUMENT;
     }
     const jsize value_count = (*env)->GetArrayLength(env, prepared_values);
-    jdouble prepared_values_data[DSP_BIQUAD_MAX_BANDS * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0};
+    jdouble prepared_values_data[DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0};
     if (value_count > 0) {
         (*env)->GetDoubleArrayRegion(env, prepared_values, 0, value_count, prepared_values_data);
         if ((*env)->ExceptionCheck(env)) return DSP_STATUS_INVALID_ARGUMENT;

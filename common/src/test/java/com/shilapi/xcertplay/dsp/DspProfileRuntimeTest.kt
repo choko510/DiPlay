@@ -164,6 +164,75 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun failedFeatureReenableRestoresThePreviouslyActiveStudioPreview() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        DspProfileRuntime.resetForTesting()
+        val profile = DspProfilePresets.find("flat")!!
+        val committedWorkspace = DspStudioWorkspace(
+            profileSourceId = profile.id,
+            baseProfileSnapshot = profile,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 100),
+        )
+        assertEquals(DspWorkspaceSaveResult.SAVED, DspStudioWorkspaceRepository(context.filesDir).save(committedWorkspace))
+        val runtime = DspProfileRuntime.get(context)
+
+        try {
+            val session = runtime.createStudioSessionCoordinator()
+            session.edit { it.copy(macros = it.macros.copy(bassImpact = 0)) }
+            val previewResult = AtomicReference<Boolean?>()
+            val previewComplete = CountDownLatch(1)
+            runtime.previewStudioWorkspaceAsync(session.preview, enabled = true) {
+                previewResult.set(it)
+                previewComplete.countDown()
+            }
+            drainMainLooperUntil(previewComplete)
+            assertEquals(true, previewResult.get())
+
+            val disabled = runtime.currentStudioFeatureFlags().copy(
+                macroOverlayEnabled = false,
+                smartLoudnessEnabled = false,
+                dynamicBassEnabled = false,
+                nativeHotUpdatesEnabled = false,
+            )
+            val disableResult = AtomicReference<Boolean?>()
+            val disableComplete = CountDownLatch(1)
+            runtime.updateStudioFeatureFlagsAsync(disabled) {
+                disableResult.set(it)
+                disableComplete.countDown()
+            }
+            drainMainLooperUntil(disableComplete)
+            assertEquals(true, disableResult.get())
+
+            runtime.persistStudioFeatureFlagsForTest = { false }
+            val reenabled = disabled.copy(
+                macroOverlayEnabled = true,
+                smartLoudnessEnabled = true,
+                dynamicBassEnabled = true,
+                nativeHotUpdatesEnabled = true,
+            )
+            val enableResult = AtomicReference<Boolean?>()
+            val enableComplete = CountDownLatch(1)
+            runtime.updateStudioFeatureFlagsAsync(reenabled) {
+                enableResult.set(it)
+                enableComplete.countDown()
+            }
+            drainMainLooperUntil(enableComplete)
+
+            assertEquals(false, enableResult.get())
+            assertEquals(disabled, runtime.currentStudioFeatureFlags())
+            assertEquals(0, activeStudioWorkspace(runtime).macros.bassImpact)
+        } finally {
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
+            workspaceFile.delete()
+        }
+    }
+
+    @Test
     fun globalMasterPreferenceEnablesLegacyDisabledCustomProfileAfterRuntimeRecreation() {
         val context: Application = RuntimeEnvironment.getApplication()
         val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
@@ -721,6 +790,12 @@ class DspProfileRuntimeTest {
         }
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue("main-thread callback completed", completed.await(0, TimeUnit.MILLISECONDS))
+    }
+
+    private fun activeStudioWorkspace(runtime: DspProfileRuntime): DspStudioWorkspace {
+        val field = DspProfileRuntime::class.java.getDeclaredField("activeStudioWorkspace").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        return (field.get(runtime) as AtomicReference<DspStudioWorkspace>).get()
     }
 
     private fun awaitSmartLoudnessState(runtime: DspProfileRuntime, enabled: Boolean) {

@@ -108,7 +108,7 @@ dsp_engine *dsp_engine_create_with_studio(
     const dsp_dynamic_bass_config *dynamic_bass_config) {
     if (sample_rate < 8000 || sample_rate > 192000 || channels < 1 || channels > 2 ||
         max_frames < 1 || max_frames > 65536 || !isfinite(gain_db) || peq_band_count < 0 ||
-        peq_band_count > DSP_BIQUAD_MAX_BANDS || (peq_band_count > 0 && peq_coefficients == NULL) ||
+        peq_band_count > DSP_GRAPH_EQ_FILTER_CAPACITY || (peq_band_count > 0 && peq_coefficients == NULL) ||
         dynamics_config == NULL || multiband_config == NULL || dynamic_eq_config == NULL ||
         bass_coefficient_count < 0 || bass_coefficient_count > 1 ||
         (bass_coefficient_count > 0 && bass_coefficients == NULL) ||
@@ -253,12 +253,12 @@ int dsp_engine_prepare_local_peq_update(
     size_t prepared_values_count,
     unsigned long long *history_epoch_sequence,
     unsigned long long *history_end_sequence) {
-    if (!engine_is_prepared(engine) || peq_count > DSP_BIQUAD_MAX_BANDS ||
+    if (!engine_is_prepared(engine) || peq_count > DSP_GRAPH_EQ_FILTER_CAPACITY ||
         (peq_count > 0 && (peq_coefficients == NULL || prepared_values == NULL)) ||
         prepared_values_count != peq_count * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND ||
         history_epoch_sequence == NULL || history_end_sequence == NULL) return 0;
 
-    dsp_biquad prepared_bands[DSP_BIQUAD_MAX_BANDS] = {0};
+    dsp_biquad prepared_bands[DSP_GRAPH_EQ_FILTER_CAPACITY] = {0};
     if (!dsp_graph_prepare_local_peq(
             &engine->graph,
             peq_coefficients,
@@ -295,7 +295,7 @@ int dsp_engine_enqueue_local_peq_update(dsp_engine *engine, const dsp_engine_loc
         update->generation_token != hot_generation_token(update->generation) ||
         update->editor_owner_epoch == 0 || update->renderer_owner_token == 0 ||
         update->pcm_format_epoch == 0 || update->hot_context_token == 0 || update->media_role != 1 ||
-        update->peq_count > DSP_BIQUAD_MAX_BANDS ||
+        update->peq_count > DSP_GRAPH_EQ_FILTER_CAPACITY ||
         update->hot_context_token != atomic_load_explicit(&engine->hot_context_token, memory_order_acquire) ||
         update->editor_owner_epoch != atomic_load_explicit(&engine->hot_editor_owner_epoch, memory_order_acquire) ||
         update->renderer_owner_token != atomic_load_explicit(&engine->hot_renderer_owner_token, memory_order_acquire) ||

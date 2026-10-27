@@ -1,12 +1,11 @@
 package com.shilapi.xcertplay.media.dsp
 
 import java.io.Closeable
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.locks.LockSupport
 
 internal data class DspPreparedUpdate(
     val generation: Long,
@@ -46,19 +45,19 @@ internal class DspLiveUpdateController(
     private val hotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedHotUpdate?)? = null,
     private val localPeqWarmPreparer: DspLocalPeqWarmPreparer? = null,
 ) : Closeable {
-    private val controlExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
-        Thread(task, "dsp-live-control").apply { isDaemon = true }
-    }
     private val closed = AtomicBoolean(false)
-    private val preparing = AtomicBoolean(false)
+    private val workRequested = AtomicBoolean(false)
     private val lastHandledGeneration = AtomicLong(initialGeneration)
     private val desired = AtomicReference<DspConfigSnapshot?>(null)
+    private val reprepareRequestedGeneration = AtomicLong(-1L)
     private val generationLock = Any()
     private val retiredPipelineCount = AtomicInteger()
     private val failedRetirementCount = AtomicInteger()
+    private val controlThread = Thread(::runControlLoop, "dsp-live-control").apply { isDaemon = true }
 
     init {
         DspPipelineReaper.start()
+        controlThread.start()
     }
 
     private val subscription = provider.addListener(::onConfigChanged)
@@ -79,15 +78,27 @@ internal class DspLiveUpdateController(
     }
 
     private fun schedulePreparation() {
-        if (!preparing.compareAndSet(false, true)) return
-        runCatching { controlExecutor.execute(::prepareLatest) }.onFailure { preparing.set(false) }
+        if (closed.get()) return
+        workRequested.set(true)
+        LockSupport.unpark(controlThread)
+    }
+
+    private fun runControlLoop() {
+        while (!closed.get()) {
+            if (!workRequested.getAndSet(false)) {
+                LockSupport.park()
+                continue
+            }
+            prepareLatest()
+        }
     }
 
     private fun prepareLatest() {
         try {
             while (!closed.get()) {
                 val snapshot = desired.get() ?: return
-                if (snapshot.generation <= lastHandledGeneration.get()) return
+                val reprepareRequested = reprepareRequestedGeneration.compareAndSet(snapshot.generation, -1L)
+                if (snapshot.generation <= lastHandledGeneration.get() && !reprepareRequested) return
                 var candidate: DspPcmPipeline? = null
                 try {
                     val hotUpdate = hotUpdatePreparer?.invoke(format, snapshot)
@@ -162,9 +173,11 @@ internal class DspLiveUpdateController(
                 }
             }
         } finally {
-            preparing.set(false)
-            if (!closed.get() && (desired.get()?.generation ?: 0L) > lastHandledGeneration.get()) {
-                schedulePreparation()
+            val latestGeneration = desired.get()?.generation ?: 0L
+            if (!closed.get() && (latestGeneration > lastHandledGeneration.get() ||
+                    reprepareRequestedGeneration.get() == latestGeneration)
+            ) {
+                workRequested.set(true)
             }
         }
     }
@@ -172,13 +185,9 @@ internal class DspLiveUpdateController(
     fun canAdoptUpdate(): Boolean = !closed.get() && retiredPipelineCount.get() == 0 && failedRetirementCount.get() == 0
 
     fun reprepareLatest(generation: Long) {
-        val accepted = synchronized(generationLock) {
-            val snapshot = desired.get()
-            if (closed.get() || snapshot?.generation != generation) return@synchronized false
-            lastHandledGeneration.updateAndGet { previous -> minOf(previous, generation - 1) }
-            true
-        }
-        if (accepted) schedulePreparation()
+        if (closed.get() || desired.get()?.generation != generation) return
+        reprepareRequestedGeneration.updateAndGet { previous -> maxOf(previous, generation) }
+        schedulePreparation()
     }
 
     fun retire(pipeline: DspPcmPipeline?) {
@@ -194,7 +203,7 @@ internal class DspLiveUpdateController(
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         subscription.close()
-        controlExecutor.shutdown()
+        LockSupport.unpark(controlThread)
     }
 }
 

@@ -41,7 +41,9 @@ internal fun DspSmartLoudnessRuntimeConfig.conservativeBoostDb(): Double {
     if (!enabled) return 0.0
     val lowGain = StrictMath.pow(10.0, lowGainDb / 20.0)
     val highGain = StrictMath.pow(10.0, highGainDb / 20.0)
-    return 20.0 * log10(lowGain + highGain - 1.0)
+    // The first-order residual `sample - lowpass(sample)` has an L1 impulse gain no greater than 2.
+    val amplitudeBound = lowGain + 2.0 * (highGain - 1.0)
+    return 20.0 * log10(amplitudeBound)
 }
 
 data class DspDynamicBassRuntimeConfig(

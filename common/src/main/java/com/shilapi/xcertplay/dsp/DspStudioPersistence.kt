@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.dsp
 import android.util.AtomicFile
 import java.io.File
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
 import org.json.JSONArray
 import org.json.JSONObject
 import com.shilapi.xcertplay.media.dsp.*
@@ -20,14 +21,17 @@ internal class DspStudioWorkspaceRepository(
     private val filesDirectory: File,
     private val writer: (File, ByteArray) -> Unit = ::atomicWrite,
 ) {
-    private val file = File(File(filesDirectory, "dsp"), "workspace/current.json")
+    private val filesRoot = filesDirectory.canonicalFile
+    private val file = File(File(filesRoot, "dsp"), "workspace/current.json")
     private val backupFile = File(file.path + ".bak")
 
     fun load(): DspWorkspaceReadResult {
-        if (!file.exists() && !backupFile.exists()) return DspWorkspaceReadResult.NotFound
+        if (!safeWorkspaceStorage()) return DspWorkspaceReadResult.Invalid
+        if (!fileEntryExists(file) && !fileEntryExists(backupFile)) return DspWorkspaceReadResult.NotFound
         return try {
             for (candidate in listOf(file, backupFile)) {
-                if (candidate.exists()) {
+                if (fileEntryExists(candidate)) {
+                    require(!Files.isSymbolicLink(candidate.toPath()))
                     require(candidate.isFile && candidate.canonicalFile.parentFile == file.parentFile?.canonicalFile)
                 }
             }
@@ -65,10 +69,12 @@ internal class DspStudioWorkspaceRepository(
 
     @Synchronized fun save(workspace: DspStudioWorkspace, updatedAtMs: Long = System.currentTimeMillis()): DspWorkspaceSaveResult {
         if (!validWorkspace(workspace) || updatedAtMs < 0L) return DspWorkspaceSaveResult.INVALID
-        if (file.exists() || backupFile.exists()) {
+        if (!safeWorkspaceStorage()) return DspWorkspaceSaveResult.INVALID
+        if (fileEntryExists(file) || fileEntryExists(backupFile)) {
             for (candidate in listOf(file, backupFile)) {
-                if (candidate.exists() &&
-                    (!candidate.isFile || candidate.canonicalFile.parentFile != file.parentFile?.canonicalFile)
+                if (fileEntryExists(candidate) &&
+                    (Files.isSymbolicLink(candidate.toPath()) || !candidate.isFile ||
+                        candidate.canonicalFile.parentFile != file.parentFile?.canonicalFile)
                 ) {
                     return DspWorkspaceSaveResult.INVALID
                 }
@@ -98,6 +104,14 @@ internal class DspStudioWorkspaceRepository(
     }
 
     private fun validWorkspace(value: DspStudioWorkspace): Boolean = ID.matches(value.profileSourceId) && value.profileSourceId == value.baseProfileSnapshot.id && value.baseProfileSnapshot.hasValidEqCapacity() && value.selectedModulePresetIds.size <= MODULES.size && value.selectedModulePresetIds.all { (key, id) -> key in MODULES && PRESET_ID.matches(id) }
+    private fun safeWorkspaceStorage(): Boolean = runCatching {
+        val canonicalWorkspaceDirectory = DspStoragePaths.directoryUnder(filesRoot, "dsp", "workspace") ?: return false
+        listOf(file, backupFile).all { candidate ->
+            DspStoragePaths.fileIn(canonicalWorkspaceDirectory, candidate.name) != null &&
+                (!DspStoragePaths.entryExists(candidate) || candidate.isFile)
+        }
+    }.getOrDefault(false)
+
     private fun JSONObject.toMap(): Map<String, String> { require(length() <= MODULES.size); return keys().asSequence().associateWith { getString(it) } }
     companion object { const val SCHEMA = 1; private const val WORKSPACE_ID = "active_dsp_studio"; private const val MAX_BYTES = 1_048_576L; private val ID = Regex("^[A-Za-z0-9_-]{1,64}$"); private val PRESET_ID = ID; private val MODULES = setOf("peq", "bass", "seat", "advanced_ms", "compressor", "multiband", "dynamic_eq", "harmonic", "limiter", "convolver", "cabin", "smart_loudness", "dynamic_bass", "macros") }
 }
@@ -117,11 +131,12 @@ internal class DspModulePresetRepository(
         if (!validReferences(preset.moduleKey, preset.payload)) return DspPresetStoreResult.INVALID
         val dir = moduleDirectory(preset.moduleKey) ?: return DspPresetStoreResult.INVALID
         val target = File(dir, "${preset.id}.json")
-        if (target.exists() && (!target.isFile || target.canonicalFile.parentFile != dir.canonicalFile)) {
-            return DspPresetStoreResult.INVALID
-        }
-        if (target.isFile && schema(target)?.let { it > SCHEMA } == true) return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
-        if ((dir.listFiles()?.count { it.extension == "json" } ?: 0) >= MAX_PRESETS && !target.exists()) return DspPresetStoreResult.INVALID
+        val backup = File(target.path + ".bak")
+        if (!safeModulePresetFiles(dir, preset.id)) return DspPresetStoreResult.INVALID
+        if ((target.isFile && schema(target)?.let { it > SCHEMA } == true) ||
+            (backup.isFile && schema(backup)?.let { it > SCHEMA } == true)
+        ) return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+        if ((dir.listFiles()?.count { it.extension == "json" } ?: 0) >= MAX_PRESETS && !fileEntryExists(target)) return DspPresetStoreResult.INVALID
         if (!dir.exists() && !dir.mkdirs()) return DspPresetStoreResult.WRITE_FAILED
         return try { writer(target, JSONObject().put("schemaVersion", SCHEMA).put("id", preset.id).put("moduleKey", preset.moduleKey).put("name", preset.name).put("origin", "USER").put("payloadVersion", 1).put("payload", preset.payload).toString().toByteArray()); DspPresetStoreResult.SAVED } catch (_: Exception) { DspPresetStoreResult.WRITE_FAILED }
     }
@@ -193,7 +208,7 @@ internal class DspModulePresetRepository(
         val directory = moduleDirectory(moduleKey) ?: return DspPresetStoreResult.INVALID
         val target = File(directory, "$id.json")
         val backup = File(target.path + ".bak")
-        if (!target.exists() && !backup.exists()) return DspPresetStoreResult.NOT_FOUND
+        if (!fileEntryExists(target) && !fileEntryExists(backup)) return DspPresetStoreResult.NOT_FOUND
         if (!safeModulePresetFiles(directory, id)) {
             return DspPresetStoreResult.INVALID
         }
@@ -319,12 +334,7 @@ internal class DspModulePresetRepository(
     private fun moduleDirectory(moduleKey: String): File? {
         if (moduleKey !in MODULES) return null
         return runCatching {
-            val appDirectory = filesDirectory.canonicalFile
-            val moduleRoot = File(File(appDirectory, "dsp"), "modules").canonicalFile
-            if (!moduleRoot.path.startsWith(appDirectory.path + File.separator)) return null
-            val directory = File(moduleRoot, moduleKey)
-            if (directory.canonicalFile.parentFile != moduleRoot) return null
-            directory
+            DspStoragePaths.directoryUnder(filesDirectory, "dsp", "modules", moduleKey)
         }.getOrNull()
     }
     private fun safeModulePresetFiles(directory: File, id: String): Boolean {
@@ -332,7 +342,8 @@ internal class DspModulePresetRepository(
         val backup = File(target.path + ".bak")
         return runCatching {
             listOf(target, backup).all { file ->
-                !file.exists() || (file.isFile && file.canonicalFile.parentFile == directory.canonicalFile)
+                !DspStoragePaths.entryExists(file) || (!Files.isSymbolicLink(file.toPath()) &&
+                    file.isFile && file.canonicalFile.parentFile == directory.canonicalFile)
             }
         }.getOrDefault(false)
     }
@@ -341,6 +352,8 @@ internal class DspModulePresetRepository(
     private fun validId(id: String) = ID.matches(id) && !id.contains("..")
     companion object { const val SCHEMA = 1; private const val MAX_PRESETS = 100; private const val MAX_PAYLOAD_CHARS = 65_536L; private val ID = Regex("^[A-Za-z0-9_-]{1,64}$"); private val MODULES = setOf("peq", "bass", "seat", "advanced_ms", "compressor", "multiband", "dynamic_eq", "harmonic", "limiter", "convolver", "cabin", "smart_loudness", "dynamic_bass", "macros") }
 }
+
+private fun fileEntryExists(file: File): Boolean = DspStoragePaths.entryExists(file)
 
 internal class DspMacroPresetRepository(private val directory: File, private val writer: (File, ByteArray) -> Unit = ::atomicWrite) {
     private val filesRoot = directory.canonicalFile
@@ -405,10 +418,10 @@ internal class DspMacroPresetRepository(private val directory: File, private val
     private fun macroFile(id: String): File? {
         if (!ID.matches(id) || id.contains("..")) return null
         return runCatching {
-            val macroDirectory = File(filesRoot, "dsp/macros").canonicalFile
-            if (!macroDirectory.path.startsWith(filesRoot.path + File.separator)) return null
-            val file = File(macroDirectory, "$id.json").canonicalFile
-            file.takeIf { it.parentFile == macroDirectory }
+            val macroDirectory = DspStoragePaths.directoryUnder(filesRoot, "dsp", "macros") ?: return null
+            val file = DspStoragePaths.fileIn(macroDirectory, "$id.json") ?: return null
+            DspStoragePaths.fileIn(macroDirectory, "${file.name}.bak") ?: return null
+            file
         }.getOrNull()
     }
 

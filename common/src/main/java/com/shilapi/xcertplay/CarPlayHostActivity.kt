@@ -498,6 +498,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var gestureStartX = 0f
     private var gestureStartY = 0f
     private val shuttingDown = AtomicBoolean(false)
+    internal var startCarPlayForTest: ((DisplaySize) -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val teardownExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val airPlayCommandExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -4892,7 +4893,7 @@ class CarPlayHostActivity : ComponentActivity() {
         ) {
             return
         }
-        startCarPlay(size)
+        startCarPlayForTest?.invoke(size) ?: startCarPlay(size)
     }
 
     private fun scheduleRestartHandoffRetry() {

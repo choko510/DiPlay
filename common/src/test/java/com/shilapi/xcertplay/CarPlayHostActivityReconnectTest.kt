@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import com.shilapi.xcertplay.airplay.AirPlayConfig
@@ -30,6 +31,82 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class CarPlayHostActivityReconnectTest {
+    @Test
+    fun verifiedUsbAttachReevaluatesStartForAnExistingWiredHost() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val startRequests = mutableListOf<DisplaySize>()
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, true)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "menuOpen").setBoolean(activity, false)
+            field(activity, "activeDisplaySize").set(activity, DisplaySize(800, 480))
+            activity.startCarPlayForTest = startRequests::add
+            assertFalse(activity.isFinishing)
+            assertFalse(activity.isDestroyed)
+            assertFalse(
+                (field(activity, "shuttingDown").get(activity) as java.util.concurrent.atomic.AtomicBoolean).get(),
+            )
+            assertFalse(CarPlayBackgroundSession.isRestartSuppressed())
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+            assertFalse(CarPlayBackgroundSession.hasSession())
+            assertNull(field(activity, "controller").get(activity))
+
+            val attach = CarPlayHostActions.createInternalIntent(
+                activity,
+                CarPlayHostActions.USB_DEVICE_ATTACHED,
+            )
+            dispatchOnNewIntent(activity, attach)
+
+            assertEquals(listOf(DisplaySize(800, 480)), startRequests)
+            assertNull(CarPlayHostActions.consumeInternalAction(attach))
+        } finally {
+            activity.startCarPlayForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun verifiedUsbAttachWaitsForVpnReadinessBeforeStarting() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val startRequests = mutableListOf<DisplaySize>()
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, false)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "menuOpen").setBoolean(activity, false)
+            field(activity, "activeDisplaySize").set(activity, DisplaySize(800, 480))
+            activity.startCarPlayForTest = startRequests::add
+
+            dispatchOnNewIntent(
+                activity,
+                CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.USB_DEVICE_ATTACHED),
+            )
+            assertTrue(startRequests.isEmpty())
+
+            field(activity, "vpnReady").setBoolean(activity, true)
+            activity.javaClass.getDeclaredMethod("maybeStartCarPlay").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+            assertEquals(listOf(DisplaySize(800, 480)), startRequests)
+        } finally {
+            activity.startCarPlayForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
     @Test
     fun altOnlyScreenDoesNotHideTheMainConnectionPanel() {
         assertFalse(mainScreenStreamIsActive(setOf(111), 110))
@@ -337,6 +414,13 @@ class CarPlayHostActivityReconnectTest {
 
     private fun field(instance: Any, name: String): Field = instance.javaClass.getDeclaredField(name).apply {
         isAccessible = true
+    }
+
+    private fun dispatchOnNewIntent(activity: CarPlayHostActivity, intent: Intent) {
+        activity.javaClass.getDeclaredMethod("onNewIntent", Intent::class.java).apply {
+            isAccessible = true
+            invoke(activity, intent)
+        }
     }
 
     private fun invokeStatusReporter(reporter: Any?, status: CarPlayStatus) {

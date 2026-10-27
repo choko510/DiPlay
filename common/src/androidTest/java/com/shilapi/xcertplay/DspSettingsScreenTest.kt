@@ -23,6 +23,7 @@ import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.dsp.DspPresetStoreResult
 import com.shilapi.xcertplay.dsp.DspRuntimeConfigStore
 import com.shilapi.xcertplay.dsp.DspStudioComparisonSide
+import com.shilapi.xcertplay.dsp.DspTuningResolver
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
@@ -255,6 +256,15 @@ class DspSettingsScreenTest {
             val draft = studioSession.preview
             assertTrue(draft.baseProfileSnapshot.bass.gainDb != committed.baseProfileSnapshot.bass.gainDb)
             runtime.editorSession.restoreDraft(draft.baseProfileSnapshot)
+            assertTrue(runtime.currentStudioFeatureFlags().macroOverlayEnabled)
+            val expectedDraftMacroTone = DspTuningResolver.resolve(
+                profile = draft.baseProfileSnapshot,
+                masterEnabled = runtime.isDspEnabled(),
+                macros = draft.macros,
+                loudness = draft.smartLoudness,
+                volumeReading = runtime.studioVolumeReading(),
+                dynamicBass = draft.dynamicBass,
+            ).runtimeConfig.macroTone
 
             composeRule.setContent {
                 MaterialTheme {
@@ -271,19 +281,28 @@ class DspSettingsScreenTest {
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
             }
+            val generationBeforeB = runtime.configProvider.versionedSnapshot().generation
             composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_b))
                 .performScrollTo().performClick()
             composeRule.waitUntil(timeoutMillis = 15_000) {
-                runtime.selectedProfile().bass.gainDb == draft.baseProfileSnapshot.bass.gainDb
+                val snapshot = runtime.configProvider.versionedSnapshot()
+                snapshot.generation > generationBeforeB &&
+                    runtime.selectedProfile().bass.gainDb == draft.baseProfileSnapshot.bass.gainDb &&
+                    snapshot.config.macroTone == expectedDraftMacroTone
             }
             assertEquals(DspStudioComparisonSide.B, studioSession.comparisonSide)
-            val draftMacroTone = runtime.configProvider.snapshot().macroTone
+            val draftMacroTone = runtime.configProvider.versionedSnapshot().config.macroTone
+            assertEquals(expectedDraftMacroTone, draftMacroTone)
             assertEquals(draft, studioSession.preview)
 
+            val generationBeforeA = runtime.configProvider.versionedSnapshot().generation
             composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_a))
                 .performScrollTo().performClick()
             composeRule.waitUntil(timeoutMillis = 15_000) {
-                runtime.selectedProfile().bass.gainDb == committed.baseProfileSnapshot.bass.gainDb
+                val snapshot = runtime.configProvider.versionedSnapshot()
+                snapshot.generation > generationBeforeA &&
+                    runtime.selectedProfile().bass.gainDb == committed.baseProfileSnapshot.bass.gainDb &&
+                    snapshot.config.macroTone == draftMacroTone
             }
 
             assertEquals(DspStudioComparisonSide.A, studioSession.comparisonSide)

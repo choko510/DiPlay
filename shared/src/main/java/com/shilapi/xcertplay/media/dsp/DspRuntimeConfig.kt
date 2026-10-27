@@ -121,10 +121,14 @@ internal fun DspRuntimeConfig.failureFallbackPreampDb(format: DspAudioFormat): D
     val dynamicBassBoostDb = if (dynamicBass.enabled) dynamicBass.maxBoostDb * dynamicBass.strength else 0.0
     val advancedMsBoostDb = advancedMs.worstCaseBoostDb
     val harmonicBoostDb = harmonic.worstCaseBoostDb.coerceAtLeast(0.0)
+    val convolverBoostDb = convolver.impulseResponse
+        ?.takeIf { convolver.enabled && convolver.wet > 0.0 && it.sampleRate == format.sampleRate }
+        ?.conservativePeakGainDb(convolver.wet)
+        ?: 0.0
     val worstCasePeakDb = gainDb + eqBoostDb + bassBoostDb + compressorMakeupDb +
         multibandMakeupDb + dynamicBoostDb + seatTrimDb + stereoWidthDb +
         studioToneBoostDb + dynamicBassBoostDb + advancedMsBoostDb + harmonicBoostDb +
-        autoHeadroomMarginDb
+        convolverBoostDb + autoHeadroomMarginDb
     val reductionDb = worstCasePeakDb.coerceAtLeast(0.0)
     return (gainDb - reductionDb).coerceIn(-700.0, 0.0)
 }

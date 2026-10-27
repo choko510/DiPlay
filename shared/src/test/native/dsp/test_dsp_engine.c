@@ -155,16 +155,33 @@ static dsp_engine *create_test_engine_with_spatial(
         &bypass_harmonic);
 }
 
+static dsp_engine *create_test_engine_with_convolver_and_gain(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const dsp_convolver_config *convolver_config);
+
 static dsp_engine *create_test_engine_with_convolver(
     int sample_rate,
     int channels,
     int max_frames,
     const dsp_convolver_config *convolver_config) {
+    return create_test_engine_with_convolver_and_gain(
+        sample_rate, channels, max_frames, 0.0, convolver_config);
+}
+
+static dsp_engine *create_test_engine_with_convolver_and_gain(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    double gain_db,
+    const dsp_convolver_config *convolver_config) {
     return dsp_engine_create(
         sample_rate,
         channels,
         max_frames,
-        0.0,
+        gain_db,
         NULL,
         0,
         &bypass_dynamics,
@@ -2170,6 +2187,38 @@ static void test_convolver_ir_sizes_and_validation(void) {
         "finite but unbounded IR amplitudes are rejected before FFT preparation");
 }
 
+static void test_high_gain_convolver_stays_below_full_scale_with_headroom(void) {
+    const int frame_count = DSP_CONVOLVER_MAX_IR_FRAMES;
+    float *impulse = (float *)malloc((size_t)frame_count * sizeof(float));
+    assert_true(impulse != NULL, "high-gain IR test buffer allocates");
+    for (int frame = 0; frame < frame_count; frame++) impulse[frame] = 1.0f;
+    const dsp_convolver_config config = {
+        1, 48000, 1, frame_count, (size_t)frame_count, 1.0f, impulse,
+    };
+    const double gain_db = -20.0 * log10((double)frame_count) - 1.0;
+    dsp_engine *engine = create_test_engine_with_convolver_and_gain(48000, 1, 256, gain_db, &config);
+    assert_true(engine != NULL, "maximum valid high-gain IR prepares with auto-headroom attenuation");
+
+    float input[256];
+    float output[256];
+    double maximum_absolute_output = 0.0;
+    const int total_frames = frame_count + 512;
+    for (int offset = 0; offset < total_frames; offset += 256) {
+        for (size_t index = 0; index < 256; index++) input[index] = 0.05f;
+        assert_true(
+            dsp_engine_process(engine, input, 256, output, 256, 256, 1) == DSP_STATUS_OK,
+            "attenuated high-gain convolution processes constant PCM");
+        for (size_t index = 0; index < 256; index++) {
+            const double magnitude = fabs((double)output[index]);
+            if (magnitude > maximum_absolute_output) maximum_absolute_output = magnitude;
+        }
+    }
+    assert_true(maximum_absolute_output < 0.05,
+        "convolver output stays below full scale after the full IR history warms");
+    dsp_engine_destroy(engine);
+    free(impulse);
+}
+
 static void test_convolver_sparse_sentinel_taps_reach_their_output_frames(void) {
     const int sizes[] = {4096, 16384, DSP_CONVOLVER_MAX_IR_FRAMES};
     const float tap_values[] = {0.125f, -0.25f, 0.375f, -0.5f, 0.625f, -0.75f, 0.875f};
@@ -2918,6 +2967,7 @@ int main(void) {
     test_convolver_impulse_direct_convolution_and_latency();
     test_convolver_chunk_invariance_wet_mix_and_rate_mismatch_bypass();
     test_convolver_ir_sizes_and_validation();
+    test_high_gain_convolver_stays_below_full_scale_with_headroom();
     test_convolver_sparse_sentinel_taps_reach_their_output_frames();
     test_studio_native_macro_and_loudness_frequency_response();
     test_studio_hot_refund_waits_for_stage_gain_release();

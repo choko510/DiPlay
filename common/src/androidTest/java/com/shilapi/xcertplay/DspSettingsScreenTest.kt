@@ -1,7 +1,11 @@
 package com.shilapi.xcertplay
 
+import android.content.res.Configuration
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
@@ -28,6 +32,7 @@ import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -191,6 +196,62 @@ class DspSettingsScreenTest {
             try {
                 restoreCommittedWorkspace(runtime)
             } finally {
+                preferences.edit().clear().commit()
+                filesDirectory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun eqFilterTypeChooserShowsLocalizedLabels() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val japaneseConfiguration = Configuration(context.resources.configuration).apply {
+            setLocale(Locale.JAPANESE)
+        }
+        val japaneseContext = context.createConfigurationContext(japaneseConfiguration)
+        val filesDirectory = File(context.cacheDir, "dsp-eq-filter-localization-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            composeRule.setContent {
+                CompositionLocalProvider(
+                    LocalConfiguration provides japaneseConfiguration,
+                    LocalResources provides japaneseContext.resources,
+                ) {
+                    MaterialTheme {
+                        DspSettingsScreen(
+                            runtime = runtime,
+                            presentation = DspPresentationMode.COMPACT_SPLIT,
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+
+            composeRule.onNodeWithContentDescription(japaneseContext.getString(R.string.dsp_studio_tab_eq))
+                .performScrollTo()
+                .performClick()
+            val filterTypeButton = japaneseContext.getString(
+                R.string.dsp_eq_filter_type_summary,
+                japaneseContext.getString(R.string.dsp_eq_filter_peak),
+            )
+            composeRule.onAllNodesWithText(filterTypeButton)[0].performScrollTo().performClick()
+            composeRule.onNodeWithText(japaneseContext.getString(R.string.dsp_eq_filter_low_shelf)).assertIsDisplayed()
+            assertTrue(composeRule.onAllNodesWithText("LOW_SHELF").fetchSemanticsNodes().isEmpty())
+        } finally {
+            try {
+                restoreCommittedWorkspace(runtime)
+            } finally {
+                runtime.closeForTesting()
                 preferences.edit().clear().commit()
                 filesDirectory.deleteRecursively()
             }

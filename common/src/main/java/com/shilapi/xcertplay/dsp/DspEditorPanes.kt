@@ -68,6 +68,16 @@ import kotlin.math.hypot
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
+internal fun DspEqType.filterLabelResource(): Int = when (this) {
+    DspEqType.PEAK -> R.string.dsp_eq_filter_peak
+    DspEqType.LOW_SHELF -> R.string.dsp_eq_filter_low_shelf
+    DspEqType.HIGH_SHELF -> R.string.dsp_eq_filter_high_shelf
+    DspEqType.HIGH_PASS -> R.string.dsp_eq_filter_high_pass
+    DspEqType.LOW_PASS -> R.string.dsp_eq_filter_low_pass
+    DspEqType.NOTCH -> R.string.dsp_eq_filter_notch
+    DspEqType.ALL_PASS -> R.string.dsp_eq_filter_all_pass
+}
+
 /** Reusable editor for the profile's existing 15-band PEQ and approved Cabin EQ. */
 @Composable
 fun DspEqEditorPane(
@@ -177,17 +187,8 @@ fun DspEqEditorPane(
                             modifier = Modifier.semantics { contentDescription = enableDescription },
                         )
                     }
-                    val filterTypeLabel = when (band.type) {
-                        DspEqType.PEAK -> R.string.dsp_eq_filter_peak
-                        DspEqType.LOW_SHELF -> R.string.dsp_eq_filter_low_shelf
-                        DspEqType.HIGH_SHELF -> R.string.dsp_eq_filter_high_shelf
-                        DspEqType.HIGH_PASS -> R.string.dsp_eq_filter_high_pass
-                        DspEqType.LOW_PASS -> R.string.dsp_eq_filter_low_pass
-                        DspEqType.NOTCH -> R.string.dsp_eq_filter_notch
-                        DspEqType.ALL_PASS -> R.string.dsp_eq_filter_all_pass
-                    }
                     TextButton(onClick = { onEditBandType(index) }) {
-                        Text(stringResource(R.string.dsp_eq_filter_type_summary, stringResource(filterTypeLabel)))
+                        Text(stringResource(R.string.dsp_eq_filter_type_summary, stringResource(band.type.filterLabelResource())))
                     }
                     val frequencyLabel = stringResource(R.string.dsp_eq_band_frequency, index + 1)
                     AccessibleSlider(frequencyLabel, band.frequencyHz.toFloat(), 20f..maxFrequencyHz, "Hz", onEditFinished) {

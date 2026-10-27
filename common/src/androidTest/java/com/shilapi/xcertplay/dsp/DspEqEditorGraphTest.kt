@@ -58,6 +58,19 @@ class DspEqEditorGraphTest {
         assertEquals("Maximum lift", englishContext.getString(R.string.dsp_db_max_lift))
         assertEquals("50%", japaneseContext.getString(R.string.dsp_smart_percent, 50))
         assertEquals("50%", englishContext.getString(R.string.dsp_smart_percent, 50))
+        val filterLabels = mapOf(
+            DspEqType.PEAK to ("ピーク" to "Peak"),
+            DspEqType.LOW_SHELF to ("ローシェルフ" to "Low shelf"),
+            DspEqType.HIGH_SHELF to ("ハイシェルフ" to "High shelf"),
+            DspEqType.HIGH_PASS to ("ハイパス" to "High-pass"),
+            DspEqType.LOW_PASS to ("ローパス" to "Low-pass"),
+            DspEqType.NOTCH to ("ノッチ" to "Notch"),
+            DspEqType.ALL_PASS to ("オールパス" to "All-pass"),
+        )
+        filterLabels.forEach { (type, labels) ->
+            assertEquals(labels.first, japaneseContext.getString(type.filterLabelResource()))
+            assertEquals(labels.second, englishContext.getString(type.filterLabelResource()))
+        }
     }
 
     @Test

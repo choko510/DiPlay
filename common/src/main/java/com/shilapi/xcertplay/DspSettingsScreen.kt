@@ -80,6 +80,7 @@ import com.shilapi.xcertplay.dsp.DspSmartLoudnessPane
 import com.shilapi.xcertplay.dsp.DspDynamicBassSettingsPane
 import com.shilapi.xcertplay.dsp.DspEqEditorPane
 import com.shilapi.xcertplay.dsp.DspModulePresetPane
+import com.shilapi.xcertplay.dsp.filterLabelResource
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
@@ -1785,7 +1786,7 @@ internal fun DspSettingsScreen(
                                 finishStudioFeatureEdit()
                                 bandTypeDialog = null
                             },
-                        ) { Text(type.name) }
+                        ) { Text(stringResource(type.filterLabelResource())) }
                     }
                 }
             },

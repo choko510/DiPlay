@@ -153,6 +153,48 @@ class DspStudioPersistenceTest {
         assertEquals(DspPresetStoreResult.NOT_FOUND, repo.deleteUserPreset("bass", preset.id))
     }
 
+    @Test fun modulePresetListingRecoversBackupOnlyUserPreset() {
+        val root = temporaryFolder.root
+        val repo = DspModulePresetRepository(root)
+        val preset = DspModulePreset(
+            "backup_bass",
+            "bass",
+            "Backup bass",
+            JSONObject().put("enabled", true).put("gainDb", 2.0).put("frequencyHz", 80.0),
+        )
+        assertEquals(DspPresetStoreResult.SAVED, repo.save(preset))
+        val target = File(root, "dsp/modules/bass/${preset.id}.json")
+        val backup = File(target.path + ".bak")
+        assertTrue(Files.move(target.toPath(), backup.toPath()).toFile().isFile)
+
+        val recovered = repo.userPresets("bass").single()
+        assertEquals(preset.id, recovered.id)
+        assertEquals(preset.name, recovered.name)
+        assertEquals(preset.payload.toString(), recovered.payload.toString())
+        assertTrue(target.isFile)
+        assertFalse(backup.exists())
+    }
+
+    @Test fun backupOnlyModulePresetCanBeDeletedAfterRecovery() {
+        val root = temporaryFolder.root
+        val repo = DspModulePresetRepository(root)
+        val preset = DspModulePreset(
+            "backup_delete_bass",
+            "bass",
+            "Backup delete bass",
+            JSONObject().put("enabled", true).put("gainDb", 2.0).put("frequencyHz", 80.0),
+        )
+        assertEquals(DspPresetStoreResult.SAVED, repo.save(preset))
+        val target = File(root, "dsp/modules/bass/${preset.id}.json")
+        val backup = File(target.path + ".bak")
+        assertTrue(Files.move(target.toPath(), backup.toPath()).toFile().isFile)
+
+        assertEquals(DspPresetStoreResult.DELETED, repo.deleteUserPreset("bass", preset.id))
+        assertFalse(target.exists())
+        assertFalse(backup.exists())
+        assertEquals(DspPresetStoreResult.NOT_FOUND, repo.deleteUserPreset("bass", preset.id))
+    }
+
     @Test fun factoryPresetIdCannotBeDeletedEvenIfAFileExists() {
         val root = temporaryFolder.root
         val factory = DspFactoryPresets.modulePresets().first { it.moduleKey == "bass" }

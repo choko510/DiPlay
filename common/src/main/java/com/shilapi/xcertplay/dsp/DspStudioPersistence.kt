@@ -129,15 +129,25 @@ internal class DspModulePresetRepository(
         if (moduleKey !in MODULES || !validId(id)) return null
         val directory = moduleDirectory(moduleKey) ?: return null
         val target = File(directory, "$id.json")
-        if (target.exists() && (!target.isFile || target.canonicalFile.parentFile != directory.canonicalFile)) return null
-        return try { if (target.length() > MAX_PAYLOAD_CHARS) return null; val j = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }); if (j.getInt("schemaVersion") != SCHEMA || j.getInt("payloadVersion") != 1 || j.getString("id") != id || j.getString("moduleKey") != moduleKey || j.optString("origin") != "USER") return null; val payload = j.getJSONObject("payload"); val name = j.getString("name"); if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) null else DspModulePreset(id, moduleKey, name, payload) } catch (_: Exception) { null }
+        if (!safeModulePresetFiles(directory, id)) return null
+        val backup = File(target.path + ".bak")
+        return try { if (target.length() > MAX_PAYLOAD_CHARS || backup.length() > MAX_PAYLOAD_CHARS) return null; val j = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() }); if (j.getInt("schemaVersion") != SCHEMA || j.getInt("payloadVersion") != 1 || j.getString("id") != id || j.getString("moduleKey") != moduleKey || j.optString("origin") != "USER") return null; val payload = j.getJSONObject("payload"); val name = j.getString("name"); if (name.isBlank() || name.length > 48 || !validPayload(moduleKey, payload) || !validReferences(moduleKey, payload)) null else DspModulePreset(id, moduleKey, name, payload) } catch (_: Exception) { null }
     }
     fun userPresets(moduleKey: String): List<DspModulePreset> {
         val directory = moduleDirectory(moduleKey) ?: return emptyList()
         return directory.listFiles()
             ?.asSequence()
-            ?.filter { it.isFile && it.extension == "json" }
-            ?.mapNotNull { load(moduleKey, it.nameWithoutExtension) }
+            ?.mapNotNull { file ->
+                when {
+                    file.name.endsWith(".json.bak") -> file.name.removeSuffix(".json.bak")
+                    file.name.endsWith(".json") -> file.name.removeSuffix(".json")
+                    else -> null
+                }
+            }
+            ?.filter(::validId)
+            ?.distinct()
+            ?.filter { id -> safeModulePresetFiles(directory, id) }
+            ?.mapNotNull { load(moduleKey, it) }
             ?.sortedBy(DspModulePreset::name)
             ?.toList()
             .orEmpty()
@@ -182,12 +192,15 @@ internal class DspModulePresetRepository(
         }
         val directory = moduleDirectory(moduleKey) ?: return DspPresetStoreResult.INVALID
         val target = File(directory, "$id.json")
-        if (!target.exists()) return DspPresetStoreResult.NOT_FOUND
-        if (!target.isFile || target.canonicalFile.parentFile != directory.canonicalFile) {
+        val backup = File(target.path + ".bak")
+        if (!target.exists() && !backup.exists()) return DspPresetStoreResult.NOT_FOUND
+        if (!safeModulePresetFiles(directory, id)) {
             return DspPresetStoreResult.INVALID
         }
         return try {
-            if (target.length() > MAX_PAYLOAD_CHARS) return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+            if (target.length() > MAX_PAYLOAD_CHARS || backup.length() > MAX_PAYLOAD_CHARS) {
+                return DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+            }
             val json = JSONObject(AtomicFile(target).openRead().bufferedReader().use { it.readText() })
             val version = json.optInt("schemaVersion", 0)
             if (version > SCHEMA || json.optInt("payloadVersion", 0) != 1) {
@@ -313,6 +326,15 @@ internal class DspModulePresetRepository(
             if (directory.canonicalFile.parentFile != moduleRoot) return null
             directory
         }.getOrNull()
+    }
+    private fun safeModulePresetFiles(directory: File, id: String): Boolean {
+        val target = File(directory, "$id.json")
+        val backup = File(target.path + ".bak")
+        return runCatching {
+            listOf(target, backup).all { file ->
+                !file.exists() || (file.isFile && file.canonicalFile.parentFile == directory.canonicalFile)
+            }
+        }.getOrDefault(false)
     }
     private fun readEq(a: JSONArray): List<com.shilapi.xcertplay.media.dsp.DspEqBand>? = try { require(a.length() <= DspAudioProfile.MAX_EQ_BANDS); List(a.length()) { i -> val b = a.getJSONObject(i); com.shilapi.xcertplay.media.dsp.DspEqBand(com.shilapi.xcertplay.media.dsp.DspEqType.valueOf(b.getString("type")), b.getDouble("frequencyHz"), b.getDouble("gainDb"), b.getDouble("q"), b.getBoolean("enabled")) } } catch (_: Exception) { null }
     private fun schema(f: File): Int? = try { JSONObject(AtomicFile(f).openRead().bufferedReader().use { it.readText() }).optInt("schemaVersion", 0) } catch (_: Exception) { null }

@@ -379,6 +379,8 @@ class CarPlayController(
 
     fun isClosed(): Boolean = closed
 
+    fun isUsingWiredTransport(): Boolean = config.transport == CarPlayTransport.WIRED
+
     fun isWiredRecoveryManagedByController(): Boolean {
         if (config.transport != CarPlayTransport.WIRED) return false
         if (closed) return true

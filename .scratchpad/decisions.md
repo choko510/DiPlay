@@ -8,7 +8,7 @@ The decisions below are retained with their full rationale; earlier choices may 
 - **Wired NCM / USBMUX:** [persistent NCM IN](#keep-ncm-bulk-in-persistent-and-drain-an-available-status-endpoint), [USBMUX recovery](#keep-one-usbmux-in-request-and-use-bounded-recovery), [teardown](#fence-and-serialize-wired-teardown).
 - **AirPlay / host split:** [LOCAL Split](#keep-local-split-resizing-inside-android), [ViewAreas](#keep-multiple-viewareas-explicit-and-wire-switching-disabled), [DSP Split](#add-dsp-as-a-mutually-exclusive-host-split-mode).
 - **DSP:** [OFF baseline](#preserve-the-dsp-off-baseline-before-extending-the-graph), [Seat](#align-seat-timing-by-explicit-near-speaker-and-preserve-graph-history), [Cabin](#cabin-correction-requires-external-measurements-and-explicit-approval), [Harmonic](#harmonic-effects-use-bounded-2-fir-oversampling-and-report-the-dry-matched-latency).
-- **CI / security:** [draft gates](#defer-emulator-instrumentation-while-a-pr-is-draft), [privacy](#keep-connection-traces-opt-in-and-app-owned), [MFi local identity](#keep-local-mfi-identity-outside-tracked-source).
+- **CI / security:** [draft gates](#defer-emulator-instrumentation-while-a-pr-is-draft), [privacy](#keep-connection-traces-opt-in-and-app-owned), [MFi local identity](#keep-local-mfi-identity-outside-tracked-source), [USB auto-launch](#keep-usb-auto-launch-as-a-validated-entry-to-the-existing-controller).
 
 ## Keep EX-08 provenance separate from current decisions
 
@@ -715,3 +715,7 @@ The decoder-retirement test must keep its stop gate closed until the assertion c
 2026-10-26 B05: bound TextureView surface ownership at the generation boundary, where new Surface wrappers can still be deferred safely. Count pending retirements plus the current Surface against an eight-pair ceiling; keep only the newest deferred Texture and resume it after ACKs. Retire same-Texture Surface wrappers only after decoder ACK and release the Texture only after its destroyed generation's owners complete.
 
 2026-10-26 B06: keep the microphone zero-read backoff and send-only-after-positive-read behavior unchanged because the production capture loop already implements the contract; exercise it end-to-end with a scripted AudioRecord and loopback UDP receiver. Extend only the OFF_INITIAL regression matrix to the four supported rate/channel combinations; do not change sample-clock or live-OFF latency behavior.
+
+## Keep USB auto-launch as a validated entry to the existing Controller
+
+Keep the Apple attach component disabled by default and enable it only with the independent user setting. Require the exact current USB device plus the existing CarPlay USBMUX/NCM configuration before launching; keep permission requests, USB opens, and re-enumeration with `IphoneUsbHost` and `CarPlayController`. For an existing wired owner, ignore outer launch requests; for a wireless-to-wired handoff, revalidate after teardown and retain the host split state. Keep boot recovery user-initiated with a notification when background launch is unavailable.

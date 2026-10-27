@@ -54,6 +54,21 @@
         </activity>
 
         <activity
+            android:name="com.shilapi.xcertplay.IphoneUsbAutoAttachActivity"
+            android:enabled="false"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/iphone_usb_auto_attach_filter" />
+        </activity>
+
+        <activity
             android:name="com.shilapi.xcertplay.MainActivity"
             android:exported="false"
             android:theme="@style/Theme.Xcertplay" />

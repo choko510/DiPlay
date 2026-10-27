@@ -577,3 +577,7 @@ Treat performance instrumentation as a distribution gate: retain both passing an
 2026-10-27 B09: verify CI report artifacts by opening the uploaded ZIP and checking that expected JUnit XML files and suite counts are present; a passing job alone does not prove reports needed to diagnose future failures were retained. Run #490 confirmed 865 unit-test and 20 connected-instrumentation results were archived.
 
 2026-10-27 B09: a median-of-three p99 gate can pass while individual runs exceed the ceiling. Preserve all per-run samples and report both the gate statistic and largest tail; do not treat a green instrumentation job as proof that every measured run stayed under budget.
+
+2026-10-27 B09: when API 35 wall p99 exceeds budget, compare per-block `Debug.threadCpuTimeNanos()` p99 with wall p99. A lower thread CPU p99 indicates time spent outside the measuring thread, but it does not establish real-device playback safety or excuse a wall-deadline breach.
+
+2026-10-27 B09: preserve benchmark results by ABI, build variant, and exact run. A passing x86_64 CI median does not override failing arm64 Debug emulator assertions. Compare thread-CPU p99 before attributing wall tails to scheduling; a later run can also show CPU p99 over budget. Debug `-O0` versus Release `-O2` is a relevant variant difference, not proof of cause.

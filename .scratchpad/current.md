@@ -10,6 +10,10 @@
 - Preserve the existing zero-latency DSP-OFF contract and avoid claiming hardware acceptance from emulator or source checks.
 
 ## Current integration state
+- Workflow-sensitive run #495 passed the full host, sanitizer, unit/build, JNI/R8 and API 35 lanes for PR #45's then-current code/test head; its artifacts confirm 865 unit tests and 20 API 35 instrumentation tests passed. All 56 x86_64 median wall-p99 gates passed. Later PR #45 runs #497–#499 were docs-only or Draft unit-only and add no full-runtime evidence.
+- PR #45 also added test-only per-block thread-CPU p99 diagnostics and an actual ComposeView measurement regression. The focused layout/diagnostics suites passed 9/9; two local API 35 arm64 Debug runs still failed different performance cases. Wall thresholds stayed unchanged, cause is unresolved, and target-device behavior is unverified.
+- Preserve run #490's 41.636 ms single-run tail, local prior 84.009 ms tail, and the earlier failed p99 run. Local macOS LeakSanitizer is unavailable; hosted Linux sanitizer passed.
+- TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
 
 ### Historical PR #62/#63 integration evidence
 - PR #62 EQ/sample-rate changes were merged into PR #52. Its callbackProfile-null instrumentation failure was traced to selecting a band from the touch-slop drag start instead of the initial pointer-down position. The fix selects from pointer-down and edits from post-slop positions; API 35 graph instrumentation passed 3/3 and hosted run #464 passed.
@@ -62,3 +66,4 @@
 
 1. Keep PR #45 Draft and G8 `NO_GO_THIS_RUN` until supported TS10/K706+iPhone acceptance, release signing/rollback, and independent review evidence are available.
 2. Run HW-01–HW-13 only on the target devices; obtain authorized signing credentials for HW-11.
+3. Keep PR #45's independent review `NOT_RUN` per its existing direction; do not infer target-device audio/layout acceptance from emulator tests.

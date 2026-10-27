@@ -4,6 +4,9 @@
 
 ## 2026-10-27
 
+- Rechecked the F8 and DSP Split findings against PR #45; the recovery, bounded RTSP parser, connection cap, measurement-log cap, inset/scroll order, and exact ComposeView MeasureSpec capture are covered. Added the actual-ComposeView Robolectric regression; focused tests passed 9/9, the change was pushed, and docs-only run #499 passed.
+- Added Robolectric coverage for the DSP pane's actual ComposeView measurement path; the focused Host-layout and diagnostic suites pass 9/9 locally, and Draft run #498 passed its unit job. SH-M27 rendering and inset acceptance remains device-gated.
+- Added test-only per-block thread-CPU p99 diagnostics. Run #495 passed the full current-code/test CI lane and all 56 x86_64 median wall-p99 gates; run #497 passed only docs/static checks after the evidence update. Two focused local arm64 Debug runs fail different configurations; the latest has two thread-CPU p99 breaches, so G4 remains partial and hardware evidence remains open.
 - PR #45 B09 verification: workflow-sensitive run #490 passed host/native/sanitizer/unit/lint/build/JNI/R8 and API 35 instrumentation. Retained CI XML confirms 659 Shared + 206 Common unit tests and 19 Shared + 1 Common instrumentation tests, all without failures, errors, or skips.
 - API 35 DSP distribution repeat passed Shared instrumentation 19/19; all median-of-three p99 gates stayed under the unchanged ceiling, while single-run tails exceeded it in both CI and local emulator samples and remain unresolved.
 - Completed B08 timing evidence and B10/B11/B12 result packages; API 35 Shared instrumentation later passed 19/19 while the earlier p99 failure remains recorded. Release stays `NO_GO_THIS_RUN` pending hardware, signing, and review gates.

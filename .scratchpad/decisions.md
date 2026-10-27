@@ -716,6 +716,12 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-27 B09 distribution: the current acceptance check uses the median of three per-configuration p99 samples. Run #490's API 35 x86_64 artifact and a local API 35 arm64-v8a repeat passed that gate, yet single-run p99s reached 41.636 ms and 84.009 ms respectively; the local maximum median was 20.020 ms against the unchanged 21.332 ms ceiling. Report the per-run distribution alongside the CI result and do not relax the ceiling or infer that the tails are harmless.
 
+## Pair wall p99 with per-block thread CPU timing
+
+2026-10-27 B09: retain the wall-clock p99 as the deadline gate, because audio delivery depends on elapsed time. Add per-block thread CPU timing only to the instrumentation benchmark so high wall p99 with lower CPU p99 can indicate time not charged to the measuring thread; this diagnostic does not prove the target audio path is safe and cannot replace TS10/K706 measurements or justify relaxing the limit.
+
+2026-10-27 B09 follow-up: run #495 passes all 56 median wall-p99 gates on x86_64, while two focused local arm64 Debug runs fail different configurations. The latest has two cases whose thread-CPU p99 also exceeds budget; this invalidates a scheduling-only explanation for every failure. Debug's native `-O0` versus Release `-O2` difference is confirmed but not causal proof. Keep ABI/variant results separate, retain thresholds, and leave G4 partial until target behavior is measured.
+
 ## Retain Gradle test result XML in CI artifacts
 
 2026-10-27 B09: upload unit-test XML and connected AndroidTest XML/HTML with `if: always()` so a failed test remains diagnosable from the run artifact. Run #490 verified that the configured paths produce 865 unit-test and 20 instrumentation-test results; artifact retention itself does not change test scope or release status.

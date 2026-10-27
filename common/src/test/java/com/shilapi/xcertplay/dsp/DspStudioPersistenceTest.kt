@@ -97,6 +97,31 @@ class DspStudioPersistenceTest {
         assertEquals(future, target.readText())
     }
 
+    @Test fun danglingWorkspaceSymlinkIsRejectedWithoutWritingThroughIt() {
+        val target = File(temporaryFolder.root, "dsp/workspace/current.json")
+        target.parentFile!!.mkdirs()
+        val outside = File(temporaryFolder.root, "outside-workspace.json")
+        Files.createSymbolicLink(target.toPath(), outside.toPath())
+        val repo = DspStudioWorkspaceRepository(temporaryFolder.root)
+
+        assertEquals(DspWorkspaceReadResult.Invalid, repo.load())
+        assertEquals(DspWorkspaceSaveResult.INVALID, repo.save(workspace()))
+        assertFalse(outside.exists())
+    }
+
+    @Test fun workspaceParentSymlinkOutsideFilesRootIsRejected() {
+        val root = temporaryFolder.newFolder("workspace-symlink-root")
+        val outside = temporaryFolder.newFolder("workspace-symlink-outside")
+        val workspaceDirectory = File(root, "dsp/workspace")
+        workspaceDirectory.parentFile!!.mkdirs()
+        Files.createSymbolicLink(workspaceDirectory.toPath(), outside.toPath())
+        val repo = DspStudioWorkspaceRepository(root)
+
+        assertEquals(DspWorkspaceReadResult.Invalid, repo.load())
+        assertEquals(DspWorkspaceSaveResult.INVALID, repo.save(workspace()))
+        assertFalse(File(outside, "current.json").exists())
+    }
+
     @Test fun invalidCurrentWorkspaceIsPreservedOnSave() {
         val target = File(temporaryFolder.root, "dsp/workspace/current.json")
         val repo = DspStudioWorkspaceRepository(temporaryFolder.root)
@@ -134,6 +159,68 @@ class DspStudioPersistenceTest {
         assertEquals(DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED, repo.save(replacement))
         assertEquals(future, file.readText())
         assertEquals(DspPresetStoreResult.INVALID, repo.save(DspFactoryPresets.modulePresets().first()))
+    }
+
+    @Test fun futureBackupOnlyModulePresetIsPreservedOnSave() {
+        val root = temporaryFolder.root
+        val target = File(root, "dsp/modules/bass/future_backup.json")
+        target.parentFile!!.mkdirs()
+        val backup = File(target.path + ".bak")
+        val future = "{\"schemaVersion\":99,\"sentinel\":\"keep\"}"
+        backup.writeText(future)
+        val repo = DspModulePresetRepository(root)
+        val replacement = DspModulePreset(
+            "future_backup",
+            "bass",
+            "Replacement",
+            JSONObject().put("enabled", true).put("gainDb", 1.0).put("frequencyHz", 80.0),
+        )
+
+        assertEquals(DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED, repo.save(replacement))
+        assertFalse(target.exists())
+        assertEquals(future, backup.readText())
+    }
+
+    @Test fun danglingModulePresetSymlinksAreRejectedForPrimaryAndBackupFiles() {
+        val root = temporaryFolder.root
+        val directory = File(root, "dsp/modules/bass").apply { mkdirs() }
+        val outside = File(root, "outside-preset.json")
+        val repo = DspModulePresetRepository(root)
+        for (id in listOf("linked_primary", "linked_backup")) {
+            val target = File(directory, "$id.json")
+            val linkedFile = if (id == "linked_primary") target else File(target.path + ".bak")
+            Files.createSymbolicLink(linkedFile.toPath(), outside.toPath())
+            val replacement = DspModulePreset(
+                id,
+                "bass",
+                "Replacement",
+                JSONObject().put("enabled", true).put("gainDb", 1.0).put("frequencyHz", 80.0),
+            )
+
+            assertEquals(DspPresetStoreResult.INVALID, repo.save(replacement))
+            assertNull(repo.load("bass", id))
+            Files.delete(linkedFile.toPath())
+        }
+        assertFalse(outside.exists())
+    }
+
+    @Test fun moduleDirectorySymlinkToSiblingModuleIsRejected() {
+        val root = temporaryFolder.newFolder("module-symlink-root")
+        val modules = File(root, "dsp/modules").apply { mkdirs() }
+        val siblingModule = File(modules, "peq").apply { mkdirs() }
+        val preserved = File(siblingModule, "keep.json").apply { writeText("keep") }
+        Files.createSymbolicLink(File(modules, "bass").toPath(), siblingModule.toPath())
+        val repo = DspModulePresetRepository(root)
+        val preset = DspModulePreset(
+            "sibling_escape",
+            "bass",
+            "Replacement",
+            JSONObject().put("enabled", true).put("gainDb", 1.0).put("frequencyHz", 80.0),
+        )
+
+        assertEquals(DspPresetStoreResult.INVALID, repo.save(preset))
+        assertEquals("keep", preserved.readText())
+        assertFalse(File(siblingModule, "sibling_escape.json").exists())
     }
 
     @Test fun userModulePresetCanBeDeleted() {
@@ -460,6 +547,18 @@ class DspStudioPersistenceTest {
             linkedRepository.save("custom_macro", "Custom", DspSoundMacroSettings()),
         )
         assertFalse(File(outside, "custom_macro.json").exists())
+
+        val siblingRoot = temporaryFolder.newFolder("macro-linked-sibling-root")
+        val siblingDirectory = File(siblingRoot, "dsp/modules/bass").apply { mkdirs() }
+        val preserved = File(siblingDirectory, "keep.json").apply { writeText("keep") }
+        val siblingMacroDirectory = File(siblingRoot, "dsp/macros")
+        Files.createSymbolicLink(siblingMacroDirectory.toPath(), siblingDirectory.toPath())
+        val siblingRepository = DspMacroPresetRepository(siblingRoot)
+        assertEquals(
+            DspPresetStoreResult.INVALID,
+            siblingRepository.save("sibling_macro", "Sibling", DspSoundMacroSettings()),
+        )
+        assertEquals("keep", preserved.readText())
 
         val oversizedRoot = temporaryFolder.newFolder("macro-oversized-root")
         val oversizedFile = File(oversizedRoot, "dsp/macros/large.json").apply {

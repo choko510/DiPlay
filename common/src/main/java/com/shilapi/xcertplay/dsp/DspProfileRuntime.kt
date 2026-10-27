@@ -50,6 +50,7 @@ internal class DspProfileRuntime private constructor(
     private val studioApplyGeneration = AtomicLong()
     internal var afterStudioFeatureFlagRuntimeApplyForTest: (() -> Unit)? = null
     internal var afterStudioWorkspaceApplyForTest: (() -> Unit)? = null
+    internal var persistStudioFeatureFlagsForTest: (() -> Boolean)? = null
     private val activeStudioWorkspace: AtomicReference<DspStudioWorkspace>
     private val committedStudioWorkspace: AtomicReference<DspStudioWorkspace>
     private val studioSessionCoordinator by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
@@ -106,6 +107,7 @@ internal class DspProfileRuntime private constructor(
         val generation = studioApplyGeneration.incrementAndGet()
         ioExecutor.execute {
             val previous = studioFeatureFlags.get()
+            val previousActiveWorkspace = activeStudioWorkspace.get().deepCopy()
             val audioFeaturesChanged = previous.macroOverlayEnabled != flags.macroOverlayEnabled ||
                 previous.smartLoudnessEnabled != flags.smartLoudnessEnabled ||
                 previous.dynamicBassEnabled != flags.dynamicBassEnabled
@@ -128,7 +130,8 @@ internal class DspProfileRuntime private constructor(
                 }.getOrDefault(false)
                 if (runtimeApplied) afterStudioFeatureFlagRuntimeApplyForTest?.invoke()
                 val persisted = runtimeApplied && studioApplyGeneration.get() == generation && runCatching {
-                    preferences.edit().also(flags::writeTo).commit()
+                    persistStudioFeatureFlagsForTest?.invoke()
+                        ?: preferences.edit().also(flags::writeTo).commit()
                 }.getOrDefault(false)
                 if (!persisted) {
                     studioFeatureFlags.set(previous)
@@ -136,11 +139,10 @@ internal class DspProfileRuntime private constructor(
                     runCatching { preferences.edit().also(previous::writeTo).commit() }
                     if (audioFeaturesChanged) {
                         runCatching {
-                            val rollbackWorkspace = activeStudioWorkspace.get().deepCopy()
                             applyStudioWorkspace(
-                                rollbackWorkspace,
+                                previousActiveWorkspace,
                                 dspEnabled.get(),
-                                impulseResponseFor(rollbackWorkspace.baseProfileSnapshot),
+                                impulseResponseFor(previousActiveWorkspace.baseProfileSnapshot),
                             )
                         }
                     }

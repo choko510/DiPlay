@@ -132,6 +132,33 @@ class DspRuntimeConfigStoreTest {
     }
 
     @Test
+    fun delayedOlderRendererClaimCannotReplaceTheCurrentOwner() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.claimRendererApplyStatusOwner(101L)
+        store.reportRendererApplyStatus(
+            DspRendererApplyStatus(
+                generation = 1L,
+                phase = DspRendererApplyPhase.ACTIVE,
+                activeGeneration = 1L,
+                rendererOwnerToken = 101L,
+            ),
+        )
+
+        store.claimRendererApplyStatusOwner(100L)
+        store.reportRendererApplyStatus(
+            DspRendererApplyStatus(
+                generation = 1L,
+                phase = DspRendererApplyPhase.FAILED,
+                rendererOwnerToken = 100L,
+            ),
+        )
+
+        assertEquals(101L, store.rendererApplyStatus()?.rendererOwnerToken)
+        assertEquals(DspRendererApplyPhase.ACTIVE, store.rendererApplyStatus()?.phase)
+    }
+
+    @Test
     fun activePlaybackSampleRateTracksNewestRendererAndFallsBackWhenItReleases() {
         val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
         val firstOwner = Any()

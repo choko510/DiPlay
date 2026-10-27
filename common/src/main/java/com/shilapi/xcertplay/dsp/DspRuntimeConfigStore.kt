@@ -56,7 +56,7 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
     override fun claimRendererApplyStatusOwner(ownerToken: Long) {
         require(ownerToken > 0L)
         synchronized(applyStatusLock) {
-            if (applyStatusOwner.get() == ownerToken) return
+            if (applyStatusOwner.get()?.let { ownerToken <= it } == true) return
             applyStatusOwner.set(ownerToken)
             val snapshot = current.get()
             while (true) {

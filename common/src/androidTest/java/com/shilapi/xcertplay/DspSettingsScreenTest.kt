@@ -365,7 +365,8 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
             composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
-                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
+                composeRule.onAllNodesWithText(context.getString(R.string.dsp_module_compare_b))
+                    .fetchSemanticsNodes().isNotEmpty()
             }
             val generationBeforeB = runtime.configProvider.versionedSnapshot().generation
             composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_b))

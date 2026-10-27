@@ -8,12 +8,13 @@
 
 ## State
 
-- Workflow-sensitive run #490 passed the full host, sanitizer, unit/build, JNI/R8 and API 35 lanes on PR #45. Retained reports confirm 865 unit tests (659 Shared + 206 Common) and 20 API 35 tests (19 Shared + 1 Common), all passing. Product code and tests have not changed since that run.
-- API 35 DSP median-of-three p99 gates pass, but run #490 had a 41.636 ms single-run tail and a local repeat had an 84.009 ms tail; the local maximum median is 20.020 ms against the unchanged 21.332 ms ceiling. Preserve these and the earlier failing run until the cause is understood. Local macOS LeakSanitizer is unavailable, while hosted Linux sanitizer passed.
+- Workflow-sensitive run #490 passed the full host, sanitizer, unit/build, JNI/R8 and API 35 lanes on PR #45 before the latest test-only timing diagnostic. Its reports confirm 865 unit tests and 20 API 35 instrumentation tests passed.
+- Added per-block thread-CPU p99 beside wall p99 in the DSP instrumentation benchmark. Local API 35 arm64 runs still fail benchmark wall-p99 assertions; the latest focused class reports 10.9–18.06 ms thread-CPU p99 while wall p99 is 27.5–147.6 ms. The 21.332/23.218 ms wall ceilings remain unchanged; this points to timing gaps but does not establish their cause or target-device behavior. Current test-code CI is pending.
+- Preserve run #490's 41.636 ms single-run tail, local prior 84.009 ms tail, and the earlier failed p99 run. Local macOS LeakSanitizer is unavailable; hosted Linux sanitizer passed.
 - Software implementation and its regression coverage are recorded in `completed.md` and the Step4 result package.
 - TS10/K706+iPhone acceptance, SH-M27 rendering, release signing/update rollback, and independent review remain externally gated.
 
 ## Next
 
-1. Keep PR #45 Draft and G8 `NO_GO_THIS_RUN`; wait for the supported TS10/K706+iPhone matrix, release-signing credentials, and independent review.
-2. If new device or review evidence arrives, update only the applicable gate records and preserve the 98-ID crosswalk.
+1. Run the workflow-sensitive host/API 35 gate for the new test-only timing metric, then update B09 with its artifact and CI result.
+2. Keep PR #45 Draft and G8 `NO_GO_THIS_RUN`; device acceptance and signed update still require TS10/K706+iPhone hardware and authorized signing credentials.

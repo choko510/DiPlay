@@ -44,6 +44,7 @@ internal data class DspBiquadCoefficients(
 
 internal object DspEqDesigner {
     const val MAX_BANDS = DspRuntimeConfig.MAX_EQ_BANDS
+    const val MAX_GRAPH_FILTERS = MAX_BANDS + 1
     const val COEFFICIENTS_PER_BAND = 5
     private const val MIN_FREQUENCY_HZ = 20.0
     private const val MAX_FREQUENCY_HZ = 20_000.0
@@ -318,20 +319,16 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     require(enabledBands.size <= DspEqDesigner.MAX_BANDS) {
         "PEQ_CAPACITY_EXCEEDED: ${enabledBands.size} active bands exceeds ${DspEqDesigner.MAX_BANDS}"
     }
-    val coefficients = DoubleArray(enabledBands.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
-    enabledBands.forEachIndexed { index, band ->
+    val bassBand = if (bass.enabled) {
+        DspEqBand(DspEqType.LOW_SHELF, bass.frequencyHz, gainDb = bass.gainDb)
+    } else {
+        null
+    }
+    val graphBands = enabledBands + listOfNotNull(bassBand)
+    val coefficients = DoubleArray(graphBands.size * DspEqDesigner.COEFFICIENTS_PER_BAND)
+    graphBands.forEachIndexed { index, band ->
         DspEqDesigner.design(format.sampleRate, band)
             .writeTo(coefficients, index * DspEqDesigner.COEFFICIENTS_PER_BAND)
-    }
-    val bassCoefficients = if (bass.enabled) {
-        DoubleArray(DspEqDesigner.COEFFICIENTS_PER_BAND).also { destination ->
-            DspEqDesigner.design(
-                format.sampleRate,
-                DspEqBand(DspEqType.LOW_SHELF, bass.frequencyHz, gainDb = bass.gainDb),
-            ).writeTo(destination, 0)
-        }
-    } else {
-        DoubleArray(0)
     }
     val monoBassCoefficients = if (monoBass.enabled) {
         DoubleArray(DspEqDesigner.COEFFICIENTS_PER_BAND).also { destination ->
@@ -423,7 +420,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             safetyLimiter.thresholdDb,
             safetyLimiter.releaseMs,
         ),
-        bassCoefficients = bassCoefficients,
+        bassCoefficients = DoubleArray(0),
         monoBassCoefficients = monoBassCoefficients,
         spatial = doubleArrayOf(
             stereoWidth,

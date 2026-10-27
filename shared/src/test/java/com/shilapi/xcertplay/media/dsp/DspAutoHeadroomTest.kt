@@ -99,6 +99,18 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun smartLoudnessHighPassTransientUsesItsWorstCaseImpulseGainForHeadroom() {
+        val loudness = DspSmartLoudnessRuntimeConfig(enabled = true, highGainDb = 1.5)
+
+        assertEquals(
+            20.0 * kotlin.math.log10(1.0 + 2.0 * (StrictMath.pow(10.0, 1.5 / 20.0) - 1.0)),
+            loudness.conservativeBoostDb(),
+            0.0001,
+        )
+        assertTrue(loudness.conservativeBoostDb() > loudness.highGainDb)
+    }
+
+    @Test
     fun enabledMultibandMakeupUsesTheLargestPositiveBandGainForHeadroom() {
         val config = DspRuntimeConfig(
             enabled = true,
@@ -175,6 +187,24 @@ class DspAutoHeadroomTest {
                 ).prepare(DspAudioFormat(48_000, 2))
             }.isFailure,
         )
+    }
+
+    @Test
+    fun staticBassShelfUsesASeparateGraphFilterWithoutConsumingTheFifteenPeqSlots() {
+        val config = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            peqBands = (0 until DspEqDesigner.MAX_BANDS).map { index ->
+                DspEqBand(DspEqType.PEAK, 100.0 + index * 100.0)
+            },
+            bass = DspBassConfig(enabled = true, gainDb = 3.0, frequencyHz = 90.0),
+        )
+
+        val prepared = config.prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals((DspEqDesigner.MAX_BANDS + 1) * DspEqDesigner.COEFFICIENTS_PER_BAND, prepared.eqCoefficients.size)
+        assertEquals(0, prepared.bassCoefficients.size)
+        assertEquals(DspEqDesigner.MAX_BANDS, config.peqBands.size)
     }
 
     @Test

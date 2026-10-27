@@ -1457,6 +1457,60 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun bassShelfLocalWarmUpdatesTheEqualizationStageWithoutRebuildingStatefulStages() {
+        val impulse = DspImpulseResponse("bass_warm_room", 48_000, 1, floatArrayOf(1.0f))
+        val compressor = DspCompressorConfig(enabled = true, attackMs = 1_000.0, releaseMs = 1_000.0)
+        val initialConfig = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            compressor = compressor,
+            convolver = convolverConfig(impulse).convolver,
+        )
+        val provider = MutableConfigProvider(initialConfig, localWarmEnabled = true)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                HotProcessor(audioFormat, latencyFrames = if (config.convolver.enabled) 128 else 0)
+                    .also(processorRef::set)
+                    .let { DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false) }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 10)
+            val activePipeline = renderer.dspPipeline
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    compressor = compressor,
+                    convolver = initialConfig.convolver,
+                    bass = DspBassConfig(enabled = true, gainDb = 3.0, frequencyHz = 90.0),
+                ),
+            )
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 1_000 }), sample = 20)
+
+            assertTrue(renderer.dspPipeline === activePipeline)
+            assertFalse(renderer.liveFadeInProgressForTesting)
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertEquals(128, renderer.trackLatencyForTesting)
+            assertNull(renderer.deferredDspGenerationForTesting)
+            assertEquals(DspRendererApplyPhase.ACTIVE, provider.rendererApplyStatus()?.phase)
+            assertEquals(listOf(1L), processorRef.get()?.localPeqWarmEnqueuedGenerations?.toList())
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun peqLocalWarmDefersWhileTheRolloutFlagIsDisabled() {
         val initialConfig = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
         val provider = MutableConfigProvider(initialConfig)
@@ -1491,7 +1545,7 @@ class DspRendererProductionPathTest {
             assertEquals(0L, renderer.dspGenerationForTesting)
             assertEquals(DspRendererApplyPhase.DEFERRED, provider.rendererApplyStatus()?.phase)
             assertEquals(
-                "PEQ local warm-up is disabled; keeping the active pipeline until the next AudioTrack generation",
+                "PEQ and Bass Shelf local warm-up are disabled; keeping the active pipeline until the next AudioTrack generation",
                 provider.rendererApplyStatus()?.reason,
             )
         } finally {

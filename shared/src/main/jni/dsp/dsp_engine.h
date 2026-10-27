@@ -65,7 +65,7 @@ typedef struct {
     uint32_t hot_context_token;
     int media_role;
     size_t peq_count;
-    dsp_biquad peq[DSP_BIQUAD_MAX_BANDS];
+    dsp_biquad peq[DSP_GRAPH_EQ_FILTER_CAPACITY];
 } dsp_engine_local_peq_update;
 
 dsp_engine *dsp_engine_create(

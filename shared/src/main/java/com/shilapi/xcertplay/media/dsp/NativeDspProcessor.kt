@@ -525,7 +525,7 @@ internal class NativeDspProcessor internal constructor(
         if (handle <= 0L || generation <= 0L || editorOwnerEpoch != hotEditorOwnerEpoch ||
             rendererOwnerToken != hotRendererOwnerToken || pcmFormatEpoch != hotPcmFormatEpoch ||
             hotContextToken != this.hotContextToken || !mediaRole || coefficients.size % DspEqDesigner.COEFFICIENTS_PER_BAND != 0 ||
-            coefficients.size > DspRuntimeConfig.MAX_EQ_BANDS * DspEqDesigner.COEFFICIENTS_PER_BAND
+            coefficients.size > DspEqDesigner.MAX_GRAPH_FILTERS * DspEqDesigner.COEFFICIENTS_PER_BAND
         ) return null
         val bandCount = coefficients.size / DspEqDesigner.COEFFICIENTS_PER_BAND
         val preparedValues = DoubleArray(bandCount * DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND)

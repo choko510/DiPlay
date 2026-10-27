@@ -155,7 +155,7 @@ int dsp_graph_prepare(
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config) {
-    if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
+    if (graph == NULL || peq_count > DSP_GRAPH_EQ_FILTER_CAPACITY ||
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
     }
@@ -280,7 +280,7 @@ int dsp_graph_prepare_local_peq(
     dsp_biquad *prepared_bands,
     unsigned long long *history_epoch_sequence,
     unsigned long long *history_end_sequence) {
-    if (graph == NULL || graph->peq_history.entries == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
+    if (graph == NULL || graph->peq_history.entries == NULL || peq_count > DSP_GRAPH_EQ_FILTER_CAPACITY ||
         (peq_count > 0 && (peq_coefficients == NULL || prepared_bands == NULL)) ||
         history_epoch_sequence == NULL || history_end_sequence == NULL) return 0;
 
@@ -350,7 +350,7 @@ int dsp_graph_begin_local_peq(
     size_t peq_count,
     unsigned long long history_epoch_sequence,
     unsigned long long history_end_sequence) {
-    if (graph == NULL || peq_count > DSP_BIQUAD_MAX_BANDS ||
+    if (graph == NULL || peq_count > DSP_GRAPH_EQ_FILTER_CAPACITY ||
         (peq_count > 0 && prepared_bands == NULL) || graph->peq_transition_active) return 0;
     if (peq_count > 0) {
         memcpy(graph->peq_target, prepared_bands, peq_count * sizeof(*prepared_bands));

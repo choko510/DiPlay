@@ -114,6 +114,45 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
+    fun reprepareRequestDoesNotWaitForConfigListenerLock() {
+        val provider = MutableConfigProvider()
+        val preparingEntered = CountDownLatch(1)
+        val releasePreparing = CountDownLatch(1)
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = {},
+            onPreparing = {
+                preparingEntered.countDown()
+                check(releasePreparing.await(5, TimeUnit.SECONDS))
+            },
+            pipelinePreparer = { _, _ -> null },
+        )
+        val updateThread = Thread { provider.update(DspRuntimeConfig(enabled = true)) }
+        val reprepareComplete = CountDownLatch(1)
+        val reprepareThread = Thread {
+            controller.reprepareLatest(1L)
+            reprepareComplete.countDown()
+        }
+
+        try {
+            updateThread.start()
+            assertTrue(preparingEntered.await(5, TimeUnit.SECONDS))
+            reprepareThread.start()
+
+            assertTrue(reprepareComplete.await(500, TimeUnit.MILLISECONDS))
+        } finally {
+            releasePreparing.countDown()
+            controller.close()
+            updateThread.join(5_000)
+            reprepareThread.join(5_000)
+        }
+    }
+
+    @Test
     fun preparationExceptionMarksOnlyThatGenerationFailedWithoutRetryLoop() {
         val provider = MutableConfigProvider()
         val prepareCalls = AtomicInteger()

@@ -121,7 +121,8 @@ class NativeDspProcessorTest {
         )
 
         assertTrue(processor != null)
-        assertEquals(5, bindings.createdBassCoefficients?.size)
+        assertEquals(5, bindings.createdEqCoefficients?.size)
+        assertEquals(0, bindings.createdBassCoefficients?.size)
         assertEquals(5, bindings.createdMonoBassCoefficients?.size)
         assertEquals(1.5, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
         assertEquals(1.0, bindings.createdSpatial?.get(1) ?: 0.0, 0.0)

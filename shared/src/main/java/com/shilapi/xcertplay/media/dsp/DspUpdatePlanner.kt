@@ -110,10 +110,10 @@ internal object DspUpdatePlanner {
         ) {
             return DspUpdateDecision(DspUpdatePlan.DEFERRED, "impulse response topology requires a new track")
         }
-        if (trackGenerationCommitted && changed.any { it == DspRuntimeField.BASS || it == DspRuntimeField.CABIN_CORRECTION }) {
+        if (trackGenerationCommitted && DspRuntimeField.CABIN_CORRECTION in changed) {
             return DspUpdateDecision(
                 DspUpdatePlan.DEFERRED,
-                "Bass Shelf and Cabin Correction local warm-up are not implemented; keeping the active pipeline until the next AudioTrack generation",
+                "Cabin Correction local warm-up is not implemented; keeping the active pipeline until the next AudioTrack generation",
             )
         }
         if (trackGenerationCommitted && changed == setOf(DspRuntimeField.PREAMP)) {
@@ -143,7 +143,7 @@ internal object DspUpdatePlanner {
         if (trackGenerationCommitted && changed.all(::isLocalWarmField)) {
             return DspUpdateDecision(
                 DspUpdatePlan.DEFERRED,
-                "PEQ local warm-up is disabled; keeping the active pipeline until the next AudioTrack generation",
+                "PEQ and Bass Shelf local warm-up are disabled; keeping the active pipeline until the next AudioTrack generation",
             )
         }
         if (trackGenerationCommitted && requiresStateContinuity) {
@@ -171,7 +171,10 @@ internal object DspUpdatePlanner {
         DspRuntimeField.DYNAMIC_BASS,
     )
 
-    private fun isLocalWarmField(field: DspRuntimeField): Boolean = field == DspRuntimeField.PEQ
+    private fun isLocalWarmField(field: DspRuntimeField): Boolean = field in setOf(
+        DspRuntimeField.PEQ,
+        DspRuntimeField.BASS,
+    )
 
     private fun requiresUnprovenStateTransition(field: DspRuntimeField): Boolean = field in setOf(
         DspRuntimeField.CONVOLVER,

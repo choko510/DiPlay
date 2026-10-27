@@ -73,6 +73,11 @@ private const val VIDEO_RECOVERY_WORKER_COUNT = 2
 private const val VIDEO_RECOVERY_QUEUE_CAPACITY = 16
 private const val MAX_LOCAL_PEQ_WARM_RETRIES = 2
 private val playbackRouteOwnerTokens = AtomicLong()
+private val audioRendererOwnerTokens = AtomicLong()
+
+internal fun nextAudioRendererOwnerToken(): Long = audioRendererOwnerTokens.incrementAndGet().also {
+    check(it > 0L) { "audio renderer owner token exhausted" }
+}
 
 internal fun interface AudioTrackWriteAdapterForTest {
     fun write(data: ByteArray, offset: Int, length: Int, writeMode: Int): Int
@@ -147,7 +152,6 @@ class AndroidMediaSink(
     private val pendingVideoConfigs = ConcurrentHashMap<Int, PendingVideoConfig>()
     private val audioTypeLocks = ConcurrentHashMap<Int, Any>()
     private val activeAudioOwners = ConcurrentHashMap<Int, AudioOwnerToken>()
-    private val nextAudioRendererOwnerToken = AtomicLong()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRendererEntry>()
     private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneEntry>()
     private val closed = AtomicBoolean(false)
@@ -564,9 +568,7 @@ class AndroidMediaSink(
             beforeDspUpdatePublishForTest = beforeDspUpdatePublishForTest,
             afterDspUpdateOwnerCheckForTest = afterDspUpdateOwnerCheckForTest,
             onDspUpdatePreparedForTest = onDspUpdatePreparedForTest,
-            rendererOwnerToken = nextAudioRendererOwnerToken.incrementAndGet().also {
-                check(it > 0L) { "audio renderer owner token exhausted" }
-            },
+            rendererOwnerToken = nextAudioRendererOwnerToken(),
         )
     }
 
@@ -2556,7 +2558,8 @@ internal class AudioRenderer(
                 val changed = DspUpdatePlanner.diff(current, target)
                 if (!dspConfigProvider.studioLocalWarmEnabled() || !trackGenerationContentCommitted ||
                     classification.dspRole != DspStreamRole.MEDIA ||
-                    changed != setOf(DspRuntimeField.PEQ) || !current.enabled || !target.enabled ||
+                    changed.isEmpty() || changed.any { it !in setOf(DspRuntimeField.PEQ, DspRuntimeField.BASS) } ||
+                    !current.enabled || !target.enabled ||
                     hotBoundPipeline !== dspPipeline || dspPipeline?.format != candidateFormat ||
                     candidateFormat != format
                 ) {
@@ -2566,7 +2569,7 @@ internal class AudioRenderer(
                     val targetPrepared = target.prepare(candidateFormat)
                     if (kotlin.math.abs(currentPrepared.appliedPreampDb - targetPrepared.appliedPreampDb) > 1e-9) {
                         DspLocalPeqWarmPreparation(
-                            unavailableReason = "PEQ change also alters auto-headroom preamp; keeping the active pipeline until the next AudioTrack generation",
+                            unavailableReason = "PEQ or Bass Shelf change also alters auto-headroom preamp; keeping the active pipeline until the next AudioTrack generation",
                         )
                     } else {
                         val update = dspPipeline?.prepareLocalPeqWarmUpdate(
@@ -2581,7 +2584,7 @@ internal class AudioRenderer(
                         DspLocalPeqWarmPreparation(
                             update = update,
                             unavailableReason = if (update == null) {
-                                "pre-PEQ processed history is insufficient for a safe PEQ local warm-up; keeping the active pipeline until the next AudioTrack generation"
+                                "pre-equalization processed history is insufficient for a safe PEQ or Bass Shelf local warm-up; keeping the active pipeline until the next AudioTrack generation"
                             } else {
                                 null
                             },

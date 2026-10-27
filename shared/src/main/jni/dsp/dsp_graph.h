@@ -35,9 +35,9 @@ typedef struct {
 
 typedef struct {
     dsp_gain gain;
-    dsp_biquad peq[DSP_BIQUAD_MAX_BANDS];
+    dsp_biquad peq[DSP_GRAPH_EQ_FILTER_CAPACITY];
     size_t peq_count;
-    dsp_biquad peq_target[DSP_BIQUAD_MAX_BANDS];
+    dsp_biquad peq_target[DSP_GRAPH_EQ_FILTER_CAPACITY];
     size_t peq_target_count;
     size_t peq_transition_position;
     size_t peq_transition_frames;

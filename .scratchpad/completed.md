@@ -287,3 +287,4 @@
 - 2026-10-27: Restricted accepted GitHub Actions artifact URLs to `github.com/choko510/DiPlay/actions/runs/<id>` and added fixtures for other-repository rejection and this-repository acceptance.
 - 2026-10-27: Added the ledger's `What missing` requirement for every PARTIAL row and enforce an exact `Missing fields` list against blank evidence fields. Added valid/invalid partially covered fixtures.
 - 2026-10-27: Replaced REM/PKG placeholders with a 25-row work-package tracker recording owner, dependencies, paths, implementation commit, test command/results, unresolved risk, review, and QA; undocumented fields remain explicitly unrecorded.
+- 2026-10-27: Mapped PKG-R11 to the existing CarPlay/device runbook and unrun hardware gates, and PKG-R12 to documented quality integration, independent reviews, rollback, and PR disposition; both remain PARTIAL.

@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "docs/dsp-studio/TEST_MATRIX_DETAILED.md"
@@ -16,6 +16,30 @@ EXPECTED_COVERAGE = {f"REM-{n:02d}" for n in range(1, 13)} | {
 }
 EVIDENCE_FIELDS = ("Method", "Command", "Result", "Source SHA", "Artifact")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
+GITHUB_ACTIONS_RUN_RE = re.compile(r"^https://github\.com/[^/\s]+/[^/\s]+/actions/runs/\d+/?$")
+MARKDOWN_LINK_RE = re.compile(r"^\[[^\]]+\]\(([^)]+)\)$")
+
+
+def split_table_cells(line: str) -> list[str]:
+    cells: list[str] = []
+    cell: list[str] = []
+    escaped = False
+    for char in line.strip():
+        if char == "|" and not escaped:
+            cells.append("".join(cell).strip())
+            cell = []
+        else:
+            cell.append(char)
+        if char == "\\" and not escaped:
+            escaped = True
+        else:
+            escaped = False
+    cells.append("".join(cell).strip())
+    if cells and not cells[0]:
+        cells.pop(0)
+    if cells and not cells[-1]:
+        cells.pop()
+    return [cell.replace("\\|", "|") for cell in cells]
 
 
 def table_rows(path: Path, header: str) -> list[list[str]]:
@@ -31,7 +55,7 @@ def table_rows(path: Path, header: str) -> list[list[str]]:
             if rows:
                 break
             continue
-        cells = [cell.strip().replace("\\|", "|") for cell in line.strip().strip("|").split("|")]
+        cells = split_table_cells(line)
         if cells and set(cells[0]) <= {"-", ":"}:
             continue
         rows.append(cells)
@@ -56,6 +80,39 @@ def validate_matrix_counts(ids: set[str]) -> list[str]:
     if t_count != 110:
         errors.append(f"canonical T-ID count is {t_count}, expected 110")
     return errors
+
+
+def canonical_acceptance_cases() -> dict[str, str]:
+    rows = table_rows(MATRIX, "| ID | Acceptance case | Relevant evidence | Status | Remaining evidence / gap |")
+    return {row[0]: row[1] for row in rows if len(row) == 5}
+
+
+def repo_file_exists(path_text: str, *, relative_to: Path) -> bool:
+    path = PurePosixPath(path_text)
+    if path.is_absolute() or ".." in path.parts or ":" in path_text:
+        return False
+    candidate = relative_to.joinpath(*path.parts)
+    try:
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(ROOT.resolve())
+    except (OSError, RuntimeError, ValueError):
+        return False
+    return resolved.is_file()
+
+
+def valid_artifact(reference: str) -> bool:
+    if GITHUB_ACTIONS_RUN_RE.fullmatch(reference):
+        return True
+    return repo_file_exists(reference, relative_to=ROOT)
+
+
+def valid_runbook(reference: str) -> bool:
+    match = MARKDOWN_LINK_RE.fullmatch(reference)
+    target = match.group(1) if match else reference
+    if target.startswith(("http://", "https://", "mailto:")):
+        return False
+    target = target.split("#", 1)[0].split("?", 1)[0]
+    return bool(target) and repo_file_exists(target, relative_to=MATRIX.parent)
 
 
 def create_tracker() -> None:
@@ -96,7 +153,7 @@ def create_tracker() -> None:
     for n in range(13):
         pkg = f"PKG-{n:02d}"
         lines.append(f"| PKG-R{n:02d} | {pkg} | PARTIAL | Package summary only; no per-ID PASS inferred from prior CI. |")
-    lines.extend(["", "## Running the check", "", "Run `python scripts/check_dsp_studio_evidence.py`. The validator compares the ledger IDs to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, and enforces status-specific evidence fields.", ""])
+    lines.extend(["", "## Running the check", "", "Run `python scripts/check_dsp_studio_evidence.py`. The validator compares IDs and acceptance predicates to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, validates artifact and runbook references, and enforces status-specific evidence fields.", ""])
     LEDGER.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -106,6 +163,9 @@ def validate() -> list[str]:
     if len(ids) != 170:
         errors.append(f"canonical matrix ID count is {len(ids)}, expected 170")
     errors.extend(validate_matrix_counts(ids))
+    canonical = canonical_acceptance_cases()
+    if set(canonical) != ids:
+        errors.append("canonical acceptance predicate rows do not match canonical IDs")
     rows = table_rows(LEDGER, "| ID | Acceptance case | Status | Method | Command | Result | Source SHA | Artifact | Runbook | Blocking reason | Missing fields |")
     if not rows:
         return errors + ["tracker evidence table was not found"]
@@ -119,6 +179,8 @@ def validate() -> list[str]:
             errors.append(f"duplicate tracker ID {id_}")
         entries[id_] = row
         fields = dict(zip(("ID", "Acceptance", "Status", *EVIDENCE_FIELDS, "Runbook", "Blocking reason", "Missing fields"), row))
+        if id_ in canonical and fields["Acceptance"] != canonical[id_]:
+            errors.append(f"{id_}: acceptance predicate does not match TEST_MATRIX_DETAILED.md")
         if status not in {"PASS", "PARTIAL", "NOT_RUN"}:
             errors.append(f"{id_}: invalid status {status!r}")
             continue
@@ -128,10 +190,20 @@ def validate() -> list[str]:
                     errors.append(f"{id_}: PASS requires {field}")
             if fields["Source SHA"] and not SHA_RE.fullmatch(fields["Source SHA"]):
                 errors.append(f"{id_}: PASS source SHA must be a full 40-character commit")
+            if fields["Missing fields"]:
+                errors.append(f"{id_}: PASS must not list missing fields")
+            if fields["Artifact"] and not valid_artifact(fields["Artifact"]):
+                errors.append(f"{id_}: PASS artifact must resolve to an existing repo file or direct GitHub Actions run URL")
         elif status == "NOT_RUN":
             if not fields["Runbook"] or not fields["Blocking reason"]:
                 errors.append(f"{id_}: NOT_RUN requires runbook and blocking reason")
+            elif not valid_runbook(fields["Runbook"]):
+                errors.append(f"{id_}: runbook reference does not resolve to an existing repo file")
         else:
+            if not fields["Runbook"]:
+                errors.append(f"{id_}: PARTIAL requires a runbook reference")
+            elif not valid_runbook(fields["Runbook"]):
+                errors.append(f"{id_}: runbook reference does not resolve to an existing repo file")
             missing = [part.strip() for part in fields["Missing fields"].split(",") if part.strip()]
             if not missing:
                 errors.append(f"{id_}: PARTIAL requires an explicit missing-fields list")

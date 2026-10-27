@@ -215,4 +215,4 @@ Coverage below is a traceability index to the existing requirement/package summa
 
 ## Running the check
 
-Run `python scripts/check_dsp_studio_evidence.py`. The validator compares the ledger IDs to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, and enforces status-specific evidence fields.
+Run `python scripts/check_dsp_studio_evidence.py`. The validator compares IDs and acceptance predicates to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, validates artifact and runbook references, and enforces status-specific evidence fields.

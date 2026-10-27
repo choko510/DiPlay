@@ -766,3 +766,5 @@ Represent Static Bass as one internal graph filter after the combined 15-slot PE
 Smart Loudness headroom must bound the transient response of `sample - lowpass(sample)`, not only its steady-state sine gain; use the residual filter's impulse-gain bound before calculating preamp reduction.
 
 2026-10-27 REM-07: Do not inherit PASS from historical test-matrix rows into the per-ID evidence ledger. A row can be PASS only when method, exact command, result, full source SHA, and artifact are attached to that row; until then retain PARTIAL or NOT_RUN.
+
+2026-10-27 REM-07 validator: Resolve artifact paths within the repository and permit only direct GitHub Actions run URLs as remote artifacts. Resolve runbooks relative to the tracker directory, reject paths outside the repository, and compare each acceptance predicate against the canonical matrix text.

@@ -151,7 +151,7 @@ internal data class DspStudioFeatureFlags(
         macroOverlayEnabled = false,
         smartLoudnessEnabled = false,
         dynamicBassEnabled = false,
-        nativeHotUpdatesEnabled = true,
+        nativeHotUpdatesEnabled = false,
         localWarmEnabled = false,
         irWarmBudgetEnabled = false,
     )

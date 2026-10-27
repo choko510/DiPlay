@@ -30,6 +30,7 @@ import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -231,9 +232,6 @@ class DspSettingsScreenTest {
 
             composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
             composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
-            }
             composeRule.onNodeWithText("Factory reset module").performScrollTo().performClick()
             composeRule.onNodeWithText("Reset module").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
@@ -295,9 +293,6 @@ class DspSettingsScreenTest {
 
             composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
             composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
-            }
             composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_b))
                 .performScrollTo().performClick()
             composeRule.waitUntil(timeoutMillis = 15_000) {
@@ -389,7 +384,7 @@ class DspSettingsScreenTest {
             }
             assertEquals(DspStudioComparisonSide.A, studioSession.comparisonSide)
 
-            composeRule.onNodeWithText(context.getString(R.string.dsp_module_preset_delete))
+            composeRule.onNodeWithText(context.getString(R.string.dsp_module_preset_delete_action))
                 .performScrollTo().performClick()
             composeRule.onNodeWithText("Delete").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {

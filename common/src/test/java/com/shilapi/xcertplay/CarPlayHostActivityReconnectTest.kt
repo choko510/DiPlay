@@ -11,6 +11,7 @@ import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
 import com.shilapi.xcertplay.orchestration.CarPlayStatus
+import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.youtube.DisplaySize
 import java.lang.reflect.Field
 import java.net.ServerSocket
@@ -67,6 +68,42 @@ class CarPlayHostActivityReconnectTest {
             assertNull(CarPlayHostActions.consumeInternalAction(attach))
         } finally {
             activity.startCarPlayForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun verifiedWiredAttachKeepsAnExistingControllerAndDoesNotStartAnother() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val startRequests = mutableListOf<DisplaySize>()
+        val existingController = allocateControllerPlaceholder()
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, true)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "menuOpen").setBoolean(activity, false)
+            field(activity, "activeDisplaySize").set(activity, DisplaySize(800, 480))
+            field(activity, "controller").set(activity, existingController)
+            activity.startCarPlayForTest = { size -> startRequests.add(size) }
+
+            repeat(2) {
+                dispatchOnNewIntent(
+                    activity,
+                    CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.USB_DEVICE_ATTACHED),
+                )
+            }
+
+            assertTrue(startRequests.isEmpty())
+            assertTrue(field(activity, "controller").get(activity) === existingController)
+        } finally {
+            activity.startCarPlayForTest = null
+            field(activity, "controller").set(activity, null)
             CarPlayBackgroundSession.clear()
             bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
         }
@@ -502,6 +539,13 @@ class CarPlayHostActivityReconnectTest {
 
     private fun clearStartedActivities(activity: CarPlayHostActivity) {
         while (shadowOf(activity.application).nextStartedActivity != null) { }
+    }
+
+    private fun allocateControllerPlaceholder(): CarPlayController {
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val unsafe = unsafeClass.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null)
+        return unsafeClass.getMethod("allocateInstance", Class::class.java)
+            .invoke(unsafe, CarPlayController::class.java) as CarPlayController
     }
 
     private fun invokeStatusReporter(reporter: Any?, status: CarPlayStatus) {

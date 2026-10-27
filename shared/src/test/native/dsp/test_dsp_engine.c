@@ -3153,15 +3153,11 @@ static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
     next_update.editor_owner_epoch = 8;
     next_update.hot_context_token = 2;
     assert_true(dsp_engine_enqueue_hot_update(engine, &current_update), "current editor epoch command enters queue");
-    assert_true(!dsp_engine_enqueue_hot_update(engine, &next_update), "single-slot hot queue rejects a second pending command");
+    assert_true(dsp_engine_enqueue_hot_update(engine, &next_update), "bounded hot mailbox accepts a newer queued generation");
     assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "hot command waits for a processed block");
     assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
         "hot command block processes");
-    assert_true(dsp_engine_get_hot_ack_token(engine) == 43, "hot acknowledgement follows the processed block");
-    assert_true(dsp_engine_enqueue_hot_update(engine, &next_update), "hot queue accepts a new command after the block");
-    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
-        "second hot command block processes");
-    assert_true(dsp_engine_get_hot_ack_token(engine) == 44, "newer generation is acknowledged after its block");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 44, "latest queued generation is applied and acknowledged");
     assert_true(fabsf(output[1022]) > 0.5f && fabsf(output[1022]) < 0.63f,
         "macro width moves toward its target without an abrupt step");
     assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 0, 0, 0, 0, 0),
@@ -3207,6 +3203,9 @@ static void test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completi
     invalid = update;
     invalid.gain_db = -5.99;
     assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "preamp target without 6 dB reserve is rejected");
+    invalid = update;
+    invalid.gain_db = -120.0;
+    assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "mismatched dB/linear preamp pair is rejected");
     assert_true(dsp_engine_enqueue_preamp_update(engine, &update), "valid versioned preamp update is queued");
     assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
         "first sample-ramp block processes");
@@ -3253,6 +3252,140 @@ static void test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completi
         "rebound stale ramp block processes");
     assert_true(dsp_engine_get_preamp_ack_token(engine) == 0, "stale rebind target receives no ACK");
     assert_true(fabsf(output[1022] - last_good) < 1e-4f, "rebind keeps the last-good preamp gain");
+    dsp_engine_destroy(engine);
+}
+
+static void test_preamp_hot_mailbox_coalesces_and_preserves_concurrent_studio_gain_ramps(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) input[frame * 2] = input[frame * 2 + 1] = 0.5f;
+
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "concurrent Preamp/Studio HOT graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "concurrent Preamp/Studio HOT binds MEDIA owner");
+    const dsp_engine_preamp_update preamp = {
+        .version = 1, .generation_token = 42, .generation = 42, .editor_owner_epoch = 7,
+        .renderer_owner_token = 9, .pcm_format_epoch = 3, .hot_context_token = 1,
+        .media_role = 1, .gain_db = -6.0, .gain_linear = 0.5011872336,
+    };
+    const dsp_engine_hot_update studio = {
+        .generation_token = 43, .generation = 43, .editor_owner_epoch = 7,
+        .renderer_owner_token = 9, .pcm_format_epoch = 3, .hot_context_token = 1,
+        .media_role = 1, .gain_db = -6.0,
+        .macro = {1, 0.0, 0.0, 0.0, 1.25},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    assert_true(dsp_engine_enqueue_preamp_update(engine, &preamp), "preamp command enters shared bounded HOT mailbox");
+    assert_true(dsp_engine_enqueue_hot_update(engine, &studio), "compatible Studio HOT queues behind Preamp ramp");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "concurrent Preamp/Studio first block processes");
+    assert_near(output[0], 0.5, 1e-6, "compatible Studio HOT preserves the Preamp ramp start");
+    assert_true(output[1022] < output[0] && output[1022] > 0.25f,
+        "compatible Studio HOT does not cancel the in-block Preamp ramp");
+    assert_true(dsp_engine_get_preamp_ack_token(engine) == 0,
+        "neither concurrent HOT command is acknowledged before the ramp finishes");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 448, 2) == DSP_STATUS_OK,
+        "concurrent Preamp/Studio ramp completion block processes");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 43 && dsp_engine_get_preamp_ack_token(engine) == 43,
+        "latest compatible Studio HOT receives the final shared mailbox ACK");
+    assert_true(fabsf(output[894] - 0.5f * 0.50118723f) < 1e-3f,
+        "compatible Studio HOT leaves the completed Preamp ramp at its target");
+    dsp_engine_destroy(engine);
+
+    engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "Preamp burst coalescing graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "Preamp burst coalescing graph binds MEDIA owner");
+    dsp_engine_preamp_update older = preamp;
+    dsp_engine_preamp_update latest = preamp;
+    latest.generation = 44;
+    latest.generation_token = 44;
+    latest.gain_db = -12.0;
+    latest.gain_linear = 0.2511886432;
+    assert_true(dsp_engine_enqueue_preamp_update(engine, &older), "first burst target queues");
+    assert_true(dsp_engine_enqueue_preamp_update(engine, &latest), "second burst target queues in the bounded mailbox");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "Preamp burst block processes");
+    assert_true(dsp_engine_get_preamp_ack_token(engine) == 0, "burst target is not ACKed before its full ramp");
+    assert_true(output[1022] < 0.5f && output[1022] > 0.25f,
+        "PCM follows the newest burst target rather than an old abrupt gain");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 448, 2) == DSP_STATUS_OK,
+        "latest burst ramp completion block processes");
+    assert_true(dsp_engine_get_preamp_ack_token(engine) == 44,
+        "only the newest Preamp burst generation receives an ACK");
+    dsp_engine_destroy(engine);
+
+    engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "incompatible Studio HOT deferral graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "incompatible Studio HOT deferral graph binds MEDIA owner");
+    dsp_engine_hot_update incompatible_studio = studio;
+    incompatible_studio.generation = 43;
+    incompatible_studio.generation_token = 43;
+    incompatible_studio.gain_db = -12.0;
+    assert_true(dsp_engine_enqueue_preamp_update(engine, &preamp), "Preamp target queues before incompatible Studio HOT");
+    assert_true(dsp_engine_enqueue_hot_update(engine, &incompatible_studio),
+        "incompatible Studio HOT remains queued for safe deferral");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "incompatible Studio HOT is deferred while Preamp ramp is active");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "deferred Studio HOT has no early ACK");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 448, 2) == DSP_STATUS_OK,
+        "original Preamp ramp finishes before incompatible Studio HOT");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "superseded Preamp target is not ACKed over newer Studio HOT");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "deferred Studio HOT applies after Preamp ramp completion");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 43, "deferred latest Studio HOT is eventually acknowledged");
+    dsp_engine_destroy(engine);
+}
+
+static void test_native_hot_and_local_warm_share_one_generation_order(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float input[1024] = {0.1f};
+    float output[1024] = {0.0f};
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "cross-lane generation graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "cross-lane generation graph binds MEDIA owner");
+    const dsp_engine_local_peq_update older_local = {
+        .generation_token = 50, .generation = 50, .editor_owner_epoch = 7,
+        .renderer_owner_token = 9, .pcm_format_epoch = 3, .history_epoch_sequence = 0,
+        .history_end_sequence = 0, .hot_context_token = 1, .media_role = 1, .peq_count = 0,
+    };
+    dsp_engine_preamp_update newer_preamp = {
+        .version = 1, .generation_token = 51, .generation = 51, .editor_owner_epoch = 7,
+        .renderer_owner_token = 9, .pcm_format_epoch = 3, .hot_context_token = 1,
+        .media_role = 1, .gain_db = -6.0, .gain_linear = 0.5011872336,
+    };
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &older_local) == DSP_STATUS_OK,
+        "older LOCAL_WARM enters its bounded queue first");
+    assert_true(dsp_engine_enqueue_preamp_update(engine, &newer_preamp),
+        "newer Preamp HOT advances the shared generation order");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "cross-lane stale LOCAL_WARM block processes");
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) == 0 &&
+        dsp_engine_get_local_peq_rejected_token(engine) == 50,
+        "older LOCAL_WARM is rejected instead of ACKing after newer Preamp HOT");
+    assert_true(dsp_engine_get_preamp_ack_token(engine) == 0,
+        "latest Preamp HOT remains pending until its ramp is complete");
+    dsp_engine_destroy(engine);
+
+    engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "reverse cross-lane generation graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "reverse cross-lane generation graph binds MEDIA owner");
+    assert_true(dsp_engine_enqueue_preamp_update(engine, &newer_preamp), "newer HOT generation is accepted first");
+    dsp_engine_local_peq_update stale_local = older_local;
+    stale_local.generation = 50;
+    stale_local.generation_token = 50;
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &stale_local) == DSP_STATUS_STALE_UPDATE,
+        "older LOCAL_WARM cannot regress an already queued HOT generation");
     dsp_engine_destroy(engine);
 }
 
@@ -3644,6 +3777,8 @@ int main(void) {
     test_studio_neutral_macro_preserves_exact_samples();
     test_studio_hot_command_is_acknowledged_after_its_block();
     test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completion();
+    test_preamp_hot_mailbox_coalesces_and_preserves_concurrent_studio_gain_ramps();
+    test_native_hot_and_local_warm_share_one_generation_order();
     test_studio_hot_update_rejects_invalid_module_configs_atomically();
     test_studio_hot_update_validates_ack_generation_token();
     test_smart_loudness_uses_its_bounded_shelf_gains();

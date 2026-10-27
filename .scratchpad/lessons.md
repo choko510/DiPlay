@@ -594,7 +594,7 @@ Treat performance instrumentation as a distribution gate: retain both passing an
 2026-10-27: Audio-render callbacks should request a rejected-update retry by signaling the control worker. Do not acquire the configuration listener's monitor from the render path, even when the retry only re-prepares the latest generation.
 
 2026-10-27: AtomicFile safety checks must include both the primary file and `.bak`, reject dangling and live symlinks without following them, and preserve a future-schema backup before starting a new write. Capturing rollback state before mutating the active workspace prevents failed persistence from restoring the failed candidate.
-For native audio-control ramps, prepare the bounded linear gain off the render path and advance one ramp step per PCM frame, not per channel sample, so stereo channels stay matched. ACK only after the full ramp, and cancel stale in-flight ramps when the owner tuple changes.
+For native audio-control ramps, prepare and validate the dB/linear pair off the render callback, then pass a tagged command through the existing bounded HOT mailbox. Advance one ramp step per PCM frame, not per channel sample, so stereo channels stay matched. ACK only after the full ramp, preserve compatible Studio HOT, defer an incompatible Studio gain while the ramp runs, and fence HOT/LOCAL_WARM with one generation order.
 
 2026-10-27: For tabbed Compose content that is replaced on selection, use a distinct saveable `ScrollState` per tab; a single shared scroll state leaks the prior tab's viewport position into the next tab.
 

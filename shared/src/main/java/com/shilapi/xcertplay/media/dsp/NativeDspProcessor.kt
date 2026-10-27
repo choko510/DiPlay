@@ -536,7 +536,7 @@ internal class NativeDspProcessor internal constructor(
 
     override fun enqueuePreampHotUpdate(update: DspPreparedPreampHotUpdate): Boolean {
         val handle = nativeHandle
-        if (handle <= 0L || update.editorOwnerEpoch != hotEditorOwnerEpoch ||
+        if (handle <= 0L || !update.gainPairIsConsistent || update.editorOwnerEpoch != hotEditorOwnerEpoch ||
             update.rendererOwnerToken != hotRendererOwnerToken || update.pcmFormatEpoch != hotPcmFormatEpoch ||
             update.hotContextToken != hotContextToken || !update.mediaRole
         ) return false

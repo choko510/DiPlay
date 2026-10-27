@@ -240,6 +240,7 @@ class NativeDspProcessorTest {
         assertFalse(processor.enqueuePreampHotUpdate(update.copy(rendererOwnerToken = 10L)))
         assertFalse(processor.enqueuePreampHotUpdate(update.copy(pcmFormatEpoch = 4L)))
         assertFalse(processor.enqueuePreampHotUpdate(update.copy(hotContextToken = 2)))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(appliedPreampDb = -120.0, appliedPreampLinear = 0.5)))
         assertTrue(processor.enqueuePreampHotUpdate(update))
         assertEquals(0, processor.preampHotAcknowledgedToken())
         processor.process(floatBuffer(0.1f, -0.1f), ByteBuffer.allocateDirect(8), frames = 1)

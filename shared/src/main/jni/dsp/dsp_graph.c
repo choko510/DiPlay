@@ -246,13 +246,17 @@ int dsp_graph_apply_studio_hot(
     const dsp_dynamic_bass_config *dynamic_bass_config) {
     if (graph == NULL || !dsp_graph_studio_hot_config_is_valid(
             gain_db, macro_config, smart_loudness_config, dynamic_bass_config)) return 0;
+    const int gain_ramp_active = graph->gain.ramp_remaining > 0;
+    if (gain_ramp_active && gain_db != graph->gain.decibels) return DSP_GRAPH_HOT_DEFERRED;
     const double current_gain_db = graph->gain.decibels;
     if (!dsp_macro_apply_hot(&graph->macro, macro_config) ||
         !dsp_smart_loudness_apply_hot(&graph->smart_loudness, smart_loudness_config) ||
         !dsp_dynamic_bass_apply_hot(&graph->dynamic_bass, dynamic_bass_config)) {
         return 0;
     }
-    if (gain_db <= current_gain_db) {
+    if (gain_ramp_active) {
+        graph->studio_gain_refund_pending = 0;
+    } else if (gain_db <= current_gain_db) {
         if (!dsp_gain_set_db(&graph->gain, gain_db)) return 0;
         graph->studio_gain_refund_pending = 0;
     } else {
@@ -263,7 +267,7 @@ int dsp_graph_apply_studio_hot(
             graph->studio_gain_refund_pending = 0;
         }
     }
-    return 1;
+    return DSP_GRAPH_HOT_APPLIED;
 }
 
 int dsp_graph_apply_preamp_hot(dsp_graph *graph, double gain_db, double gain_linear) {

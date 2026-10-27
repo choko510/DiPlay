@@ -1,4 +1,5 @@
 #include "dsp_engine.h"
+#include "dsp_gain.h"
 
 #include <jni.h>
 #include <math.h>
@@ -623,8 +624,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyPreampHot(
     (void)receiver;
     if (version != 1 || generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 ||
         pcm_format_epoch <= 0 || hot_context_token <= 0 || media_role != JNI_TRUE ||
-        !isfinite(gain_db) || gain_db < -120.0 || gain_db > -6.0 ||
-        !isfinite(gain_linear) || gain_linear < 1.0e-6 || gain_linear > 0.50118724) {
+        !dsp_gain_db_linear_pair_is_valid(gain_db, gain_linear)) {
         return DSP_STATUS_INVALID_ARGUMENT;
     }
     uint32_t generation_token = (uint32_t)((uint64_t)generation & UINT32_C(0x7fffffff));

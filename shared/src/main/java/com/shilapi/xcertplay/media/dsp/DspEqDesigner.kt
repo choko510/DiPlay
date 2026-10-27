@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.log10
@@ -275,6 +276,11 @@ internal data class DspPreparedPreampHotUpdate(
     val appliedPreampDb: Double,
     val appliedPreampLinear: Double,
 ) {
+    val gainPairIsConsistent: Boolean = run {
+        val expectedLinear = 10.0.pow(appliedPreampDb / 20.0)
+        abs(appliedPreampLinear - expectedLinear) <= max(1.0e-12, expectedLinear * 1.0e-6)
+    }
+
     val generationToken: Int
         get() = ((generation and GENERATION_TOKEN_MASK).toInt()).let { if (it == 0) 1 else it }
 

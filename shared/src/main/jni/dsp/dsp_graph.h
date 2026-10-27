@@ -21,6 +21,9 @@
 #define DSP_PEQ_WARM_HISTORY_CAPACITY 32768u
 #define DSP_PEQ_WARM_AUDIO_CATCH_UP_MAX 512u
 
+#define DSP_GRAPH_HOT_APPLIED 1
+#define DSP_GRAPH_HOT_DEFERRED 2
+
 typedef struct {
     _Atomic unsigned long long sequence;
     _Atomic unsigned long long packed_samples;

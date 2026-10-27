@@ -766,6 +766,6 @@ Represent Static Bass as one internal graph filter after the combined 15-slot PE
 Smart Loudness headroom must bound the transient response of `sample - lowpass(sample)`, not only its steady-state sine gain; use the residual filter's impulse-gain bound before calculating preamp reduction.
 # Preamp HOT uses its own fenced command path
 
-Keep the preamp-only HOT payload and single-slot mailbox separate from the existing Macro/Loudness/Dynamic Bass payload. Require Auto Headroom, at least 6 dB of applied preamp reserve, and a current MEDIA owner/format tuple; ramp native linear gain over 20 ms and ACK only after the ramp finishes. On rebind, cancel an active ramp at its last-good value.
+Keep the versioned preamp-only payload kind separate from the existing Macro/Loudness/Dynamic Bass payload while reusing the same bounded Native HOT mailbox and generation fence. Require Auto Headroom, at least 6 dB of applied preamp reserve, and a current MEDIA owner/format tuple; ramp native linear gain over 20 ms and ACK only after the ramp finishes. On rebind, cancel an active ramp at its last-good value.
 
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

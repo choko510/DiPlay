@@ -98,6 +98,9 @@ class NativeDspBridgeInstrumentedTest {
             )
             assertEquals(5, NativeDspJni.applyPreampHot(handle, update.copy(rendererOwnerToken = 10L)))
             assertEquals(5, NativeDspJni.applyPreampHot(handle, update.copy(pcmFormatEpoch = 4L)))
+            val mismatchedGain = update.copy(appliedPreampDb = -120.0, appliedPreampLinear = 0.5)
+            assertTrue(!mismatchedGain.gainPairIsConsistent)
+            assertEquals(2, NativeDspJni.applyPreampHot(handle, mismatchedGain))
             assertEquals(0, NativeDspJni.applyPreampHot(handle, update))
             assertTrue(NativeDspJni.bindHotUpdateContext(handle, format, 8L, 10L, 4L, 2, mediaRole = true))
 

@@ -41,6 +41,7 @@ typedef struct {
 } dsp_engine_diagnostics;
 
 typedef struct {
+    uint32_t preamp_version;
     uint32_t generation_token;
     uint64_t generation;
     uint64_t editor_owner_epoch;
@@ -49,10 +50,15 @@ typedef struct {
     uint32_t hot_context_token;
     int media_role;
     double gain_db;
+    double gain_linear;
+    uint32_t payload_kind;
     dsp_macro_config macro;
     dsp_smart_loudness_config smart_loudness;
     dsp_dynamic_bass_config dynamic_bass;
 } dsp_engine_hot_update;
+
+#define DSP_ENGINE_HOT_KIND_STUDIO 0u
+#define DSP_ENGINE_HOT_KIND_PREAMP 1u
 
 typedef struct {
     uint32_t version;

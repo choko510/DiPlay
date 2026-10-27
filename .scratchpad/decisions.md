@@ -764,3 +764,5 @@ Compare a single module by overlaying its frozen A/B fields onto the current dra
 Represent Static Bass as one internal graph filter after the combined 15-slot PEQ/Cabin capacity, then prepare and warm the EQ candidate from the existing bounded pre-EQ history. This preserves the public band limit and stage latency while allowing only PEQ and Static Bass to use opt-in LOCAL_WARM; Cabin Correction and IR remain deferred. Allocate renderer-status owner tokens process-wide because the runtime status store can outlive a sink, and make render-thread retry requests signal the control worker rather than wait on the config-listener lock.
 
 Smart Loudness headroom must bound the transient response of `sample - lowpass(sample)`, not only its steady-state sine gain; use the residual filter's impulse-gain bound before calculating preamp reduction.
+
+2026-10-27 REM-07: Do not inherit PASS from historical test-matrix rows into the per-ID evidence ledger. A row can be PASS only when method, exact command, result, full source SHA, and artifact are attached to that row; until then retain PARTIAL or NOT_RUN.

@@ -594,3 +594,5 @@ Treat performance instrumentation as a distribution gate: retain both passing an
 2026-10-27: Audio-render callbacks should request a rejected-update retry by signaling the control worker. Do not acquire the configuration listener's monitor from the render path, even when the retry only re-prepares the latest generation.
 
 2026-10-27: AtomicFile safety checks must include both the primary file and `.bak`, reject dangling and live symlinks without following them, and preserve a future-schema backup before starting a new write. Capturing rollback state before mutating the active workspace prevents failed persistence from restoring the failed candidate.
+
+2026-10-27: Evidence ledgers should validate both directions of ID coverage against the canonical catalog, and status rules should be machine-checked. Historical suite summaries are not per-ID evidence unless each row links its exact method, command, result, source SHA, and artifact.

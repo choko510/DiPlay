@@ -498,6 +498,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var gestureStartX = 0f
     private var gestureStartY = 0f
     private val shuttingDown = AtomicBoolean(false)
+    private val wirelessUsbSwitchRequested = AtomicBoolean(false)
     internal var startCarPlayForTest: ((DisplaySize) -> Unit)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val teardownExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -979,16 +980,30 @@ class CarPlayHostActivity : ComponentActivity() {
         val action = CarPlayHostActions.consumeInternalAction(intent)
         setIntent(CarPlayHostActions.sanitizedIntent(intent))
         if (action == null) return
+        if (action == CarPlayHostActions.USB_DEVICE_ATTACHED) {
+            if (shuttingDown.get() || isFinishing || isDestroyed) {
+                Log.i(TAG, "USB_ATTACH wired resume blocked reason=host_shutting_down")
+                return
+            }
+            CarPlayBackgroundSession.clearRestartSuppression()
+            if (wirelessEnabled) {
+                if (!wirelessUsbSwitchRequested.compareAndSet(false, true)) {
+                    Log.i(TAG, "USB_ATTACH wireless switch already requested")
+                    return
+                }
+                shutdown(false, "switching to USB") {
+                    AirPlayPersistence.saveWirelessEnabled(this, false)
+                    startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY))
+                }
+                finish()
+            } else {
+                Log.i(TAG, "USB_ATTACH wired resume requested")
+                maybeStartCarPlay()
+            }
+            return
+        }
         if (CarPlayHostActions.shouldClearRestartSuppression(action)) {
             CarPlayBackgroundSession.clearRestartSuppression()
-        }
-        if (action == CarPlayHostActions.USB_DEVICE_ATTACHED && wirelessEnabled) {
-            shutdown(false, "switching to USB") {
-                AirPlayPersistence.saveWirelessEnabled(this, false)
-                startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY))
-            }
-            finish()
-            return
         }
         if (action == CarPlayHostActions.OPEN_CARPLAY) {
             pendingSplitMode = null

@@ -385,9 +385,9 @@ jobs:
         with:
           name: test-reports-${{ github.job }}
           path: |
-            shared/build/outputs/androidTest-results/connected/debug/*.xml
+            shared/build/outputs/androidTest-results/connected/release/*.xml
             common/build/outputs/androidTest-results/connected/debug/*.xml
-            shared/build/reports/androidTests/connected/debug/
+            shared/build/reports/androidTests/connected/release/
             common/build/reports/androidTests/connected/debug/
             shared/build/reports/tests/
             shared/build/outputs/dsp-benchmark/

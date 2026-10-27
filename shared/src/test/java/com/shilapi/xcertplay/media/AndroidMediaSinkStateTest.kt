@@ -8,8 +8,14 @@ import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.AudioOwnerToken
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.VideoCodec
+import com.shilapi.xcertplay.media.dsp.DspConfigProvider
+import com.shilapi.xcertplay.media.dsp.DspConfigSnapshot
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
+import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
+import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -429,6 +435,48 @@ class AndroidMediaSinkStateTest {
         }
     }
 
+    @Test fun replacedSinkRendererCannotReportStatusAsTheNewOwner() {
+        val provider = RendererApplyStatusProvider()
+        val oldSink = AndroidMediaSink(dspConfigProvider = provider)
+        val replacementSink = AndroidMediaSink(dspConfigProvider = provider)
+        val format = AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 100, "media")
+        val oldAudioOwner = AudioOwnerToken(100, 1)
+        val replacementAudioOwner = AudioOwnerToken(100, 2)
+
+        try {
+            oldSink.claimAudioOwner(oldAudioOwner)
+            oldSink.onAudioStarted(oldAudioOwner, format, 0)
+            val oldRendererOwner = requireNotNull(provider.claimedTokens.poll(5, TimeUnit.SECONDS))
+
+            oldSink.close()
+
+            replacementSink.claimAudioOwner(replacementAudioOwner)
+            replacementSink.onAudioStarted(replacementAudioOwner, format, 0)
+            val replacementRendererOwner = requireNotNull(provider.claimedTokens.poll(5, TimeUnit.SECONDS))
+            assertTrue(replacementRendererOwner > oldRendererOwner)
+
+            val active = DspRendererApplyStatus(
+                generation = 0L,
+                phase = DspRendererApplyPhase.ACTIVE,
+                activeGeneration = 0L,
+                rendererOwnerToken = replacementRendererOwner,
+            )
+            provider.reportRendererApplyStatus(active)
+            provider.reportRendererApplyStatus(
+                DspRendererApplyStatus(
+                    generation = 0L,
+                    phase = DspRendererApplyPhase.FAILED,
+                    rendererOwnerToken = oldRendererOwner,
+                ),
+            )
+
+            assertEquals(active, provider.applyStatus.get())
+        } finally {
+            oldSink.close()
+            replacementSink.close()
+        }
+    }
+
     @Test fun rendererThreadStartFailurePropagatesAndAllowsARetry() {
         val sink = AndroidMediaSink()
         val format = AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 100, "media")
@@ -588,6 +636,25 @@ class AndroidMediaSinkStateTest {
         port = 1,
         key = ByteArray(32),
     )
+
+    private class RendererApplyStatusProvider : DspConfigProvider {
+        private val owner = AtomicReference<Long?>()
+        val claimedTokens = LinkedBlockingQueue<Long>()
+        val applyStatus = AtomicReference<DspRendererApplyStatus?>()
+
+        override fun snapshot(): DspRuntimeConfig = DspRuntimeConfig.disabled()
+
+        override fun versionedSnapshot(): DspConfigSnapshot = DspConfigSnapshot(0L, snapshot())
+
+        override fun claimRendererApplyStatusOwner(ownerToken: Long) {
+            owner.set(ownerToken)
+            claimedTokens.offer(ownerToken)
+        }
+
+        override fun reportRendererApplyStatus(status: DspRendererApplyStatus) {
+            if (owner.get() == status.rendererOwnerToken) applyStatus.set(status)
+        }
+    }
 
     private fun microphoneUplink(sink: AndroidMediaSink, type: Int): MicrophoneUplinkController? {
         val field = AndroidMediaSink::class.java.getDeclaredField("microphoneUplinks").apply {

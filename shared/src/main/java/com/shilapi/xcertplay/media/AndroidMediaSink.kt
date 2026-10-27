@@ -73,6 +73,11 @@ private const val VIDEO_RECOVERY_WORKER_COUNT = 2
 private const val VIDEO_RECOVERY_QUEUE_CAPACITY = 16
 private const val MAX_LOCAL_PEQ_WARM_RETRIES = 2
 private val playbackRouteOwnerTokens = AtomicLong()
+private val audioRendererOwnerTokens = AtomicLong()
+
+internal fun nextAudioRendererOwnerToken(): Long = audioRendererOwnerTokens.incrementAndGet().also {
+    check(it > 0L) { "audio renderer owner token exhausted" }
+}
 
 internal fun interface AudioTrackWriteAdapterForTest {
     fun write(data: ByteArray, offset: Int, length: Int, writeMode: Int): Int
@@ -147,7 +152,6 @@ class AndroidMediaSink(
     private val pendingVideoConfigs = ConcurrentHashMap<Int, PendingVideoConfig>()
     private val audioTypeLocks = ConcurrentHashMap<Int, Any>()
     private val activeAudioOwners = ConcurrentHashMap<Int, AudioOwnerToken>()
-    private val nextAudioRendererOwnerToken = AtomicLong()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRendererEntry>()
     private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneEntry>()
     private val closed = AtomicBoolean(false)
@@ -564,9 +568,7 @@ class AndroidMediaSink(
             beforeDspUpdatePublishForTest = beforeDspUpdatePublishForTest,
             afterDspUpdateOwnerCheckForTest = afterDspUpdateOwnerCheckForTest,
             onDspUpdatePreparedForTest = onDspUpdatePreparedForTest,
-            rendererOwnerToken = nextAudioRendererOwnerToken.incrementAndGet().also {
-                check(it > 0L) { "audio renderer owner token exhausted" }
-            },
+            rendererOwnerToken = nextAudioRendererOwnerToken(),
         )
     }
 

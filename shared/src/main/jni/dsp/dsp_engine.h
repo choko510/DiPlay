@@ -9,6 +9,8 @@
 #include "dsp_dynamic_eq.h"
 #include "dsp_spatial.h"
 #include "dsp_harmonic.h"
+
+#define DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND 9
 #include "dsp_convolver.h"
 #include "dsp_macro.h"
 #include "dsp_smart_loudness.h"
@@ -22,7 +24,8 @@ typedef enum {
     DSP_STATUS_INVALID_ARGUMENT = 2,
     DSP_STATUS_INVALID_BUFFER = 3,
     DSP_STATUS_NOT_PREPARED = 4,
-    DSP_STATUS_QUEUE_FULL = 5
+    DSP_STATUS_QUEUE_FULL = 5,
+    DSP_STATUS_STALE_UPDATE = 7
 } dsp_status;
 
 typedef struct {
@@ -50,6 +53,20 @@ typedef struct {
     dsp_smart_loudness_config smart_loudness;
     dsp_dynamic_bass_config dynamic_bass;
 } dsp_engine_hot_update;
+
+typedef struct {
+    uint32_t generation_token;
+    uint64_t generation;
+    uint64_t editor_owner_epoch;
+    uint64_t renderer_owner_token;
+    uint64_t pcm_format_epoch;
+    uint64_t history_epoch_sequence;
+    uint64_t history_end_sequence;
+    uint32_t hot_context_token;
+    int media_role;
+    size_t peq_count;
+    dsp_biquad peq[DSP_BIQUAD_MAX_BANDS];
+} dsp_engine_local_peq_update;
 
 dsp_engine *dsp_engine_create(
     int sample_rate,
@@ -89,6 +106,16 @@ dsp_engine *dsp_engine_create_with_studio(
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);
 int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_update *update);
+int dsp_engine_prepare_local_peq_update(
+    dsp_engine *engine,
+    const double *peq_coefficients,
+    size_t peq_count,
+    double *prepared_values,
+    size_t prepared_values_count,
+    unsigned long long *history_epoch_sequence,
+    unsigned long long *history_end_sequence);
+int dsp_engine_enqueue_local_peq_update(dsp_engine *engine, const dsp_engine_local_peq_update *update);
+int dsp_engine_cancel_local_peq_update(dsp_engine *engine, uint32_t generation_token);
 int dsp_engine_bind_hot_update_context(
     dsp_engine *engine,
     int sample_rate,
@@ -99,6 +126,8 @@ int dsp_engine_bind_hot_update_context(
     uint32_t hot_context_token,
     int media_role);
 uint32_t dsp_engine_get_hot_ack_token(const dsp_engine *engine);
+uint32_t dsp_engine_get_local_peq_ack_token(const dsp_engine *engine);
+uint32_t dsp_engine_get_local_peq_rejected_token(const dsp_engine *engine);
 dsp_status dsp_engine_process(
     dsp_engine *engine,
     const float *input,
@@ -115,6 +144,7 @@ void dsp_engine_destroy(dsp_engine *engine);
 
 #ifdef DSP_ENGINE_TESTING
 void dsp_engine_test_set_processed_frames(dsp_engine *engine, uint32_t value);
+float dsp_engine_test_get_compressor_envelope(const dsp_engine *engine);
 #endif
 
 #endif

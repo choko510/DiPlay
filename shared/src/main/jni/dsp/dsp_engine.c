@@ -9,6 +9,7 @@
 
 #define DSP_ENGINE_MAGIC UINT32_C(0x44535031)
 #define DSP_HOT_UPDATE_QUEUE_CAPACITY 1u
+#define DSP_LOCAL_PEQ_QUEUE_CAPACITY 1u
 
 _Static_assert(ATOMIC_INT_LOCK_FREE == 2, "DSP diagnostics require lock-free 32-bit atomics");
 _Static_assert(ATOMIC_LLONG_LOCK_FREE == 2, "DSP owner epochs require lock-free 64-bit atomics");
@@ -30,6 +31,15 @@ struct dsp_engine {
     _Atomic uint32_t hot_write_index;
     _Atomic uint32_t hot_read_index;
     _Atomic uint32_t hot_ack_token;
+    dsp_engine_local_peq_update local_peq_updates[DSP_LOCAL_PEQ_QUEUE_CAPACITY];
+    _Atomic uint32_t local_peq_write_index;
+    _Atomic uint32_t local_peq_read_index;
+    _Atomic uint32_t local_peq_ack_token;
+    _Atomic uint32_t local_peq_rejected_token;
+    _Atomic uint32_t local_peq_cancel_token;
+    _Atomic uint64_t local_peq_last_generation;
+    uint32_t active_local_peq_ack_token;
+    uint32_t active_local_peq_context_token;
     _Atomic uint64_t hot_editor_owner_epoch;
     _Atomic uint64_t hot_renderer_owner_token;
     _Atomic uint64_t hot_pcm_format_epoch;
@@ -125,6 +135,12 @@ dsp_engine *dsp_engine_create_with_studio(
     atomic_init(&engine->hot_write_index, 0);
     atomic_init(&engine->hot_read_index, 0);
     atomic_init(&engine->hot_ack_token, 0);
+    atomic_init(&engine->local_peq_write_index, 0);
+    atomic_init(&engine->local_peq_read_index, 0);
+    atomic_init(&engine->local_peq_ack_token, 0);
+    atomic_init(&engine->local_peq_rejected_token, 0);
+    atomic_init(&engine->local_peq_cancel_token, 0);
+    atomic_init(&engine->local_peq_last_generation, 0);
     atomic_init(&engine->hot_editor_owner_epoch, 0);
     atomic_init(&engine->hot_renderer_owner_token, 0);
     atomic_init(&engine->hot_pcm_format_epoch, 0);
@@ -229,6 +245,110 @@ int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_updat
     return 1;
 }
 
+int dsp_engine_prepare_local_peq_update(
+    dsp_engine *engine,
+    const double *peq_coefficients,
+    size_t peq_count,
+    double *prepared_values,
+    size_t prepared_values_count,
+    unsigned long long *history_epoch_sequence,
+    unsigned long long *history_end_sequence) {
+    if (!engine_is_prepared(engine) || peq_count > DSP_BIQUAD_MAX_BANDS ||
+        (peq_count > 0 && (peq_coefficients == NULL || prepared_values == NULL)) ||
+        prepared_values_count != peq_count * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND ||
+        history_epoch_sequence == NULL || history_end_sequence == NULL) return 0;
+
+    dsp_biquad prepared_bands[DSP_BIQUAD_MAX_BANDS] = {0};
+    if (!dsp_graph_prepare_local_peq(
+            &engine->graph,
+            peq_coefficients,
+            peq_count,
+            prepared_bands,
+            history_epoch_sequence,
+            history_end_sequence)) return 0;
+    for (size_t band = 0; band < peq_count; band++) {
+        const size_t offset = band * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND;
+        prepared_values[offset] = prepared_bands[band].b0;
+        prepared_values[offset + 1] = prepared_bands[band].b1;
+        prepared_values[offset + 2] = prepared_bands[band].b2;
+        prepared_values[offset + 3] = prepared_bands[band].a1;
+        prepared_values[offset + 4] = prepared_bands[band].a2;
+        prepared_values[offset + 5] = prepared_bands[band].z1[0];
+        prepared_values[offset + 6] = prepared_bands[band].z1[1];
+        prepared_values[offset + 7] = prepared_bands[band].z2[0];
+        prepared_values[offset + 8] = prepared_bands[band].z2[1];
+    }
+    return 1;
+}
+
+static int local_peq_coefficients_are_valid(const double *values) {
+    for (size_t index = 0; index < DSP_BIQUAD_COEFFICIENT_COUNT; index++) {
+        if (!isfinite(values[index])) return 0;
+    }
+    const double a1 = values[3];
+    const double a2 = values[4];
+    return fabs(a2) < 1.0 && 1.0 + a1 + a2 > 0.0 && 1.0 - a1 + a2 > 0.0;
+}
+
+int dsp_engine_enqueue_local_peq_update(dsp_engine *engine, const dsp_engine_local_peq_update *update) {
+    if (!engine_is_prepared(engine) || update == NULL || update->generation == 0 ||
+        update->generation_token != hot_generation_token(update->generation) ||
+        update->editor_owner_epoch == 0 || update->renderer_owner_token == 0 ||
+        update->pcm_format_epoch == 0 || update->hot_context_token == 0 || update->media_role != 1 ||
+        update->peq_count > DSP_BIQUAD_MAX_BANDS ||
+        update->hot_context_token != atomic_load_explicit(&engine->hot_context_token, memory_order_acquire) ||
+        update->editor_owner_epoch != atomic_load_explicit(&engine->hot_editor_owner_epoch, memory_order_acquire) ||
+        update->renderer_owner_token != atomic_load_explicit(&engine->hot_renderer_owner_token, memory_order_acquire) ||
+        update->pcm_format_epoch != atomic_load_explicit(&engine->hot_pcm_format_epoch, memory_order_acquire) ||
+        update->generation <= atomic_load_explicit(&engine->local_peq_last_generation, memory_order_acquire) ||
+        update->history_epoch_sequence != atomic_load_explicit(
+            &engine->graph.peq_history.reset_sequence, memory_order_acquire)) return DSP_STATUS_STALE_UPDATE;
+
+    const uint64_t published_history_sequence = atomic_load_explicit(
+        &engine->graph.peq_history.published_sequence, memory_order_acquire);
+    if (update->history_end_sequence < update->history_epoch_sequence ||
+        update->history_end_sequence > published_history_sequence) return DSP_STATUS_STALE_UPDATE;
+
+    const uint32_t write_index = atomic_load_explicit(&engine->local_peq_write_index, memory_order_relaxed);
+    const uint32_t read_index = atomic_load_explicit(&engine->local_peq_read_index, memory_order_acquire);
+    if ((uint32_t)(write_index - read_index) >= DSP_LOCAL_PEQ_QUEUE_CAPACITY) return DSP_STATUS_QUEUE_FULL;
+
+    dsp_engine_local_peq_update prepared = *update;
+    for (size_t band = 0; band < prepared.peq_count; band++) {
+        dsp_biquad *biquad = &prepared.peq[band];
+        const dsp_biquad *source = &update->peq[band];
+        const double coefficients[DSP_BIQUAD_COEFFICIENT_COUNT] = {
+            source->b0, source->b1, source->b2, source->a1, source->a2,
+        };
+        if (!local_peq_coefficients_are_valid(coefficients)) return DSP_STATUS_INVALID_ARGUMENT;
+        biquad->b0 = source->b0;
+        biquad->b1 = source->b1;
+        biquad->b2 = source->b2;
+        biquad->a1 = source->a1;
+        biquad->a2 = source->a2;
+        for (size_t channel = 0; channel < 2; channel++) {
+            if (!isfinite(source->z1[channel]) || !isfinite(source->z2[channel])) {
+                return DSP_STATUS_INVALID_ARGUMENT;
+            }
+            biquad->z1[channel] = source->z1[channel];
+            biquad->z2[channel] = source->z2[channel];
+        }
+    }
+
+    engine->local_peq_updates[write_index % DSP_LOCAL_PEQ_QUEUE_CAPACITY] = prepared;
+    atomic_store_explicit(&engine->local_peq_ack_token, 0, memory_order_relaxed);
+    atomic_store_explicit(&engine->local_peq_rejected_token, 0, memory_order_relaxed);
+    atomic_store_explicit(&engine->local_peq_write_index, write_index + 1, memory_order_release);
+    atomic_store_explicit(&engine->local_peq_last_generation, update->generation, memory_order_release);
+    return DSP_STATUS_OK;
+}
+
+int dsp_engine_cancel_local_peq_update(dsp_engine *engine, uint32_t generation_token) {
+    if (!engine_is_prepared(engine) || generation_token == 0) return DSP_STATUS_INVALID_ARGUMENT;
+    atomic_store_explicit(&engine->local_peq_cancel_token, generation_token, memory_order_release);
+    return DSP_STATUS_OK;
+}
+
 int dsp_engine_bind_hot_update_context(
     dsp_engine *engine,
     int sample_rate,
@@ -262,6 +382,74 @@ uint32_t dsp_engine_get_hot_ack_token(const dsp_engine *engine) {
     return atomic_load_explicit(&engine->hot_ack_token, memory_order_acquire);
 }
 
+uint32_t dsp_engine_get_local_peq_ack_token(const dsp_engine *engine) {
+    if (!engine_is_prepared(engine)) return 0;
+    return atomic_load_explicit(&engine->local_peq_ack_token, memory_order_acquire);
+}
+
+uint32_t dsp_engine_get_local_peq_rejected_token(const dsp_engine *engine) {
+    if (!engine_is_prepared(engine)) return 0;
+    return atomic_load_explicit(&engine->local_peq_rejected_token, memory_order_acquire);
+}
+
+static int local_peq_update_context_is_current(const dsp_engine *engine, const dsp_engine_local_peq_update *update) {
+    return update->media_role == 1 && update->hot_context_token != 0 &&
+        update->hot_context_token == atomic_load_explicit(&engine->hot_context_token, memory_order_acquire) &&
+        update->editor_owner_epoch == atomic_load_explicit(&engine->hot_editor_owner_epoch, memory_order_acquire) &&
+        update->renderer_owner_token == atomic_load_explicit(&engine->hot_renderer_owner_token, memory_order_acquire) &&
+        update->pcm_format_epoch == atomic_load_explicit(&engine->hot_pcm_format_epoch, memory_order_acquire);
+}
+
+static void begin_pending_local_peq_update(dsp_engine *engine) {
+    if (dsp_graph_local_peq_transition_active(&engine->graph)) return;
+    uint32_t read_index = atomic_load_explicit(&engine->local_peq_read_index, memory_order_relaxed);
+    const uint32_t write_index = atomic_load_explicit(&engine->local_peq_write_index, memory_order_acquire);
+    if (read_index == write_index) return;
+
+    const dsp_engine_local_peq_update *update =
+        &engine->local_peq_updates[read_index % DSP_LOCAL_PEQ_QUEUE_CAPACITY];
+    if (local_peq_update_context_is_current(engine, update)) {
+        if (dsp_graph_begin_local_peq(
+                &engine->graph,
+                update->peq,
+                update->peq_count,
+                update->history_epoch_sequence,
+                update->history_end_sequence)) {
+            engine->active_local_peq_ack_token = update->generation_token;
+            engine->active_local_peq_context_token = update->hot_context_token;
+        } else {
+            atomic_store_explicit(
+                &engine->local_peq_rejected_token, update->generation_token, memory_order_release);
+        }
+    }
+    read_index++;
+    atomic_store_explicit(&engine->local_peq_read_index, read_index, memory_order_release);
+}
+
+static void cancel_requested_local_peq_update(dsp_engine *engine) {
+    const uint32_t generation_token = atomic_exchange_explicit(
+        &engine->local_peq_cancel_token, 0, memory_order_acquire);
+    if (generation_token == 0) return;
+
+    if (engine->active_local_peq_ack_token == generation_token) {
+        dsp_graph_begin_cancel_local_peq(&engine->graph);
+        engine->active_local_peq_ack_token = 0;
+        engine->active_local_peq_context_token = 0;
+        atomic_store_explicit(&engine->local_peq_rejected_token, generation_token, memory_order_release);
+    }
+
+    uint32_t read_index = atomic_load_explicit(&engine->local_peq_read_index, memory_order_relaxed);
+    const uint32_t write_index = atomic_load_explicit(&engine->local_peq_write_index, memory_order_acquire);
+    if (read_index != write_index) {
+        const dsp_engine_local_peq_update *queued =
+            &engine->local_peq_updates[read_index % DSP_LOCAL_PEQ_QUEUE_CAPACITY];
+        if (queued->generation_token == generation_token) {
+            atomic_store_explicit(&engine->local_peq_rejected_token, generation_token, memory_order_release);
+            atomic_store_explicit(&engine->local_peq_read_index, read_index + 1, memory_order_release);
+        }
+    }
+}
+
 dsp_status dsp_engine_process(
     dsp_engine *engine,
     const float *input,
@@ -289,8 +477,34 @@ dsp_status dsp_engine_process(
     uint64_t non_finite_input = 0;
     uint64_t non_finite_output = 0;
     if (atomic_exchange_explicit(&engine->reset_requested, 0, memory_order_acquire) != 0) {
+        if (engine->active_local_peq_ack_token != 0) {
+            atomic_store_explicit(
+                &engine->local_peq_rejected_token, engine->active_local_peq_ack_token, memory_order_release);
+        }
+        engine->active_local_peq_ack_token = 0;
+        engine->active_local_peq_context_token = 0;
         dsp_graph_reset(&engine->graph);
+        const uint32_t local_write_index = atomic_load_explicit(
+            &engine->local_peq_write_index, memory_order_acquire);
+        uint32_t local_read_index = atomic_load_explicit(
+            &engine->local_peq_read_index, memory_order_relaxed);
+        if (local_read_index != local_write_index) {
+            const dsp_engine_local_peq_update *queued =
+                &engine->local_peq_updates[local_read_index % DSP_LOCAL_PEQ_QUEUE_CAPACITY];
+            atomic_store_explicit(
+                &engine->local_peq_rejected_token, queued->generation_token, memory_order_release);
+        }
+        atomic_store_explicit(&engine->local_peq_read_index, local_write_index, memory_order_release);
     }
+
+    if (engine->active_local_peq_ack_token != 0 && engine->active_local_peq_context_token !=
+        atomic_load_explicit(&engine->hot_context_token, memory_order_acquire)) {
+        dsp_graph_cancel_local_peq(&engine->graph);
+        engine->active_local_peq_ack_token = 0;
+        engine->active_local_peq_context_token = 0;
+    }
+
+    cancel_requested_local_peq_update(engine);
 
     uint32_t hot_read_index = atomic_load_explicit(&engine->hot_read_index, memory_order_relaxed);
     const uint32_t hot_write_index = atomic_load_explicit(&engine->hot_write_index, memory_order_acquire);
@@ -318,6 +532,8 @@ dsp_status dsp_engine_process(
     }
     atomic_store_explicit(&engine->hot_read_index, hot_read_index, memory_order_release);
 
+    begin_pending_local_peq_update(engine);
+
     dsp_graph_process(
         &engine->graph,
         input,
@@ -326,6 +542,13 @@ dsp_status dsp_engine_process(
         (size_t)channels,
         &non_finite_input,
         &non_finite_output);
+    if (engine->active_local_peq_ack_token != 0 &&
+        !dsp_graph_local_peq_transition_active(&engine->graph)) {
+        atomic_store_explicit(
+            &engine->local_peq_ack_token, engine->active_local_peq_ack_token, memory_order_release);
+        engine->active_local_peq_ack_token = 0;
+        engine->active_local_peq_context_token = 0;
+    }
     if (processed_hot_token != 0) {
         atomic_store_explicit(&engine->hot_ack_token, processed_hot_token, memory_order_release);
     }
@@ -362,6 +585,10 @@ void dsp_engine_test_set_processed_frames(dsp_engine *engine, uint32_t value) {
     if (engine_is_prepared(engine)) {
         atomic_store_explicit(&engine->processed_frames, value, memory_order_relaxed);
     }
+}
+
+float dsp_engine_test_get_compressor_envelope(const dsp_engine *engine) {
+    return engine_is_prepared(engine) ? engine->graph.dynamics.compressor_envelope : 0.0f;
 }
 #endif
 

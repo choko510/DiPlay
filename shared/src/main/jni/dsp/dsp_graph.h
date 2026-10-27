@@ -15,12 +15,38 @@
 #include "dsp_dynamic_bass.h"
 
 #include <stddef.h>
+#include <stdatomic.h>
 #include <stdint.h>
+
+#define DSP_PEQ_WARM_HISTORY_CAPACITY 32768u
+#define DSP_PEQ_WARM_AUDIO_CATCH_UP_MAX 512u
+
+typedef struct {
+    _Atomic unsigned long long sequence;
+    _Atomic unsigned long long packed_samples;
+} dsp_peq_history_entry;
+
+typedef struct {
+    dsp_peq_history_entry *entries;
+    unsigned long long writer_sequence;
+    _Atomic unsigned long long published_sequence;
+    _Atomic unsigned long long reset_sequence;
+} dsp_peq_input_history;
 
 typedef struct {
     dsp_gain gain;
     dsp_biquad peq[DSP_BIQUAD_MAX_BANDS];
     size_t peq_count;
+    dsp_biquad peq_target[DSP_BIQUAD_MAX_BANDS];
+    size_t peq_target_count;
+    size_t peq_transition_position;
+    size_t peq_transition_frames;
+    int peq_transition_active;
+    int peq_transition_canceling;
+    size_t peq_cancel_position;
+    size_t peq_cancel_frames;
+    float peq_cancel_start_mix;
+    dsp_peq_input_history peq_history;
     dsp_dynamics dynamics;
     dsp_multiband multiband;
     dsp_dynamic_eq dynamic_eq;
@@ -60,6 +86,22 @@ int dsp_graph_apply_studio_hot(
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);
+int dsp_graph_prepare_local_peq(
+    const dsp_graph *graph,
+    const double *peq_coefficients,
+    size_t peq_count,
+    dsp_biquad *prepared_bands,
+    unsigned long long *history_epoch_sequence,
+    unsigned long long *history_end_sequence);
+int dsp_graph_begin_local_peq(
+    dsp_graph *graph,
+    const dsp_biquad *prepared_bands,
+    size_t peq_count,
+    unsigned long long history_epoch_sequence,
+    unsigned long long history_end_sequence);
+int dsp_graph_local_peq_transition_active(const dsp_graph *graph);
+int dsp_graph_begin_cancel_local_peq(dsp_graph *graph);
+void dsp_graph_cancel_local_peq(dsp_graph *graph);
 int dsp_graph_studio_hot_config_is_valid(
     double gain_db,
     const dsp_macro_config *macro_config,

@@ -77,6 +77,7 @@ internal class DspProfileRuntime private constructor(
         playbackVolumeMonitor.start()
         volumeSource.set(playbackVolumeMonitor)
         runtimeConfig.setStudioHotUpdatesEnabled(studioFeatureFlags.get().nativeHotUpdatesEnabled)
+        runtimeConfig.setStudioLocalWarmEnabled(studioFeatureFlags.get().localWarmEnabled)
         cachedVolumeReading.set(readVolumeSource())
         runtimeConfig.update(resolveStudioWorkspace(initialWorkspace, initialEnabled, impulseResponseFor(initialWorkspace.baseProfileSnapshot)))
     }
@@ -95,7 +96,7 @@ internal class DspProfileRuntime private constructor(
         flags: DspStudioFeatureFlags,
         onComplete: (Boolean) -> Unit,
     ) {
-        if (flags.localWarmEnabled || flags.irWarmBudgetEnabled) {
+        if (flags.irWarmBudgetEnabled) {
             Handler(Looper.getMainLooper()).post { onComplete(false) }
             return
         }
@@ -123,12 +124,14 @@ internal class DspProfileRuntime private constructor(
             } else {
                 studioFeatureFlags.set(flags)
                 runtimeConfig.setStudioHotUpdatesEnabled(flags.nativeHotUpdatesEnabled)
+                runtimeConfig.setStudioLocalWarmEnabled(flags.localWarmEnabled)
                 val runtimeApplied = !audioFeaturesChanged || runCatching {
                     applyStudioWorkspace(workspace, dspEnabled.get(), impulseResponseFor(workspace.baseProfileSnapshot))
                 }.getOrDefault(false)
                 if (!runtimeApplied && studioApplyGeneration.get() == generation) {
                     studioFeatureFlags.set(previous)
                     runtimeConfig.setStudioHotUpdatesEnabled(previous.nativeHotUpdatesEnabled)
+                    runtimeConfig.setStudioLocalWarmEnabled(previous.localWarmEnabled)
                 }
                 runtimeApplied && studioApplyGeneration.get() == generation
             }

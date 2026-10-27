@@ -103,6 +103,88 @@ static dsp_engine *create_test_engine_with_dynamics(
         &bypass_harmonic);
 }
 
+static dsp_engine *create_test_engine_with_peq_dynamics_and_convolver(
+    int sample_rate,
+    int channels,
+    int max_frames,
+    const double *peq_coefficients,
+    int peq_band_count,
+    const dsp_dynamics_config *dynamics_config,
+    const dsp_convolver_config *convolver_config) {
+    return dsp_engine_create(
+        sample_rate,
+        channels,
+        max_frames,
+        0.0,
+        peq_coefficients,
+        peq_band_count,
+        dynamics_config,
+        &bypass_multiband,
+        &bypass_dynamic_eq,
+        NULL,
+        0,
+        NULL,
+        0,
+        &bypass_spatial,
+        convolver_config,
+        &bypass_harmonic);
+}
+
+static void design_test_peak_coefficients(
+    double sample_rate,
+    double frequency_hz,
+    double gain_db,
+    double q,
+    double coefficients[DSP_BIQUAD_COEFFICIENT_COUNT]) {
+    const double omega = 2.0 * acos(-1.0) * frequency_hz / sample_rate;
+    const double cosine = cos(omega);
+    const double alpha = sin(omega) / (2.0 * q);
+    const double amplitude = pow(10.0, gain_db / 40.0);
+    const double a0 = 1.0 + alpha / amplitude;
+    coefficients[0] = (1.0 + alpha * amplitude) / a0;
+    coefficients[1] = (-2.0 * cosine) / a0;
+    coefficients[2] = (1.0 - alpha * amplitude) / a0;
+    coefficients[3] = (-2.0 * cosine) / a0;
+    coefficients[4] = (1.0 - alpha / amplitude) / a0;
+}
+
+static dsp_engine_local_peq_update local_peq_update_from_prepared_values(
+    uint64_t generation,
+    uint64_t editor_owner_epoch,
+    uint64_t renderer_owner_token,
+    uint64_t pcm_format_epoch,
+    uint32_t hot_context_token,
+    unsigned long long history_epoch_sequence,
+    unsigned long long history_end_sequence,
+    size_t peq_count,
+    const double *prepared_values) {
+    dsp_engine_local_peq_update update = {0};
+    update.generation = generation;
+    update.generation_token = (uint32_t)(generation & UINT64_C(0x7fffffff));
+    if (update.generation_token == 0) update.generation_token = 1;
+    update.editor_owner_epoch = editor_owner_epoch;
+    update.renderer_owner_token = renderer_owner_token;
+    update.pcm_format_epoch = pcm_format_epoch;
+    update.hot_context_token = hot_context_token;
+    update.history_epoch_sequence = history_epoch_sequence;
+    update.history_end_sequence = history_end_sequence;
+    update.media_role = 1;
+    update.peq_count = peq_count;
+    for (size_t band = 0; band < peq_count; band++) {
+        const size_t offset = band * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND;
+        update.peq[band] = (dsp_biquad) {
+            .b0 = prepared_values[offset],
+            .b1 = prepared_values[offset + 1],
+            .b2 = prepared_values[offset + 2],
+            .a1 = prepared_values[offset + 3],
+            .a2 = prepared_values[offset + 4],
+            .z1 = {(float)prepared_values[offset + 5], (float)prepared_values[offset + 6]},
+            .z2 = {(float)prepared_values[offset + 7], (float)prepared_values[offset + 8]},
+        };
+    }
+    return update;
+}
+
 static dsp_engine *create_test_engine_with_multiband(
     int sample_rate,
     int channels,
@@ -2246,6 +2328,447 @@ static dsp_engine *create_studio_test_engine(
         dynamic_bass);
 }
 
+static void test_local_peq_warm_preserves_downstream_state_and_latency(void) {
+    enum { BLOCK_FRAMES = 512, WARM_BLOCKS = 8 };
+    const dsp_dynamics_config compressor = {
+        1, -30.0, 4.0, 10.0, 2000.0, 0.0, 0.0, 0, -1.0, 60.0,
+    };
+    double identity[DSP_BIQUAD_COEFFICIENT_COUNT] = {1.0, 0.0, 0.0, 0.0, 0.0};
+    double target_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_test_peak_coefficients(48000.0, 1000.0, 6.0, 1.0, target_coefficients);
+    float impulse_samples[256 * 2] = {0.0f};
+    impulse_samples[0] = 1.0f;
+    impulse_samples[1] = 1.0f;
+    const dsp_convolver_config convolver = {
+        1, 48000, 2, 256, 256 * 2, 0.5f, impulse_samples,
+    };
+    float input[BLOCK_FRAMES * 2];
+    float updated_output[BLOCK_FRAMES * 2] = {0.0f};
+    float reference_output[BLOCK_FRAMES * 2] = {0.0f};
+    dsp_engine *updated = create_test_engine_with_peq_dynamics_and_convolver(
+        48000, 2, BLOCK_FRAMES, identity, 1, &compressor, &convolver);
+    dsp_engine *reference = create_test_engine_with_peq_dynamics_and_convolver(
+        48000, 2, BLOCK_FRAMES, identity, 1, &compressor, &convolver);
+    assert_true(updated != NULL && reference != NULL, "local PEQ warm graphs with compressor and convolver create");
+
+    size_t absolute_frame = 0;
+    for (size_t block = 0; block < WARM_BLOCKS; block++) {
+        for (size_t frame = 0; frame < BLOCK_FRAMES; frame++) {
+            const float sample = 0.25f * sinf((float)(2.0 * acos(-1.0) * 1000.0 *
+                (double)(absolute_frame + frame) / 48000.0));
+            input[frame * 2] = sample;
+            input[frame * 2 + 1] = -0.7f * sample;
+        }
+        assert_true(dsp_engine_process(updated, input, BLOCK_FRAMES * 2, updated_output,
+                BLOCK_FRAMES * 2, BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+            "warm-history update graph accepts its source block");
+        assert_true(dsp_engine_process(reference, input, BLOCK_FRAMES * 2, reference_output,
+                BLOCK_FRAMES * 2, BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+            "reference graph accepts the matching source block");
+        absolute_frame += BLOCK_FRAMES;
+    }
+
+    double prepared_values[DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0.0};
+    unsigned long long history_epoch = 0;
+    unsigned long long history_end = 0;
+    assert_true(dsp_engine_prepare_local_peq_update(
+            updated,
+            target_coefficients,
+            1,
+            prepared_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND,
+            &history_epoch,
+            &history_end),
+        "target PEQ coefficients warm from the pre-PEQ processed history");
+    int warmed_state_is_nonzero = 0;
+    for (size_t index = 0; index < DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND; index++) {
+        assert_true(isfinite(prepared_values[index]), "prepared PEQ candidate state is finite");
+        if (index >= DSP_BIQUAD_COEFFICIENT_COUNT && fabs(prepared_values[index]) > 1e-3) {
+            warmed_state_is_nonzero = 1;
+        }
+    }
+    assert_true(warmed_state_is_nonzero, "replacement PEQ carries warmed state instead of copied old z1/z2");
+    assert_true(dsp_engine_bind_hot_update_context(updated, 48000, 2, 7, 9, 3, 1, 1),
+        "MEDIA owner binds before preparing its local PEQ update");
+    const dsp_engine_local_peq_update local_update = local_peq_update_from_prepared_values(
+        42, 7, 9, 3, 1, history_epoch, history_end, 1, prepared_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(updated, &local_update) == DSP_STATUS_OK,
+        "prepared local PEQ state enters the native mailbox");
+    assert_true(dsp_engine_get_local_peq_ack_token(updated) == 0,
+        "local PEQ update is not acknowledged before its transition");
+    assert_true(dsp_engine_get_latency_frames(updated) == dsp_engine_get_latency_frames(reference),
+        "local PEQ candidate preserves the active track latency");
+
+    const float first_transition_sample = 0.25f * sinf((float)(2.0 * acos(-1.0) * 1000.0 *
+        (double)absolute_frame / 48000.0));
+    const float first_transition_input[2] = {first_transition_sample, -0.7f * first_transition_sample};
+    float first_updated_output[2] = {0.0f};
+    float first_reference_output[2] = {0.0f};
+    assert_true(dsp_engine_process(updated, first_transition_input, 2, first_updated_output, 2, 1, 2) == DSP_STATUS_OK,
+        "first local PEQ transition sample processes");
+    assert_true(dsp_engine_process(reference, first_transition_input, 2, first_reference_output, 2, 1, 2) == DSP_STATUS_OK,
+        "matching reference sample processes");
+    assert_near(first_updated_output[0], first_reference_output[0], 1e-7,
+        "equal-latency fade begins on the unchanged PEQ output");
+    assert_near(first_updated_output[1], first_reference_output[1], 1e-7,
+        "local fade preserves the second channel at its start");
+    assert_near(dsp_engine_test_get_compressor_envelope(updated),
+        dsp_engine_test_get_compressor_envelope(reference), 1e-7,
+        "PEQ-only update does not reset the active compressor envelope");
+    assert_true(dsp_engine_get_local_peq_ack_token(updated) == 0,
+        "local PEQ update waits for the complete crossfade before ACK");
+
+    absolute_frame++;
+    float previous = first_updated_output[0];
+    for (size_t block = 0; block < 2; block++) {
+        for (size_t frame = 0; frame < BLOCK_FRAMES; frame++) {
+            const float sample = 0.25f * sinf((float)(2.0 * acos(-1.0) * 1000.0 *
+                (double)(absolute_frame + frame) / 48000.0));
+            input[frame * 2] = sample;
+            input[frame * 2 + 1] = -0.7f * sample;
+        }
+        assert_true(dsp_engine_process(updated, input, BLOCK_FRAMES * 2, updated_output,
+                BLOCK_FRAMES * 2, BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+            "crossfaded local PEQ block processes");
+        for (size_t frame = 0; frame < BLOCK_FRAMES; frame++) {
+            const float sample = updated_output[frame * 2];
+            assert_true(isfinite(sample) && isfinite(updated_output[frame * 2 + 1]),
+                "local PEQ crossfade output remains finite");
+            assert_true(fabsf(sample - previous) < 0.2f,
+                "warmed local PEQ transition remains continuous");
+            previous = sample;
+        }
+        absolute_frame += BLOCK_FRAMES;
+    }
+    assert_true(dsp_engine_get_local_peq_ack_token(updated) == 42,
+        "local PEQ update is acknowledged after crossfade completion");
+    assert_true(dsp_engine_get_latency_frames(updated) == dsp_engine_get_latency_frames(reference),
+        "active PEQ adoption keeps track latency unchanged");
+    dsp_engine_destroy(updated);
+    dsp_engine_destroy(reference);
+}
+
+static void test_local_peq_candidate_catches_up_or_rejects_stale_history(void) {
+    enum { HISTORY_FRAMES = 4096, MAX_FRAMES = 1024, CATCH_UP_FRAMES = 128, STALE_FRAMES = 513 };
+    double identity[DSP_BIQUAD_COEFFICIENT_COUNT] = {1.0, 0.0, 0.0, 0.0, 0.0};
+    double target_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_test_peak_coefficients(48000.0, 1200.0, 6.0, 1.0, target_coefficients);
+    float input[MAX_FRAMES * 2];
+    float output[MAX_FRAMES * 2] = {0.0f};
+    dsp_engine *engine = create_test_engine(48000, 2, MAX_FRAMES, 0.0, identity, 1);
+    assert_true(engine != NULL, "local PEQ sequence-fence graph creates");
+    for (size_t frame = 0; frame < MAX_FRAMES; frame++) {
+        const float sample = 0.15f * sinf((float)(2.0 * acos(-1.0) * 1200.0 * (double)frame / 48000.0));
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = -0.7f * sample;
+    }
+    for (size_t processed = 0; processed < HISTORY_FRAMES; processed += MAX_FRAMES) {
+        assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+                MAX_FRAMES * 2, MAX_FRAMES, 2) == DSP_STATUS_OK,
+            "local PEQ sequence-fence history processes");
+    }
+
+    double prepared_values[DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0.0};
+    unsigned long long history_epoch = 0;
+    unsigned long long history_end = 0;
+    assert_true(dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, prepared_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &history_epoch, &history_end),
+        "local PEQ sequence-fence candidate prepares");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "local PEQ sequence-fence owner binds");
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, CATCH_UP_FRAMES, 2) == DSP_STATUS_OK,
+        "small candidate age is added to the input history");
+    dsp_engine_local_peq_update current = local_peq_update_from_prepared_values(
+        50, 7, 9, 3, 1, history_epoch, history_end, 1, prepared_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &current) == DSP_STATUS_OK,
+        "candidate within the audio-thread catch-up window is queued");
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, 1, 2) == DSP_STATUS_OK,
+        "audio thread catches the candidate up before transition");
+    assert_true(dsp_engine_get_local_peq_rejected_token(engine) != current.generation_token,
+        "bounded candidate catch-up is not rejected");
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, 479, 2) == DSP_STATUS_OK,
+        "caught-up candidate completes its equal-latency transition");
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) == current.generation_token,
+        "caught-up candidate is acknowledged after its transition");
+
+    assert_true(dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, prepared_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &history_epoch, &history_end),
+        "second candidate prepares from the latest history");
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, STALE_FRAMES, 2) == DSP_STATUS_OK,
+        "second candidate ages beyond the bounded catch-up window");
+    dsp_engine_local_peq_update stale = local_peq_update_from_prepared_values(
+        51, 7, 9, 3, 1, history_epoch, history_end, 1, prepared_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &stale) == DSP_STATUS_OK,
+        "aged candidate reaches the audio-thread freshness check");
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, 1, 2) == DSP_STATUS_OK,
+        "audio thread evaluates an aged candidate without blocking");
+    assert_true(dsp_engine_get_local_peq_rejected_token(engine) == stale.generation_token,
+        "candidate older than the catch-up cap is rejected");
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) != stale.generation_token,
+        "stale candidate never receives an ACK");
+    dsp_engine_destroy(engine);
+}
+
+static void assert_local_peq_cancel_fades_back_smoothly(size_t frames_before_cancel, uint64_t generation) {
+    enum { SAMPLE_RATE = 48000, HISTORY_FRAMES = 4096, MAX_FRAMES = 512 };
+    double identity[DSP_BIQUAD_COEFFICIENT_COUNT] = {1.0, 0.0, 0.0, 0.0, 0.0};
+    double target_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_test_peak_coefficients(SAMPLE_RATE, 1000.0, 18.0, 1.0, target_coefficients);
+    float input[MAX_FRAMES * 2];
+    float output[MAX_FRAMES * 2] = {0.0f};
+    dsp_engine *engine = create_test_engine(SAMPLE_RATE, 2, MAX_FRAMES, 0.0, identity, 1);
+    assert_true(engine != NULL, "PEQ cancellation continuity graph creates");
+
+    for (size_t block_start = 0; block_start < HISTORY_FRAMES; block_start += MAX_FRAMES) {
+        for (size_t frame = 0; frame < MAX_FRAMES; frame++) {
+            const size_t absolute_frame = block_start + frame;
+            const float sample = 0.2f * sinf((float)(2.0 * acos(-1.0) * 1000.0 *
+                (double)absolute_frame / SAMPLE_RATE));
+            input[frame * 2] = sample;
+            input[frame * 2 + 1] = -0.7f * sample;
+        }
+        assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+                MAX_FRAMES * 2, MAX_FRAMES, 2) == DSP_STATUS_OK,
+            "PEQ cancellation continuity history processes");
+    }
+
+    double prepared_values[DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0.0};
+    unsigned long long history_epoch = 0;
+    unsigned long long history_end = 0;
+    assert_true(dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, prepared_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &history_epoch, &history_end),
+        "PEQ cancellation continuity candidate warms");
+    assert_true(dsp_engine_bind_hot_update_context(engine, SAMPLE_RATE, 2, 7, 9, 3, 1, 1),
+        "PEQ cancellation continuity owner binds");
+    const dsp_engine_local_peq_update candidate = local_peq_update_from_prepared_values(
+        generation, 7, 9, 3, 1, history_epoch, history_end, 1, prepared_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &candidate) == DSP_STATUS_OK,
+        "PEQ cancellation continuity candidate queues");
+
+    for (size_t frame = 0; frame < frames_before_cancel; frame++) {
+        const size_t absolute_frame = HISTORY_FRAMES + frame;
+        const float sample = 0.2f * sinf((float)(2.0 * acos(-1.0) * 1000.0 *
+            (double)absolute_frame / SAMPLE_RATE));
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = -0.7f * sample;
+    }
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, (int)frames_before_cancel, 2) == DSP_STATUS_OK,
+        "PEQ cancellation starts at its requested transition point");
+    float previous_sample = output[(frames_before_cancel - 1) * 2];
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) != candidate.generation_token,
+        "in-progress PEQ candidate has no premature ACK");
+    assert_true(dsp_engine_cancel_local_peq_update(engine, candidate.generation_token) == DSP_STATUS_OK,
+        "rollout cancellation is requested during the PEQ crossfade");
+
+    const size_t fade_frames = frames_before_cancel + 1;
+    for (size_t frame = 0; frame < fade_frames; frame++) {
+        const size_t absolute_frame = HISTORY_FRAMES + frames_before_cancel + frame;
+        const float sample = 0.2f * sinf((float)(2.0 * acos(-1.0) * 1000.0 *
+            (double)absolute_frame / SAMPLE_RATE));
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = -0.7f * sample;
+    }
+    assert_true(dsp_engine_process(engine, input, MAX_FRAMES * 2, output,
+            MAX_FRAMES * 2, (int)fade_frames, 2) == DSP_STATUS_OK,
+        "PEQ cancellation completes its fade back to the active branch");
+    for (size_t frame = 0; frame < fade_frames; frame++) {
+        const float sample = output[frame * 2];
+        assert_true(isfinite(sample) && isfinite(output[frame * 2 + 1]),
+            "PEQ cancellation output remains finite");
+        assert_true(fabsf(sample - previous_sample) < 0.3f,
+            "early, middle, and late cancellation preserve PCM continuity");
+        previous_sample = sample;
+    }
+    assert_true(dsp_engine_get_local_peq_rejected_token(engine) == candidate.generation_token,
+        "cancelled PEQ candidate is rejected without an ACK");
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) != candidate.generation_token,
+        "cancelled PEQ transition never reports success");
+    dsp_engine_destroy(engine);
+}
+
+static void test_local_peq_cancel_fades_back_smoothly_at_early_middle_and_late_points(void) {
+    assert_local_peq_cancel_fades_back_smoothly(1, 60);
+    assert_local_peq_cancel_fades_back_smoothly(240, 61);
+    assert_local_peq_cancel_fades_back_smoothly(470, 62);
+}
+
+static void test_local_peq_rollout_cancel_stops_queued_and_active_transitions(void) {
+    enum { BLOCK_FRAMES = 512, SHORT_BLOCK_FRAMES = 64 };
+    const dsp_dynamics_config compressor = {
+        1, -30.0, 4.0, 10.0, 2000.0, 0.0, 0.0, 0, -1.0, 60.0,
+    };
+    double identity[DSP_BIQUAD_COEFFICIENT_COUNT] = {1.0, 0.0, 0.0, 0.0, 0.0};
+    double target_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_test_peak_coefficients(48000.0, 1000.0, 6.0, 1.0, target_coefficients);
+    float input[BLOCK_FRAMES * 2];
+    float output[BLOCK_FRAMES * 2] = {0.0f};
+    dsp_engine *engine = create_test_engine_with_peq_dynamics_and_convolver(
+        48000, 2, BLOCK_FRAMES, identity, 1, &compressor, &bypass_convolver);
+    assert_true(engine != NULL, "local PEQ rollout cancellation graph creates");
+    for (size_t frame = 0; frame < BLOCK_FRAMES; frame++) {
+        const float sample = 0.25f * sinf((float)(2.0 * acos(-1.0) * 1000.0 * (double)frame / 48000.0));
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = -0.7f * sample;
+    }
+    for (size_t block = 0; block < 8; block++) {
+        assert_true(dsp_engine_process(engine, input, BLOCK_FRAMES * 2, output,
+                BLOCK_FRAMES * 2, BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+            "local PEQ cancellation history block processes");
+    }
+
+    double prepared_values[DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0.0};
+    unsigned long long history_epoch = 0;
+    unsigned long long history_end = 0;
+    assert_true(dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, prepared_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &history_epoch, &history_end),
+        "local PEQ cancellation candidate warms on the control thread");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "local PEQ cancellation owner binds");
+
+    dsp_engine_local_peq_update queued = local_peq_update_from_prepared_values(
+        90, 7, 9, 3, 1, history_epoch, history_end, 1, prepared_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &queued) == DSP_STATUS_OK,
+        "rollout candidate enters the native mailbox before disable");
+    assert_true(dsp_engine_cancel_local_peq_update(engine, queued.generation_token) == DSP_STATUS_OK,
+        "rollout disable publishes a lock-free cancellation request");
+    assert_true(dsp_engine_process(engine, input, BLOCK_FRAMES * 2, output,
+            BLOCK_FRAMES * 2, SHORT_BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+        "audio thread consumes cancellation before starting queued transition");
+    assert_true(dsp_engine_get_local_peq_rejected_token(engine) == queued.generation_token,
+        "queued rollout candidate is rejected without starting its crossfade");
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) != queued.generation_token,
+        "cancelled queued candidate receives no active ACK");
+
+    dsp_engine_local_peq_update active = local_peq_update_from_prepared_values(
+        91, 7, 9, 3, 1, history_epoch, history_end, 1, prepared_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &active) == DSP_STATUS_OK,
+        "new local PEQ candidate queues after the cancelled generation");
+    assert_true(dsp_engine_process(engine, input, BLOCK_FRAMES * 2, output,
+            BLOCK_FRAMES * 2, SHORT_BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+        "audio thread begins the new local PEQ transition");
+    assert_true(dsp_engine_cancel_local_peq_update(engine, active.generation_token) == DSP_STATUS_OK,
+        "rollout disable requests cancellation of an active PEQ crossfade");
+    assert_true(dsp_engine_process(engine, input, BLOCK_FRAMES * 2, output,
+            BLOCK_FRAMES * 2, SHORT_BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+        "audio thread stops the active PEQ crossfade at a block boundary");
+    assert_true(dsp_engine_get_local_peq_rejected_token(engine) == active.generation_token,
+        "active rollout candidate is rejected after cancellation");
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) != active.generation_token,
+        "cancelled active candidate receives no active ACK");
+    assert_true(dsp_engine_test_get_compressor_envelope(engine) > 0.0f,
+        "cancelling a PEQ crossfade preserves the active compressor envelope");
+    dsp_engine_destroy(engine);
+}
+
+static void test_local_peq_candidate_history_and_owner_fences(void) {
+    enum { BLOCK_FRAMES = 512 };
+    double target_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_test_peak_coefficients(48000.0, 1200.0, 4.0, 1.0, target_coefficients);
+    float input[BLOCK_FRAMES * 2];
+    float output[BLOCK_FRAMES * 2] = {0.0f};
+    dsp_engine *engine = create_test_engine(48000, 2, BLOCK_FRAMES, 0.0, NULL, 0);
+    assert_true(engine != NULL, "local PEQ candidate fence graph creates");
+
+    double prepared_values[DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0.0};
+    unsigned long long history_epoch = 0;
+    unsigned long long history_end = 0;
+    assert_true(!dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, prepared_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &history_epoch, &history_end),
+        "local PEQ preparation defers until enough pre-PEQ history exists");
+    for (size_t frame = 0; frame < BLOCK_FRAMES; frame++) {
+        input[frame * 2] = 0.1f * sinf((float)frame * 0.03f);
+        input[frame * 2 + 1] = -input[frame * 2];
+    }
+    for (size_t block = 0; block < 8; block++) {
+        assert_true(dsp_engine_process(engine, input, BLOCK_FRAMES * 2, output,
+                BLOCK_FRAMES * 2, BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+            "history fence setup block processes");
+    }
+    assert_true(dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, prepared_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &history_epoch, &history_end),
+        "pre-PEQ history becomes available to a background candidate");
+
+    dsp_engine_local_peq_update update = local_peq_update_from_prepared_values(
+        40, 7, 9, 3, 1, history_epoch, history_end, 1, prepared_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &update) == DSP_STATUS_STALE_UPDATE,
+        "unbound owner cannot enqueue a warmed local PEQ candidate");
+    assert_true(!dsp_engine_bind_hot_update_context(engine, 44100, 2, 7, 9, 3, 1, 1),
+        "format mismatch cannot bind the PEQ stage owner");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "matching MEDIA format binds the PEQ stage owner");
+    dsp_engine_local_peq_update stale = update;
+    stale.editor_owner_epoch++;
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &stale) == DSP_STATUS_STALE_UPDATE,
+        "stale editor owner cannot enqueue a warm candidate");
+    stale = update;
+    stale.renderer_owner_token++;
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &stale) == DSP_STATUS_STALE_UPDATE,
+        "stale renderer owner cannot enqueue a warm candidate");
+    stale = update;
+    stale.pcm_format_epoch++;
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &stale) == DSP_STATUS_STALE_UPDATE,
+        "stale PCM format epoch cannot enqueue a warm candidate");
+    stale = update;
+    stale.media_role = 0;
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &stale) == DSP_STATUS_STALE_UPDATE,
+        "non-MEDIA role cannot enqueue a warm candidate");
+
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &update) == DSP_STATUS_OK,
+        "current owner enqueues a warmed PEQ candidate");
+    dsp_engine_local_peq_update superseding = local_peq_update_from_prepared_values(
+        41, 7, 9, 3, 1, history_epoch, history_end, 1, prepared_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &superseding) == DSP_STATUS_QUEUE_FULL,
+        "single-slot mailbox refuses to overwrite an unconsumed PEQ candidate");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 8, 9, 3, 2, 1),
+        "new editor owner invalidates a queued PEQ candidate");
+    assert_true(dsp_engine_process(engine, input, BLOCK_FRAMES * 2, output,
+            BLOCK_FRAMES * 2, BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+        "stale queued PEQ candidate is safely discarded on the render thread");
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) == 0,
+        "stale owner candidate never receives an ACK");
+
+    assert_true(dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, prepared_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &history_epoch, &history_end),
+        "current owner can prepare a replacement candidate from the retained input history");
+    superseding = local_peq_update_from_prepared_values(
+        41, 8, 9, 3, 2, history_epoch, history_end, 1, prepared_values);
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &superseding) == DSP_STATUS_OK,
+        "new owner enqueues its own warmed candidate");
+    assert_true(dsp_engine_process(engine, input, BLOCK_FRAMES * 2, output,
+            BLOCK_FRAMES * 2, BLOCK_FRAMES, 2) == DSP_STATUS_OK,
+        "current owner PEQ transition processes");
+    assert_true(dsp_engine_get_local_peq_ack_token(engine) == 41,
+        "current owner candidate is acknowledged after the transition");
+
+    dsp_engine_reset(engine);
+    assert_true(dsp_engine_process(engine, input, 2, output, 2, 1, 2) == DSP_STATUS_OK,
+        "format reset starts a fresh PEQ input-history epoch");
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &superseding) == DSP_STATUS_STALE_UPDATE,
+        "candidate warmed before an AudioTrack reset cannot cross into the new history epoch");
+    assert_true(!dsp_engine_prepare_local_peq_update(
+            engine, target_coefficients, 1, prepared_values,
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND, &history_epoch, &history_end),
+        "new history epoch remains deferred until its own warm history is sufficient");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 8, 9, 3, 2, 0),
+        "role change invalidates the MEDIA PEQ owner context");
+    assert_true(dsp_engine_enqueue_local_peq_update(engine, &superseding) == DSP_STATUS_STALE_UPDATE,
+        "role change rejects the prior MEDIA candidate");
+    dsp_engine_destroy(engine);
+}
+
 static void test_studio_neutral_macro_preserves_exact_samples(void) {
     const dsp_macro_config macro = {1, 0.0, 0.0, 0.0, 1.0};
     const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
@@ -2694,6 +3217,11 @@ int main(void) {
     test_dynamic_bass_stereo_link_preserves_channel_ratio();
     test_dynamic_bass_graph_detector_uses_raw_input();
     test_dynamic_bass_graph_is_block_boundary_invariant();
+    test_local_peq_warm_preserves_downstream_state_and_latency();
+    test_local_peq_candidate_catches_up_or_rejects_stale_history();
+    test_local_peq_cancel_fades_back_smoothly_at_early_middle_and_late_points();
+    test_local_peq_rollout_cancel_stops_queued_and_active_transitions();
+    test_local_peq_candidate_history_and_owner_fences();
     puts("native DSP tests passed");
     return 0;
 }

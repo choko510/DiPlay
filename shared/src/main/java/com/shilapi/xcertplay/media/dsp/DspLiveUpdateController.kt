@@ -15,9 +15,17 @@ internal data class DspPreparedUpdate(
     val pipeline: DspPcmPipeline?,
     val latencyFrames: Int,
     val hotUpdate: DspPreparedHotUpdate? = null,
+    val localPeqWarmUpdate: DspPreparedLocalPeqWarmUpdate? = null,
+    val localWarmFailureReason: String? = null,
+)
+
+internal data class DspLocalPeqWarmPreparation(
+    val update: DspPreparedLocalPeqWarmUpdate? = null,
+    val unavailableReason: String? = null,
 )
 
 internal typealias DspPipelinePreparer = (DspAudioFormat, DspRuntimeConfig) -> DspPcmPipeline?
+internal typealias DspLocalPeqWarmPreparer = (DspAudioFormat, DspConfigSnapshot) -> DspLocalPeqWarmPreparation?
 
 internal class DspLiveUpdateController(
     private val format: DspAudioFormat,
@@ -36,6 +44,7 @@ internal class DspLiveUpdateController(
     private val onPreparedResult: ((DspPreparedUpdate) -> Boolean)? = null,
     private val onRetirementFailed: (DspPcmPipeline, Throwable) -> Unit = { _, _ -> },
     private val hotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedHotUpdate?)? = null,
+    private val localPeqWarmPreparer: DspLocalPeqWarmPreparer? = null,
 ) : Closeable {
     private val controlExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "dsp-live-control").apply { isDaemon = true }
@@ -82,7 +91,10 @@ internal class DspLiveUpdateController(
                 var candidate: DspPcmPipeline? = null
                 try {
                     val hotUpdate = hotUpdatePreparer?.invoke(format, snapshot)
-                    if (hotUpdate == null) candidate = pipelinePreparer(format, snapshot.config)
+                    val localPeqWarm = if (hotUpdate == null) localPeqWarmPreparer?.invoke(format, snapshot) else null
+                    if (hotUpdate == null && localPeqWarm?.update == null) {
+                        candidate = pipelinePreparer(format, snapshot.config)
+                    }
                     candidate?.configGeneration = snapshot.generation
                     if (candidate != null && candidate.format != format) {
                         retire(candidate)
@@ -96,7 +108,9 @@ internal class DspLiveUpdateController(
                         }
                         continue
                     }
-                    val latencyFrames = if (hotUpdate != null) activeLatencyFrames().coerceAtLeast(0)
+                    val latencyFrames = if (hotUpdate != null || localPeqWarm?.update != null) {
+                        activeLatencyFrames().coerceAtLeast(0)
+                    }
                     else preparedLatencyFrames(candidate).coerceAtLeast(0)
                     val deferLatencyChange = latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()
                     if (desired.get()?.generation != snapshot.generation) {
@@ -117,6 +131,8 @@ internal class DspLiveUpdateController(
                         candidate,
                         latencyFrames,
                         hotUpdate,
+                        localPeqWarm?.update,
+                        localPeqWarm?.unavailableReason,
                     )
                     val transferred = onPreparedResult?.invoke(update) ?: run {
                         onPrepared(update)
@@ -154,6 +170,16 @@ internal class DspLiveUpdateController(
     }
 
     fun canAdoptUpdate(): Boolean = !closed.get() && retiredPipelineCount.get() == 0 && failedRetirementCount.get() == 0
+
+    fun reprepareLatest(generation: Long) {
+        val accepted = synchronized(generationLock) {
+            val snapshot = desired.get()
+            if (closed.get() || snapshot?.generation != generation) return@synchronized false
+            lastHandledGeneration.updateAndGet { previous -> minOf(previous, generation - 1) }
+            true
+        }
+        if (accepted) schedulePreparation()
+    }
 
     fun retire(pipeline: DspPcmPipeline?) {
         if (pipeline == null || !pipeline.claimRetirement(retiredPipelineCount) { error ->

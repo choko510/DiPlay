@@ -643,6 +643,120 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeBindHotUpdateContext(
     return bound ? DSP_STATUS_OK : DSP_STATUS_INVALID_ARGUMENT;
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativePrepareLocalPeqUpdate(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jdoubleArray eq_coefficients,
+    jdoubleArray prepared_values,
+    jlongArray history_epoch_sequence) {
+    (void)receiver;
+    if (eq_coefficients == NULL || prepared_values == NULL || history_epoch_sequence == NULL) return JNI_FALSE;
+    const jsize coefficient_count = (*env)->GetArrayLength(env, eq_coefficients);
+    const jsize prepared_count = (*env)->GetArrayLength(env, prepared_values);
+    if (coefficient_count < 0 || coefficient_count > DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
+        coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 ||
+        prepared_count != (coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT) *
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND ||
+        (*env)->GetArrayLength(env, history_epoch_sequence) != 2) return JNI_FALSE;
+
+    double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT] = {0};
+    double values[DSP_BIQUAD_MAX_BANDS * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0};
+    if (coefficient_count > 0) {
+        (*env)->GetDoubleArrayRegion(env, eq_coefficients, 0, coefficient_count, coefficients);
+        if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
+    }
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return JNI_FALSE;
+    unsigned long long history_epoch = 0;
+    unsigned long long history_end = 0;
+    const int prepared = dsp_engine_prepare_local_peq_update(
+        lease.engine,
+        coefficient_count > 0 ? coefficients : NULL,
+        (size_t)(coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT),
+        prepared_count > 0 ? values : NULL,
+        (size_t)prepared_count,
+        &history_epoch,
+        &history_end);
+    if (prepared) {
+        if (prepared_count > 0) {
+            (*env)->SetDoubleArrayRegion(env, prepared_values, 0, prepared_count, values);
+        }
+        if (!(*env)->ExceptionCheck(env)) {
+            const jlong sequences[2] = {(jlong)history_epoch, (jlong)history_end};
+            (*env)->SetLongArrayRegion(env, history_epoch_sequence, 0, 2, sequences);
+        }
+    }
+    const int failed = (*env)->ExceptionCheck(env);
+    release_engine(&lease);
+    return prepared && !failed ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeEnqueueLocalPeqUpdate(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jlong generation,
+    jlong editor_owner_epoch,
+    jlong renderer_owner_token,
+    jlong pcm_format_epoch,
+    jint hot_context_token,
+    jboolean media_role,
+    jlong history_epoch_sequence,
+    jlong history_end_sequence,
+    jint band_count,
+    jdoubleArray prepared_values) {
+    (void)receiver;
+    if (prepared_values == NULL || generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 ||
+        pcm_format_epoch <= 0 || hot_context_token <= 0 || media_role != JNI_TRUE ||
+        history_epoch_sequence < 0 || history_end_sequence < history_epoch_sequence || band_count < 0 ||
+        band_count > DSP_BIQUAD_MAX_BANDS ||
+        (*env)->GetArrayLength(env, prepared_values) != band_count * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND) {
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    const jsize value_count = (*env)->GetArrayLength(env, prepared_values);
+    jdouble prepared_values_data[DSP_BIQUAD_MAX_BANDS * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0};
+    if (value_count > 0) {
+        (*env)->GetDoubleArrayRegion(env, prepared_values, 0, value_count, prepared_values_data);
+        if ((*env)->ExceptionCheck(env)) return DSP_STATUS_INVALID_ARGUMENT;
+    }
+
+    uint32_t generation_token = (uint32_t)((uint64_t)generation & UINT32_C(0x7fffffff));
+    if (generation_token == 0) generation_token = 1;
+    dsp_engine_local_peq_update update = {
+        .generation_token = generation_token,
+        .generation = (uint64_t)generation,
+        .editor_owner_epoch = (uint64_t)editor_owner_epoch,
+        .renderer_owner_token = (uint64_t)renderer_owner_token,
+        .pcm_format_epoch = (uint64_t)pcm_format_epoch,
+        .history_epoch_sequence = (uint64_t)history_epoch_sequence,
+        .history_end_sequence = (uint64_t)history_end_sequence,
+        .hot_context_token = (uint32_t)hot_context_token,
+        .media_role = 1,
+        .peq_count = (size_t)band_count,
+    };
+    for (size_t band = 0; band < update.peq_count; band++) {
+        const size_t offset = band * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND;
+        update.peq[band] = (dsp_biquad) {
+            .b0 = prepared_values_data[offset],
+            .b1 = prepared_values_data[offset + 1],
+            .b2 = prepared_values_data[offset + 2],
+            .a1 = prepared_values_data[offset + 3],
+            .a2 = prepared_values_data[offset + 4],
+            .z1 = {(float)prepared_values_data[offset + 5], (float)prepared_values_data[offset + 6]},
+            .z2 = {(float)prepared_values_data[offset + 7], (float)prepared_values_data[offset + 8]},
+        };
+    }
+
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    const int queued = dsp_engine_enqueue_local_peq_update(lease.engine, &update);
+    release_engine(&lease);
+    return queued;
+}
+
 JNIEXPORT jint JNICALL
 Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotAckToken(
     JNIEnv *env,
@@ -655,6 +769,50 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotAckToken(
     const uint32_t ack_token = dsp_engine_get_hot_ack_token(lease.engine);
     release_engine(&lease);
     return (jint)ack_token;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetLocalPeqAckToken(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return -DSP_STATUS_INVALID_HANDLE;
+    const uint32_t ack_token = dsp_engine_get_local_peq_ack_token(lease.engine);
+    release_engine(&lease);
+    return (jint)ack_token;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCancelLocalPeqUpdate(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jint generation_token) {
+    (void)env;
+    (void)receiver;
+    if (generation_token <= 0) return DSP_STATUS_INVALID_ARGUMENT;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    const int status = dsp_engine_cancel_local_peq_update(lease.engine, (uint32_t)generation_token);
+    release_engine(&lease);
+    return (jint)status;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetLocalPeqRejectedToken(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return -DSP_STATUS_INVALID_HANDLE;
+    const uint32_t rejected_token = dsp_engine_get_local_peq_rejected_token(lease.engine);
+    release_engine(&lease);
+    return (jint)rejected_token;
 }
 
 JNIEXPORT jint JNICALL

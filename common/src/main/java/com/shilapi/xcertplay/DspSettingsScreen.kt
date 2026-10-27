@@ -1032,10 +1032,12 @@ internal fun DspSettingsScreen(
                     )
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_rollout_local_warm),
-                        description = stringResource(R.string.dsp_rollout_local_warm_unavailable),
+                        description = stringResource(R.string.dsp_rollout_local_warm_description),
                         checked = studioFeatureFlags.localWarmEnabled,
-                        enabled = false,
-                        onCheckedChange = {},
+                        enabled = !operationPending,
+                        onCheckedChange = { enabled ->
+                            updateStudioFeatureFlags(studioFeatureFlags.withEnabled(DspStudioFeature.LOCAL_WARM, enabled))
+                        },
                     )
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_rollout_ir_warm),

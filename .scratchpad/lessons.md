@@ -596,6 +596,9 @@ Treat performance instrumentation as a distribution gate: retain both passing an
 2026-10-27: AtomicFile safety checks must include both the primary file and `.bak`, reject dangling and live symlinks without following them, and preserve a future-schema backup before starting a new write. Capturing rollback state before mutating the active workspace prevents failed persistence from restoring the failed candidate.
 For native audio-control ramps, prepare and validate the dB/linear pair off the render callback, then pass a tagged command through the existing bounded HOT mailbox. Advance one ramp step per PCM frame, not per channel sample, so stereo channels stay matched. ACK only after the full ramp, preserve compatible Studio HOT, defer an incompatible Studio gain while the ramp runs, and fence HOT/LOCAL_WARM with one generation order.
 
+2026-10-27: Evidence ledgers should validate both directions of ID coverage against the canonical catalog, and status rules should be machine-checked. Historical suite summaries are not per-ID evidence unless each row links its exact method, command, result, source SHA, and artifact.
+
+2026-10-27: Evidence validation should resolve local artifact and runbook links within the repository boundary and compare acceptance wording with the canonical predicate, so plausible-looking but stale links or rewritten criteria cannot pass by ID alone.
 2026-10-27: For tabbed Compose content that is replaced on selection, use a distinct saveable `ScrollState` per tab; a single shared scroll state leaks the prior tab's viewport position into the next tab.
 
 2026-10-27: A descendant's `rememberSaveable` value is forgotten when its conditional tab pane leaves composition. Wrap the pane in `SaveableStateProvider(tabKey)` when selection must survive tab changes.

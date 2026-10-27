@@ -768,4 +768,18 @@ Smart Loudness headroom must bound the transient response of `sample - lowpass(s
 
 Keep the versioned preamp-only payload kind separate from the existing Macro/Loudness/Dynamic Bass payload while reusing the same bounded Native HOT mailbox and generation fence. Require Auto Headroom, at least 6 dB of applied preamp reserve, and a current MEDIA owner/format tuple; ramp native linear gain over 20 ms and ACK only after the ramp finishes. On rebind, cancel an active ramp at its last-good value.
 
+2026-10-27 REM-07: Do not inherit PASS from historical test-matrix rows into the per-ID evidence ledger. A row can be PASS only when method, exact command, result, full source SHA, and artifact are attached to that row; until then retain PARTIAL or NOT_RUN.
+
+2026-10-27 REM-07 validator: Resolve artifact paths within the repository and permit only direct GitHub Actions run URLs as remote artifacts. Resolve runbooks relative to the tracker directory, reject paths outside the repository, and compare each acceptance predicate against the canonical matrix text.
+
+2026-10-27 REM-07 validator: Accept a remote Actions run artifact only when the URL points to this repository (`github.com/choko510/DiPlay/actions/runs/<id>`); a syntactically valid URL for another repository is not evidence for this tree.
+
+2026-10-27 REM-07: Keep `Missing fields` limited to absent evidence inputs and use a separate `What missing` column to identify the unproven acceptance subcase. This allows a PARTIAL row to contain complete execution metadata while still stating the requirement that remains unverified.
+
+2026-10-27 REM-07: Keep work-package execution tracking separate from the per-ID acceptance ledger. Use explicit `Not recorded` values for unavailable owners, dependencies, commits, commands, and reviews; only associate commits and tests where the project records provide a direct match.
+
+2026-10-27 REM-07: PKG-R11 is PARTIAL because a device runbook exists but its hardware gates have not run; PKG-R12 is PARTIAL because integration, independent reviews, and rollback evidence are recorded while per-ID/hardware and merge gates remain open.
+
+2026-10-27 REM-07: Use the completion spec's REM-01..12 and PKG-R00..12 scopes verbatim as tracker keys; do not substitute REQ-001..012 for REM IDs or reuse the earlier package-summary grouping. REM-07 is the 170-ID evidence package; REM-12 is the full code-head CI package.
+
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

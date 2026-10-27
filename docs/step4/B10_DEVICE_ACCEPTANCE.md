@@ -2,7 +2,7 @@
 
 ## Current status
 
-All target hardware rows below are `BLOCKED_DEVICE`, except the signed update/rollback row, which is `BLOCKED_ENV`. The current local ADB inventory contains only `Medium_Phone_API_35` (emulator-5556); it is useful for JNI and unit instrumentation, not for USB head-unit, iPhone, acoustic, or release acceptance. No TS10/K706 or supported iPhone was attached during this work.
+All target hardware rows below are `BLOCKED_DEVICE`, except the signed update/rollback row, which is `BLOCKED_ENV`. The current local ADB inventory contains only `Medium_Phone_API_35` (`emulator-5554`, API 35, arm64-v8a); it is useful for JNI and unit instrumentation, not for USB head-unit, iPhone, acoustic, or release acceptance. No TS10/K706 or supported iPhone was attached during this work.
 
 The user-reported SH M20 + iPhone 17 Pro Max / iOS 27.0.1 session is `PARTIAL` evidence and outside the required TS10/K706 class. It does not close these rows. DSP Split C-00 remains `USER_CONFIRMED_RESOLVED`; only ordinary Split regression coverage belongs here.
 

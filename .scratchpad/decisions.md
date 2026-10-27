@@ -696,7 +696,7 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-27 B09: retain the wall-clock p99 as the deadline gate, because audio delivery depends on elapsed time. Add per-block thread CPU timing only to the instrumentation benchmark so high wall p99 with lower CPU p99 can indicate time not charged to the measuring thread; this diagnostic does not prove the target audio path is safe and cannot replace TS10/K706 measurements or justify relaxing the limit.
 
-2026-10-27 B09 follow-up: run #495 passes all 56 median wall-p99 gates on x86_64, while the focused local arm64 class fails four wall-p99 assertions with lower thread-CPU p99. Keep the ABI results separate, retain the existing thresholds, and leave G4 partial until the local timing cause and target-device behavior are understood.
+2026-10-27 B09 follow-up: run #495 passes all 56 median wall-p99 gates on x86_64, while two focused local arm64 Debug runs fail different configurations. The latest has two cases whose thread-CPU p99 also exceeds budget; this invalidates a scheduling-only explanation for every failure. Debug's native `-O0` versus Release `-O2` difference is confirmed but not causal proof. Keep ABI/variant results separate, retain thresholds, and leave G4 partial until target behavior is measured.
 
 ## Retain Gradle test result XML in CI artifacts
 

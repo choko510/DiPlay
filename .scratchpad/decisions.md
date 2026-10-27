@@ -740,14 +740,15 @@ Smart Loudness AUTO trusts only explicit route-bound readings supplied by a plat
 
 Production Android AUTO readings remain untrusted until supported-device evidence proves the hardware volume control follows Android's MUSIC index. Track the active `AudioTrack` route, index and fixed-volume status, but do not infer OEM/MCU correspondence from index changes alone. Keep the raw route address transient; only a SHA-256-derived route token reaches calibration storage.
 
-## Keep DSP Studio rollback claims tied to production wiring
+## Keep DSP Studio rollback claims tied to production wiring (superseded 2026-10-27)
 
-The schema-v1 workspace remains separate from legacy v7 profile storage. `DspStudioFeatureFlags` has no production call sites, so it is not an operational kill switch; describe rollback as DSP Master OFF, new modules disabled/default-neutral, and unsupported stateful or latency-changing updates deferred.
+At the earlier source revision, `DspStudioFeatureFlags` had no production call sites and was not an operational kill switch. That observation is superseded by the integrated runtime wiring at `fe083f4f`: `DspProfileRuntime` now persists the flags, initializes renderer gates, applies supported feature changes, and restores the prior active workspace if persistence fails. Keep rollback claims tied to those production call sites and their tests.
 
 ## Exercise the production EQ graph in Compose instrumentation
 
 Host `DspEqEditorPane` directly and inject touch coordinates relative to the graph Canvas bounds so the test covers the production pointer handlers, callback mapping, and filter-specific gain behavior without adding test-only production APIs.
 Select a draggable band from the original pointer-down coordinate; Compose's simple drag-start position is at touch-slop recognition and can be too far from the small handle hit target after a single large movement.
+
 2026-10-26 B05: bound TextureView surface ownership at the generation boundary, where new Surface wrappers can still be deferred safely. Count pending retirements plus the current Surface against an eight-pair ceiling; keep only the newest deferred Texture and resume it after ACKs. Retire same-Texture Surface wrappers only after decoder ACK and release the Texture only after its destroyed generation's owners complete.
 
 2026-10-26 B06: keep the microphone zero-read backoff and send-only-after-positive-read behavior unchanged because the production capture loop already implements the contract; exercise it end-to-end with a scripted AudioRecord and loopback UDP receiver. Extend only the OFF_INITIAL regression matrix to the four supported rate/channel combinations; do not change sample-clock or live-OFF latency behavior.
@@ -757,3 +758,9 @@ Select a draggable band from the original pointer-down coordinate; Compose's sim
 ## Keep module A/B previews separate from the editor draft
 
 Compare a single module by overlaying its frozen A/B fields onto the current draft workspace and keep the rest of the draft unchanged. If the selected User preset is deleted while a comparison side is audible, return the renderer to the current draft before resetting the UI side to Draft; the visible side and audible configuration must stay aligned.
+
+## Keep Static Bass inside the EQ warm path without changing the user band limit
+
+Represent Static Bass as one internal graph filter after the combined 15-slot PEQ/Cabin capacity, then prepare and warm the EQ candidate from the existing bounded pre-EQ history. This preserves the public band limit and stage latency while allowing only PEQ and Static Bass to use opt-in LOCAL_WARM; Cabin Correction and IR remain deferred. Allocate renderer-status owner tokens process-wide because the runtime status store can outlive a sink, and make render-thread retry requests signal the control worker rather than wait on the config-listener lock.
+
+Smart Loudness headroom must bound the transient response of `sample - lowpass(sample)`, not only its steady-state sine gain; use the residual filter's impulse-gain bound before calculating preamp reduction.

@@ -62,3 +62,13 @@ The first local compile also caught a missing `assertNull` import in `DspProfile
 | `ce3c87d7f8520d0752a96f4fa50aa8b92b988641` | API 35 `DspSettingsScreenTest` passed 4/4. | Independent follow-up review found a separate delete-during-A/B issue: the UI returned to Draft but the renderer could keep auditioning A. Deleting the selected User preset now previews the current draft before resetting the comparison side. Regression assertions verify the renderer's Bass gain returns to the draft and other draft values remain intact. |
 
 The latest-head hosted run [#40370259506](https://github.com/choko510/DiPlay/actions/runs/40370259506) passed on `ce3c87d7`: `changes`, `check`, `android-instrumentation`, and `host-baseline` succeeded. `quick-baseline` and PR-only `verification-status` were skipped because the run used `workflow_dispatch`; neither is counted as a pass. The latest local API 35 screen report is `common/build/reports/androidTests/connected/debug/com.shilapi.xcertplay.DspSettingsScreenTest.html`.
+
+## 2026-10-27 final DSP remediation rerun
+
+| Source/test attempt | Result | Diagnosis and fix |
+|---|---|---|
+| Initial Native processor unit test after moving Static Bass into the EQ filter chain | FAILED | `NativeDspProcessorTest` still expected the Static Bass coefficients in the legacy standalone Bass array. The expected contract now asserts that the 15 user PEQ/Cabin filters plus one internal Bass Shelf use the EQ array, while the legacy static Bass array is empty. |
+| Initial local-warm Native instrumentation call | FAILED | The history fixture passed more frames than `PROCESSING_CHUNK_FRAMES` permits in one call. The test now submits history in bounded chunks, matching the production processing limit. |
+| Integrated source `fe083f4f524fa6ee1038860343e4f100aee8dad6` | PASS | Shared/Common 1002/1002 unit tests; Native; ASan/UBSan; API 35 Shared Debug 20/20, Common Debug 17/17, optimized Shared Release 20/20; Mobile/Automotive Debug and Benchmark builds, lint, JNI mapping, public-tree, and evidence fixtures all passed. |
+
+The current local rerun has no failing tests. Hosted CI for `fe083f4f` is pending push. The earlier A/B screen race was fixed by waiting for a newer comparison generation and its corresponding runtime snapshot; the Common API 35 suite now passes on the integrated source. The local ASan/UBSan run disables unsupported macOS LeakSanitizer; this is not a substitute for the hosted Linux sanitizer gate.

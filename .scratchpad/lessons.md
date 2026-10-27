@@ -588,3 +588,9 @@ Treat performance instrumentation as a distribution gate: retain both passing an
 2026-10-27 B09: preserve benchmark results by ABI and exact run. A passing x86_64 CI median does not override a failing arm64 emulator wall-p99 assertion; thread-CPU measurements help characterize the gap but do not identify its cause.
 
 2026-10-27: If API 35 p99 failures overlap a CPU-heavy R8 build from another worktree, record the overlap and rerun the same benchmark alone at a named source SHA. A passing isolated run describes that run only; it does not retroactively prove why the concurrent samples failed.
+
+2026-10-27: When an internal DSP stage is folded into a shared filter chain, update tests to assert both contracts: the existing user-visible capacity remains fixed, and the internal graph capacity grows only by the explicitly reserved stage slot. Feed native warm-history tests in chunks no larger than the production processing block limit.
+
+2026-10-27: Audio-render callbacks should request a rejected-update retry by signaling the control worker. Do not acquire the configuration listener's monitor from the render path, even when the retry only re-prepares the latest generation.
+
+2026-10-27: AtomicFile safety checks must include both the primary file and `.bak`, reject dangling and live symlinks without following them, and preserve a future-schema backup before starting a new write. Capturing rollback state before mutating the active workspace prevents failed persistence from restoring the failed candidate.

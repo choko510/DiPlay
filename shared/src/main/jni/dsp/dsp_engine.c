@@ -31,6 +31,13 @@ struct dsp_engine {
     _Atomic uint32_t hot_write_index;
     _Atomic uint32_t hot_read_index;
     _Atomic uint32_t hot_ack_token;
+    dsp_engine_preamp_update preamp_update;
+    _Atomic uint32_t preamp_write_index;
+    _Atomic uint32_t preamp_read_index;
+    _Atomic uint32_t preamp_ack_token;
+    _Atomic uint64_t preamp_last_generation;
+    uint32_t active_preamp_ack_token;
+    uint32_t active_preamp_context_token;
     dsp_engine_local_peq_update local_peq_updates[DSP_LOCAL_PEQ_QUEUE_CAPACITY];
     _Atomic uint32_t local_peq_write_index;
     _Atomic uint32_t local_peq_read_index;
@@ -135,6 +142,10 @@ dsp_engine *dsp_engine_create_with_studio(
     atomic_init(&engine->hot_write_index, 0);
     atomic_init(&engine->hot_read_index, 0);
     atomic_init(&engine->hot_ack_token, 0);
+    atomic_init(&engine->preamp_write_index, 0);
+    atomic_init(&engine->preamp_read_index, 0);
+    atomic_init(&engine->preamp_ack_token, 0);
+    atomic_init(&engine->preamp_last_generation, 0);
     atomic_init(&engine->local_peq_write_index, 0);
     atomic_init(&engine->local_peq_read_index, 0);
     atomic_init(&engine->local_peq_ack_token, 0);
@@ -242,6 +253,28 @@ int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_updat
     engine->hot_updates[write_index % DSP_HOT_UPDATE_QUEUE_CAPACITY] = *update;
     atomic_store_explicit(&engine->hot_write_index, write_index + 1, memory_order_release);
     atomic_store_explicit(&engine->hot_last_generation, update->generation, memory_order_release);
+    return 1;
+}
+
+int dsp_engine_enqueue_preamp_update(dsp_engine *engine, const dsp_engine_preamp_update *update) {
+    if (!engine_is_prepared(engine) || update == NULL || update->version != 1 || update->generation == 0 ||
+        update->generation_token != hot_generation_token(update->generation) ||
+        update->editor_owner_epoch == 0 || update->renderer_owner_token == 0 || update->pcm_format_epoch == 0 ||
+        update->hot_context_token == 0 || update->media_role != 1 || !isfinite(update->gain_db) ||
+        update->gain_db < -120.0 || update->gain_db > -6.0 || !isfinite(update->gain_linear) ||
+        update->gain_linear < 1.0e-6 || update->gain_linear > 0.50118724 ||
+        update->hot_context_token != atomic_load_explicit(&engine->hot_context_token, memory_order_acquire) ||
+        update->editor_owner_epoch != atomic_load_explicit(&engine->hot_editor_owner_epoch, memory_order_acquire) ||
+        update->renderer_owner_token != atomic_load_explicit(&engine->hot_renderer_owner_token, memory_order_acquire) ||
+        update->pcm_format_epoch != atomic_load_explicit(&engine->hot_pcm_format_epoch, memory_order_acquire) ||
+        update->generation <= atomic_load_explicit(&engine->preamp_last_generation, memory_order_acquire)) return 0;
+    const uint32_t write_index = atomic_load_explicit(&engine->preamp_write_index, memory_order_relaxed);
+    const uint32_t read_index = atomic_load_explicit(&engine->preamp_read_index, memory_order_acquire);
+    if ((uint32_t)(write_index - read_index) >= DSP_HOT_UPDATE_QUEUE_CAPACITY) return 0;
+    engine->preamp_update = *update;
+    atomic_store_explicit(&engine->preamp_ack_token, 0, memory_order_relaxed);
+    atomic_store_explicit(&engine->preamp_write_index, write_index + 1, memory_order_release);
+    atomic_store_explicit(&engine->preamp_last_generation, update->generation, memory_order_release);
     return 1;
 }
 
@@ -385,6 +418,11 @@ uint32_t dsp_engine_get_hot_ack_token(const dsp_engine *engine) {
     return atomic_load_explicit(&engine->hot_ack_token, memory_order_acquire);
 }
 
+uint32_t dsp_engine_get_preamp_ack_token(const dsp_engine *engine) {
+    if (!engine_is_prepared(engine)) return 0;
+    return atomic_load_explicit(&engine->preamp_ack_token, memory_order_acquire);
+}
+
 uint32_t dsp_engine_get_local_peq_ack_token(const dsp_engine *engine) {
     if (!engine_is_prepared(engine)) return 0;
     return atomic_load_explicit(&engine->local_peq_ack_token, memory_order_acquire);
@@ -507,6 +545,29 @@ dsp_status dsp_engine_process(
         engine->active_local_peq_context_token = 0;
     }
 
+    uint32_t preamp_read_index = atomic_load_explicit(&engine->preamp_read_index, memory_order_relaxed);
+    const uint32_t preamp_write_index = atomic_load_explicit(&engine->preamp_write_index, memory_order_acquire);
+    if (preamp_read_index != preamp_write_index) {
+        const dsp_engine_preamp_update *update = &engine->preamp_update;
+        if (update->media_role == 1 && update->hot_context_token != 0 &&
+            update->hot_context_token == atomic_load_explicit(&engine->hot_context_token, memory_order_acquire) &&
+            update->editor_owner_epoch == atomic_load_explicit(&engine->hot_editor_owner_epoch, memory_order_acquire) &&
+            update->renderer_owner_token == atomic_load_explicit(&engine->hot_renderer_owner_token, memory_order_acquire) &&
+            update->pcm_format_epoch == atomic_load_explicit(&engine->hot_pcm_format_epoch, memory_order_acquire) &&
+            dsp_graph_apply_preamp_hot(&engine->graph, update->gain_db, update->gain_linear)) {
+            engine->active_preamp_ack_token = update->generation_token;
+            engine->active_preamp_context_token = update->hot_context_token;
+        }
+        preamp_read_index++;
+        atomic_store_explicit(&engine->preamp_read_index, preamp_read_index, memory_order_release);
+    }
+    if (engine->active_preamp_ack_token != 0 && engine->active_preamp_context_token !=
+        atomic_load_explicit(&engine->hot_context_token, memory_order_acquire)) {
+        dsp_gain_cancel_ramp(&engine->graph.gain);
+        engine->active_preamp_ack_token = 0;
+        engine->active_preamp_context_token = 0;
+    }
+
     cancel_requested_local_peq_update(engine);
 
     uint32_t hot_read_index = atomic_load_explicit(&engine->hot_read_index, memory_order_relaxed);
@@ -554,6 +615,13 @@ dsp_status dsp_engine_process(
     }
     if (processed_hot_token != 0) {
         atomic_store_explicit(&engine->hot_ack_token, processed_hot_token, memory_order_release);
+    }
+    if (engine->active_preamp_ack_token != 0 && engine->graph.gain.ramp_remaining == 0 &&
+        engine->active_preamp_context_token == atomic_load_explicit(
+            &engine->hot_context_token, memory_order_acquire)) {
+        atomic_store_explicit(&engine->preamp_ack_token, engine->active_preamp_ack_token, memory_order_release);
+        engine->active_preamp_ack_token = 0;
+        engine->active_preamp_context_token = 0;
     }
     saturating_add_counter(&engine->processed_frames, (uint32_t)frames);
     saturating_add_counter(&engine->processed_blocks, 1);

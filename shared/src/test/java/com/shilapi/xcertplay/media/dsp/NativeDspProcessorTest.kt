@@ -221,6 +221,36 @@ class NativeDspProcessorTest {
     }
 
     @Test
+    fun preampHotBridgeFencesOwnerAndAcknowledgesTheLatestVersionedTarget() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor(DspAudioFormat(48_000, 2), 7L, bindings, latencyFrames = 0)
+        val update = DspPreparedPreampHotUpdate(
+            generation = 12L,
+            editorOwnerEpoch = 4L,
+            rendererOwnerToken = 9L,
+            pcmFormatEpoch = 3L,
+            hotContextToken = 1,
+            mediaRole = true,
+            appliedPreampDb = -6.0,
+            appliedPreampLinear = Math.pow(10.0, -6.0 / 20.0),
+        )
+        assertFalse(processor.enqueuePreampHotUpdate(update))
+        assertTrue(processor.bindHotUpdateContext(4L, 9L, 3L, 1, mediaRole = true))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(editorOwnerEpoch = 5L)))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(rendererOwnerToken = 10L)))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(pcmFormatEpoch = 4L)))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(hotContextToken = 2)))
+        assertTrue(processor.enqueuePreampHotUpdate(update))
+        assertEquals(0, processor.preampHotAcknowledgedToken())
+        processor.process(floatBuffer(0.1f, -0.1f), ByteBuffer.allocateDirect(8), frames = 1)
+        assertEquals(update.generationToken, processor.preampHotAcknowledgedToken())
+        assertEquals(update.generation, bindings.lastPreampGeneration)
+        processor.invalidateHotUpdateContext()
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(generation = 13L)))
+        processor.close()
+    }
+
+    @Test
     fun nativeLocalPeqCandidateIsPreparedOffThreadAndFencedByItsOwnerTuple() {
         val bindings = FakeNativeDspBindings()
         val format = DspAudioFormat(48_000, 2)
@@ -460,10 +490,13 @@ class NativeDspProcessorTest {
         var createdStudioLoudness: DoubleArray? = null
         var createdStudioDynamicBass: DoubleArray? = null
         var lastHotGeneration: Long? = null
+        var lastPreampGeneration: Long? = null
         var lastLocalPeqUpdate: DspPreparedLocalPeqWarmUpdate? = null
         var cancelledLocalPeqGenerationToken: Int? = null
         private var pendingHotToken = 0
         private var acknowledgedHotToken = 0
+        private var pendingPreampToken = 0
+        private var acknowledgedPreampToken = 0
         private var pendingLocalPeqToken = 0
         private var acknowledgedLocalPeqToken = 0
         private var rejectedLocalPeqToken = 0
@@ -562,6 +595,10 @@ class NativeDspProcessorTest {
                 acknowledgedHotToken = pendingHotToken
                 pendingHotToken = 0
             }
+            if (pendingPreampToken != 0) {
+                acknowledgedPreampToken = pendingPreampToken
+                pendingPreampToken = 0
+            }
             if (pendingLocalPeqToken != 0) {
                 acknowledgedLocalPeqToken = pendingLocalPeqToken
                 pendingLocalPeqToken = 0
@@ -580,6 +617,18 @@ class NativeDspProcessorTest {
             ) return 2
             lastHotGeneration = update.generation
             pendingHotToken = update.generationToken
+            return 0
+        }
+        override fun applyPreampHot(handle: Long, update: DspPreparedPreampHotUpdate): Int {
+            if (hotContext != listOf(
+                    update.editorOwnerEpoch,
+                    update.rendererOwnerToken,
+                    update.pcmFormatEpoch,
+                    update.hotContextToken.toLong(),
+                ) || !update.mediaRole || update.version != 1 || update.appliedPreampDb > -6.0
+            ) return 2
+            lastPreampGeneration = update.generation
+            pendingPreampToken = update.generationToken
             return 0
         }
         override fun prepareLocalPeqUpdate(
@@ -641,6 +690,7 @@ class NativeDspProcessorTest {
             return true
         }
         override fun hotAckToken(handle: Long): Int = acknowledgedHotToken
+        override fun preampHotAckToken(handle: Long): Int = acknowledgedPreampToken
         override fun localPeqAckToken(handle: Long): Int = acknowledgedLocalPeqToken
         override fun localPeqRejectedToken(handle: Long): Int = rejectedLocalPeqToken
         override fun latencyFrames(handle: Long): Int = 0

@@ -3171,6 +3171,91 @@ static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
     dsp_engine_destroy(engine);
 }
 
+static void test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completion(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) input[frame * 2] = input[frame * 2 + 1] = 0.5f;
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "preamp HOT graph creates");
+    const dsp_engine_preamp_update update = {
+        .version = 1, .generation_token = 42, .generation = 42, .editor_owner_epoch = 7,
+        .renderer_owner_token = 9, .pcm_format_epoch = 3, .hot_context_token = 1,
+        .media_role = 1, .gain_db = -6.0,
+        .gain_linear = 0.5011872336,
+    };
+    assert_true(!dsp_engine_enqueue_preamp_update(engine, &update), "unbound preamp owner is rejected");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "preamp HOT binds current MEDIA owner");
+    dsp_engine_preamp_update invalid = update;
+    invalid.version = 2;
+    assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "unknown preamp payload version is rejected");
+    invalid = update;
+    invalid.editor_owner_epoch++;
+    assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "stale preamp editor epoch is rejected");
+    invalid = update;
+    invalid.renderer_owner_token++;
+    assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "stale preamp renderer owner is rejected");
+    invalid = update;
+    invalid.pcm_format_epoch++;
+    assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "stale preamp PCM format is rejected");
+    invalid = update;
+    invalid.media_role = 0;
+    assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "non-MEDIA preamp update is rejected");
+    invalid = update;
+    invalid.gain_db = -5.99;
+    assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "preamp target without 6 dB reserve is rejected");
+    assert_true(dsp_engine_enqueue_preamp_update(engine, &update), "valid versioned preamp update is queued");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "first sample-ramp block processes");
+    assert_near(output[0], 0.5, 1e-6, "ramp starts from the last-good preamp value");
+    assert_true(output[1022] < output[0] && output[1022] > 0.25f,
+        "preamp gain changes smoothly inside the PCM block");
+    assert_true(dsp_engine_get_preamp_ack_token(engine) == 0, "preamp update is not acknowledged before ramp completion");
+    dsp_engine_preamp_update latest_update = update;
+    latest_update.generation = 43;
+    latest_update.generation_token = 43;
+    latest_update.gain_db = -12.0;
+    latest_update.gain_linear = 0.2511886432;
+    assert_true(dsp_engine_enqueue_preamp_update(engine, &latest_update),
+        "newer preamp generation replaces the target while a ramp is active");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "superseding sample-ramp block processes");
+    assert_true(dsp_engine_get_preamp_ack_token(engine) == 0, "superseded generation does not receive a final ACK");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "latest target ramp completion block processes");
+    assert_true(dsp_engine_get_preamp_ack_token(engine) == 43, "final ACK follows the latest complete preamp ramp");
+    assert_near(output[1022], 0.5 * pow(10.0, -12.0 / 20.0), 1e-5,
+        "completed ramp reaches the latest bounded preamp target");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 0, 0, 0, 0, 0),
+        "preamp renderer close invalidates owner context");
+    invalid = latest_update;
+    assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "closed preamp renderer rejects stale work");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 8, 9, 4, 2, 1),
+        "preamp renderer can bind a new owner tuple");
+    dsp_engine_preamp_update rebound_update = latest_update;
+    rebound_update.generation = 44;
+    rebound_update.generation_token = 44;
+    rebound_update.editor_owner_epoch = 8;
+    rebound_update.pcm_format_epoch = 4;
+    rebound_update.hot_context_token = 2;
+    rebound_update.gain_db = -18.0;
+    rebound_update.gain_linear = 0.1258925412;
+    assert_true(dsp_engine_enqueue_preamp_update(engine, &rebound_update), "rebound preamp target queues");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "rebound preamp ramp begins");
+    const float last_good = output[1022];
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 9, 10, 5, 3, 1),
+        "owner rebind invalidates an active preamp ramp");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "rebound stale ramp block processes");
+    assert_true(dsp_engine_get_preamp_ack_token(engine) == 0, "stale rebind target receives no ACK");
+    assert_true(fabsf(output[1022] - last_good) < 1e-4f, "rebind keeps the last-good preamp gain");
+    dsp_engine_destroy(engine);
+}
+
 static void test_studio_hot_update_rejects_invalid_module_configs_atomically(void) {
     const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
     const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
@@ -3558,6 +3643,7 @@ int main(void) {
     test_studio_hot_refund_waits_for_stage_gain_release();
     test_studio_neutral_macro_preserves_exact_samples();
     test_studio_hot_command_is_acknowledged_after_its_block();
+    test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completion();
     test_studio_hot_update_rejects_invalid_module_configs_atomically();
     test_studio_hot_update_validates_ack_generation_token();
     test_smart_loudness_uses_its_bounded_shelf_gains();

@@ -34,6 +34,7 @@ typedef struct {
 } dsp_peq_input_history;
 
 typedef struct {
+    int sample_rate;
     dsp_gain gain;
     dsp_biquad peq[DSP_GRAPH_EQ_FILTER_CAPACITY];
     size_t peq_count;
@@ -88,6 +89,7 @@ int dsp_graph_apply_studio_hot(
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);
+int dsp_graph_apply_preamp_hot(dsp_graph *graph, double gain_db, double gain_linear);
 int dsp_graph_prepare_local_peq(
     const dsp_graph *graph,
     const double *peq_coefficients,

@@ -16,6 +16,110 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class NativeDspBridgeInstrumentedTest {
     @Test
+    fun nativePreampHotUpdateRampsPcmAndAcknowledgesOnlyTheCompletedTarget() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val format = DspAudioFormat(48_000, 2)
+        val processor = NativeDspProcessor.createOrNull(
+            format,
+            DspRuntimeConfig(enabled = true, gainDb = -8.0),
+        )
+        assertNotNull(processor)
+        processor ?: return
+        try {
+            val update = DspPreparedPreampHotUpdate(
+                generation = 42L,
+                editorOwnerEpoch = 7L,
+                rendererOwnerToken = 9L,
+                pcmFormatEpoch = 3L,
+                hotContextToken = 1,
+                mediaRole = true,
+                appliedPreampDb = -12.0,
+                appliedPreampLinear = 10.0.pow(-12.0 / 20.0),
+            )
+            assertTrue(processor.bindHotUpdateContext(7L, 9L, 3L, 1, mediaRole = true))
+            assertTrue(processor.enqueuePreampHotUpdate(update))
+
+            val firstInput = ByteBuffer.allocateDirect(512 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            repeat(512) { firstInput.putFloat(0.5f).putFloat(0.5f) }
+            firstInput.flip()
+            val firstOutput = ByteBuffer.allocateDirect(firstInput.remaining()).order(ByteOrder.nativeOrder())
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(firstInput, firstOutput, 512).status)
+            val start = firstOutput.getFloat(0)
+            val middle = firstOutput.getFloat(510 * 2 * Float.SIZE_BYTES)
+            assertTrue(middle < start && middle > 0.5f * update.appliedPreampLinear.toFloat())
+            assertEquals(middle, firstOutput.getFloat(510 * 2 * Float.SIZE_BYTES + Float.SIZE_BYTES), 1e-6f)
+            assertEquals(0, processor.preampHotAcknowledgedToken())
+
+            val secondInput = ByteBuffer.allocateDirect(448 * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            repeat(448) { secondInput.putFloat(0.5f).putFloat(0.5f) }
+            secondInput.flip()
+            val secondOutput = ByteBuffer.allocateDirect(secondInput.remaining()).order(ByteOrder.nativeOrder())
+            assertEquals(DspProcessStatus.SUCCESS, processor.process(secondInput, secondOutput, 448).status)
+            assertEquals(42, processor.preampHotAcknowledgedToken())
+            assertEquals(0.5f * update.appliedPreampLinear.toFloat(), secondOutput.getFloat(447 * 2 * Float.SIZE_BYTES), 1e-4f)
+        } finally {
+            processor.close()
+        }
+    }
+
+    @Test
+    fun nativePreampHotJniRejectsStaleOwnerAndFormatAndKeepsLastGoodAfterRebind() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val format = DspAudioFormat(48_000, 2)
+        val prepared = DspRuntimeConfig(enabled = true, gainDb = -8.0).prepare(format)
+        val handle = NativeDspJni.create(
+            sampleRate = format.sampleRate,
+            channels = format.channels,
+            maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
+            gainDb = prepared.appliedPreampDb,
+            eqCoefficients = prepared.eqCoefficients,
+            dynamics = prepared.dynamics,
+            multiband = prepared.multiband,
+            dynamicEq = prepared.dynamicEq,
+            bassCoefficients = prepared.bassCoefficients,
+            monoBassCoefficients = prepared.monoBassCoefficients,
+            spatial = prepared.spatial,
+            convolverConfig = prepared.convolverConfig,
+            convolverSamples = prepared.convolverSamples,
+            harmonicValues = prepared.harmonic,
+        )
+        assertTrue(handle > 0L)
+        try {
+            assertTrue(NativeDspJni.bindHotUpdateContext(handle, format, 7L, 9L, 3L, 1, mediaRole = true))
+            val update = DspPreparedPreampHotUpdate(
+                generation = 42L,
+                editorOwnerEpoch = 7L,
+                rendererOwnerToken = 9L,
+                pcmFormatEpoch = 3L,
+                hotContextToken = 1,
+                mediaRole = true,
+                appliedPreampDb = -12.0,
+                appliedPreampLinear = 10.0.pow(-12.0 / 20.0),
+            )
+            assertEquals(5, NativeDspJni.applyPreampHot(handle, update.copy(rendererOwnerToken = 10L)))
+            assertEquals(5, NativeDspJni.applyPreampHot(handle, update.copy(pcmFormatEpoch = 4L)))
+            assertEquals(0, NativeDspJni.applyPreampHot(handle, update))
+            assertTrue(NativeDspJni.bindHotUpdateContext(handle, format, 8L, 10L, 4L, 2, mediaRole = true))
+
+            val input = ByteBuffer.allocateDirect(2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+                .putFloat(0.5f).putFloat(0.5f).apply { flip() }
+            val output = ByteBuffer.allocateDirect(2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+            assertEquals(
+                DspProcessStatus.SUCCESS,
+                NativeDspJni.process(handle, input, 0, input.remaining(), output, 0, output.capacity(), 1, 2).let {
+                    if (it == 0) DspProcessStatus.SUCCESS else DspProcessStatus.ERROR
+                },
+            )
+            assertEquals(0, NativeDspJni.preampHotAckToken(handle))
+            val lastGood = 0.5f * 10.0.pow(-8.0 / 20.0).toFloat()
+            assertEquals(lastGood, output.getFloat(0), 1e-6f)
+            assertEquals(lastGood, output.getFloat(Float.SIZE_BYTES), 1e-6f)
+        } finally {
+            NativeDspJni.destroy(handle)
+        }
+    }
+
+    @Test
     fun nativeProcessRejectsMisalignedDirectBufferPositions() {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val format = DspAudioFormat(sampleRate = 48_000, channels = 1)

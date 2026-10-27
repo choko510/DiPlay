@@ -615,6 +615,40 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
 }
 
 JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyPreampHot(
+    JNIEnv *env, jobject receiver, jlong handle, jint version, jlong generation,
+    jlong editor_owner_epoch, jlong renderer_owner_token, jlong pcm_format_epoch,
+    jint hot_context_token, jboolean media_role, jdouble gain_db, jdouble gain_linear) {
+    (void)env;
+    (void)receiver;
+    if (version != 1 || generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 ||
+        pcm_format_epoch <= 0 || hot_context_token <= 0 || media_role != JNI_TRUE ||
+        !isfinite(gain_db) || gain_db < -120.0 || gain_db > -6.0 ||
+        !isfinite(gain_linear) || gain_linear < 1.0e-6 || gain_linear > 0.50118724) {
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t generation_token = (uint32_t)((uint64_t)generation & UINT32_C(0x7fffffff));
+    if (generation_token == 0) generation_token = 1;
+    const dsp_engine_preamp_update update = {
+        .version = (uint32_t)version,
+        .generation_token = generation_token,
+        .generation = (uint64_t)generation,
+        .editor_owner_epoch = (uint64_t)editor_owner_epoch,
+        .renderer_owner_token = (uint64_t)renderer_owner_token,
+        .pcm_format_epoch = (uint64_t)pcm_format_epoch,
+        .hot_context_token = (uint32_t)hot_context_token,
+        .media_role = 1,
+        .gain_db = gain_db,
+        .gain_linear = gain_linear,
+    };
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    const int queued = dsp_engine_enqueue_preamp_update(lease.engine, &update);
+    release_engine(&lease);
+    return queued ? DSP_STATUS_OK : DSP_STATUS_QUEUE_FULL;
+}
+
+JNIEXPORT jint JNICALL
 Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeBindHotUpdateContext(
     JNIEnv *env,
     jobject receiver,
@@ -767,6 +801,18 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotAckToken(
     dsp_engine_lease lease = {0};
     if (!acquire_engine(handle, &lease)) return -DSP_STATUS_INVALID_HANDLE;
     const uint32_t ack_token = dsp_engine_get_hot_ack_token(lease.engine);
+    release_engine(&lease);
+    return (jint)ack_token;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetPreampHotAckToken(
+    JNIEnv *env, jobject receiver, jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return -DSP_STATUS_INVALID_HANDLE;
+    const uint32_t ack_token = dsp_engine_get_preamp_ack_token(lease.engine);
     release_engine(&lease);
     return (jint)ack_token;
 }

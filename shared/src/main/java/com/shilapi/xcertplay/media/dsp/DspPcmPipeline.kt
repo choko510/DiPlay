@@ -216,6 +216,9 @@ internal class DspPcmPipeline(
 
     internal fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = processor.enqueueHotUpdate(update)
 
+    internal fun enqueuePreampHotUpdate(update: DspPreparedPreampHotUpdate): Boolean =
+        processor.enqueuePreampHotUpdate(update)
+
     internal fun prepareLocalPeqWarmUpdate(
         coefficients: DoubleArray,
         generation: Long,
@@ -256,6 +259,9 @@ internal class DspPcmPipeline(
 
     internal fun hasAcknowledged(update: DspPreparedHotUpdate): Boolean =
         processor.hotAcknowledgedToken() == update.generationToken
+
+    internal fun hasAcknowledged(update: DspPreparedPreampHotUpdate): Boolean =
+        processor.preampHotAcknowledgedToken() == update.generationToken
 
     internal fun hasAcknowledged(update: DspPreparedLocalPeqWarmUpdate): Boolean =
         processor.localPeqWarmAcknowledgedToken() == update.generationToken

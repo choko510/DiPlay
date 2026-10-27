@@ -226,7 +226,7 @@ class DspRendererProductionPathTest {
     }
 
     @Test
-    fun lpcmDefersPreampChangeUntilANewTrackWhenSampleRampIsUnavailable() {
+    fun lpcmDefersPreampHotTargetWithoutHeadroomUntilANewTrack() {
         val configA = DspRuntimeConfig(enabled = true, gainDb = 0.0)
         val provider = MutableConfigProvider(configA)
         val prepared = LinkedBlockingQueue<Unit>()
@@ -255,7 +255,7 @@ class DspRendererProductionPathTest {
             assertFalse(renderer.liveFadeInProgressForTesting)
             assertEquals(1L, renderer.deferredDspGenerationForTesting)
             assertEquals(
-                "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
+                "preamp HOT requires Auto Headroom and at least 6 dB of reserve",
                 provider.rendererApplyStatus()?.reason,
             )
 

@@ -159,6 +159,7 @@ int dsp_graph_prepare(
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
     }
+    graph->sample_rate = sample_rate;
     graph->peq_history.entries = (dsp_peq_history_entry *)calloc(
         DSP_PEQ_WARM_HISTORY_CAPACITY,
         sizeof(*graph->peq_history.entries));
@@ -262,6 +263,15 @@ int dsp_graph_apply_studio_hot(
             graph->studio_gain_refund_pending = 0;
         }
     }
+    return 1;
+}
+
+int dsp_graph_apply_preamp_hot(dsp_graph *graph, double gain_db, double gain_linear) {
+    if (graph == NULL || !isfinite(gain_db) || gain_db < -120.0 || gain_db > -6.0 ||
+        !isfinite(gain_linear) || gain_linear < 1.0e-6 || gain_linear > 0.50118724) return 0;
+    const uint32_t ramp_samples = (uint32_t)(graph->sample_rate / 50);
+    if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db, ramp_samples)) return 0;
+    graph->studio_gain_refund_pending = 0;
     return 1;
 }
 
@@ -582,6 +592,7 @@ void dsp_graph_process(
             output[offset + 1] = output_right;
         }
         dsp_meter_add_frame(&graph->output_meter, output_left, output_right);
+        dsp_gain_advance(&graph->gain);
     }
     for (size_t index = 0; index < graph->peq_count; index++) {
         dsp_biquad_flush_denormals(&graph->peq[index]);

@@ -14,6 +14,7 @@ internal data class DspPreparedUpdate(
     val pipeline: DspPcmPipeline?,
     val latencyFrames: Int,
     val hotUpdate: DspPreparedHotUpdate? = null,
+    val preampHotUpdate: DspPreparedPreampHotUpdate? = null,
     val localPeqWarmUpdate: DspPreparedLocalPeqWarmUpdate? = null,
     val localWarmFailureReason: String? = null,
 )
@@ -43,6 +44,7 @@ internal class DspLiveUpdateController(
     private val onPreparedResult: ((DspPreparedUpdate) -> Boolean)? = null,
     private val onRetirementFailed: (DspPcmPipeline, Throwable) -> Unit = { _, _ -> },
     private val hotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedHotUpdate?)? = null,
+    private val preampHotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedPreampHotUpdate?)? = null,
     private val localPeqWarmPreparer: DspLocalPeqWarmPreparer? = null,
 ) : Closeable {
     private val closed = AtomicBoolean(false)
@@ -102,8 +104,9 @@ internal class DspLiveUpdateController(
                 var candidate: DspPcmPipeline? = null
                 try {
                     val hotUpdate = hotUpdatePreparer?.invoke(format, snapshot)
-                    val localPeqWarm = if (hotUpdate == null) localPeqWarmPreparer?.invoke(format, snapshot) else null
-                    if (hotUpdate == null && localPeqWarm?.update == null) {
+                    val preampHotUpdate = if (hotUpdate == null) preampHotUpdatePreparer?.invoke(format, snapshot) else null
+                    val localPeqWarm = if (hotUpdate == null && preampHotUpdate == null) localPeqWarmPreparer?.invoke(format, snapshot) else null
+                    if (hotUpdate == null && preampHotUpdate == null && localPeqWarm?.update == null) {
                         candidate = pipelinePreparer(format, snapshot.config)
                     }
                     candidate?.configGeneration = snapshot.generation
@@ -119,7 +122,7 @@ internal class DspLiveUpdateController(
                         }
                         continue
                     }
-                    val latencyFrames = if (hotUpdate != null || localPeqWarm?.update != null) {
+                    val latencyFrames = if (hotUpdate != null || preampHotUpdate != null || localPeqWarm?.update != null) {
                         activeLatencyFrames().coerceAtLeast(0)
                     }
                     else preparedLatencyFrames(candidate).coerceAtLeast(0)
@@ -142,6 +145,7 @@ internal class DspLiveUpdateController(
                         candidate,
                         latencyFrames,
                         hotUpdate,
+                        preampHotUpdate,
                         localPeqWarm?.update,
                         localPeqWarm?.unavailableReason,
                     )

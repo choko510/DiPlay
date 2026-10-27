@@ -54,4 +54,25 @@ class AirPlayPersistenceAndroidTest {
             editor.commit()
         }
     }
+
+    @Test
+    fun iphoneUsbAutoLaunchDefaultsOffAndPersistsSelection() {
+        val context = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+        val hadSavedValue = preferences.contains("auto_launch_on_iphone_usb_attach")
+        val savedValue = preferences.getBoolean("auto_launch_on_iphone_usb_attach", false)
+
+        try {
+            preferences.edit().remove("auto_launch_on_iphone_usb_attach").commit()
+            assertEquals(false, AirPlayPersistence.loadAutoLaunchOnIphoneUsbAttach(context))
+
+            assertEquals(true, AirPlayPersistence.saveAutoLaunchOnIphoneUsbAttach(context, true))
+            assertEquals(true, AirPlayPersistence.loadAutoLaunchOnIphoneUsbAttach(context))
+        } finally {
+            val editor = preferences.edit()
+            if (hadSavedValue) editor.putBoolean("auto_launch_on_iphone_usb_attach", savedValue)
+            else editor.remove("auto_launch_on_iphone_usb_attach")
+            editor.commit()
+        }
+    }
 }

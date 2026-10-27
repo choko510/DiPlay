@@ -7,7 +7,7 @@ These cumulative lessons include general rules followed by individual incident f
 - **USB / NCM:** [readiness proof](#require-bidirectional-proof-before-ncm-readiness), [request timeout](#treat-usb-request-wait-timeouts-as-pending-operations), [NDP](#separate-ndp-accounting-from-startup-retries).
 - **DSP / audio:** [DSP eligibility](#do-not-infer-dsp-eligibility-from-android-usage), [buffer validation](#validate-audio-buffers-with-frames-channels-and-encoding-together), [live DSP](#exercise-live-dsp-through-the-production-renderer-boundary).
 - **AirPlay / Split:** [IME resize](#keep-ime-resize-separate-from-negotiated-carplay-size), [phone identity](#revalidate-profile-identity-across-a-carplay-controller-restart).
-- **CI / release security:** [JNI symbol retention](#verify-jni-symbol-retention-from-the-optimized-mapping), [MFi identity](#bundle-local-mfi-identity-only-through-an-explicit-input), [APK signature](#verify-the-apk-signature-schemes-explicitly).
+- **CI / release security:** [JNI symbol retention](#verify-jni-symbol-retention-from-the-optimized-mapping), [MFi identity](#bundle-local-mfi-identity-only-through-an-explicit-input), [APK signature](#verify-the-apk-signature-schemes-explicitly), [USB auto-launch](#verify-usb-device-identity-at-each-auto-launch-boundary).
 
 ## General CI / review lessons
 
@@ -556,3 +556,7 @@ Treat performance instrumentation as a distribution gate: retain both passing an
 2026-10-27 B09: when API 35 wall p99 exceeds budget, compare per-block `Debug.threadCpuTimeNanos()` p99 with wall p99. A lower thread CPU p99 indicates time spent outside the measuring thread, but it does not establish real-device playback safety or excuse a wall-deadline breach.
 
 2026-10-27 B09: preserve benchmark results by ABI, build variant, and exact run. A passing x86_64 CI median does not override failing arm64 Debug emulator assertions. Compare thread-CPU p99 before attributing wall tails to scheduling; a later run can also show CPU p99 over budget. Debug `-O0` versus Release `-O2` is a relevant variant difference, not proof of cause.
+
+## Verify USB device identity at each auto-launch boundary
+
+Android's attach chooser can grant temporary USB permission when the user selects an app. An entry Activity should validate the event action and currently attached device, then hand access to the existing USB Controller; it should not send USB control requests or request a second permission itself. Re-enumeration can change `deviceId` and `deviceName`, so reject stale identities and allow a new current attach to replace a stale launch. Emulator tests do not establish physical attach routing.

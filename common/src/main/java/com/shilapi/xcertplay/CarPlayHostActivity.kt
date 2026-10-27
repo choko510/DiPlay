@@ -141,51 +141,120 @@ internal enum class CarPlayHostLayoutCommand {
     NONE,
 }
 
+internal data class CarPlayHostLaunchState(
+    val layoutMode: HostLayoutMode,
+    val carPlayFraction: Float,
+    val pendingSplitMode: HostLayoutMode?,
+)
+
 internal object CarPlayHostActions {
     const val ENTER_YOUTUBE_SPLIT = "com.shilapi.xcertplay.action.ENTER_YOUTUBE_SPLIT"
     const val EXIT_YOUTUBE_SPLIT = "com.shilapi.xcertplay.action.EXIT_YOUTUBE_SPLIT"
     const val ENTER_DSP_SPLIT = "com.shilapi.xcertplay.action.ENTER_DSP_SPLIT"
     const val OPEN_CARPLAY = "com.shilapi.xcertplay.action.OPEN_CARPLAY"
     const val USB_DEVICE_ATTACHED = "android.hardware.usb.action.USB_DEVICE_ATTACHED"
+    const val AUTO_IPHONE_USB_ATTACHED = "com.shilapi.xcertplay.action.AUTO_IPHONE_USB_ATTACHED"
     private const val INTERNAL_HOST_ACTION = "com.shilapi.xcertplay.action.INTERNAL_HOST_ACTION"
     private const val NOTIFICATION_OPEN_ACTION = "com.shilapi.xcertplay.action.NOTIFICATION_OPEN_HOST"
     private const val EXTRA_INTERNAL_ACTION_TOKEN = "com.shilapi.xcertplay.extra.INTERNAL_ACTION_TOKEN"
+    private const val EXTRA_FALLBACK_ACTION = "com.shilapi.xcertplay.extra.INTERNAL_FALLBACK_ACTION"
+    private const val EXTRA_USB_DEVICE_ID = "com.shilapi.xcertplay.extra.USB_DEVICE_ID"
+    private const val EXTRA_USB_DEVICE_NAME = "com.shilapi.xcertplay.extra.USB_DEVICE_NAME"
+    private const val EXTRA_USB_VENDOR_ID = "com.shilapi.xcertplay.extra.USB_VENDOR_ID"
+    private const val EXTRA_USB_PRODUCT_ID = "com.shilapi.xcertplay.extra.USB_PRODUCT_ID"
     private const val MAX_PENDING_ACTIONS = 16
-    private val pendingActions = LinkedHashMap<String, String>()
+    private data class PendingAction(
+        val action: String,
+        val usbDeviceIdentity: UsbAttachDeviceIdentity? = null,
+        val hostLaunchState: CarPlayHostLaunchState? = null,
+    )
+    data class InternalRequest(
+        val action: String,
+        val usbDeviceIdentity: UsbAttachDeviceIdentity? = null,
+        val hostLaunchState: CarPlayHostLaunchState? = null,
+    )
+    private val pendingActions = LinkedHashMap<String, PendingAction>()
 
-    fun createInternalIntent(context: Context, action: String): Intent {
+    fun createInternalIntent(
+        context: Context,
+        action: String,
+        usbDeviceIdentity: UsbAttachDeviceIdentity? = null,
+        hostLaunchState: CarPlayHostLaunchState? = null,
+    ): Intent {
         require(action == OPEN_CARPLAY || action == ENTER_YOUTUBE_SPLIT || action == ENTER_DSP_SPLIT ||
-            action == EXIT_YOUTUBE_SPLIT || action == USB_DEVICE_ATTACHED
+            action == EXIT_YOUTUBE_SPLIT || action == USB_DEVICE_ATTACHED || action == AUTO_IPHONE_USB_ATTACHED
         ) { "Unsupported CarPlay host action" }
+        require(usbDeviceIdentity == null || action == AUTO_IPHONE_USB_ATTACHED) {
+            "USB device identity is only supported for iPhone USB auto-launch"
+        }
+        require(hostLaunchState == null || action == AUTO_IPHONE_USB_ATTACHED) {
+            "Host launch state is only supported for iPhone USB auto-launch"
+        }
         val token = UUID.randomUUID().toString()
         synchronized(pendingActions) {
             while (pendingActions.size >= MAX_PENDING_ACTIONS) {
                 pendingActions.remove(pendingActions.keys.first())
             }
-            pendingActions[token] = action
+            pendingActions[token] = PendingAction(action, usbDeviceIdentity, hostLaunchState)
         }
         return Intent(context, CarPlayHostActivity::class.java)
             .setAction(INTERNAL_HOST_ACTION)
             .putExtra(EXTRA_INTERNAL_ACTION_TOKEN, token)
+            .also { intent ->
+                if (usbDeviceIdentity != null) {
+                    intent.putExtra(EXTRA_FALLBACK_ACTION, AUTO_IPHONE_USB_ATTACHED)
+                        .putExtra(EXTRA_USB_DEVICE_ID, usbDeviceIdentity.deviceId)
+                        .putExtra(EXTRA_USB_DEVICE_NAME, usbDeviceIdentity.deviceName)
+                        .putExtra(EXTRA_USB_VENDOR_ID, usbDeviceIdentity.vendorId)
+                        .putExtra(EXTRA_USB_PRODUCT_ID, usbDeviceIdentity.productId)
+                }
+            }
     }
 
     fun createNotificationOpenIntent(context: Context): Intent =
         Intent(context, CarPlayHostActivity::class.java).setAction(NOTIFICATION_OPEN_ACTION)
 
-    fun consumeInternalAction(intent: Intent): String? {
-        if (intent.action == NOTIFICATION_OPEN_ACTION) return OPEN_CARPLAY
+    fun consumeInternalAction(intent: Intent): String? = consumeInternalRequest(intent)?.action
+
+    fun consumeInternalRequest(intent: Intent): InternalRequest? {
+        if (intent.action == NOTIFICATION_OPEN_ACTION) return InternalRequest(OPEN_CARPLAY)
         if (intent.action != INTERNAL_HOST_ACTION) return null
         val token = intent.getStringExtra(EXTRA_INTERNAL_ACTION_TOKEN) ?: return null
-        return synchronized(pendingActions) { pendingActions.remove(token) }
+        val pending = synchronized(pendingActions) { pendingActions.remove(token) }
+        if (pending != null) {
+            return InternalRequest(pending.action, pending.usbDeviceIdentity, pending.hostLaunchState)
+        }
+        if (intent.getStringExtra(EXTRA_FALLBACK_ACTION) != AUTO_IPHONE_USB_ATTACHED) return null
+        val identity = intent.usbDeviceIdentityExtra() ?: return null
+        return InternalRequest(AUTO_IPHONE_USB_ATTACHED, identity)
+    }
+
+    private fun Intent.usbDeviceIdentityExtra(): UsbAttachDeviceIdentity? {
+        if (!hasExtra(EXTRA_USB_DEVICE_ID) || !hasExtra(EXTRA_USB_DEVICE_NAME) ||
+            !hasExtra(EXTRA_USB_VENDOR_ID) || !hasExtra(EXTRA_USB_PRODUCT_ID)
+        ) return null
+        val name = getStringExtra(EXTRA_USB_DEVICE_NAME) ?: return null
+        return UsbAttachDeviceIdentity(
+            deviceId = getIntExtra(EXTRA_USB_DEVICE_ID, -1),
+            deviceName = name,
+            vendorId = getIntExtra(EXTRA_USB_VENDOR_ID, -1),
+            productId = getIntExtra(EXTRA_USB_PRODUCT_ID, -1),
+        )
     }
 
     fun sanitizedIntent(intent: Intent): Intent = Intent(intent).apply {
         action = null
         removeExtra(EXTRA_INTERNAL_ACTION_TOKEN)
+        removeExtra(EXTRA_FALLBACK_ACTION)
+        removeExtra(EXTRA_USB_DEVICE_ID)
+        removeExtra(EXTRA_USB_DEVICE_NAME)
+        removeExtra(EXTRA_USB_VENDOR_ID)
+        removeExtra(EXTRA_USB_PRODUCT_ID)
     }
 
     fun shouldClearRestartSuppression(action: String?): Boolean =
-        action == USB_DEVICE_ATTACHED || command(action) != CarPlayHostLayoutCommand.NONE || action == OPEN_CARPLAY
+        action == USB_DEVICE_ATTACHED || action == AUTO_IPHONE_USB_ATTACHED ||
+            command(action) != CarPlayHostLayoutCommand.NONE || action == OPEN_CARPLAY
 
     fun command(action: String?): CarPlayHostLayoutCommand = when (action) {
         ENTER_YOUTUBE_SPLIT -> CarPlayHostLayoutCommand.ENTER_YOUTUBE_SPLIT
@@ -203,7 +272,7 @@ internal object CarPlayHostActions {
         }
 
     fun pendingSplitModeAfterLaunch(savedPending: HostLayoutMode?, action: String?): HostLayoutMode? =
-        if (action == null) savedPending else null
+        if (action == null || action == AUTO_IPHONE_USB_ATTACHED) savedPending else null
 }
 
 /**
@@ -461,6 +530,9 @@ class CarPlayHostActivity : ComponentActivity() {
     private var microphoneAvailable = false
     private var microphonePermissionResolved = false
     private var wirelessEnabled = false
+    private var autoUsbLaunchIdentity: UsbAttachDeviceIdentity? = null
+    private var autoUsbLaunchBlocked = false
+    private var autoUsbSwitchGeneration = 0L
     private var ncmDiagnosticProfile = NcmDiagnosticProfile.AUTO
     private var mfiTarget = MfiTarget.USB_CH341
     private var mfiI2cPath = AirPlayPersistence.DEFAULT_MFI_I2C_PATH
@@ -730,24 +802,47 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         SplitPerformanceTracer.configure(applicationContext)
-        val initialAction = CarPlayHostActions.consumeInternalAction(intent)
+        val initialRequest = CarPlayHostActions.consumeInternalRequest(intent)
+        val initialAction = initialRequest?.action
+        if (initialAction == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED) {
+            val identity = initialRequest.usbDeviceIdentity
+            if (identity == null || IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
+                Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=host_create result=stale_or_disabled")
+                finish()
+                return
+            }
+            autoUsbLaunchIdentity = identity
+            IphoneUsbAutoLaunchNotification.cancel(this)
+        } else if (savedInstanceState != null) {
+            autoUsbLaunchIdentity = readAutoUsbDeviceIdentity(savedInstanceState)
+            autoUsbLaunchBlocked = savedInstanceState.getBoolean(STATE_AUTO_USB_LAUNCH_BLOCKED)
+            val restoredIdentity = autoUsbLaunchIdentity
+            if (restoredIdentity != null &&
+                IphoneUsbAutoLaunchSettings.currentCandidate(this, restoredIdentity) == null
+            ) {
+                autoUsbLaunchBlocked = true
+            }
+        }
         if (CarPlayHostActions.shouldClearRestartSuppression(initialAction)) {
             CarPlayBackgroundSession.clearRestartSuppression()
         }
+        val launchState = initialRequest?.hostLaunchState
         hostLayoutState = HostLayoutState(
             mode = HostLayoutState.restoreMode(
-                savedMode = savedInstanceState?.getString(STATE_HOST_LAYOUT_MODE),
-                legacyYoutubeSplit = savedInstanceState?.getBoolean(STATE_YOUTUBE_SPLIT) == true,
+                savedMode = savedInstanceState?.getString(STATE_HOST_LAYOUT_MODE) ?: launchState?.layoutMode?.name,
+                legacyYoutubeSplit = savedInstanceState?.getBoolean(STATE_YOUTUBE_SPLIT) == true ||
+                    launchState?.layoutMode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT,
             ),
             carPlayFraction = SplitLayoutConfig.normalizeCarPlayFraction(
                 savedInstanceState?.getFloat(STATE_CARPLAY_FRACTION)
+                    ?: launchState?.carPlayFraction
                     ?: SplitLayoutConfig.DEFAULT_CARPLAY_FRACTION,
             ),
         )
         val savedPendingSplitMode = savedInstanceState?.getString(STATE_PENDING_SPLIT_MODE)?.let { savedMode ->
             HostLayoutState.restoreMode(savedMode, legacyYoutubeSplit = false)
                 .takeUnless { it == HostLayoutMode.CARPLAY_FULL }
-        }
+        } ?: launchState?.pendingSplitMode
         pendingSplitMode = CarPlayHostActions.pendingSplitModeAfterLaunch(savedPendingSplitMode, initialAction)
         savedInstanceState?.getString(DspEditorSavedState.DRAFT_PROFILE)?.let { savedDraft ->
             val runtime = DspProfileRuntime.get(applicationContext)
@@ -763,6 +858,8 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         when (initialAction) {
             CarPlayHostActions.USB_DEVICE_ATTACHED ->
+                AirPlayPersistence.saveWirelessEnabled(this, false)
+            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED ->
                 AirPlayPersistence.saveWirelessEnabled(this, false)
             else -> Unit
         }
@@ -833,6 +930,13 @@ class CarPlayHostActivity : ComponentActivity() {
             hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT,
         )
         outState.putFloat(STATE_CARPLAY_FRACTION, hostLayoutState.carPlayFraction)
+        autoUsbLaunchIdentity?.let { identity ->
+            outState.putInt(STATE_AUTO_USB_DEVICE_ID, identity.deviceId)
+            outState.putString(STATE_AUTO_USB_DEVICE_NAME, identity.deviceName)
+            outState.putInt(STATE_AUTO_USB_VENDOR_ID, identity.vendorId)
+            outState.putInt(STATE_AUTO_USB_PRODUCT_ID, identity.productId)
+        }
+        outState.putBoolean(STATE_AUTO_USB_LAUNCH_BLOCKED, autoUsbLaunchBlocked)
         DspProfileRuntime.peekInstance()?.let { runtime ->
             outState.putString(
                 DspEditorSavedState.DRAFT_PROFILE,
@@ -840,6 +944,21 @@ class CarPlayHostActivity : ComponentActivity() {
             )
         }
         super.onSaveInstanceState(outState)
+    }
+
+    private fun readAutoUsbDeviceIdentity(state: Bundle): UsbAttachDeviceIdentity? {
+        if (!state.containsKey(STATE_AUTO_USB_DEVICE_ID) ||
+            !state.containsKey(STATE_AUTO_USB_DEVICE_NAME) ||
+            !state.containsKey(STATE_AUTO_USB_VENDOR_ID) ||
+            !state.containsKey(STATE_AUTO_USB_PRODUCT_ID)
+        ) return null
+        val name = state.getString(STATE_AUTO_USB_DEVICE_NAME) ?: return null
+        return UsbAttachDeviceIdentity(
+            deviceId = state.getInt(STATE_AUTO_USB_DEVICE_ID, -1),
+            deviceName = name,
+            vendorId = state.getInt(STATE_AUTO_USB_VENDOR_ID, -1),
+            productId = state.getInt(STATE_AUTO_USB_PRODUCT_ID, -1),
+        )
     }
 
     private fun loadPersistedSettings() {
@@ -982,10 +1101,99 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val action = CarPlayHostActions.consumeInternalAction(intent)
+        val request = CarPlayHostActions.consumeInternalRequest(intent)
+        val action = request?.action
         setIntent(CarPlayHostActions.sanitizedIntent(intent))
         if (action == null) return
+        if (action == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED) {
+            val identity = request.usbDeviceIdentity
+            val launchState = request.hostLaunchState
+            if (identity == null || IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
+                Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=host_new_intent result=stale_or_disabled")
+                return
+            }
+            if (isDestroyed) return
+            autoUsbLaunchIdentity = identity
+            autoUsbLaunchBlocked = false
+            IphoneUsbAutoLaunchNotification.cancel(this)
+            CarPlayBackgroundSession.clearRestartSuppression()
+            if (shuttingDown.get()) {
+                if (shutdownTerminatesProcess.get() ||
+                    !wiredUsbResumeAfterShutdownRequested.compareAndSet(false, true)
+                ) return
+                enqueueShutdownCompletion {
+                    if (IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
+                        Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=shutdown_resume result=stale_or_disabled")
+                        return@enqueueShutdownCompletion
+                    }
+                    startActivity(
+                        CarPlayHostActions.createInternalIntent(
+                            this,
+                            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+                            identity,
+                            launchState,
+                        ),
+                    )
+                    finish()
+                }
+                finish()
+                return
+            }
+            if (isFinishing) return
+            if (wirelessEnabled) {
+                if (!wirelessUsbSwitchRequested.compareAndSet(false, true)) return
+                val transition = ++autoUsbSwitchGeneration
+                var expectedOwnerEpoch = -1L
+                shutdown(false, "switching to wired USB CarPlay") {
+                    if (transition != autoUsbSwitchGeneration ||
+                        CarPlayBackgroundSession.ownerEpoch() != expectedOwnerEpoch
+                    ) return@shutdown
+                    if (IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
+                        Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=stale_after_shutdown")
+                        try {
+                            startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY))
+                        } catch (error: RuntimeException) {
+                            Log.w(
+                                TAG,
+                                "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=restore_failed " +
+                                    "error=${error.javaClass.simpleName}",
+                            )
+                        }
+                        return@shutdown
+                    }
+                    AirPlayPersistence.saveWirelessEnabled(this, false)
+                    try {
+                        startActivity(
+                            CarPlayHostActions.createInternalIntent(
+                                this,
+                                CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+                                identity,
+                                launchState ?: CarPlayHostLaunchState(
+                                    layoutMode = hostLayoutState.mode,
+                                    carPlayFraction = hostLayoutState.carPlayFraction,
+                                    pendingSplitMode = pendingSplitMode,
+                                ),
+                            ),
+                        )
+                    } catch (error: RuntimeException) {
+                        Log.w(
+                            TAG,
+                            "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=launch_failed " +
+                                "error=${error.javaClass.simpleName}",
+                        )
+                        IphoneUsbAutoLaunchNotification.show(this)
+                    }
+                }
+                expectedOwnerEpoch = CarPlayBackgroundSession.ownerEpoch()
+                finish()
+                return
+            }
+            maybeStartCarPlay()
+            return
+        }
         if (action == CarPlayHostActions.USB_DEVICE_ATTACHED) {
+            autoUsbLaunchIdentity = null
+            autoUsbLaunchBlocked = false
             if (isDestroyed) {
                 Log.i(TAG, "USB_ATTACH wired resume blocked reason=host_shutting_down")
                 return
@@ -1041,6 +1249,8 @@ class CarPlayHostActivity : ComponentActivity() {
             CarPlayBackgroundSession.clearRestartSuppression()
         }
         if (action == CarPlayHostActions.OPEN_CARPLAY) {
+            autoUsbLaunchIdentity = null
+            autoUsbLaunchBlocked = false
             pendingSplitMode = null
             returnToCarPlay()
             maybeStartCarPlay()
@@ -4943,6 +5153,14 @@ class CarPlayHostActivity : ComponentActivity() {
         ) {
             return
         }
+        if (autoUsbLaunchBlocked) return
+        autoUsbLaunchIdentity?.let { identity ->
+            if (IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
+                autoUsbLaunchBlocked = true
+                appendLog("iPhone USB auto-launch canceled because the setting or device is no longer valid")
+                return
+            }
+        }
         startCarPlayForTest?.invoke(size) ?: startCarPlay(size)
     }
 
@@ -5544,6 +5762,11 @@ class CarPlayHostActivity : ComponentActivity() {
         private const val STATE_PENDING_SPLIT_MODE = "host.pending_split_mode"
         private const val STATE_YOUTUBE_SPLIT = "host.youtube_split"
         private const val STATE_CARPLAY_FRACTION = "host.carplay_fraction"
+        private const val STATE_AUTO_USB_DEVICE_ID = "host.auto_usb_device_id"
+        private const val STATE_AUTO_USB_DEVICE_NAME = "host.auto_usb_device_name"
+        private const val STATE_AUTO_USB_VENDOR_ID = "host.auto_usb_vendor_id"
+        private const val STATE_AUTO_USB_PRODUCT_ID = "host.auto_usb_product_id"
+        private const val STATE_AUTO_USB_LAUNCH_BLOCKED = "host.auto_usb_launch_blocked"
         private const val PROFILE_IDENTITY_TIMEOUT_MILLIS = 5_000L
         private const val PROFILE_IDENTITY_RETRY_INTERVAL_MILLIS = 250L
         private const val RESTART_HANDOFF_RETRY_MILLIS = 500L

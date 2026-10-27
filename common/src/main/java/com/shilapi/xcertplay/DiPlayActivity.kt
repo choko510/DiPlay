@@ -54,6 +54,7 @@ class DiPlayActivity : ComponentActivity() {
     private var notificationTransport = true
     private var exportInProgress = false
     private var exportButton: Button? = null
+    private var pendingUsbLaunchFromNotification = false
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         connect(notificationTransport)
     }
@@ -82,6 +83,11 @@ class DiPlayActivity : ComponentActivity() {
         setupError = runCatching { DiPlayBootstrap.ensure(this) }.exceptionOrNull()?.let {
             getString(R.string.ui_setup_error)
         }
+        if (!IphoneUsbAutoLaunchSettings.reconcile(this)) {
+            android.util.Log.w("xcertplay-usb-auto", "event=APPLE_USB_AUTO_ATTACH source=app_start result=settings_reconcile_failed")
+        }
+        pendingUsbLaunchFromNotification =
+            intent.getBooleanExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE, false)
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "home"
         returnToMenu = savedInstanceState
             ?.takeIf { it.containsKey(EXTRA_RETURN_TO_MENU) }
@@ -106,9 +112,12 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent); setIntent(intent)
+        pendingUsbLaunchFromNotification =
+            intent.getBooleanExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE, false)
         returnToMenu = intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false)
         page = intent.getStringExtra("page") ?: "home"; render()
         handleWirelessRecovery()
+        if (pendingUsbLaunchFromNotification) handler.post { handleUsbAutoLaunchRequest() }
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
@@ -123,6 +132,7 @@ class DiPlayActivity : ComponentActivity() {
         if (!initialLaunch && page == "home") render()
         if (initialLaunch) {
             initialLaunch = false
+            if (setupError == null && handleUsbAutoLaunchRequest()) return
             if (setupError == null && !CarPlayBackgroundSession.hasSession() &&
                 DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
                 handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
@@ -241,6 +251,7 @@ class DiPlayActivity : ComponentActivity() {
         section(content, getString(R.string.ui_automatic_connection)) { card ->
             toggle(card, getString(R.string.ui_connect_on_open), getString(R.string.ui_connect_on_open_description), DiPlayPreferences.autoConnect(this)) { DiPlayPreferences.saveAutoConnect(this, it) }
             toggle(card, getString(R.string.ui_start_with_car), getString(R.string.ui_start_with_car_description), AirPlayPersistence.loadAutoStartOnBoot(this)) { AirPlayPersistence.saveAutoStartOnBoot(this, it) }
+            iphoneUsbAutoLaunchControl(card)
             card.addView(button(getString(R.string.ui_choose_iphone_named, DiPlayPreferences.phoneName(this)), false) { choosePhone() }, matchButton(12, 60))
         }
         section(content, getString(R.string.ui_wireless_connection)) { card -> wirelessLinkControls(card) }
@@ -306,6 +317,122 @@ class DiPlayActivity : ComponentActivity() {
             val destination = getString(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) R.string.ui_reports_saved_downloads else R.string.ui_choose_report_location)
             card.addView(label("$destination ${getString(R.string.ui_report_privacy)}", 14, MUTED).apply { setPadding(0, dp(12), 0, 0) })
         }
+    }
+
+    private fun iphoneUsbAutoLaunchControl(parent: LinearLayout) {
+        val enabled = IphoneUsbAutoLaunchSettings.isOperationallyEnabled(this)
+        val usbHostSupported = IphoneUsbAutoLaunchSettings.isUsbHostSupported(this)
+        val text = column()
+        text.addView(label(getString(R.string.ui_iphone_usb_autolaunch_title), 18, TEXT, true))
+        text.addView(
+            label(getString(R.string.ui_iphone_usb_autolaunch_description), 14, MUTED)
+                .apply { setPadding(0, dp(6), dp(16), 0) },
+        )
+        val candidates = if (enabled) IphoneUsbAutoLaunchSettings.connectedCandidates(this) else emptyList()
+        val statusText = when {
+            !usbHostSupported -> R.string.ui_iphone_usb_autolaunch_unavailable
+            candidates.size == 1 && !IphoneUsbAutoLaunchSettings.hasPermission(this, candidates.single().identity) ->
+                R.string.ui_iphone_usb_autolaunch_permission_needed
+            candidates.isNotEmpty() ->
+                R.string.ui_iphone_usb_autolaunch_connected
+            enabled -> R.string.ui_iphone_usb_autolaunch_enabled
+            else -> R.string.ui_iphone_usb_autolaunch_disabled
+        }
+        text.addView(label(getString(statusText), 13, MUTED).apply { setPadding(0, dp(8), dp(16), 0) })
+        val line = row().apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(12), 0, dp(12)) }
+        line.addView(text, LinearLayout.LayoutParams(0, -2, 1f))
+        var restoring = false
+        line.addView(
+            Switch(this).apply {
+                contentDescription = getString(R.string.ui_iphone_usb_autolaunch_title)
+                isChecked = enabled
+                isEnabled = usbHostSupported
+                minHeight = dp(56)
+                buttonTintList = ColorStateList.valueOf(ACCENT)
+                setOnCheckedChangeListener { control, checked ->
+                    if (restoring) return@setOnCheckedChangeListener
+                    if (checked) {
+                        restoring = true
+                        control.isChecked = false
+                        restoring = false
+                        AlertDialog.Builder(this@DiPlayActivity)
+                            .setTitle(getString(R.string.ui_iphone_usb_autolaunch_confirmation_title))
+                            .setMessage(getString(R.string.ui_iphone_usb_autolaunch_confirmation_message))
+                            .setPositiveButton(getString(R.string.ui_enable)) { _, _ ->
+                                if (!IphoneUsbAutoLaunchSettings.setEnabled(this@DiPlayActivity, true)) {
+                                    toast(getString(R.string.ui_iphone_usb_autolaunch_enable_failed))
+                                }
+                                render()
+                            }
+                            .setNegativeButton(getString(R.string.ui_cancel)) { _, _ -> render() }
+                            .show()
+                    } else {
+                        if (!IphoneUsbAutoLaunchSettings.setEnabled(this@DiPlayActivity, false)) {
+                            toast(getString(R.string.ui_iphone_usb_autolaunch_enable_failed))
+                        }
+                        render()
+                    }
+                }
+            },
+        )
+        parent.addView(line)
+        if (enabled) {
+            if (candidates.isNotEmpty()) {
+                parent.addView(
+                    button(getString(R.string.ui_iphone_usb_autolaunch_open_connected), false) {
+                        if (candidates.size != 1) {
+                            toast(getString(R.string.ui_iphone_usb_autolaunch_ambiguous))
+                        } else if (!IphoneUsbAutoLaunchDispatcher.dispatch(
+                                this,
+                                candidates.single().identity,
+                                IphoneUsbAutoLaunchSource.SETTINGS,
+                            )
+                        ) {
+                            toast(getString(R.string.ui_iphone_usb_autolaunch_not_found))
+                        }
+                    },
+                    matchButton(8, 60),
+                )
+            } else {
+                parent.addView(
+                    label(getString(R.string.ui_iphone_usb_autolaunch_permission_needed), 13, MUTED)
+                        .apply { setPadding(0, dp(4), 0, 0) },
+                )
+            }
+        }
+    }
+
+    private fun handleUsbAutoLaunchRequest(): Boolean {
+        val explicitlyRequested = pendingUsbLaunchFromNotification ||
+            intent.getBooleanExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE, false)
+        pendingUsbLaunchFromNotification = false
+        if (explicitlyRequested) {
+            setIntent(Intent(intent).apply {
+                removeExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE)
+            })
+            if (!IphoneUsbAutoLaunchSettings.isOperationallyEnabled(this)) {
+                toast(getString(R.string.ui_iphone_usb_autolaunch_disabled))
+                return true
+            }
+        } else if (!IphoneUsbAutoLaunchSettings.isOperationallyEnabled(this)) {
+            return false
+        }
+        if (setupError != null) return explicitlyRequested
+        val candidates = IphoneUsbAutoLaunchSettings.connectedCandidates(this)
+        if (candidates.isEmpty()) {
+            if (explicitlyRequested) toast(getString(R.string.ui_iphone_usb_autolaunch_not_found))
+            return explicitlyRequested
+        }
+        if (candidates.size != 1) {
+            if (explicitlyRequested) toast(getString(R.string.ui_iphone_usb_autolaunch_ambiguous))
+            return true
+        }
+        IphoneUsbAutoLaunchDispatcher.dispatch(
+            this,
+            candidates.single().identity,
+            if (explicitlyRequested) IphoneUsbAutoLaunchSource.SETTINGS else IphoneUsbAutoLaunchSource.FOREGROUND,
+        )
+        return true
     }
 
     private fun carPlayNameControl(parent: LinearLayout) {

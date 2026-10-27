@@ -1,11 +1,12 @@
 # Quirks — environments and workarounds
 
-> Preserved historical observations (45/45), organized by theme. Some are host- or version-specific and may now be obsolete; verify before applying.
+> Preserved historical observations (46/46), organized by theme. Some are host- or version-specific and may now be obsolete; verify before applying.
 
 ## Local Windows / SDK / Gradle
 
 - Managed worktrees omit the ignored `local.properties`; setting `ANDROID_HOME` and `ANDROID_SDK_ROOT` to the installed SDK allows Gradle builds. The shared native module pins NDK 27.0.12077973. GeckoView 156 needs Android SDK platform 37.1; it was missing locally and had to be installed from Google's official repository before AAR metadata checks/builds could pass.
 - In this checkout, set `ANDROID_HOME` and `ANDROID_SDK_ROOT` to `%LOCALAPPDATA%\Android\Sdk` for Gradle. The repository's `ndk.dir` emits AGP CXX5106 deprecation warnings; they are nonfatal, and the full test aggregate plus mobile/automotive debug builds pass.
+- 2026-10-28: Windows Git uses `core.autocrlf=true`, so pinned EX-08 JSONL/JSON files have LF in the index but CRLF in the worktree. `generate_step4_ex08_inventory.py --check` hashes raw bytes and reports a delta-111 metadata digest mismatch in this checkout; do not edit the ledger to hide it. The same run's ADB list contained only an x86_64 emulator, so API 29 physical USB attach acceptance remained `NOT_RUN_HARDWARE`.
 - 2026-10-01: After rebasing onto main #9, 270 shared and 55 common Gradle tests, the full test aggregate, both debug builds, and mobile lint pass. Explicit `:shared:lintDebug` and `:common:lintDebug` still fail on existing permission/NewApi/translation issues in unchanged files (Bluetooth/Wi-Fi/P2P, AppLanguage, manifests/resources); the updated audio renderer has no lint findings.
 - 2026-10-01: On Windows, the repository's Java 25 Gradle daemon could not load Robolectric's temporary `libandroid_runtime.dll` (`UnsatisfiedLinkError: access denied`). The affected test and full suite passed with installed Android Studio JBR 21 by temporarily overriding the daemon JVM version and restoring `gradle/gradle-daemon-jvm.properties` afterward.
 - The 8-second startup snapshot and 15-second hard timeout reflect the slow-success timing in the 2026-09-30 brief. UIS8581/iOS 27 physical validation is still required.

@@ -8,6 +8,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -18,9 +19,12 @@ import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.shilapi.xcertplay.dsp.DspFactoryPresets
@@ -46,6 +50,54 @@ import org.junit.runner.RunWith
 class DspSettingsScreenTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun compactTabScrollPositionsAreIndependentAndRestoredOnReturn() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-settings-tab-scroll-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        presentation = DspPresentationMode.COMPACT_SPLIT,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
+            val studioPosition = composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition()
+            assertTrue("Studio tab should scroll", studioPosition > 0f)
+
+            composeRule.onNodeWithContentDescription("Spatial").performClick()
+            assertEquals(0f, composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition())
+            composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
+            val spatialPosition = composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition()
+            assertTrue("Spatial tab should scroll independently", spatialPosition > 0f)
+
+            composeRule.onNodeWithContentDescription("Studio").performClick()
+            assertEquals(studioPosition, composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition())
+            composeRule.onNodeWithContentDescription("Spatial").performClick()
+            assertEquals(spatialPosition, composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition())
+        } finally {
+            runtime.closeForTesting()
+        }
+    }
+
+    private fun SemanticsNodeInteraction.verticalScrollPosition(): Float =
+        fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
 
     @Test
     fun macroPreviewSurvivesCompactAndFullLayoutsAndCancelRestoresCommittedState() {

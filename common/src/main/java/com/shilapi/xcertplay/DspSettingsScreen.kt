@@ -55,6 +55,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.dsp.DspAudioProfile
@@ -272,6 +273,18 @@ internal fun DspSettingsScreen(
     var dspEnabled by remember(editorSession) { editorSession.masterEnabledMutableState }
     var advanced by rememberSaveable { mutableStateOf(false) }
     var compactSection by rememberSaveable { mutableStateOf(DspStudioTab.STUDIO) }
+    val studioScrollState = rememberScrollState()
+    val eqScrollState = rememberScrollState()
+    val spatialScrollState = rememberScrollState()
+    val dynamicsScrollState = rememberScrollState()
+    val advancedScrollState = rememberScrollState()
+    val activeTabScrollState = when (compactSection) {
+        DspStudioTab.STUDIO -> studioScrollState
+        DspStudioTab.EQ -> eqScrollState
+        DspStudioTab.SPATIAL -> spatialScrollState
+        DspStudioTab.DYNAMICS -> dynamicsScrollState
+        DspStudioTab.ADVANCED -> advancedScrollState
+    }
     var macroSettings by remember(studioSession) { mutableStateOf(studioSession.preview.macros) }
     var studioEditTransaction by remember(studioSession) { mutableStateOf<DspStudioEditTransaction?>(null) }
     var studioProfileSliderCommitPending by remember(studioSession) { mutableStateOf(false) }
@@ -780,7 +793,8 @@ internal fun DspSettingsScreen(
             modifier = compactBodyConstraint
                 .fillMaxSize()
                 .padding(insetPadding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(activeTabScrollState)
+                .testTag("dsp-tab-scroll-pane")
                 .padding(horizontal = if (compact) 8.dp else 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

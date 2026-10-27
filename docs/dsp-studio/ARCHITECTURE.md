@@ -31,6 +31,7 @@
 ## UI and integration boundary
 
 - `DspSettingsScreen` is used in FULL and COMPACT_SPLIT presentation. Navigation exposes Studio, EQ, Spatial, Dynamics, and Advanced. Profile and legacy basic controls remain in Studio; Spatial contains width, mono bass, seat alignment, and M/S controls; Dynamics contains Smart Loudness, Dynamic Bass, compressor, multiband, Dynamic EQ, and limiter; Advanced contains headroom, cabin correction, Harmonic, Convolver, and renderer diagnostics.
+- Each tab keeps its own saveable vertical scroll position; compact split body measurement remains capped to the current window height.
 - `CarPlayHostActivity` embeds the screen in its compact pane while retaining host ownership of the CarPlay video/touch surface. The current instrumentation test mounts the standalone composable and switches presentation values; it does not prove actual 55:45 host geometry, Surface identity, session continuity, or touch behavior.
 - `DspProfileRuntime` persists and applies `DspStudioFeatureFlags` to the Workspace UI, Macro/Loudness/Dynamic Bass overlays, HOT updates, and Local Warm. Apply failure restores the previous flag/workspace snapshot. DSP Master OFF, disabled/default-neutral modules, and truthful `DEFERRED` status remain the rollback behavior. PR #52 is not merged pending evidence and hardware review.
 - No TS10/K706/iPhone session, target acoustic measurement, 20-cycle CarPlay Split run, CPU/RSS or p99 result, A/V check, Siri/call/navigation pass, or soak result is claimed.

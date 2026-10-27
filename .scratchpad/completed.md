@@ -4,6 +4,7 @@
 
 ## 2026-10-27
 
+- REM-05 gives each of the five DSP Studio tabs an independent saveable vertical scroll position; Android-test compilation passes, while API 36.1 instrumentation is blocked by Espresso initialization before test actions.
 - PR #52 source remediation integrated latest base `a99066f6` and follow-up fixes at `fe083f4f`: Shared/Common 1002/1002, Native and ASan/UBSan, API 35 Shared Debug 20/20 + Common Debug 17/17 + optimized Shared Release 20/20, app Debug/Benchmark builds, lint, JNI mapping, public-tree, and evidence fixtures passed. Hosted run #506 passed on documentation head `1e4a8962`; PR #52 remains open/unmerged, while per-ID and hardware gates remain partial/NOT_RUN.
 - Rechecked the F8 and DSP Split findings against PR #45; recovery, bounded RTSP parsing, connection and measurement-log caps, inset/scroll order, and exact ComposeView MeasureSpec capture are covered. Added the actual-ComposeView Robolectric regression; focused tests passed 9/9 and docs-only run #499 passed.
 - Added Robolectric coverage for the DSP pane's actual ComposeView measurement path; focused Host-layout and diagnostic suites pass 9/9 locally, and Draft run #498 passed its unit job. SH-M27 rendering and inset acceptance remains device-gated.

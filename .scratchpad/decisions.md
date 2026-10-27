@@ -764,3 +764,5 @@ Compare a single module by overlaying its frozen A/B fields onto the current dra
 Represent Static Bass as one internal graph filter after the combined 15-slot PEQ/Cabin capacity, then prepare and warm the EQ candidate from the existing bounded pre-EQ history. This preserves the public band limit and stage latency while allowing only PEQ and Static Bass to use opt-in LOCAL_WARM; Cabin Correction and IR remain deferred. Allocate renderer-status owner tokens process-wide because the runtime status store can outlive a sink, and make render-thread retry requests signal the control worker rather than wait on the config-listener lock.
 
 Smart Loudness headroom must bound the transient response of `sample - lowpass(sample)`, not only its steady-state sine gain; use the residual filter's impulse-gain bound before calculating preamp reduction.
+
+REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. This uses Compose's saveable scroll-state saver and leaves tab navigation, draft/session state, and the compact split height cap unchanged.

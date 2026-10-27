@@ -16,6 +16,8 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
     private val current = AtomicReference(DspConfigSnapshot(0L, initialConfig))
     private val studioHotUpdatesAllowed = AtomicBoolean(true)
     private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
+    private val applyStatusOwner = AtomicReference<Long?>(null)
+    private val applyStatusLock = Any()
     private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
     private val playbackSampleRates = ConcurrentHashMap<Any, PlaybackSampleRate>()
     private val nextPlaybackSampleRateRevision = AtomicLong()
@@ -44,13 +46,39 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
 
     override fun rendererApplyStatus(): DspRendererApplyStatus? = applyStatus.get()
 
+    override fun claimRendererApplyStatusOwner(ownerToken: Long) {
+        require(ownerToken > 0L)
+        synchronized(applyStatusLock) {
+            if (applyStatusOwner.get() == ownerToken) return
+            applyStatusOwner.set(ownerToken)
+            val snapshot = current.get()
+            while (true) {
+                val previous = applyStatus.get()
+                if ((previous?.generation ?: Long.MIN_VALUE) > snapshot.generation) return
+                val activeGeneration = previous?.activeGeneration ?: previous?.generation?.takeIf {
+                    previous.phase == DspRendererApplyPhase.ACTIVE
+                }
+                val requested = DspRendererApplyStatus(
+                    generation = snapshot.generation,
+                    phase = DspRendererApplyPhase.REQUESTED,
+                    activeGeneration = activeGeneration,
+                    rendererOwnerToken = ownerToken,
+                )
+                if (applyStatus.compareAndSet(previous, requested)) return
+            }
+        }
+    }
+
     override fun reportRendererApplyStatus(status: DspRendererApplyStatus) {
-        while (current.get().generation == status.generation) {
-            val previous = applyStatus.get()
-            if ((previous?.generation ?: Long.MIN_VALUE) > status.generation) return
-            if (previous?.generation == status.generation && !canAdvance(previous.phase, status.phase)) return
-            if (applyStatus.compareAndSet(previous, status)) {
-                if (current.get().generation == status.generation) return
+        synchronized(applyStatusLock) {
+            if (applyStatusOwner.get() != status.rendererOwnerToken) return
+            while (current.get().generation == status.generation) {
+                val previous = applyStatus.get()
+                if ((previous?.generation ?: Long.MIN_VALUE) > status.generation) return
+                if (previous?.generation == status.generation && !canAdvance(previous.phase, status.phase)) return
+                if (applyStatus.compareAndSet(previous, status)) {
+                    if (current.get().generation == status.generation) return
+                }
             }
         }
     }
@@ -83,7 +111,12 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
             val lastActiveGeneration = previous?.activeGeneration ?: previous?.generation?.takeIf {
                 previous.phase == DspRendererApplyPhase.ACTIVE
             }
-            val requested = DspRendererApplyStatus(next.generation, DspRendererApplyPhase.REQUESTED, lastActiveGeneration)
+            val requested = DspRendererApplyStatus(
+                generation = next.generation,
+                phase = DspRendererApplyPhase.REQUESTED,
+                activeGeneration = lastActiveGeneration,
+                rendererOwnerToken = applyStatusOwner.get(),
+            )
             if (applyStatus.compareAndSet(previous, requested)) break
         }
         listeners.forEach { listener -> runCatching { listener(next) } }

@@ -87,6 +87,48 @@ class DspRuntimeConfigStoreTest {
     }
 
     @Test
+    fun replacedRendererCannotOverwriteNewOwnerStatusForSameGeneration() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.claimRendererApplyStatusOwner(100L)
+        store.reportRendererApplyStatus(
+            DspRendererApplyStatus(
+                generation = 1L,
+                phase = DspRendererApplyPhase.PREPARED,
+                rendererOwnerToken = 100L,
+            ),
+        )
+
+        store.claimRendererApplyStatusOwner(101L)
+        store.reportRendererApplyStatus(
+            DspRendererApplyStatus(
+                generation = 1L,
+                phase = DspRendererApplyPhase.ACTIVE,
+                activeGeneration = 1L,
+                rendererOwnerToken = 101L,
+            ),
+        )
+        store.reportRendererApplyStatus(
+            DspRendererApplyStatus(
+                generation = 1L,
+                phase = DspRendererApplyPhase.FAILED,
+                activeGeneration = 0L,
+                rendererOwnerToken = 100L,
+            ),
+        )
+
+        assertEquals(
+            DspRendererApplyStatus(
+                generation = 1L,
+                phase = DspRendererApplyPhase.ACTIVE,
+                activeGeneration = 1L,
+                rendererOwnerToken = 101L,
+            ),
+            store.rendererApplyStatus(),
+        )
+    }
+
+    @Test
     fun activePlaybackSampleRateTracksNewestRendererAndFallsBackWhenItReleases() {
         val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
         val firstOwner = Any()

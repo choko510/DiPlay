@@ -1210,6 +1210,9 @@ internal class AudioRenderer(
     @Volatile private var deferredDspGeneration: Long? = null
     @Volatile private var requestedDspGeneration = dspConfigGeneration
     private val reportsDspApplyStatus = classification.dspRole == DspStreamRole.MEDIA
+    init {
+        if (reportsDspApplyStatus) dspConfigProvider.claimRendererApplyStatusOwner(rendererOwnerToken)
+    }
     private var pcm = ByteArray(DspBufferSizing.MAX_DECODER_PCM_BYTES)
     private var normalizedPcm = ByteArray(64 * 1024)
     private var activeDecoderPcmFormat: DecoderPcmFormat? = null
@@ -2245,7 +2248,9 @@ internal class AudioRenderer(
     }
 
     private fun reportDspApplyStatus(status: DspRendererApplyStatus) {
-        if (reportsDspApplyStatus) dspConfigProvider.reportRendererApplyStatus(status)
+        if (reportsDspApplyStatus) {
+            dspConfigProvider.reportRendererApplyStatus(status.copy(rendererOwnerToken = rendererOwnerToken))
+        }
     }
 
     private fun convolverApplyWarning(

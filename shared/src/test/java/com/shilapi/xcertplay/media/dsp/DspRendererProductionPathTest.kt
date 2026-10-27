@@ -645,6 +645,80 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun replacedRendererCloseCannotRegressNewOwnerActiveStatus() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val oldProcessorRef = AtomicReference<HotProcessor?>()
+        val oldRenderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initial,
+            provider = provider,
+            rendererOwnerToken = 100L,
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).also(oldProcessorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        var newRenderer: AudioRenderer? = null
+        try {
+            oldRenderer.prepareLpcmPipelineForTesting()
+            oldRenderer.beginTrackGenerationForTesting()
+            oldRenderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 300),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+            oldProcessorRef.get()?.suppressAcknowledgement = true
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    macroTone = DspMacroToneConfig(enabled = true, bassGainDb = 1.0),
+                ),
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            oldRenderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 400),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 200L,
+            )
+            assertTrue(oldRenderer.hasPendingHotApplyForTesting)
+
+            val replacement = renderer(
+                format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+                initialConfig = provider.snapshot(),
+                provider = provider,
+                rendererOwnerToken = 101L,
+                pipelinePreparer = { audioFormat, _ -> pipeline(audioFormat, latencyFrames = 0, gain = 1.0f) },
+            )
+            newRenderer = replacement
+            replacement.prepareLpcmPipelineForTesting()
+            assertEquals(DspRendererApplyPhase.ACTIVE, provider.rendererApplyStatus()?.phase)
+            assertEquals(101L, provider.rendererApplyStatus()?.rendererOwnerToken)
+
+            oldRenderer.close()
+
+            assertFalse(oldRenderer.hasPendingHotApplyForTesting)
+            assertEquals(
+                DspRendererApplyStatus(
+                    1L,
+                    DspRendererApplyPhase.ACTIVE,
+                    activeGeneration = 1L,
+                    rendererOwnerToken = 101L,
+                ),
+                provider.rendererApplyStatus(),
+            )
+        } finally {
+            oldRenderer.releaseForTesting()
+            newRenderer?.releaseForTesting()
+        }
+    }
+
+    @Test
     fun rendererCloseWinsWhenAckHasReadPendingHotGeneration() {
         val initial = DspRuntimeConfig(enabled = true)
         val provider = MutableConfigProvider(initial)
@@ -1648,7 +1722,12 @@ class DspRendererProductionPathTest {
             assertTrue(renderer.effectiveConvolverEnabledForTesting)
             assertNull(renderer.deferredDspGenerationForTesting)
             assertEquals(
-                DspRendererApplyStatus(1L, DspRendererApplyPhase.ACTIVE, activeGeneration = 1L),
+                DspRendererApplyStatus(
+                    1L,
+                    DspRendererApplyPhase.ACTIVE,
+                    activeGeneration = 1L,
+                    rendererOwnerToken = 1L,
+                ),
                 provider.rendererApplyStatus(),
             )
         } finally {
@@ -1739,7 +1818,12 @@ class DspRendererProductionPathTest {
 
             assertEquals(0L, renderer.dspGenerationForTesting)
             assertEquals(
-                DspRendererApplyStatus(1L, DspRendererApplyPhase.FAILED, activeGeneration = 0L),
+                DspRendererApplyStatus(
+                    1L,
+                    DspRendererApplyPhase.FAILED,
+                    activeGeneration = 0L,
+                    rendererOwnerToken = 1L,
+                ),
                 provider.rendererApplyStatus(),
             )
         } finally {
@@ -1910,6 +1994,7 @@ class DspRendererProductionPathTest {
         beforeDspUpdatePublish: () -> Unit = {},
         afterDspUpdateOwnerCheck: () -> Unit = {},
         onPrepared: () -> Unit = {},
+        rendererOwnerToken: Long = 1L,
         pipelinePreparer: DspPipelinePreparer,
     ): AudioRenderer {
         val classification = AudioStreamClassifier.classify(
@@ -1933,6 +2018,7 @@ class DspRendererProductionPathTest {
             audioTrackWriteAdapterForTest = writeAdapter,
             beforeDspUpdatePublishForTest = beforeDspUpdatePublish,
             onDspUpdatePreparedForTest = onPrepared,
+            rendererOwnerToken = rendererOwnerToken,
         )
         renderer.afterDspUpdateOwnerCheckForTest = afterDspUpdateOwnerCheck
         return renderer
@@ -2157,6 +2243,7 @@ class DspRendererProductionPathTest {
     private class MutableConfigProvider(initial: DspRuntimeConfig) : DspConfigProvider {
         private val current = AtomicReference(DspConfigSnapshot(0L, initial))
         private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
+        private val applyStatusOwner = AtomicReference<Long?>(null)
         private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
         private val hotUpdatesEnabled = AtomicBoolean(true)
 
@@ -2168,8 +2255,12 @@ class DspRendererProductionPathTest {
 
         override fun rendererApplyStatus(): DspRendererApplyStatus? = applyStatus.get()
 
+        override fun claimRendererApplyStatusOwner(ownerToken: Long) {
+            applyStatusOwner.set(ownerToken)
+        }
+
         override fun reportRendererApplyStatus(status: DspRendererApplyStatus) {
-            if (current.get().generation != status.generation) return
+            if (current.get().generation != status.generation || applyStatusOwner.get() != status.rendererOwnerToken) return
             while (true) {
                 val previous = applyStatus.get()
                 if (previous?.generation == status.generation && !canAdvance(previous.phase, status.phase)) return
@@ -2189,7 +2280,14 @@ class DspRendererProductionPathTest {
             val activeGeneration = previous?.activeGeneration ?: previous?.generation?.takeIf {
                 previous.phase == DspRendererApplyPhase.ACTIVE
             }
-            applyStatus.set(DspRendererApplyStatus(next.generation, DspRendererApplyPhase.REQUESTED, activeGeneration))
+            applyStatus.set(
+                DspRendererApplyStatus(
+                    next.generation,
+                    DspRendererApplyPhase.REQUESTED,
+                    activeGeneration,
+                    rendererOwnerToken = applyStatusOwner.get(),
+                ),
+            )
             listeners.forEach { it(next) }
         }
 

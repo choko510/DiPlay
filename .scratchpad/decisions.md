@@ -1,5 +1,9 @@
 # Decisions
 
+## Restore only committed Studio state when a runtime is reconstructed
+
+Treat an uncommitted Studio preview as runtime-owned state. When a new runtime is created, restore the persisted workspace and rebuild its effective DSP configuration rather than carrying over the preview. Runtime-reconstruction unit coverage is useful but does not substitute for Android process-death or Activity recreation evidence.
+
 ## Keep the five DSP Studio tabs aligned with their editing domains
 
 - **Decision:** Use Studio for macros and legacy profile/basic controls, EQ for PEQ, Spatial for legacy width/mono bass plus Seat and M/S, Dynamics for Smart Loudness/Dynamic Bass and compressor-family stages, and Advanced for headroom, cabin, Harmonic, Convolver, and diagnostics.
@@ -735,3 +739,7 @@ Select a draggable band from the original pointer-down coordinate; Compose's sim
 2026-10-26 B06: keep the microphone zero-read backoff and send-only-after-positive-read behavior unchanged because the production capture loop already implements the contract; exercise it end-to-end with a scripted AudioRecord and loopback UDP receiver. Extend only the OFF_INITIAL regression matrix to the four supported rate/channel combinations; do not change sample-clock or live-OFF latency behavior.
 
 2026-10-26: Integrate the latest PR #45 base through a merge commit on the PR #52 branch, preserving both branches' Working Memory history. Keep PR #45 and main unchanged, and keep PR #52 open pending user approval.
+
+## Keep module A/B previews separate from the editor draft
+
+Compare a single module by overlaying its frozen A/B fields onto the current draft workspace and keep the rest of the draft unchanged. If the selected User preset is deleted while a comparison side is audible, return the renderer to the current draft before resetting the UI side to Draft; the visible side and audible configuration must stay aligned.

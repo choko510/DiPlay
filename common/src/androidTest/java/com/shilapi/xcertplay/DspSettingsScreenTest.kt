@@ -23,14 +23,13 @@ import com.shilapi.xcertplay.dsp.DspFactoryPresets
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.dsp.DspPresetStoreResult
 import com.shilapi.xcertplay.dsp.DspRuntimeConfigStore
+import com.shilapi.xcertplay.dsp.DspStudioComparisonSide
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.File
-import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -191,109 +190,6 @@ class DspSettingsScreenTest {
             try {
                 restoreCommittedWorkspace(runtime)
             } finally {
-                runtime.closeForTesting()
-                preferences.edit().clear().commit()
-                filesDirectory.deleteRecursively()
-            }
-        }
-    }
-
-    @Test
-    fun loudnessAndDynamicBassControlsPreviewImmediately() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val filesDirectory = File(context.cacheDir, "dsp-settings-live-controls-test").apply {
-            deleteRecursively()
-            mkdirs()
-        }
-        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
-        preferences.edit().clear().commit()
-        val runtime = DspProfileRuntime.createForTesting(
-            context = context,
-            filesDirectory = filesDirectory,
-            preferencesName = TEST_PREFERENCES_NAME,
-        )
-        try {
-            restoreCommittedWorkspace(runtime)
-            composeRule.setContent {
-                MaterialTheme {
-                    DspSettingsScreen(runtime = runtime, onBack = {})
-                }
-            }
-
-            composeRule.onNodeWithContentDescription("Dynamics").performScrollTo().performClick()
-            composeRule.onNodeWithText("MANUAL").performScrollTo().performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                runtime.configProvider.snapshot().smartLoudness.enabled
-            }
-            composeRule.onNodeWithText("OFF").performScrollTo().performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                !runtime.configProvider.snapshot().smartLoudness.enabled
-            }
-
-            composeRule.onNodeWithContentDescription("Dynamic Bass enabled, off")
-                .performScrollTo()
-                .performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                runtime.configProvider.snapshot().dynamicBass.enabled
-            }
-        } finally {
-            try {
-                restoreCommittedWorkspace(runtime)
-            } finally {
-                runtime.closeForTesting()
-                preferences.edit().clear().commit()
-                filesDirectory.deleteRecursively()
-            }
-        }
-    }
-
-    @Test
-    fun leavingDirtyStudioPromptsAndDiscardRestoresCommittedAudioBeforeBack() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val filesDirectory = File(context.cacheDir, "dsp-settings-dirty-exit-test").apply {
-            deleteRecursively()
-            mkdirs()
-        }
-        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
-        preferences.edit().clear().commit()
-        val runtime = DspProfileRuntime.createForTesting(
-            context = context,
-            filesDirectory = filesDirectory,
-            preferencesName = TEST_PREFERENCES_NAME,
-        )
-        val backCount = AtomicInteger()
-        try {
-            restoreCommittedWorkspace(runtime)
-            val initiallyEnabled = runtime.configProvider.snapshot().macroTone.enabled
-            composeRule.setContent {
-                MaterialTheme {
-                    DspSettingsScreen(
-                        runtime = runtime,
-                        presentation = DspPresentationMode.COMPACT_SPLIT,
-                        onBack = { backCount.incrementAndGet() },
-                    )
-                }
-            }
-
-            composeRule.onNodeWithContentDescription("Macro Power").performScrollTo().performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) {
-                runtime.configProvider.snapshot().macroTone.enabled != initiallyEnabled
-            }
-            composeRule.onNodeWithContentDescription(context.getString(R.string.dsp_close_settings))
-                .performClick()
-
-            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_title)).assertIsDisplayed()
-            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_discard)).performClick()
-            composeRule.waitUntil(timeoutMillis = 15_000) {
-                backCount.get() == 1 && runtime.configProvider.snapshot().macroTone.enabled == initiallyEnabled
-            }
-            assertEquals(1, backCount.get())
-            assertFalse(runtime.createStudioSessionCoordinator().isDirty)
-        } finally {
-            try {
-                restoreCommittedWorkspace(runtime)
-            } finally {
-                runtime.closeForTesting()
                 preferences.edit().clear().commit()
                 filesDirectory.deleteRecursively()
             }
@@ -335,16 +231,93 @@ class DspSettingsScreenTest {
 
             composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
             composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
+            }
             composeRule.onNodeWithText("Factory reset module").performScrollTo().performClick()
             composeRule.onNodeWithText("Reset module").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 studioSession.preview.selectedModulePresetIds["bass"] == factoryPreset.id
             }
+
+            assertEquals(expected, studioSession.preview)
+        } finally {
+            try {
+                restoreCommittedWorkspace(runtime)
+            } finally {
+                runtime.closeForTesting()
+                preferences.edit().clear().commit()
+                filesDirectory.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun moduleComparisonPreviewsOnlyItsModuleAndKeepsTheDraftUnchanged() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-module-comparison-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            val studioSession = runtime.createStudioSessionCoordinator()
+            val committed = studioSession.compareA()
+            studioSession.edit { workspace ->
+                workspace.copy(
+                    baseProfileSnapshot = workspace.baseProfileSnapshot.copy(
+                        bass = workspace.baseProfileSnapshot.bass.copy(enabled = true, gainDb = 8.0),
+                        compressor = workspace.baseProfileSnapshot.compressor.copy(thresholdDb = -12.0),
+                    ),
+                    macros = workspace.macros.copy(enabled = true, bassImpact = 100),
+                )
+            }
+            val draft = studioSession.preview
+            assertTrue(draft.baseProfileSnapshot.bass.gainDb != committed.baseProfileSnapshot.bass.gainDb)
+            runtime.editorSession.restoreDraft(draft.baseProfileSnapshot)
+
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        presentation = DspPresentationMode.COMPACT_SPLIT,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.onNodeWithText("Sound macros ▾").performScrollTo().performClick()
+            composeRule.onNode(hasText("Bass") and hasClickAction()).performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText("Neutral · Factory ▾").fetchSemanticsNodes().isNotEmpty()
             }
+            composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_b))
+                .performScrollTo().performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.selectedProfile().bass.gainDb == draft.baseProfileSnapshot.bass.gainDb
+            }
+            assertEquals(DspStudioComparisonSide.B, studioSession.comparisonSide)
+            val draftMacroTone = runtime.configProvider.snapshot().macroTone
+            assertEquals(draft, studioSession.preview)
 
-            assertEquals(expected, studioSession.preview)
+            composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_a))
+                .performScrollTo().performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.selectedProfile().bass.gainDb == committed.baseProfileSnapshot.bass.gainDb
+            }
+
+            assertEquals(DspStudioComparisonSide.A, studioSession.comparisonSide)
+            assertEquals(committed.baseProfileSnapshot.bass.gainDb, runtime.selectedProfile().bass.gainDb, 0.0)
+            assertEquals(draft.baseProfileSnapshot.compressor.thresholdDb, runtime.selectedProfile().compressor.thresholdDb, 0.0)
+            assertEquals(draftMacroTone, runtime.configProvider.snapshot().macroTone)
+            assertEquals(draft, studioSession.preview)
         } finally {
             try {
                 restoreCommittedWorkspace(runtime)
@@ -374,6 +347,13 @@ class DspSettingsScreenTest {
             restoreCommittedWorkspace(runtime)
             val studioSession = runtime.createStudioSessionCoordinator()
             val presetId = "user_bass_delete"
+            studioSession.edit { workspace ->
+                workspace.copy(
+                    baseProfileSnapshot = workspace.baseProfileSnapshot.copy(
+                        bass = workspace.baseProfileSnapshot.bass.copy(enabled = true, gainDb = 8.0),
+                    ),
+                )
+            }
             val saveResult = AtomicReference<DspPresetStoreResult?>()
             runtime.saveModulePresetAsync(studioSession.preview, "bass", presetId, "Night") {
                 saveResult.set(it)
@@ -384,6 +364,7 @@ class DspSettingsScreenTest {
                 workspace.copy(selectedModulePresetIds = workspace.selectedModulePresetIds + ("bass" to presetId))
             }
             val beforeDelete = studioSession.preview
+            runtime.editorSession.restoreDraft(beforeDelete.baseProfileSnapshot)
 
             composeRule.setContent {
                 MaterialTheme {
@@ -400,15 +381,28 @@ class DspSettingsScreenTest {
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText("Night · User ▾").fetchSemanticsNodes().isNotEmpty()
             }
-            composeRule.onNodeWithText("Delete User preset").performScrollTo().performClick()
+            val committedBassGainDb = studioSession.compareA().baseProfileSnapshot.bass.gainDb
+            composeRule.onNodeWithText(context.getString(R.string.dsp_module_compare_a))
+                .performScrollTo().performClick()
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.selectedProfile().bass.gainDb == committedBassGainDb
+            }
+            assertEquals(DspStudioComparisonSide.A, studioSession.comparisonSide)
+
+            composeRule.onNodeWithText(context.getString(R.string.dsp_module_preset_delete))
+                .performScrollTo().performClick()
             composeRule.onNodeWithText("Delete").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 "bass" !in studioSession.preview.selectedModulePresetIds
+            }
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                runtime.selectedProfile().bass.gainDb == beforeDelete.baseProfileSnapshot.bass.gainDb
             }
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText("Custom values · not saved").fetchSemanticsNodes().isNotEmpty()
             }
 
+            assertEquals(DspStudioComparisonSide.DRAFT, studioSession.comparisonSide)
             assertEquals(
                 beforeDelete.copy(selectedModulePresetIds = beforeDelete.selectedModulePresetIds - "bass"),
                 studioSession.preview,

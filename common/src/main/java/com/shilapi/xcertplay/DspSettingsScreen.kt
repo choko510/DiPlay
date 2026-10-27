@@ -466,7 +466,7 @@ internal fun DspSettingsScreen(
         studioOperationPending = true
         runtime.previewStudioWorkspaceAsync(workspace, dspEnabled) { applied ->
             studioOperationPending = false
-            if (applied) editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
+            if (applied) editorSession.refreshAppliedStateFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             if (!applied && screenActive.get()) {
                 Toast.makeText(context, R.string.dsp_studio_preview_failed, Toast.LENGTH_LONG).show()
@@ -793,9 +793,13 @@ internal fun DspSettingsScreen(
                         ?: studioSession.preview.selectedModulePresetIds[selectedModulePresetModule],
                     enabled = !operationPending,
                     onModuleKeyChange = { moduleKey ->
+                        val restoreDraftPreview = studioSession.comparisonSide != DspStudioComparisonSide.DRAFT
+                        studioSession.resetComparison()
+                        if (restoreDraftPreview) previewStudioWorkspace(studioSession.preview)
                         selectedModulePresetModule = moduleKey
                         selectedModulePresetId = studioSession.preview.selectedModulePresetIds[moduleKey]
                         modulePresets = emptyList()
+                        studioUiRevision += 1
                     },
                     onPresetSelect = { selectedModulePresetId = it },
                     onApply = { preset ->
@@ -830,20 +834,20 @@ internal fun DspSettingsScreen(
                     onCompareA = {
                         studioEditTransaction?.let(studioSession::commitEditTransaction)
                         studioEditTransaction = null
-                        studioSession.beginModuleComparison(selectedModulePresetModule)
-                        studioSession.selectComparisonSide(DspStudioComparisonSide.A)?.let { comparison ->
-                            previewStudioWorkspace(comparison)
-                            studioUiRevision += 1
+                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
+                            studioSession.beginModuleComparison(selectedModulePresetModule)
                         }
+                        studioSession.selectComparisonSide(DspStudioComparisonSide.A)?.let(previewStudioWorkspace)
+                        studioUiRevision += 1
                     },
                     onCompareB = {
                         studioEditTransaction?.let(studioSession::commitEditTransaction)
                         studioEditTransaction = null
-                        studioSession.beginModuleComparison(selectedModulePresetModule)
-                        studioSession.selectComparisonSide(DspStudioComparisonSide.B)?.let { comparison ->
-                            previewStudioWorkspace(comparison)
-                            studioUiRevision += 1
+                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
+                            studioSession.beginModuleComparison(selectedModulePresetModule)
                         }
+                        studioSession.selectComparisonSide(DspStudioComparisonSide.B)?.let(previewStudioWorkspace)
+                        studioUiRevision += 1
                     },
                     onSave = { name ->
                         val moduleKey = selectedModulePresetModule
@@ -878,6 +882,7 @@ internal fun DspSettingsScreen(
                     onDelete = { preset ->
                         val selectedPresetWasDeleted = selectedModulePresetId == preset.id ||
                             studioSession.preview.selectedModulePresetIds[preset.moduleKey] == preset.id
+                        val restoreDraftPreview = studioSession.comparisonSide != DspStudioComparisonSide.DRAFT
                         studioOperationPending = true
                         runtime.deleteModulePresetAsync(preset.moduleKey, preset.id) { result ->
                             studioOperationPending = false
@@ -888,6 +893,7 @@ internal fun DspSettingsScreen(
                                     if (selectedModulePresetModule == preset.moduleKey) selectedModulePresetId = null
                                     syncStudioDraftToScreen(studioSession.preview)
                                 }
+                                if (restoreDraftPreview) previewStudioWorkspace(studioSession.preview)
                                 runtime.loadModulePresetsAsync(preset.moduleKey) {
                                     if (selectedModulePresetModule == preset.moduleKey) modulePresets = it
                                 }

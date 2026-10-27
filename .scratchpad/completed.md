@@ -1,9 +1,10 @@
 # Completed — dated history
 
-> 217 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
+> 218 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
 ## 2026-10-27
 
+- Revalidated the EX-08 generator (1,400 unique SHAs) and delta-111 fixture (19/19). Confirmed the Shared module only exposes Debug instrumentation, so Release JNI p99 cannot be compared with the existing instrumented harness.
 - Rechecked the F8 and DSP Split findings against PR #45; the recovery, bounded RTSP parser, connection cap, measurement-log cap, inset/scroll order, and exact ComposeView MeasureSpec capture are covered. Added the actual-ComposeView Robolectric regression; focused tests passed 9/9, the change was pushed, and docs-only run #499 passed.
 - Added Robolectric coverage for the DSP pane's actual ComposeView measurement path; the focused Host-layout and diagnostic suites pass 9/9 locally, and Draft run #498 passed its unit job. SH-M27 rendering and inset acceptance remains device-gated.
 - Added test-only per-block thread-CPU p99 diagnostics. Run #495 passed the full current-code/test CI lane and all 56 x86_64 median wall-p99 gates; run #497 passed only docs/static checks after the evidence update. Two focused local arm64 Debug runs fail different configurations; the latest has two thread-CPU p99 breaches, so G4 remains partial and hardware evidence remains open.

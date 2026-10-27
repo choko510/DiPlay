@@ -1,16 +1,16 @@
 # DSP Studio final implementation report
 
-**Disposition:** `PARTIAL / LOCAL_GATES_GREEN_AT_FE083F4F / HOSTED_CI_PENDING / EVIDENCE_AND_HARDWARE_PENDING`
+**Disposition:** `PARTIAL / LOCAL_GATES_GREEN_AT_FE083F4F / HOSTED_CI_GREEN_AT_1E4A8962 / EVIDENCE_AND_HARDWARE_PENDING`
 
 **Integration PR:** [#52](https://github.com/choko510/DiPlay/pull/52), base `codex/step4-pr-00-test-baseline` at `a99066f6133c2fe6f5258a2515a89986b75e042e`, stacked on PR #45. PR #52 remains open and unmerged. PR #45 and `main` were not modified.
 
-**Current locally tested source head:** `fe083f4f524fa6ee1038860343e4f100aee8dad6`. Shared/Common unit tests passed 1002/1002; Native and ASan/UBSan passed; API 35 instrumentation passed Shared Debug 20/20, Common Debug 17/17, and optimized Shared Release 20/20; Mobile/Automotive Debug and Benchmark builds, lint, and JNI mapping passed. The new hosted run for this head is pending push; earlier run #40374442067 is historical evidence only.
+**Current locally tested source head:** `fe083f4f524fa6ee1038860343e4f100aee8dad6`. Shared/Common unit tests passed 1002/1002; Native and ASan/UBSan passed; API 35 instrumentation passed Shared Debug 20/20, Common Debug 17/17, and optimized Shared Release 20/20; Mobile/Automotive Debug and Benchmark builds, lint, and JNI mapping passed. Hosted run [#506](https://github.com/choko510/DiPlay/actions/runs/40497504756) passed on documentation-only head `1e4a8962cedcc90fbf505c5f01346408e2842b77`, which contains the same tested source tree. `changes`, `check`, `android-instrumentation`, `host-baseline`, and `Release verification` succeeded; `quick-baseline` was skipped because the PR was not a draft quick-only change.
 
 **Latest local commands at `fe083f4f`:** `./gradlew --no-daemon --max-workers=1 --console=plain :shared:testDebugUnitTest :common:testDebugUnitTest`; `bash scripts/test_dsp_native.sh`; `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 bash scripts/test_dsp_native.sh --sanitize`; API 35 connected Debug and optimized Release instrumentation; Mobile/Automotive Debug and Benchmark assemble plus lint; `python3 scripts/check_jni_mapping.py`; `python3 scripts/check_public_tree.py`; and `bash scripts/test_android_instrumentation_evidence.sh`. All passed. The macOS sanitizer run disables LeakSanitizer because Apple Clang reports it unsupported; hosted Linux CI must still run its default sanitizer gate.
 
 ## Implementation summary
 
-**Latest validation update:** At source head `fe083f4f524fa6ee1038860343e4f100aee8dad6`, Shared 698 and Common 304 unit tests passed with zero failures/errors/skips. API 35 instrumentation passed 20 Shared Debug, 17 Common Debug, and 20 optimized Shared Release tests, all with zero failures/errors/skips. Mobile/Automotive Debug and Benchmark builds, both Debug lint tasks, JNI mapping, public-tree checks, and instrumentation evidence fixtures passed. Lint reported four existing findings per app in the app manifests/config and a dependency JAR; none point to files changed by this remediation. Hosted CI for this source head is pending.
+**Latest validation update:** At source head `fe083f4f524fa6ee1038860343e4f100aee8dad6`, Shared 698 and Common 304 unit tests passed with zero failures/errors/skips. API 35 instrumentation passed 20 Shared Debug, 17 Common Debug, and 20 optimized Shared Release tests, all with zero failures/errors/skips. Mobile/Automotive Debug and Benchmark builds, both Debug lint tasks, JNI mapping, public-tree checks, and instrumentation evidence fixtures passed. Lint reported four existing findings per app in the app manifests/config and a dependency JAR; none point to files changed by this remediation. Hosted run #506 passed all configured jobs on `1e4a8962`; `Draft unit tests` and the dedicated ABI-build steps were skipped, while the full unit/build step and Release verification passed.
 
 - Added schema-v1 DSP Studio workspace and module-preset stores, independent of the v7 legacy profile store. Draft, Preview, Save, Cancel, A/B, and Undo/Redo retain separate states.
 - Added four non-destructive Macro controls, route-bound calibrated Smart Loudness AUTO with MANUAL/FIXED alternatives, and bounded Dynamic Bass with a linked stereo envelope. `DspTuningResolver` allocates a shared 6 dB additional-bass budget.
@@ -44,7 +44,7 @@ Field traceability is summarized in [LEGACY_FIELD_COVERAGE.md](LEGACY_FIELD_COVE
 
 ## Phase and known-CR disposition
 
-These dispositions use the locally tested source head `fe083f4f524fa6ee1038860343e4f100aee8dad6`. `PARTIAL` means implementation exists but at least one acceptance assertion or evidence item remains open. Hardware-only work is `NOT_RUN`; hosted CI for this head is pending.
+These dispositions use the locally tested source head `fe083f4f524fa6ee1038860343e4f100aee8dad6`; hosted run #506 passed on documentation-only head `1e4a8962` with the same source tree. `PARTIAL` means implementation exists but at least one acceptance assertion or evidence item remains open. Hardware-only work is `NOT_RUN`.
 
 | ID | Disposition | Current evidence | Remaining gate |
 |---|---|---|---|
@@ -140,4 +140,4 @@ The command ledger and environment limitations are in [TEST_MATRIX.md](TEST_MATR
 
 ## Human follow-up
 
-Decision before push: `IMPLEMENTED_REVIEW_READY=false`, `LOCAL_GATES_GREEN=true` at `fe083f4f`, `HOSTED_CI_PENDING=true`, `HARDWARE_PASS=false`, `MERGE_READY=false`. Earlier CI runs are historical and are not counted as current-head evidence. PR #52 remains open and unmerged; PR #45 and `main` remain untouched. Review readiness still requires current-head CI, the open ID-level evidence gate, and hardware acceptance; hardware remains `NOT_RUN` until the runbook is executed on TS10/K706 and iPhone.
+Decision at source `fe083f4f` / hosted head `1e4a8962`: `IMPLEMENTED_REVIEW_READY=false`, `LOCAL_GATES_GREEN=true`, `CI_GREEN=true` for run #506, `HARDWARE_PASS=false`, `MERGE_READY=false`. `quick-baseline` was skipped and is not counted as a pass. PR #52 remains open and unmerged; PR #45 and `main` remain untouched. Review readiness still requires the open ID-level evidence gate and hardware acceptance; hardware remains `NOT_RUN` until the runbook is executed on TS10/K706 and iPhone.

@@ -11,15 +11,15 @@
 
 ## Current integration state
 
-- PR #45 base `codex/step4-pr-00-test-baseline` at `a99066f6` and reviewed DSP remediation were merged into the PR #52 integration worktree. Current tested source head: `fe083f4f524fa6ee1038860343e4f100aee8dad6`; local branch `codex/dsp52-base-sync` is ahead of `origin/codex/dsp-studio-final` and has not yet been pushed.
-- At `fe083f4f`, Shared/Common unit tests passed 1002/1002; Native and ASan/UBSan passed; API 35 passed Shared Debug 20/20, Common Debug 17/17, and optimized Shared Release 20/20. Mobile/Automotive Debug/Benchmark builds, lint, JNI mapping, public-tree and instrumentation-evidence fixtures passed. Hosted current-head CI is pending push.
-- The red regressions were repaired: the Static Bass JNI test now asserts the internal 16th EQ filter contract, the warm-history test submits bounded processing chunks, and A/B instrumentation waits for the new generation and matching runtime snapshot. No current local test failure remains.
-- Runtime fixes include symlink-safe persistence and future-schema backup protection, feature-flag workspace rollback, monotonic process-wide renderer tokens, asynchronous retry scheduling, transient-safe Smart Loudness headroom, and opt-in PEQ/Static Bass LOCAL_WARM. Cabin Correction and IR remain deferred per the supplied specification.
-- Updated the implementation, test, review, architecture, CI-failure, legacy-field, and field-update evidence docs. Row-level test/hardware coverage is still partial; target-device gates remain `NOT_RUN`.
+- PR #45 base `codex/step4-pr-00-test-baseline` at `a99066f6` and reviewed DSP remediation are integrated into PR #52. Remote PR head is `1e4a8962`; source code tested locally is `fe083f4f` (the `1e4a8962` commit contains documentation evidence only).
+- At `fe083f4f`, Shared/Common unit tests passed 1002/1002; Native and ASan/UBSan passed; API 35 passed Shared Debug 20/20, Common Debug 17/17, and optimized Shared Release 20/20. Mobile/Automotive Debug/Benchmark builds, lint, JNI mapping, public-tree and instrumentation-evidence fixtures passed.
+- Hosted run [#506](https://github.com/choko510/DiPlay/actions/runs/40497504756) passed at `1e4a8962`: `changes`, `check`, `android-instrumentation`, `host-baseline`, and `Release verification` succeeded. `quick-baseline` and two Draft-only steps were skipped and are not counted as passes.
+- The Static Bass JNI expectation, warm-history block-size fixture, and A/B runtime-snapshot race were repaired. Six follow-up P2 findings are recorded as closed in source; no open source-correctable P0/P1 is identified.
+- Runtime fixes include symlink-safe persistence/future-schema backup protection, feature-flag workspace rollback, monotonic process-wide renderer tokens, asynchronous retry scheduling, transient-safe Smart Loudness headroom, and opt-in PEQ/Static Bass LOCAL_WARM. Cabin Correction and IR remain deferred per specification.
+- Updated implementation, test, review, architecture, CI-failure, legacy-field, and field-update docs. Per-ID evidence remains partial; target-device gates are `NOT_RUN`.
 
 ## Next
 
-1. Finish documentation diff review and commit it without changing the tested source.
-2. Push the integration branch with a normal fast-forward update; update PR #52's base/head and validation summary.
-3. Wait for latest-head GitHub Actions; fix any code failure and rerun affected gates, or record precise skips/limits.
-4. Keep hardware, acoustic, performance, A/V, and per-ID evidence open where measurements are missing. Keep PR #52 unmerged and PR #45/`main` untouched.
+1. Commit and push the final run #506 evidence/review updates; verify the workflow triggered for that documentation head and keep the PR body linked to its result.
+2. Keep PR #52 open and unmerged. Do not modify PR #45 or `main`.
+3. Hardware, acoustic, performance, A/V, route calibration, and per-ID evidence remain open where measurements or one-to-one assertions are missing.

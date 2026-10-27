@@ -2,6 +2,10 @@
 
 > Append-only history, grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
+## 2026-10-28
+
+- Hardened PR #68 REM-01: Preamp and Studio HOT now share the existing bounded queue and HOT/LOCAL_WARM generation fence; compatible Studio HOT preserves the ramp, incompatible gain waits for ramp completion, and dB/linear pairs are checked before PCM processing. Native and ASan/UBSan emulator suites, focused Shared tests, API 36.1 JNI instrumentation 15/15, three Release ABIs, both Benchmark APKs, and JNI mapping passed. Windows Robolectric Common still has the known AtomicFile-backed module-preset deletion assertion failure; target audio and p99 remain NOT_RUN.
+
 ## 2026-10-27
 
 - REM-05 gives each DSP Studio tab an independent saveable vertical scroll position and retains EQ band selection across tab switches; the 100-transition Compose regression compiles, while API 36.1 interaction evidence is blocked by Espresso initialization before test actions.

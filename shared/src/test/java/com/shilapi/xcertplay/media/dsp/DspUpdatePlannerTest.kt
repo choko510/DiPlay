@@ -50,7 +50,7 @@ class DspUpdatePlannerTest {
     }
 
     @Test
-    fun peqChangesUseLocalWarmEvenWhenAnUnrelatedStatefulStageIsActive() {
+    fun peqChangesUseLocalWarmWhenEnabledEvenWithUnrelatedStatefulStages() {
         val current = DspRuntimeConfig(enabled = true)
         val target = DspRuntimeConfig(
             enabled = true,
@@ -72,8 +72,51 @@ class DspUpdatePlannerTest {
         val currentWithConvolver = DspRuntimeConfig(enabled = true, convolver = target.convolver)
         assertEquals(setOf(DspRuntimeField.PEQ), DspUpdatePlanner.diff(currentWithConvolver, peqOnly))
         assertEquals(
-            DspUpdatePlan.LOCAL_WARM,
+            DspUpdatePlan.DEFERRED,
             DspUpdatePlanner.classify(currentWithConvolver, peqOnly, true, true, 0, 0, true),
+        )
+        assertEquals(
+            DspUpdatePlan.LOCAL_WARM,
+            DspUpdatePlanner.classify(
+                currentWithConvolver,
+                peqOnly,
+                true,
+                true,
+                0,
+                0,
+                true,
+                studioLocalWarmEnabled = true,
+            ),
+        )
+        val compressor = DspCompressorConfig(enabled = true, attackMs = 1_000.0, releaseMs = 1_000.0)
+        val currentWithCompressor = DspRuntimeConfig(enabled = true, compressor = compressor)
+        val peqWithCompressor = DspRuntimeConfig(enabled = true, compressor = compressor, peqBands = target.peqBands)
+        assertEquals(
+            DspUpdatePlan.LOCAL_WARM,
+            DspUpdatePlanner.classify(
+                currentWithCompressor,
+                peqWithCompressor,
+                true,
+                true,
+                0,
+                0,
+                true,
+                studioLocalWarmEnabled = true,
+            ),
+        )
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(
+                currentWithCompressor,
+                peqWithCompressor,
+                true,
+                true,
+                0,
+                0,
+                true,
+                mediaRole = false,
+                studioLocalWarmEnabled = true,
+            ),
         )
         val bassOnly = DspRuntimeConfig(enabled = true, bass = DspBassConfig(enabled = true, gainDb = 2.0))
         val bassOnlyWithConvolver = DspRuntimeConfig(
@@ -82,8 +125,38 @@ class DspUpdatePlannerTest {
             convolver = target.convolver,
         )
         assertEquals(
-            DspUpdatePlan.LOCAL_WARM,
-            DspUpdatePlanner.classify(currentWithConvolver, bassOnlyWithConvolver, true, true, 0, 0, true),
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(
+                currentWithConvolver,
+                bassOnlyWithConvolver,
+                true,
+                true,
+                0,
+                0,
+                true,
+                studioLocalWarmEnabled = true,
+            ),
+        )
+        val cabinOnly = DspRuntimeConfig(
+            enabled = true,
+            convolver = target.convolver,
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                notches = listOf(DspCabinCorrectionNotch(enabled = true, frequencyHz = 80.0, gainDb = -6.0)),
+            ),
+        )
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(
+                currentWithConvolver,
+                cabinOnly,
+                true,
+                true,
+                0,
+                0,
+                true,
+                studioLocalWarmEnabled = true,
+            ),
         )
         assertEquals(emptyList<DspEqBand>(), currentWithConvolver.peqBands)
     }

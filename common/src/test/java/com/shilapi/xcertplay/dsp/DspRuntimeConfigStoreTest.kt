@@ -17,9 +17,12 @@ class DspRuntimeConfigStoreTest {
         val store = DspRuntimeConfigStore(config)
 
         assertTrue(store.studioHotUpdatesEnabled())
+        assertFalse(store.studioLocalWarmEnabled())
         store.setStudioHotUpdatesEnabled(false)
+        store.setStudioLocalWarmEnabled(true)
 
         assertFalse(store.studioHotUpdatesEnabled())
+        assertTrue(store.studioLocalWarmEnabled())
         assertSame(config, store.snapshot())
     }
 

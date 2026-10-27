@@ -15,6 +15,7 @@ import java.util.concurrent.atomic.AtomicReference
 internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntimeConfig.disabled()) : DspConfigProvider {
     private val current = AtomicReference(DspConfigSnapshot(0L, initialConfig))
     private val studioHotUpdatesAllowed = AtomicBoolean(true)
+    private val studioLocalWarmAllowed = AtomicBoolean(false)
     private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
     private val applyStatusOwner = AtomicReference<Long?>(null)
     private val applyStatusLock = Any()
@@ -26,8 +27,14 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
 
     override fun studioHotUpdatesEnabled(): Boolean = studioHotUpdatesAllowed.get()
 
+    override fun studioLocalWarmEnabled(): Boolean = studioLocalWarmAllowed.get()
+
     fun setStudioHotUpdatesEnabled(enabled: Boolean) {
         studioHotUpdatesAllowed.set(enabled)
+    }
+
+    fun setStudioLocalWarmEnabled(enabled: Boolean) {
+        studioLocalWarmAllowed.set(enabled)
     }
 
     override fun versionedSnapshot(): DspConfigSnapshot = current.get()

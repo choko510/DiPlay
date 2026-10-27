@@ -216,6 +216,30 @@ internal class DspPcmPipeline(
 
     internal fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = processor.enqueueHotUpdate(update)
 
+    internal fun prepareLocalPeqWarmUpdate(
+        coefficients: DoubleArray,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): DspPreparedLocalPeqWarmUpdate? = processor.prepareLocalPeqWarmUpdate(
+        coefficients,
+        generation,
+        editorOwnerEpoch,
+        rendererOwnerToken,
+        pcmFormatEpoch,
+        hotContextToken,
+        mediaRole,
+    )
+
+    internal fun enqueueLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int =
+        processor.enqueueLocalPeqWarmUpdate(update)
+
+    internal fun cancelLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int =
+        processor.cancelLocalPeqWarmUpdate(update)
+
     internal fun bindHotUpdateContext(
         editorOwnerEpoch: Long,
         rendererOwnerToken: Long,
@@ -232,6 +256,12 @@ internal class DspPcmPipeline(
 
     internal fun hasAcknowledged(update: DspPreparedHotUpdate): Boolean =
         processor.hotAcknowledgedToken() == update.generationToken
+
+    internal fun hasAcknowledged(update: DspPreparedLocalPeqWarmUpdate): Boolean =
+        processor.localPeqWarmAcknowledgedToken() == update.generationToken
+
+    internal fun hasRejected(update: DspPreparedLocalPeqWarmUpdate): Boolean =
+        processor.localPeqWarmRejectedToken() == update.generationToken
 
     fun diagnostics(): DspDiagnosticsSnapshot {
         val pipelineSnapshot = diagnostics.snapshot()

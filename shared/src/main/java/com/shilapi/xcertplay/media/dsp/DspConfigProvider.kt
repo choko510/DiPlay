@@ -48,4 +48,6 @@ fun interface DspConfigProvider {
     fun reportRendererApplyStatus(status: DspRendererApplyStatus) = Unit
 
     fun studioHotUpdatesEnabled(): Boolean = true
+
+    fun studioLocalWarmEnabled(): Boolean = false
 }

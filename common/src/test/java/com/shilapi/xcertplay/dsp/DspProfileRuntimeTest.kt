@@ -64,7 +64,11 @@ class DspProfileRuntimeTest {
         assertFalse(disabled.localWarmEnabled)
         assertFalse(disabled.irWarmBudgetEnabled)
 
-        val persisted = defaults.copy(macroOverlayEnabled = false, nativeHotUpdatesEnabled = false)
+        val persisted = defaults.copy(
+            macroOverlayEnabled = false,
+            nativeHotUpdatesEnabled = false,
+            localWarmEnabled = true,
+        )
         preferences.edit().also(persisted::writeTo).commit()
 
         assertEquals(persisted, DspStudioFeatureFlags.load(preferences))
@@ -132,6 +136,7 @@ class DspProfileRuntimeTest {
                 smartLoudnessEnabled = true,
                 dynamicBassEnabled = true,
                 nativeHotUpdatesEnabled = true,
+                localWarmEnabled = true,
             )
             val enableResult = AtomicReference<Boolean?>()
             val enableComplete = CountDownLatch(1)
@@ -146,6 +151,7 @@ class DspProfileRuntimeTest {
             assertTrue(runtime.configProvider.snapshot().smartLoudness.enabled)
             assertTrue(runtime.configProvider.snapshot().dynamicBass.enabled)
             assertTrue(runtime.configProvider.studioHotUpdatesEnabled())
+            assertTrue(runtime.configProvider.studioLocalWarmEnabled())
             assertEquals(0, session.preview.macros.bassImpact)
             assertTrue(session.isDirty)
             assertEquals(savedContents, workspaceFile.readText())

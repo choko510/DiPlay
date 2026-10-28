@@ -106,6 +106,39 @@ internal class VideoDecodeQueue(
     fun poll(timeoutMillis: Long): VideoJob? = jobs.poll(timeoutMillis, TimeUnit.MILLISECONDS)
 }
 
+internal data class VideoOutputBufferDisposition(
+    val renderableFrame: Boolean,
+    val submitToSurface: Boolean,
+    val endOfStream: Boolean,
+)
+
+internal fun videoOutputBufferDisposition(
+    size: Int,
+    flags: Int,
+    surfaceAvailable: Boolean,
+): VideoOutputBufferDisposition {
+    val renderableFrame = size > 0 && flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0
+    return VideoOutputBufferDisposition(
+        renderableFrame = renderableFrame,
+        submitToSurface = renderableFrame && surfaceAvailable,
+        endOfStream = flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0,
+    )
+}
+
+internal class VideoFirstFrameSubmissionState {
+    private var submitted = false
+
+    fun onOutputSubmittedToSurface(submittedToSurface: Boolean): Boolean {
+        if (!submittedToSurface || submitted) return false
+        submitted = true
+        return true
+    }
+
+    fun reset() {
+        submitted = false
+    }
+}
+
 /** A bounded wake-up hint, not exact input/output pairing: codecs may drop or reorder output. */
 internal class VideoPendingOutputState(
     private val maxPendingOutputs: Int = 64,
@@ -129,8 +162,8 @@ internal class VideoPendingOutputState(
         if (pendingOutputCount < maxPendingOutputs) pendingOutputCount++
     }
 
-    fun onOutputDequeued() {
-        if (pendingOutputCount == 0) return
+    fun onOutputDequeued(renderableFrame: Boolean) {
+        if (!renderableFrame || pendingOutputCount == 0) return
         pendingOutputCount--
         if (pendingOutputCount == 0) lastQueuedNs = 0L
     }

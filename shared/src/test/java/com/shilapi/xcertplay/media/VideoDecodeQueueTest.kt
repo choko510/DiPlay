@@ -114,10 +114,88 @@ class VideoDecodeQueueTest {
         repeat(10_000) { pending.onInputQueued(it.toLong()) }
 
         assertEquals(64, pending.pendingOutputCount)
-        repeat(65) { pending.onOutputDequeued() }
+        repeat(65) { pending.onOutputDequeued(renderableFrame = true) }
         assertEquals(0, pending.pendingOutputCount)
         pending.reset()
         assertEquals(0, pending.pendingOutputCount)
+    }
+
+    @Test fun codecConfigAndEmptyOutputsKeepPendingPictureWaitAlive() {
+        val pending = VideoPendingOutputState()
+        val firstFrame = VideoFirstFrameSubmissionState()
+        pending.onInputQueued(0L)
+
+        val codecConfig = videoOutputBufferDisposition(
+            size = 32,
+            flags = MediaCodec.BUFFER_FLAG_CODEC_CONFIG,
+            surfaceAvailable = true,
+        )
+        assertFalse(codecConfig.renderableFrame)
+        assertFalse(codecConfig.submitToSurface)
+        pending.onOutputDequeued(codecConfig.renderableFrame)
+        assertEquals(1, pending.pendingOutputCount)
+        assertFalse(firstFrame.onOutputSubmittedToSurface(codecConfig.submitToSurface))
+
+        val emptyOutput = videoOutputBufferDisposition(size = 0, flags = 0, surfaceAvailable = true)
+        pending.onOutputDequeued(emptyOutput.renderableFrame)
+        assertEquals(1, pending.pendingOutputCount)
+        assertFalse(firstFrame.onOutputSubmittedToSurface(emptyOutput.submitToSurface))
+
+        val delayedPicture = videoOutputBufferDisposition(size = 128, flags = 0, surfaceAvailable = true)
+        assertTrue(delayedPicture.renderableFrame)
+        assertTrue(delayedPicture.submitToSurface)
+        pending.onOutputDequeued(delayedPicture.renderableFrame)
+        assertEquals(0, pending.pendingOutputCount)
+        assertTrue(firstFrame.onOutputSubmittedToSurface(delayedPicture.submitToSurface))
+        assertFalse(firstFrame.onOutputSubmittedToSurface(delayedPicture.submitToSurface))
+    }
+
+    @Test fun invalidSurfaceDoesNotSubmitOrClaimFirstFrameButOutputIsDequeued() {
+        val pending = VideoPendingOutputState()
+        val firstFrame = VideoFirstFrameSubmissionState()
+        pending.onInputQueued(0L)
+
+        val picture = videoOutputBufferDisposition(size = 128, flags = 0, surfaceAvailable = false)
+        assertTrue(picture.renderableFrame)
+        assertFalse(picture.submitToSurface)
+        pending.onOutputDequeued(picture.renderableFrame)
+        assertEquals(0, pending.pendingOutputCount)
+        assertFalse(firstFrame.onOutputSubmittedToSurface(picture.submitToSurface))
+
+        val eos = videoOutputBufferDisposition(
+            size = 0,
+            flags = MediaCodec.BUFFER_FLAG_END_OF_STREAM,
+            surfaceAvailable = false,
+        )
+        assertTrue(eos.endOfStream)
+        assertFalse(eos.renderableFrame)
+        pending.onOutputDequeued(eos.renderableFrame)
+        pending.reset()
+        assertEquals(0, pending.pendingOutputCount)
+        assertFalse(firstFrame.onOutputSubmittedToSurface(eos.submitToSurface))
+    }
+
+    @Test fun outputFormatChangeDoesNotDrainPendingPictureWait() {
+        val pending = VideoPendingOutputState()
+        pending.onInputQueued(0L)
+        var formats = 0
+        var outputs = 0
+        var dequeues = 0
+
+        drainVideoCodecOutput(
+            running = { true },
+            dequeue = {
+                if (dequeues++ == 0) MediaCodec.INFO_OUTPUT_FORMAT_CHANGED
+                else MediaCodec.INFO_TRY_AGAIN_LATER
+            },
+            onFormatChanged = { formats++ },
+            onOutputBuffer = { outputs++; true },
+            firstTimeoutUs = pending.nextDequeueTimeoutUs(0L),
+        )
+
+        assertEquals(1, formats)
+        assertEquals(0, outputs)
+        assertEquals(1, pending.pendingOutputCount)
     }
 
     @Test fun idleDrainReleasesTheLastQueuedFrameWithoutAnotherInput() {
@@ -143,7 +221,7 @@ class VideoDecodeQueueTest {
             },
             onFormatChanged = { fail("format change is not a pending frame output") },
             onOutputBuffer = {
-                pending.onOutputDequeued()
+                pending.onOutputDequeued(renderableFrame = true)
                 releasedOutputs++
                 true
             },
@@ -178,7 +256,7 @@ class VideoDecodeQueueTest {
                 },
                 onFormatChanged = { fail("format change is not a pending frame output") },
                 onOutputBuffer = {
-                    pending.onOutputDequeued()
+                    pending.onOutputDequeued(renderableFrame = true)
                     releasedOutputs++
                     true
                 },

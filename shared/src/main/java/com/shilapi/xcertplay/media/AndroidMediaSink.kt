@@ -657,7 +657,7 @@ private class VideoDecoder(
     @Volatile private var decoder: MediaCodec? = null
     private var outputSurface: Surface? = surface
     private var lastConfig: VideoJob.Config? = null
-    private var submittedFrameToSurfaceLogged = false
+    private val firstFrameSubmissionState = VideoFirstFrameSubmissionState()
     private var submittedFrameLogged = false
     private var duplicateConfigLogged = false
     private val referenceChain = VideoReferenceChain()
@@ -984,7 +984,7 @@ private class VideoDecoder(
             report("decoder configuration failed mime=$mime size=${width}x$height")
         }
         decoder = next
-        submittedFrameToSurfaceLogged = false
+        firstFrameSubmissionState.reset()
         submittedFrameLogged = false
         if (next != null) {
             report("decoder=${next.name} mime=$mime size=${width}x$height")
@@ -1256,31 +1256,32 @@ private class VideoDecoder(
             },
             onFormatChanged = { logOutputFormat(codec.outputFormat) },
             onOutputBuffer = { index ->
-                val submitToSurface = outputSurface != null
-                val renderableFrame = info.size > 0 &&
-                    info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0
-                codec.releaseOutputBuffer(index, submitToSurface)
-                pendingOutputState.onOutputDequeued()
-                stats.onPendingOutputCount(pendingOutputState.pendingOutputCount)
-                if (submitToSurface) {
+                val outputSize = info.size
+                val presentationTimeUs = info.presentationTimeUs
+                val disposition = videoOutputBufferDisposition(
+                    size = outputSize,
+                    flags = info.flags,
+                    surfaceAvailable = runCatching { outputSurface?.isValid == true }.getOrDefault(false),
+                )
+                codec.releaseOutputBuffer(index, disposition.submitToSurface)
+                pendingOutputState.onOutputDequeued(disposition.renderableFrame)
+                if (disposition.submitToSurface) {
                     stats.onSubmittedToSurface(
-                        presentationTimeUs = info.presentationTimeUs.takeIf { renderableFrame },
+                        presentationTimeUs = presentationTimeUs,
                         submittedNs = System.nanoTime(),
                     )
-                    if (renderableFrame) surfaceRecoveryPolicy.onOutputSubmitted()
+                    surfaceRecoveryPolicy.onOutputSubmitted()
                 }
-                if (submitToSurface && !submittedFrameToSurfaceLogged) {
-                    submittedFrameToSurfaceLogged = true
+                if (firstFrameSubmissionState.onOutputSubmittedToSurface(disposition.submitToSurface)) {
                     onFirstFrameSubmittedToSurface()
                     report("first frame submitted to surface")
-                    Log.i(TAG, "video decoder submitted first frame to surface bytes=${info.size}")
+                    Log.i(TAG, "video decoder submitted first frame to surface bytes=$outputSize")
                 }
-                if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                if (disposition.endOfStream) {
                     pendingOutputState.reset()
-                    false
-                } else {
-                    true
                 }
+                stats.onPendingOutputCount(pendingOutputState.pendingOutputCount)
+                !disposition.endOfStream
             },
             firstTimeoutUs = firstTimeoutUs,
         )

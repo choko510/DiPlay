@@ -2,6 +2,7 @@ package com.shilapi.xcertplay
 
 import com.shilapi.xcertplay.youtube.HostLayoutMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -96,6 +97,23 @@ class IphoneUsbAutoLaunchCoordinatorTest {
     }
 
     @Test
+    fun deferredReplayIsNotDiscardedInsideTheDuplicateWindow() {
+        val coordinator = IphoneUsbAutoLaunchCoordinator()
+        val initial = coordinator.decide(identity, IphoneUsbSessionSnapshot.NONE, nowMillis = 100L)
+            as IphoneUsbAutoLaunchDecision.Launch
+
+        val replay = coordinator.decide(
+            identity,
+            IphoneUsbSessionSnapshot.NONE,
+            nowMillis = 600L,
+            allowRetryInsideDuplicateWindow = true,
+        )
+
+        assertTrue(replay is IphoneUsbAutoLaunchDecision.Launch)
+        assertTrue((replay as IphoneUsbAutoLaunchDecision.Launch).generation > initial.generation)
+    }
+
+    @Test
     fun deferredQueueKeepsOnlyTheLatestCurrentUsbIdentity() {
         val queue = IphoneUsbAutoLaunchRequestQueue()
         val first = DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH)
@@ -148,10 +166,32 @@ class IphoneUsbAutoLaunchCoordinatorTest {
     }
 
     @Test
+    fun failedCompletedHandoffReleasesTheQueueAndPreservesItsLatestRequestForRetry() {
+        val queue = IphoneUsbAutoLaunchRequestQueue()
+        val generation = queue.beginHandoff(
+            DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH),
+        )
+        val latest = DeferredIphoneUsbAutoLaunch(
+            identity.copy(deviceId = 41, deviceName = "latest-after-failure"),
+            IphoneUsbAutoLaunchSource.ATTACH,
+        )
+        queue.replaceDuringHandoff(latest)
+
+        assertEquals(latest, queue.failHandoff(generation))
+        assertEquals(false, queue.isHandoffActive())
+        assertEquals(latest, queue.takeDeferred())
+        assertEquals(null, queue.takeDeferred())
+    }
+
+    @Test
     fun duplicateSystemAttachDoesNotRaiseTheHostButAnExplicitOpenDoes() {
         assertTrue(shouldBringWiredHostToFront(IphoneUsbAutoLaunchSource.SETTINGS))
         assertTrue(shouldBringWiredHostToFront(IphoneUsbAutoLaunchSource.FOREGROUND))
         assertEquals(false, shouldBringWiredHostToFront(IphoneUsbAutoLaunchSource.ATTACH))
+        assertTrue(shouldBypassUsbAttachDebounce(IphoneUsbAutoLaunchSource.SETTINGS, deferredReplay = false))
+        assertTrue(shouldBypassUsbAttachDebounce(IphoneUsbAutoLaunchSource.FOREGROUND, deferredReplay = false))
+        assertFalse(shouldBypassUsbAttachDebounce(IphoneUsbAutoLaunchSource.ATTACH, deferredReplay = false))
+        assertTrue(shouldBypassUsbAttachDebounce(IphoneUsbAutoLaunchSource.ATTACH, deferredReplay = true))
     }
 
     @Test
@@ -160,5 +200,30 @@ class IphoneUsbAutoLaunchCoordinatorTest {
         assertTrue(CarPlaySessionTransportPolicy.shouldAdoptBackgroundSession(existingWired = false, requestedWired = false))
         assertEquals(false, CarPlaySessionTransportPolicy.shouldAdoptBackgroundSession(existingWired = false, requestedWired = true))
         assertEquals(false, CarPlaySessionTransportPolicy.shouldAdoptBackgroundSession(existingWired = true, requestedWired = false))
+    }
+
+    @Test
+    fun pendingControllerTeardownBlocksSessionStartsUntilExplicitCompletion() {
+        CarPlayBackgroundSession.clear()
+
+        val teardown = CarPlayBackgroundSession.beginTeardown(expectedController = null)
+
+        assertTrue(CarPlayBackgroundSession.hasSession())
+        CarPlayBackgroundSession.completeTeardown(teardown)
+        assertFalse(CarPlayBackgroundSession.hasSession())
+    }
+
+    @Test
+    fun backgroundStopWaitsForAnExistingTeardownBarrier() {
+        CarPlayBackgroundSession.clear()
+        val teardown = CarPlayBackgroundSession.beginTeardown(expectedController = null)
+        var stopCompleted = false
+
+        CarPlayBackgroundSession.stop { stopCompleted = true }
+
+        assertFalse(stopCompleted)
+        CarPlayBackgroundSession.completeTeardown(teardown)
+        assertTrue(stopCompleted)
+        CarPlayBackgroundSession.clear()
     }
 }

@@ -640,3 +640,7 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 2026-10-28 PH02-T04: A full screen may contain a background `Save` action and a dialog `Save` action simultaneously. Prefer asserting the entered text and the scoped dialog state instead of matching an ambiguous label globally.
 
 2026-10-28 T-SAFE-08: When the current signal path has no True Peak or gain-reduction telemetry, disclose that limitation beside the Limiter control rather than implying a measurement or warning exists.
+
+2026-10-28 PR #52 review follow-up: use a single immutable AtomicReference value for related renderer owner/status data. A monitor around a short status update can still block the PCM processing path; CAS lets the owner and phase advance as one state transition.
+
+2026-10-28 PR #52 evidence: a validator should compare the per-ID disposition in both the detailed matrix and tracker, and its write/initialize mode must refuse to replace an existing populated evidence file.

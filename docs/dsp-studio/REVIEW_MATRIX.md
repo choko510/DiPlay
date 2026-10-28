@@ -2,6 +2,23 @@
 
 Review status is based on the task-supplied [PR #52 remediation specification](REMEDIATION_SPEC.md). Line references below are from the current source tree; the current integration commit SHA is recorded in [FINAL_IMPLEMENTATION_REPORT.md](FINAL_IMPLEMENTATION_REPORT.md).
 
+## Final-source review follow-up — 2026-10-28
+
+Current source head: `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`. Four read-only reviewers re-audited the Native signal path, Kotlin/JNI ownership and Save/Cancel races, UI/storage behavior, and the 170-ID evidence ledger. No open source-correctable P0 or P1 finding remains. The complete hosted source-head workflow is pending for this follow-up head; run #575 at parent source `7aa7ba41a1c4f3b97c44d0f305a72276219e7847` is recorded separately and is not presented as current-head CI.
+
+| Review area | Finding and action | Retest/evidence | Remaining risk |
+|---|---|---|---|
+| Native Preamp/Dynamics/Convolver | Reviewer requested direct evidence that Preamp HOT preserves live Compressor/Limiter and Convolver state. Added `test_preamp_hot_ramp_preserves_active_compressor_and_convolver_state`, which snapshots both stage structs and latency before applying the ramp, verifies no mutation/reset, then processes finite output while the ramp advances. | `bash scripts/test_dsp_native.sh` passes at the follow-up source; hosted ASan/UBSan on this source is pending. | Physical audio, True Peak, THD, latency and target p99 remain NOT_RUN. |
+| Kotlin/JNI renderer status | Reviewer found a monitor lock while reporting renderer status after a PCM block. Replaced separate owner/status atomics and the shared monitor with one atomic owner/status state; the report path now CAS-validates owner, generation and phase together. Added `concurrentRendererReplacementRejectsLateStatusFromThePreviousOwner`. | `DspRuntimeConfigStoreTest` passes; full local Common suite passes 319/319 at the follow-up source. | Device scheduling and audio deadline behavior are not established by JVM tests. |
+| Compose, Save/Cancel and storage | Reviewer found no source P0/P1. Confirmed generation decision at `AtomicFile.finishWrite`, Save failure remains dirty, and Cancel control stays available; tab switching, IME input and renderer deferral assertions remain intact. | Common/API 35 screen tests passed in run #575 at parent source `7aa7ba41`; current source changes do not modify Compose UI. | Screen-level Cancel-failure retry, retrying Save after disk failure, TalkBack speech, external-key traversal and physical host flow remain untested. |
+| QA and per-ID evidence | Reviewer found matrix/tracker status drift and software cases incorrectly marked NOT_RUN. Added a matrix-to-tracker status-parity check and fixture, corrected affected rows to PARTIAL, registered run #575 once, and refreshed all 25 REM/PKG package rows. | `python scripts/check_dsp_studio_evidence.py` passes: 170 IDs, 25 packages, PASS 2 / PARTIAL 162 / NOT_RUN 6. `python -m unittest scripts.test_dsp_studio_evidence -v` passes 24/24. | Six hardware/CarPlay-session acceptance rows remain NOT_RUN; partial predicates are explicitly listed. |
+
+The six remaining `NOT_RUN` rows are PH02-T05, T-PERF-09/10/11, and T-UI-10/11. They require the TS10/K706 + iPhone session, real Split/Surface/touch continuity, route-volume calibration, device performance/soak, or physical A/V evidence. Emulator and Robolectric results are mapped as `PARTIAL` and do not close those checks.
+
+The project-wide disposition remains `SOURCE_READY_PENDING_FINAL_HOSTED_CI / HARDWARE_PASS=false / MERGE_READY=false`. Keep PR #52 open and unmerged; PR #45 and `main` remain untouched.
+
+The package/finding tables below are the 2026-10-27 review snapshot at the earlier `fe083f4f` integration source. Current package ownership, evidence counts and follow-up findings are recorded above and in [REMAINING_FIX_TRACKER.md](REMAINING_FIX_TRACKER.md).
+
 ## Package status
 
 | Package | Scope | Implementation state | Automated evidence | Remaining gate | Status |

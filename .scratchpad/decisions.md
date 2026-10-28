@@ -819,3 +819,9 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 2026-10-28 T-SAFE-08: Display Limiter threshold as a sample-peak ceiling and explicitly state that True Peak and continuous gain-reduction measurements are unavailable until those measurements are implemented; never label sample peak as True Peak.
 
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.
+
+2026-10-28 PR #52 final follow-up: publish renderer status as one atomic owner/status pair so a PCM-path status report never waits on a monitor while still fencing owner, generation, and phase together.
+
+2026-10-28 PR #52 evidence: detailed matrix and evidence tracker status must match exactly; keep emulator/host subcases PARTIAL when a physical clause remains, and reject evidence regeneration over an existing populated tracker.
+
+2026-10-28 PR #52 Preamp: a Preamp HOT update may alter only the shared gain ramp; test the active Compressor/Limiter state, Convolver history, and reported latency before/after applying the command.

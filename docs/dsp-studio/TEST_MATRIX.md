@@ -2,11 +2,24 @@
 
 This matrix distinguishes automated evidence from Android instrumentation and target-device acceptance. The task-supplied PR #52 remediation specification is preserved in [REMEDIATION_SPEC.md](REMEDIATION_SPEC.md); its project acceptance requirements do not replace repository or agent instructions. Individual T-ID and PH-ID evidence is tracked in [TEST_MATRIX_DETAILED.md](TEST_MATRIX_DETAILED.md).
 
+## Current follow-up — source `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`
+
+- Local Native regular suite passes after adding `test_preamp_hot_ramp_preserves_active_compressor_and_convolver_state`; local Shared/Common unit XML totals 704/704 and 319/319 with zero failures/errors/skips. `DspRuntimeConfigStoreTest` includes a concurrent owner-replacement race.
+- The full local Gradle check command completed 359 actionable tasks: Mobile/Automotive Debug and Benchmark builds, both Debug lint tasks, and JNI Benchmark mapping all pass at this source. The installed NDK reports a missing `source.properties` file and unstripped libraries as non-fatal environment warnings.
+- `python scripts/check_dsp_studio_evidence.py` passes with 170 rows and 25 packages. Evidence fixtures pass 24/24; detailed matrix and tracker agree at PASS 2 / PARTIAL 162 / NOT_RUN 6.
+- Local MSYS2 ASan/UBSan is `BLOCKED_ENV`: available UCRT GCC cannot link `libasan`/`libubsan`. The hosted run #575 passed Native+ASan/UBSan, builds/lint/JNI, unit tests and API 35 instrumentation at parent source SHA `7aa7ba41`; its `quick-baseline` and Release verification jobs were skipped by `workflow_dispatch`. A new full hosted run for `fbfc3b6e` and the final docs HEAD is pending.
+- Six remaining `NOT_RUN` IDs require physical CarPlay/TS10/K706/iPhone evidence: PH02-T05, T-PERF-09/10/11, T-UI-10/11. Other rows with software assertions and hardware sub-predicates remain `PARTIAL`.
+
 ## Execution ledger
 
 | Command | Result | Evidence and limits |
 |---|---|---|
-| `:shared:testDebugUnitTest :common:testDebugUnitTest` at `fe083f4f524fa6ee1038860343e4f100aee8dad6` | PASS | Shared 698 + Common 304 = 1002 tests; 0 failures, 0 errors, 0 skips. |
+| `:shared:testDebugUnitTest :common:testDebugUnitTest` at source `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145` | PASS | Local Shared XML 704/704 and Common XML 319/319; 0 failures, errors or skips. Shared inputs were unchanged since the latest successful Shared run. |
+| Native regular DSP suite at source `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145` | PASS | `bash scripts/test_dsp_native.sh`; includes the new Preamp HOT preservation case with active Compressor/Limiter and Convolver. |
+| Local ASan/UBSan at source `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145` | BLOCKED_ENV | MSYS2 UCRT GCC cannot link `libasan` and `libubsan`; the final hosted sanitizer job is pending. |
+| Evidence checker and fixture suite | PASS | `python scripts/check_dsp_studio_evidence.py` reports 170 IDs and 25 packages; `python -m unittest scripts.test_dsp_studio_evidence -v` passes 24/24 fixtures. |
+| Hosted API 35 and full CI | PENDING | Run #575 passed at parent source `7aa7ba41`; the final hosted run must cover current source `fbfc3b6e` and the completed evidence docs. |
+| Historical `:shared:testDebugUnitTest :common:testDebugUnitTest` at `fe083f4f524fa6ee1038860343e4f100aee8dad6` | PASS | Shared 698 + Common 304 = 1002 tests; 0 failures, 0 errors, 0 skips. |
 | Native, sanitizer, app, lint, mapping, and policy checks at `fe083f4f524fa6ee1038860343e4f100aee8dad6` | PASS | `scripts/test_dsp_native.sh`; ASan/UBSan with macOS LeakSanitizer disabled; Mobile/Automotive Debug and Benchmark builds; both Debug lint tasks; JNI mapping, public-tree, and instrumentation-evidence fixtures. Four existing lint findings per app point to untouched app/dependency sources. |
 | API 35 instrumentation at `fe083f4f524fa6ee1038860343e4f100aee8dad6` | PASS | Shared Debug 20/20, Common Debug 17/17, optimized Shared Release 20/20; all with 0 failures/errors/skips. |
 | PR #52 hosted current-head CI | PASS | Run [#506](https://github.com/choko510/DiPlay/actions/runs/40497504756) passed on documentation head `1e4a8962cedcc90fbf505c5f01346408e2842b77` with the same source tree as `fe083f4f`: `changes`, `check`, `android-instrumentation`, `host-baseline`, and `Release verification` succeeded. `quick-baseline` was skipped; Draft-only unit and dedicated ABI-build steps were skipped while the full unit/build step passed. |
@@ -63,4 +76,4 @@ This matrix distinguishes automated evidence from Android instrumentation and ta
 | Route-volume calibration and AUTO loudness | NOT_RUN | Record route identity and trusted volume mapping on target hardware; AUTO must remain unavailable without a matching calibration. |
 | A/V, latency, CPU/RSS, listening/THD, Siri/call/navigation, soak | NOT_RUN | Capture measurements and logs described in [RUNBOOK.md](RUNBOOK.md). |
 
-Test totals include failures, errors, and skips from the successful Gradle XML snapshot. Failed, skipped, unavailable, and unexecuted work is never counted as PASS. Emulator or host results do not substitute for TS10/K706 acceptance. Current locally tested source head is `fe083f4f524fa6ee1038860343e4f100aee8dad6`; run #506 passed at docs-only head `1e4a8962` with the same source tree.
+Test totals include failures, errors, and skips from the successful Gradle XML snapshot. Failed, skipped, unavailable, and unexecuted work is never counted as PASS. Emulator or host results do not substitute for TS10/K706 acceptance. Current source head is `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`; the latest complete hosted run #575 passed at parent source `7aa7ba41` and does not cover the later Runtime status, Native state-preservation, and evidence-checker changes.

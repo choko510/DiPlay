@@ -1,12 +1,22 @@
 # DSP Studio final implementation report
 
-**Disposition:** `PARTIAL / LOCAL_GATES_GREEN_AT_FE083F4F / HOSTED_CI_GREEN_AT_1E4A8962 / EVIDENCE_AND_HARDWARE_PENDING`
+**Current disposition (2026-10-28):** `SOURCE_IMPLEMENTED / LOCAL_UNIT_AND_NATIVE_GREEN / FINAL_HOSTED_CI_PENDING / HARDWARE_NOT_RUN / MERGE_NOT_READY`
 
 **Integration PR:** [#52](https://github.com/choko510/DiPlay/pull/52), base `codex/step4-pr-00-test-baseline` at `a99066f6133c2fe6f5258a2515a89986b75e042e`, stacked on PR #45. PR #52 remains open and unmerged. PR #45 and `main` were not modified.
 
-**Current locally tested source head:** `fe083f4f524fa6ee1038860343e4f100aee8dad6`. Shared/Common unit tests passed 1002/1002; Native and ASan/UBSan passed; API 35 instrumentation passed Shared Debug 20/20, Common Debug 17/17, and optimized Shared Release 20/20; Mobile/Automotive Debug and Benchmark builds, lint, and JNI mapping passed. Hosted run [#506](https://github.com/choko510/DiPlay/actions/runs/40497504756) passed on documentation-only head `1e4a8962cedcc90fbf505c5f01346408e2842b77`, which contains the same tested source tree. `changes`, `check`, `android-instrumentation`, `host-baseline`, and `Release verification` succeeded; `quick-baseline` was skipped because the PR was not a draft quick-only change.
+**Current source head:** `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`. Local Native regular tests pass, including Preamp HOT with active Compressor/Limiter/Convolver state preservation. Shared/Common unit reports show 704/704 and 319/319 with zero failures/errors/skips. Evidence validation passes 170/170 IDs, 25/25 work packages and 24/24 contract fixtures, with statuses PASS 2 / PARTIAL 162 / NOT_RUN 6.
 
-**Latest local commands at `fe083f4f`:** `./gradlew --no-daemon --max-workers=1 --console=plain :shared:testDebugUnitTest :common:testDebugUnitTest`; `bash scripts/test_dsp_native.sh`; `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1 bash scripts/test_dsp_native.sh --sanitize`; API 35 connected Debug and optimized Release instrumentation; Mobile/Automotive Debug and Benchmark assemble plus lint; `python3 scripts/check_jni_mapping.py`; `python3 scripts/check_public_tree.py`; and `bash scripts/test_android_instrumentation_evidence.sh`. All passed. The macOS sanitizer run disables LeakSanitizer because Apple Clang reports it unsupported; hosted Linux CI must still run its default sanitizer gate.
+**Hosted evidence:** [Run #575](https://github.com/choko510/DiPlay/actions/runs/40686737568) passed Native, ASan/UBSan, Shared/Common unit tests, Mobile/Automotive Debug and Benchmark builds, lint, JNI mapping and API 35 Shared Release (23/23) + Common Debug (29/29) instrumentation at parent source `7aa7ba41a1c4f3b97c44d0f305a72276219e7847`. Its `quick-baseline` and Release verification jobs were skipped because it used `workflow_dispatch`. Run #575 predates the Runtime status atomic-state change and the Native state-preservation test; a full hosted run at `fbfc3b6e` and the final documentation head is pending. Local MSYS2 ASan/UBSan is blocked because the toolchain lacks `libasan`/`libubsan`.
+
+An interim workflow dispatch, [run #406973](https://github.com/choko510/DiPlay/actions/runs/40697339783), was started before the corrected matrix/tracker docs were pushed. The `changes` and API 35 instrumentation jobs passed at `fbfc3b6e` (artifact [12820865994](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12820865994)); `check` failed on the then-stale evidence status rows before Native/unit/build/lint/JNI steps. The status rows are now synchronized, but this failed overall run is not counted as full CI.
+
+**Independent review:** Four read-only reviews at `fbfc3b6e` found no open P0/P1. The review-requested renderer-status monitor lock was replaced by an atomic owner/status state and covered by a concurrent owner replacement test. The Preamp HOT state-preservation coverage gap is closed by the new Native test. Remaining partial evidence and hardware-only acceptance are itemized in [REMAINING_WORK_FINAL_REPORT.md](REMAINING_WORK_FINAL_REPORT.md).
+
+**Hardware and release decision:** No TS10/K706 or supported iPhone is attached. Physical route calibration, CarPlay host/Surface/touch continuity, A/V, THD/True Peak, CPU/RSS/p99 and soak remain `NOT_RUN`. `HARDWARE_PASS=false`, `MERGE_READY=false`; keep PR #52 open/unmerged pending final current-head CI and user approval.
+
+## Historical implementation snapshot (2026-10-27)
+
+The sections below record the implementation and validation state at the earlier `fe083f4f` / run #506 checkpoint. Current source status and post-review changes are summarized above and in [REMAINING_WORK_FINAL_REPORT.md](REMAINING_WORK_FINAL_REPORT.md).
 
 ## Implementation summary
 

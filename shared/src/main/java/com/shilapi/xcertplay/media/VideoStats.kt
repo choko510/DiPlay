@@ -35,6 +35,7 @@ internal class VideoStats(
     private var latencySampleWriteIndex = 0
     private var unmatchedSurfaceOutputs = 0L
     private var pendingFrameOverwrites = 0L
+    private var codecInputQueued = 0L
     private var nextPendingFrameIndex = 0
     private var lastThreadCpuNs = -1L
     private var lastProcessAllocBytes = -1L
@@ -91,6 +92,7 @@ internal class VideoStats(
     }
 
     @Synchronized fun onCodecInputQueued(presentationTimeUs: Long, receivedNs: Long) {
+        codecInputQueued++
         val index = nextPendingFrameIndex
         if (pendingFrameOccupied[index]) pendingFrameOverwrites++
         pendingFrameTimesUs[index] = presentationTimeUs
@@ -174,6 +176,7 @@ internal class VideoStats(
                 keyFrameRequestAttempts = keyFrameRequestAttempts,
                 unmatchedSurfaceOutputs = unmatchedSurfaceOutputs,
                 pendingFrameOverwrites = pendingFrameOverwrites,
+                codecInputQueued = codecInputQueued,
                 latencySamplesNs = latencySamplesNs.copyOf(latencySampleSize),
             )
             resetWindow(now)
@@ -198,8 +201,8 @@ internal class VideoStats(
             "video stats type=$streamType owner=$decoderOwnerId rx=%.1ffps surfaceSubmit=%.1ffps " +
                 "maxGap=%dms kbps=%d recoveries=%d queueEmptyPoll=%.1f/s queueTimedPoll=%.1f/s " +
                 "queueWait=%.2fms queuePeak=%d outputDequeue=%.1f/s outputWaitCalls=%.1f/s outputWait=%.2fms " +
-                "pendingPeak=%d pendingTimeouts=%d frameToSurfaceMs=%.2f/%.2f/%.2f n=%d " +
-                "keyframeAttempts=%d latencyUnmatched=%d latencyOverwrites=%d " +
+                "pendingPeak=%d pendingTimeouts=%d receivedToCodecSurfaceReleaseMs=%.2f/%.2f/%.2f n=%d " +
+                "latencyUnmatched=%d/%d latencyOverwrites=%d/%d keyframeAttempts=%d " +
                 "threadCpu=%.2fms/s processAllocBytes=%.0f/s processAllocObjects=NOT_AVAILABLE " +
                 "threadAllocBytes=NOT_AVAILABLE " +
                 "globalGc=%.2f/min pssKb=%d fdCount=NOT_SAMPLED " +
@@ -223,9 +226,11 @@ internal class VideoStats(
                 p95Ms,
                 p99Ms,
                 snapshot.latencySamplesNs.size,
-                snapshot.keyFrameRequestAttempts,
                 snapshot.unmatchedSurfaceOutputs,
+                snapshot.surfaceSubmitted,
                 snapshot.pendingFrameOverwrites,
+                snapshot.codecInputQueued,
+                snapshot.keyFrameRequestAttempts,
                 threadCpuMsPerSecond,
                 allocatedBytesPerSecond,
                 globalGcPerMinute,
@@ -282,6 +287,7 @@ internal class VideoStats(
         val keyFrameRequestAttempts: Long,
         val unmatchedSurfaceOutputs: Long,
         val pendingFrameOverwrites: Long,
+        val codecInputQueued: Long,
         val latencySamplesNs: LongArray,
     )
 
@@ -324,6 +330,7 @@ internal class VideoStats(
         latencySampleWriteIndex = 0
         unmatchedSurfaceOutputs = 0L
         pendingFrameOverwrites = 0L
+        codecInputQueued = 0L
     }
 
     private companion object {

@@ -41,13 +41,30 @@ class VideoStatsTest {
         assertTrue(line.contains("queueWait=1.00ms queuePeak=4"))
         assertTrue(line.contains("outputWaitCalls=0.2/s outputWait=8.00ms"))
         assertTrue(line.contains("pendingPeak=3 pendingTimeouts=1"))
-        assertTrue(line.contains("frameToSurfaceMs=10.00/10.00/10.00 n=1"))
+        assertTrue(line.contains("receivedToCodecSurfaceReleaseMs=10.00/10.00/10.00 n=1"))
+        assertTrue(line.contains("latencyUnmatched=0/1 latencyOverwrites=0/1"))
         assertTrue(line.contains("keyframeAttempts=1"))
         assertTrue(line.contains("threadCpu=400.00ms/s"))
         assertTrue(line.contains("processAllocBytes=200/s processAllocObjects=NOT_AVAILABLE"))
         assertTrue(line.contains("threadAllocBytes=NOT_AVAILABLE"))
         assertTrue(line.contains("globalGc=12.00/min pssKb=100 fdCount=NOT_SAMPLED"))
         assertFalse(line.contains("payload"))
+    }
+
+    @Test
+    fun reportsUnmatchedAndOverwrittenCorrelationFractions() {
+        var nowNs = 0L
+        val stats = VideoStats(streamType = 110, decoderOwnerId = 7L, nanoTime = { nowNs }, log = {})
+        stats.onReceived(1)
+        repeat(129) { index -> stats.onCodecInputQueued(index.toLong(), index.toLong()) }
+        stats.onSubmittedToSurface(presentationTimeUs = Long.MAX_VALUE, submittedNs = 5_000_000_000L)
+        nowNs = 5_000_000_000L
+
+        val line = stats.logIfDue()
+
+        assertNotNull(line)
+        assertTrue(line!!.contains("receivedToCodecSurfaceReleaseMs=-1.00/-1.00/-1.00 n=0"))
+        assertTrue(line.contains("latencyUnmatched=1/1 latencyOverwrites=1/129"))
     }
 
     @Test

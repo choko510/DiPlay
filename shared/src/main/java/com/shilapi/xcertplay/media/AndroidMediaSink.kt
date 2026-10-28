@@ -585,6 +585,7 @@ private class VideoDecoder(
     private val streamGeneration: Long,
 ) : Closeable {
     private val queue = VideoDecodeQueue()
+    private val pendingOutputState = VideoPendingOutputState()
     private val stopped = CountDownLatch(1)
     private val stoppedCallbackLock = Any()
     private val stoppedCallbacks = mutableListOf<(Boolean) -> Unit>()
@@ -678,7 +679,7 @@ private class VideoDecoder(
     private fun run() {
         try {
             while (running) {
-                val job = queue.poll(5)
+                val job = nextJob()
                 try {
                     when (job) {
                         is VideoJob.Config -> configureDecoder(job)
@@ -696,7 +697,14 @@ private class VideoDecoder(
                         is VideoJob.Resync -> recover("video queue overflow")
                         null -> Unit
                     }
-                    decoder?.let(::drainOutput)
+                    decoder?.let { codec ->
+                        val timeoutUs = if (job == null) {
+                            pendingOutputState.nextDequeueTimeoutUs(System.nanoTime())
+                        } else {
+                            0L
+                        }
+                        drainOutput(codec, timeoutUs)
+                    }
                     stats.logIfDue()?.let(report)
                     if (referenceChain.needsKeyFrame && lastConfig != null && outputSurface != null) requestKeyFrameIfDue()
                 } catch (error: Exception) {
@@ -752,6 +760,16 @@ private class VideoDecoder(
                 runCatching(retirement.onApplied)
             }
         }
+    }
+
+    private fun nextJob(): VideoJob? {
+        queue.poll(0)?.let { return it }
+        if (pendingOutputState.pendingOutputCount > 0 &&
+            pendingOutputState.nextDequeueTimeoutUs(System.nanoTime()) > 0L
+        ) {
+            return null
+        }
+        return queue.poll(IDLE_WAIT_MILLIS)
     }
 
     private fun reportRecoveryState(
@@ -1001,6 +1019,7 @@ private class VideoDecoder(
     private fun changeSurface(surface: Surface?): Boolean {
         if (failedDecoderReleases.isNotEmpty() && !releaseDecoder()) return false
         if (outputSurface === surface) return true
+        pendingOutputState.reset()
         if (surface == null) {
             outputSurface = null
             if (!releaseDecoder()) return false
@@ -1056,6 +1075,7 @@ private class VideoDecoder(
         if (annexB.size <= input.remaining()) {
             input.put(annexB)
             codec.queueInputBuffer(index, 0, annexB.size, System.nanoTime() / 1000, 0)
+            pendingOutputState.onInputQueued(System.nanoTime())
             referenceChain.onQueued()
         } else {
             recover("video frame exceeded codec input capacity")
@@ -1081,28 +1101,32 @@ private class VideoDecoder(
         requestKeyFrame()
     }
 
-    private fun drainOutput(codec: MediaCodec) {
+    private fun drainOutput(codec: MediaCodec, firstTimeoutUs: Long = 0L) {
         val info = outputBufferInfo
-        while (running) {
-            val index = codec.dequeueOutputBuffer(info, 0)
-            when {
-                index == MediaCodec.INFO_TRY_AGAIN_LATER -> return
-                index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> logOutputFormat(codec.outputFormat)
-                index >= 0 -> {
-                    val submitToSurface = outputSurface != null
-                    codec.releaseOutputBuffer(index, submitToSurface)
-                    if (submitToSurface) stats.onSubmittedToSurface()
-                    if (submitToSurface && !submittedFrameToSurfaceLogged) {
-                        submittedFrameToSurfaceLogged = true
-                        onFirstFrameSubmittedToSurface()
-                        report("first frame submitted to surface")
-                        Log.i(TAG, "video decoder submitted first frame to surface bytes=${info.size}")
-                    }
-                    if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) return
+        drainVideoCodecOutput(
+            running = { running },
+            dequeue = { timeoutUs -> codec.dequeueOutputBuffer(info, timeoutUs) },
+            onFormatChanged = { logOutputFormat(codec.outputFormat) },
+            onOutputBuffer = { index ->
+                val submitToSurface = outputSurface != null
+                codec.releaseOutputBuffer(index, submitToSurface)
+                pendingOutputState.onOutputDequeued()
+                if (submitToSurface) stats.onSubmittedToSurface()
+                if (submitToSurface && !submittedFrameToSurfaceLogged) {
+                    submittedFrameToSurfaceLogged = true
+                    onFirstFrameSubmittedToSurface()
+                    report("first frame submitted to surface")
+                    Log.i(TAG, "video decoder submitted first frame to surface bytes=${info.size}")
                 }
-                else -> return
-            }
-        }
+                if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                    pendingOutputState.reset()
+                    false
+                } else {
+                    true
+                }
+            },
+            firstTimeoutUs = firstTimeoutUs,
+        )
     }
 
     private fun logOutputFormat(format: MediaFormat) {
@@ -1127,6 +1151,7 @@ private class VideoDecoder(
 
     @Synchronized
     private fun releaseDecoder(): Boolean {
+        pendingOutputState.reset()
         val previouslyFailed = failedDecoderReleases.toList()
         failedDecoderReleases.clear()
         val codec = decoder
@@ -1156,6 +1181,7 @@ private class VideoDecoder(
         const val MAX_CODEC_RELEASE_ATTEMPTS = 2
         const val CODEC_RELEASE_RETRY_DELAY_MILLIS = 25L
         const val INPUT_TIMEOUT_US = 10_000L
+        const val IDLE_WAIT_MILLIS = 100L
         const val MAX_FRAME_AGE_NS = 250_000_000L
         const val SURFACE_RETIREMENT_DIAGNOSTIC_INTERVAL_NS = 5_000_000_000L
         val START_CODE = byteArrayOf(0x00, 0x00, 0x00, 0x01)

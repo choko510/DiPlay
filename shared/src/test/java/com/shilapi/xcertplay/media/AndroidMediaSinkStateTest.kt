@@ -46,6 +46,35 @@ class AndroidMediaSinkStateTest {
         }
     }
 
+    @Test fun changingSurfaceResetsPendingOutputWaitBeforeRetirementAck() {
+        val oldSurface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val newSurface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val sink = AndroidMediaSink(surface = oldSurface)
+        val type = 110
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        sink.onScreenStreamActive(type, true)
+        val decoder = checkNotNull(decoderFactory.invoke(sink, type))
+        val pending = privateField(decoder, "pendingOutputState") as VideoPendingOutputState
+        pending.onInputQueued(System.nanoTime())
+        val detached = CountDownLatch(1)
+
+        try {
+            sink.setSurface(type, newSurface)
+            sink.clearSurface(type, oldSurface) { detached.countDown() }
+
+            assertTrue(detached.await(2, TimeUnit.SECONDS))
+            assertEquals(0, pending.pendingOutputCount)
+            assertSame(newSurface, privateField(decoder, "outputSurface"))
+        } finally {
+            sink.close()
+            runCatching { oldSurface.release() }
+            runCatching { newSurface.release() }
+        }
+    }
+
     @Test fun retiredVideoObserverCannotClaimAReplacementStreamFrame() {
         val generations = VideoStreamGenerations()
         val oldMain = generations.advance(110)

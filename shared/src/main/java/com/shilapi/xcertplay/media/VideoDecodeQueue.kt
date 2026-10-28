@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import android.media.MediaCodec
 import android.view.Surface
 import com.shilapi.xcertplay.airplay.VideoCodec
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -102,6 +103,75 @@ internal class VideoDecodeQueue(
     internal val queuedJobsForTest: Int get() = jobs.size
 
     fun poll(timeoutMillis: Long): VideoJob? = jobs.poll(timeoutMillis, TimeUnit.MILLISECONDS)
+}
+
+/** A bounded wake-up hint, not exact input/output pairing: codecs may drop or reorder output. */
+internal class VideoPendingOutputState(
+    private val maxPendingOutputs: Int = 64,
+    private val waitLimitNs: Long = TimeUnit.MILLISECONDS.toNanos(500),
+    private val maxDequeueWaitUs: Long = 8_000L,
+) {
+    var pendingOutputCount: Int = 0
+        private set
+    var waitTimeoutCount: Long = 0
+        private set
+    private var lastQueuedNs = 0L
+
+    init {
+        require(maxPendingOutputs > 0)
+        require(waitLimitNs > 0L)
+        require(maxDequeueWaitUs > 0L)
+    }
+
+    fun onInputQueued(nowNs: Long) {
+        lastQueuedNs = nowNs
+        if (pendingOutputCount < maxPendingOutputs) pendingOutputCount++
+    }
+
+    fun onOutputDequeued() {
+        if (pendingOutputCount == 0) return
+        pendingOutputCount--
+        if (pendingOutputCount == 0) lastQueuedNs = 0L
+    }
+
+    fun nextDequeueTimeoutUs(nowNs: Long): Long {
+        if (pendingOutputCount == 0) return 0L
+        val elapsedNs = (nowNs - lastQueuedNs).coerceAtLeast(0L)
+        val remainingNs = waitLimitNs - elapsedNs
+        if (remainingNs <= 0L) {
+            pendingOutputCount = 0
+            lastQueuedNs = 0L
+            waitTimeoutCount++
+            return 0L
+        }
+        val remainingUs = ((remainingNs + 999L) / 1_000L).coerceAtLeast(1L)
+        return minOf(maxDequeueWaitUs, remainingUs)
+    }
+
+    fun reset() {
+        pendingOutputCount = 0
+        lastQueuedNs = 0L
+    }
+}
+
+internal fun drainVideoCodecOutput(
+    running: () -> Boolean,
+    dequeue: (Long) -> Int,
+    onFormatChanged: () -> Unit,
+    onOutputBuffer: (Int) -> Boolean,
+    firstTimeoutUs: Long = 0L,
+) {
+    var timeoutUs = firstTimeoutUs
+    while (running()) {
+        val index = dequeue(timeoutUs)
+        timeoutUs = 0L
+        when {
+            index == MediaCodec.INFO_TRY_AGAIN_LATER -> return
+            index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> onFormatChanged()
+            index >= 0 -> if (!onOutputBuffer(index)) return
+            else -> return
+        }
+    }
 }
 
 /** Drain output while waiting for input: full output buffers can otherwise starve input forever. */

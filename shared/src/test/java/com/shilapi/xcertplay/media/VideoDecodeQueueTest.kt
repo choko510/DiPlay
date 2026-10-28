@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import android.media.MediaCodec
 import com.shilapi.xcertplay.airplay.VideoCodec
 import org.junit.Assert.*
 import org.junit.Test
@@ -92,5 +93,101 @@ class VideoDecodeQueueTest {
         ))
         assertEquals(3, attempts)
         assertEquals(-1, VideoInputPump.acquire(running = { false }, drain = { fail() }, dequeue = { fail(); 0 }))
+    }
+
+    @Test fun pendingOutputWaitIsBoundedAndExpiresAfterFiveHundredMilliseconds() {
+        val pending = VideoPendingOutputState()
+        pending.onInputQueued(0L)
+
+        assertEquals(8_000L, pending.nextDequeueTimeoutUs(0L))
+        pending.onInputQueued(250_000_000L)
+        assertEquals(8_000L, pending.nextDequeueTimeoutUs(250_000_000L))
+        assertEquals(1L, pending.nextDequeueTimeoutUs(749_999_999L))
+        assertEquals(0L, pending.nextDequeueTimeoutUs(750_000_000L))
+        assertEquals(0, pending.pendingOutputCount)
+        assertEquals(1L, pending.waitTimeoutCount)
+        assertEquals(0L, pending.nextDequeueTimeoutUs(800_000_000L))
+    }
+
+    @Test fun pendingOutputCountIsBoundedAndNeverBecomesNegative() {
+        val pending = VideoPendingOutputState()
+        repeat(10_000) { pending.onInputQueued(it.toLong()) }
+
+        assertEquals(64, pending.pendingOutputCount)
+        repeat(65) { pending.onOutputDequeued() }
+        assertEquals(0, pending.pendingOutputCount)
+        pending.reset()
+        assertEquals(0, pending.pendingOutputCount)
+    }
+
+    @Test fun idleDrainReleasesTheLastQueuedFrameWithoutAnotherInput() {
+        val pending = VideoPendingOutputState()
+        pending.onInputQueued(0L)
+        var elapsedNs = 0L
+        var outputAvailable = false
+        var releasedOutputs = 0
+        val waits = mutableListOf<Long>()
+        val firstTimeoutUs = pending.nextDequeueTimeoutUs(elapsedNs)
+
+        drainVideoCodecOutput(
+            running = { true },
+            dequeue = { timeoutUs ->
+                waits += timeoutUs
+                elapsedNs += timeoutUs * 1_000L
+                if (!outputAvailable && elapsedNs >= 5_000_000L) {
+                    outputAvailable = true
+                    0
+                } else {
+                    MediaCodec.INFO_TRY_AGAIN_LATER
+                }
+            },
+            onFormatChanged = { fail("format change is not a pending frame output") },
+            onOutputBuffer = {
+                pending.onOutputDequeued()
+                releasedOutputs++
+                true
+            },
+            firstTimeoutUs = firstTimeoutUs,
+        )
+
+        assertEquals(1, releasedOutputs)
+        assertEquals(listOf(8_000L, 0L), waits)
+        assertEquals(0, pending.pendingOutputCount)
+    }
+
+    @Test fun idleDrainKeepsCheckingForMultipleDelayedOutputs() {
+        val pending = VideoPendingOutputState()
+        pending.onInputQueued(0L)
+        pending.onInputQueued(0L)
+        val outputReadyAtNs = ArrayDeque(listOf(5_000_000L, 13_000_000L))
+        var elapsedNs = 0L
+        var releasedOutputs = 0
+
+        repeat(2) {
+            val firstTimeoutUs = pending.nextDequeueTimeoutUs(elapsedNs)
+            drainVideoCodecOutput(
+                running = { true },
+                dequeue = { timeoutUs ->
+                    elapsedNs += timeoutUs * 1_000L
+                    if (outputReadyAtNs.firstOrNull()?.let { it <= elapsedNs } == true) {
+                        outputReadyAtNs.removeFirst()
+                        0
+                    } else {
+                        MediaCodec.INFO_TRY_AGAIN_LATER
+                    }
+                },
+                onFormatChanged = { fail("format change is not a pending frame output") },
+                onOutputBuffer = {
+                    pending.onOutputDequeued()
+                    releasedOutputs++
+                    true
+                },
+                firstTimeoutUs = firstTimeoutUs,
+            )
+        }
+
+        assertEquals(2, releasedOutputs)
+        assertTrue(outputReadyAtNs.isEmpty())
+        assertEquals(0, pending.pendingOutputCount)
     }
 }

@@ -603,6 +603,10 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 2026-10-27: Evidence ledgers should validate both directions of ID coverage against the canonical catalog, and status rules should be machine-checked. Historical suite summaries are not per-ID evidence unless each row links its exact method, command, result, source SHA, and artifact.
 
 2026-10-27: Evidence validation should resolve local artifact and runbook links within the repository boundary and compare acceptance wording with the canonical predicate, so plausible-looking but stale links or rewritten criteria cannot pass by ID alone.
+
+2026-10-28: When a populated evidence ledger uses a newly verified Actions run, update the checker fixture registry too; target fixture mutations at a still-unmapped blank row so PASS-contract tests continue to exercise missing evidence.
+
+2026-10-28 REM-07: If the hosted per-method XML is not available locally, state only that the source method is included in its successful Gradle task and preserve the per-method artifact/reviewer limitation. Do not label the acceptance PASS from suite success alone.
 2026-10-27: For tabbed Compose content that is replaced on selection, use a distinct saveable `ScrollState` per tab; a single shared scroll state leaks the prior tab's viewport position into the next tab.
 
 2026-10-28: For exact live transfer compatibility, retain the peak-filter coefficients prepared from the active configured cap. A HOT reduction can retarget mix against that stored ceiling; a higher cap must defer until a filter covering that range is prepared. Clear only the control-tick countdown so the next frame recomputes the target while the current mix ramps continuously. Precompute sample-rate-dependent envelope coefficients before handing the command to the audio callback and test off-center magnitude/phase as well as retained state.

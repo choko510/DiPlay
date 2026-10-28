@@ -20,7 +20,7 @@
 
 ## Next
 
-1. REM-07 full §12.2 ledger schema is in progress on `codex/pr52-rem-07-evidence-schema` from base `b92c442`; all 170 rows remain 0 PASS / 152 PARTIAL / 18 NOT_RUN, with checker and fixtures passing locally.
+1. REM-07 PH evidence mapping was expanded on `codex/pr52-rem-10-evidence-ph`: 29 previously unmapped PH rows now point to source-backed methods/assertions and successful run #40625689851 at source SHA `bd381429f6c8db3707c28928a705de5890a253d6`. Ledger counts are 0 PASS / 153 PARTIAL / 17 NOT_RUN; this historical run is not evidence for a later final HEAD.
 2. Commit and push the final run #506 evidence/review updates; verify the workflow triggered for that documentation head and keep the PR body linked to its result.
 3. Keep PR #52 open and unmerged. Do not modify PR #45 or `main`.
 4. Hardware, acoustic, performance, A/V, route calibration, and per-ID evidence remain open where measurements or one-to-one assertions are missing.

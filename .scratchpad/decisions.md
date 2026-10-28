@@ -792,6 +792,8 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 
 2026-10-28 REM-07: Keep each §12.2 evidence dimension in its own column. PARTIAL's `Missing evidence` enumerates exactly blank evidence fields while `Unproven predicate` identifies the acceptance criterion still open; a PARTIAL row may have all execution metadata populated if the acceptance remains incomplete.
 
+2026-10-28 REM-07 PH mapping: Associate run #40625689851 only with test methods present at its exact source SHA and tasks that its workflow actually ran. Keep the row `PARTIAL` when mapped assertions cover only a subpredicate, a reviewer is unrecorded, or native/physical evidence is still open; a successful aggregate must not promote acceptance status.
+
 2026-10-28 REM-05 Native helper: Prepare and fully verify Compressor/Limiter coefficients on the control side; the render-side apply checks a sealed payload fingerprint without recomputing pow/exp. Preserve compressor envelope and limiter gain, defer enable/topology changes and Limiter threshold increases, slew Compressor curve/output gain plus makeup within bounded per-frame steps, and end ACK-pending after the configured frame count regardless of program-level variation.
 
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

@@ -6,6 +6,7 @@
 - Target PR: https://github.com/choko510/DiPlay/pull/45
 - Target start SHA: `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`
 - Final source/test integration SHA: `54b65005ffeffb2cdd802028bceffea28eaa68ee` (includes concurrent PR #45 USB handoff work; follow-up documentation commits are listed below)
+- Independent-review remediation code head: `24a6d650` (F-01–F-06); docs and Working Memory updates follow in a separate commit.
 - Target branch/base: `codex/step4-pr-00-test-baseline` / `main` (`95ba398f95ee104527812cd2b095977d71c51f98`)
 - PR status: open, Draft, unmerged
 - Code/test environment: Windows; Android Studio JBR 21.0.9; Android SDK 37.1; connected API 36 x86_64 emulator. No TS10/K706 head unit or iPhone is attached.
@@ -49,7 +50,7 @@
 | OPT-05 | Recover a changed Surface only after a bounded no-output condition | `IMPLEMENTED_DEVICE_PENDING` | The policy waits 250 ms, requires a running decoder/config/non-null Surface, stops after a non-config output, and uses the existing 1 s request gate. `VideoDecodeQueueTest` and `AndroidMediaSinkStateTest` passed 32/32; production default is OFF. Target frame continuity/request rate is unverified. Revert: OPT-05 commit. |
 | OPT-06 | Batch Activity log delivery | `NOT_ADOPTED_RISK` | `onDebugLog` posts each redacted message to the UI, but no real startup/reconnect dispatch count or UI/file-write timing was available. Batching without evidence risks changing ordering/snapshot and durable log behavior. |
 | OPT-07 | Validate existing NAL conversion and justify non-migration | `IMPLEMENTED_AND_TESTED` | Kept the existing forward conversion/random-access scan. `MediaCodecSupportTest` passed 14/14 including byte-exact output, unchanged input, 3/4-byte Annex B headers, zero/oversized lengths, H.264/H.265. No donor reverse converter was added. |
-| OPT-08 | Add bounded, payload-free video-path measurements | `IMPLEMENTED_AND_TESTED` | Five-second decoder summaries now include queue/output waits, thread CPU, fixed-buffer frame-to-Surface p50/p95/p99, pending peaks/timeouts, keyframe attempts and MAIN/ALT recovery outcomes. Process allocation/GC/PSS sampling is opt-in through the video-stats DEBUG log tag. `VideoStatsTest` and focused decoder/recovery suites pass. No live-video performance sample was available. |
+| OPT-08 | Add bounded, payload-free video-path measurements | `IMPLEMENTED_AND_TESTED` | Five-second decoder summaries include queue/output waits, thread CPU, received-to-codec-Surface-release p50/p95/p99, unmatched/overwritten correlation fractions, pending peaks/timeouts, keyframe attempts and MAIN/ALT recovery outcomes. Process allocation/GC/PSS sampling is opt-in through the video-stats DEBUG log tag. The release metric stops at `releaseOutputBuffer(..., true)` returning; it does not measure compositor or panel presentation. No live-video performance sample was available. |
 
 ## Behavioral invariants
 
@@ -73,6 +74,11 @@
 | `:shared:testDebugUnitTest --tests MediaCodecSupportTest` | OPT-07 worktree | Windows, JDK 21.0.9 | `PASS`: 14 tests, 0 failures/errors/skips. |
 | `:shared:testDebugUnitTest --tests CarPlayMediaEngineTest --tests AndroidMediaSinkStateTest --tests VideoStatsTest --tests VideoDecodeQueueTest` | OPT-08 worktree | Windows, JDK 21.0.9 | `PASS`: 56 tests, 0 failures/errors/skips. Includes per-display recovery outcome counters and deterministic stats percentile formatting. |
 | `:shared:testDebugUnitTest` + `:common:testDebugUnitTest` | Merged integration SHA `54b65005` | Windows, JDK 21.0.9 | `PASS`: shared 682/682; common 236/236; zero failures/errors/skips. |
+| `:shared:testDebugUnitTest --tests DspRendererProductionPathTest` | `8b64714d` | Windows, Android Studio JBR 21 | `PASS`: 32 tests, 0 failures/errors/skips. Includes fail-closed retirement and latency-rescaling regression. |
+| `:shared:testDebugUnitTest --tests VideoDecodeQueueTest --tests AndroidMediaSinkStateTest` | `b5a6182d` | Windows, Android Studio JBR 21 | `PASS`: 37 tests, 0 failures/errors/skips. Covers codec-config/empty/EOS/format-change/invalid-Surface output dispositions and pending-frame drain. |
+| `:shared:testDebugUnitTest --tests CarPlayMediaEngineTest` | `1c8ff8c6` | Windows, Android Studio JBR 21 | `PASS`: 23 tests, 0 failures/errors/skips. Includes a latch-controlled screen-owner replacement during dispatch. |
+| `:shared:testDebugUnitTest --tests VideoStatsTest` | `24a6d650` | Windows, Android Studio JBR 21 | `PASS`: 3 tests, 0 failures/errors/skips. Covers non-blocking logging, corrected timing label, and correlation fractions. |
+| `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel` | `24a6d650` | Windows, Android Studio JBR 21, Android SDK 37.1 | `PASS`: Shared 688/688 + Common 236/236; 924 tests total, 0 failures/errors/skips. |
 | `:shared:connectedDebugAndroidTest` | OPT-08 worktree | `Medium_Phone_API_36.1`, x86_64 emulator | `PASS`: 19 tests, 0 failures/errors/skips. This is the existing DSP instrumentation suite; no live MediaCodec video test exists in the suite. |
 | GitHub Actions run #551 on PR head `000e59e9` | `choko510/DiPlay` PR #45 | hosted Linux + API 35 emulator | `PASS`: classifier, public-tree, EX-08 inventory, host native, ASan/UBSan, full unit/lint/build/JNI/R8, API 35 instrumentation (20/20), host-baseline and Draft scope. The Draft unit lane was skipped because full-host verification ran. Archived artifacts contain 918 unit tests in 162 XML suites and 20 instrumentation tests in 2 XML suites, all with zero failures/errors/skips. |
 | `:shared:assembleDebug`, `:mobile:assembleDebug`, `:automotive:assembleDebug` | OPT-08 worktree | Windows, Android SDK 37.1 | `PASS`: all Debug artifacts built. NDK 28.2 emitted the existing missing `source.properties` and unstripped-library warnings. |
@@ -83,13 +89,29 @@
 | EX-08 delta-111 and generated-inventory checks | Merged integration SHA `54b65005` | Windows, `core.autocrlf=true` | `PASS_LOCAL`: temporarily LF-normalized the frozen commits JSONL, review-override JSON and generated CSV; delta tests passed 19/19 and inventory check reported 1,400 unique rows. Exact original worktree bytes were restored; no ledger data was changed. |
 | API 36 instrumentation / physical acceptance | `c8a1ab0` | emulator attached; no target hardware | `NOT_RUN` at baseline. |
 
+## Independent review follow-up (2026-10-28)
+
+The attached independent code review's P1/P2 findings F-01–F-06 are fixed in five small commits on the existing Draft PR #45.
+
+| Finding | Change | Regression evidence | Remaining limit |
+|---|---|---|---|
+| F-01 | DSP retirement failure now fails closed: the audio owner detaches and retires active/fading graphs, uses PCM fallback, and carries the previous latency duration into the next sample rate. Graph publication is serialized with failure notification. | `DspRendererProductionPathTest` 32/32; its retirement-failure case verifies no new prepare call after failure, no active graph, and 128 frames at 44.1 kHz preserved as 93 frames at 32 kHz. | Native destroy failure remains fault-injected; physical audio continuity and target latency are unverified. |
+| F-02 | Codec-config and zero-size outputs are released with `render=false`; only a non-config picture on a valid Surface updates submit metrics, recovery state, or first-frame status. | `VideoDecodeQueueTest` and `AndroidMediaSinkStateTest`, including config/empty output and first valid picture cases. | No OEM MediaCodec/Surface device run. |
+| F-03 | Pending count decreases only for decoded picture output; EOS resets it after processing, and format-change notifications do not consume it. Invalid Surface outputs cannot claim a Surface submission. | `VideoDecodeQueueTest` covers config followed by delayed picture, zero-size, EOS, format change, invalid Surface and bounded pending state. | The pending counter remains an approximate bounded wake-up hint, not an input/output pairing. |
+| F-04 | A per-screen ownership lock serializes owner validation and keyframe command dispatch with MAIN/ALT owner replacement. Session teardown after event-write failure now runs after releasing the event-write lock. | `CarPlayMediaEngineTest` 23/23, including a latch-controlled replacement/dispatch race. | The test uses a fake sender; phone command acceptance and real socket failure timing are unverified. |
+| F-05 | Stats counters are copied/reset under a short lock; percentile sorting, formatting and logging run outside it. | `VideoStatsTest.slowLoggerDoesNotBlockFrameArrival` passes with an intentionally blocked logger. | No live stream contention or CPU profile was available. |
+| F-06 | Renamed the metric to `receivedToCodecSurfaceReleaseMs` and added unmatched-output and overwritten-input numerator/denominator counts. | `VideoStatsTest` 3/3 verifies percentile label, correlation fractions and slow-logger concurrency. | This measures receive-to-codec Surface release call completion, not display presentation. |
+
+Post-fix local full suites pass: Shared 688/688 and Common 236/236 (924 tests total, zero failures/errors/skips). The second independent review remains `NOT_RUN` per the existing direction. Physical TS10/K706 + iPhone video/audio evidence remains `BLOCKED_DEVICE`.
+
 ## Performance before/after
 
 | Metric | Baseline | Optimized | Units / sample | Device / confidence |
 |---|---|---|---|---|
 | Idle decoder queue poll cadence | 5 ms timed poll | 100 ms timed poll when no output is pending; pending output uses up to 8 ms dequeue waits until 500 ms after the last successful input | Source-level nominal timeout ceiling changes from 200 to 10 idle polls/s; not a measured CPU/wakeup comparison. | No live stream; expected bounds only. |
 | Decoder idle poll rate and thread CPU | `NOT_RUN` | Instrumentation emits empty-queue poll/s and thread CPU ms/s; sample values `NOT_RUN` | Requires a live decoder on the same device and codec. | API 36 emulator was available but no iPhone/video stream was attached; TS10/K706 unavailable. |
-| Queue-wait/dequeue-output time and frame-to-Surface p50/p95/p99 | `NOT_RUN` | Instrumentation emits queue wait, output block time and PTS-correlated submit percentiles; sample values `NOT_RUN` | Same device/codec/mode/log settings required. | No comparable before/after live-video data. |
+| Queue-wait/dequeue-output time and receive-to-codec-Surface-release p50/p95/p99 | `NOT_RUN` | Instrumentation emits queue wait, output block time and PTS-correlated `releaseOutputBuffer` completion percentiles with correlation fractions; sample values `NOT_RUN` | Same device/codec/mode/log settings required. This is not panel/display latency. | No comparable before/after live-video data. |
+| Stats logger contention with frame arrivals | `NOT_RUN` | A blocked-logger concurrency regression confirms `onReceived` can proceed while formatting/logging is stalled; no wall-time or CPU improvement is claimed. | Synthetic latch test only. | No live stream profile collected. |
 | MediaCodec per-output allocation | One `BufferInfo` allocation per `drainOutput()` invocation at start SHA | One worker-owned `BufferInfo` per decoder | Source-level allocation reduction; no allocated-bytes profile was collected. | Device allocation profile pending. |
 | Process allocation, GC and PSS | `NOT_RUN` | Optional five-second runtime-stat sample behind the `DiPlay-VideoStats` DEBUG log tag; values `NOT_RUN` | Process allocation bytes/s, GC/minute and process PSS KB. Per-thread object counts and FD counts are not sampled. `sendCommand` results reflect local event-channel writes, not iPhone acknowledgement. | No live stream/profile collected. |
 | Activity log dispatch cost | `NOT_RUN` | `NOT_RUN` | OPT-06 requires real redacted startup/reconnect counters and UI/file-write timing. | No CarPlay target session available; batching not adopted. |
@@ -99,7 +121,7 @@
 - HW-01–HW-13 target acceptance: `BLOCKED_DEVICE` until TS10/K706 and supported iPhone evidence is collected.
 - MAIN/ALT physical keyframe recovery and changed-Surface frame delivery: `BLOCKED_DEVICE`.
 - G8 release: `NO_GO_THIS_RUN`; signed update/rollback remains `BLOCKED_ENV` without authorized signing credentials.
-- Independent review: `NOT_RUN`, preserving the existing direction.
+- Attached independent review received; F-01–F-06 are corrected. A second post-fix review remains `NOT_RUN`, preserving the existing direction.
 - PR remains open Draft; no merge or main update is requested.
 
 ## Regression risk and rollback
@@ -128,3 +150,8 @@
 - `99b96535` — Initial evidence and Working Memory closeout.
 - `178739b1` — Merge remote PR #45 USB review follow-up documentation without dropping the OPT implementation.
 - `000e59e9` — Report and Working Memory closeout; run #551 passed on this PR head.
+- `8b64714d` — F-01 DSP retirement failure now fails closed with latency-preserving PCM fallback.
+- `b5a6182d` — F-02/F-03 ignore non-picture outputs and preserve pending-frame waits.
+- `1c8ff8c6` — F-04 serialize MAIN/ALT keyframe dispatch with screen-owner replacement.
+- `190d4001` — F-05 snapshot video stats and log outside the frame-arrival lock.
+- `24a6d650` — F-06 label codec Surface release timing and report correlation fractions.

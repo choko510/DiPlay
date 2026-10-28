@@ -1,8 +1,15 @@
 # Lessons
 
-## Measure decoder submit latency without per-frame allocations
+## Video review fixes — 2026-10-28
 
-Correlate the MediaCodec output PTS with the original frame receive timestamp using bounded primitive arrays. This measures queue-to-Surface-submit latency, not actual display presentation. Use a bounded percentile window and keep thread/process allocation and PSS scopes explicit; emulator and synthetic output do not establish head-unit behavior.
+- A codec-config or empty output is not evidence that an input picture drained; preserve the bounded output hint until a non-config picture arrives, then reset it on EOS.
+- Snapshot counters and the bounded latency sample under a short lock, then sort, format and log outside it. A blocked logger regression can prove producer progress without making a quantitative performance claim.
+- `releaseOutputBuffer(..., true)` returning marks a codec Surface-release request completion. It does not establish compositor/panel display time; publish correlation denominators and keep target-device values separate.
+- A permanent DSP retirement error must prevent later graph preparation in the same renderer. Preserve the previous latency duration when converting its frame count to a new sample rate.
+
+## Correlate decoder input and codec Surface release without per-frame allocations
+
+Correlate the MediaCodec output PTS with the original frame receive timestamp using bounded primitive arrays. The timer stops after `releaseOutputBuffer(..., true)` returns; it does not measure compositor or panel presentation. Report unmatched outputs and overwritten input slots as numerator/denominator counts. Use a bounded percentile window and keep thread/process allocation and PSS scopes explicit; emulator and synthetic output do not establish head-unit behavior.
 
 ## Topic guide
 

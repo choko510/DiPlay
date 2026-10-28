@@ -1,5 +1,12 @@
 # Decisions
 
+## Independent code-review remediation — 2026-10-28
+
+- Fail closed after a DSP retirement error: on the audio owner, retire active/fading graphs, keep PCM fallback safe, and rescale saved algorithmic latency duration when the decoder sample rate changes. Never prepare or publish another graph in the failed renderer.
+- Serialize MAIN/ALT owner validation through keyframe command dispatch with a separate per-screen ownership lock. Release the event-write lock before session teardown callbacks so the lock order stays acyclic.
+- Treat codec-config/empty buffers as non-pictures; only valid pictures consume pending output hints or count as Surface submissions. Keep the Surface recovery default off.
+- Report PTS-correlation latency through codec Surface-release call completion, including unmatched/overwritten fractions. Do not describe it as compositor or panel presentation latency.
+
 ## XCertPlay OPT-00–OPT-08 adaptation
 
 Use the application context for `UsbManager` without changing permission or USB lifecycle behavior. Keep one `BufferInfo` per decoder worker; use capped approximate pending-output tracking, FIFO job priority, bounded 8 ms output waits and a 500 ms last-input deadline while preserving input-pump draining. Route MAIN keyframe requests with empty params and ALT with its nonblank SETUP UUID; stale/unknown requests do not fall back to MAIN. Keep changed-Surface recovery disabled by default until target-device evidence exists. Do not batch Host log delivery without real startup/reconnect cost measurements; retain the existing forward Annex B path.

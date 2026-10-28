@@ -9,11 +9,11 @@
 - [ ] Validate F8-01 MAIN/ALT pre-RECORD disconnect recovery, F8-02 4 MiB RTSP-body compatibility, and F8-03 four-session cap/release under supported-device reconnect traffic.
 - [ ] On SH-M27, verify DSP Split inset visibility, scroll boundaries and ComposeView measurement diagnostics while CarPlay remains active. C-00 itself remains USER_CONFIRMED_RESOLVED; this gate is device evidence only.
 - [ ] Release-signed update and installed rollback; release credentials/keystore are currently unavailable. Do not substitute a debug signature.
-- [ ] Keep independent second review `NOT_RUN` per user direction; G8 remains `NO_GO_THIS_RUN` until its requested evidence is complete.
+- [ ] Keep the second post-fix independent review `NOT_RUN` per user direction; G8 remains `NO_GO_THIS_RUN` until its requested evidence is complete.
 
 ## P1 — Measurements before conditional changes
 
-- [ ] Collect same-device TS10/K706 + supported-iPhone video worker, frame-to-Surface, MAIN/ALT request-result, Surface recovery, and 30–60-minute memory/FD metrics before enabling the default-off Surface recovery policy. Measure Host log dispatch/file-write cost before considering OPT-06 batching.
+- [ ] Collect same-device TS10/K706 + supported-iPhone video worker, receive-to-codec-Surface-release, MAIN/ALT request-result, Surface recovery, and 30–60-minute memory/FD metrics before enabling the default-off Surface recovery policy. Measure Host log dispatch/file-write cost before considering OPT-06 batching.
 - [ ] Same-device NCM `AUTO` vs `NO_STATUS_POLLING` A/B with first-frame, `SCREEN_STREAM_OPENED`, and timeout evidence; do not change status behavior or add control requests without cause.
 - [ ] Reproduce `queue()==false` / `requestWait()==null` while the USB device is present; preserve persistent USB-request ownership otherwise.
 - [ ] Keep Stage3 diagnostics timing-only and EX05 second StartSession retry disabled until target packet timing proves the need.

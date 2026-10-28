@@ -3,7 +3,7 @@
 ## Scope
 
 - Continue in the existing open Draft PR #45 on `codex/step4-pr-00-test-baseline`; keep its fixed base and do not merge or mark release-ready.
-- Treat the attached implementation specification as project requirements. Keep B05–B12 order, user-confirmed C-00 status, and independent review `NOT_RUN`.
+- Treat the attached implementation specification as project requirements. Keep B05–B12 order and user-confirmed C-00 status; the attached independent review's P1/P2 fixes are complete, while a second post-fix review remains `NOT_RUN`.
 - Keep DSP OFF/new-track output byte-exact legacy PCM16 and MEDIA-only routing.
 
 ## State
@@ -21,8 +21,9 @@
 - Workflow-sensitive [run #502](https://github.com/choko510/DiPlay/actions/runs/40487578349) passed on `df3977d4`: classifier, EX-08, host native, ASan/UBSan, full unit/lint/build/JNI/R8, API 35 instrumentation, host-baseline, and Draft scope succeeded. `quick-baseline` and separate Draft unit lane were skipped because full-host scope ran. Shared Release and Common Debug reports were uploaded as artifacts 12726236011 and 12727040240.
 - Docs-only [run #503](https://github.com/choko510/DiPlay/actions/runs/40489671828) on current HEAD `e8de90e3` passed the EX-08 delta-111 test, generated-ledger check, public-tree check, and Draft scope; product runtime jobs were skipped. Current generated totals are 11 `ADAPT`, 27 `FORK_SUPERIOR`, 207 `SKIP_OEM`, 765 `REJECT_UNSAFE`, and 390 `NEED_EVIDENCE` across 1,400 unique SHAs. The 111-row overlay has 2 `FORK_SUPERIOR`, 16 `SKIP_OEM`, 56 `REJECT_UNSAFE`, 37 `NEED_EVIDENCE`, and 0 `ADAPT`.
 - 2026-10-28 USB review-fix status: source snapshot `d4954869` includes transport-aware background-session adoption and latest-request handoff from `5f69b20c`; test head is `a3c66a68`. Full Shared/Common suites passed 664/235 on the merged source; after the timeout fixture became deterministic, the full Shared suite passed again, and both changed Common USB classes passed with the 20-event test expansion. Mobile/automotive Debug lint, Debug/Benchmark builds, and merged manifests passed on the source snapshot. Runs #545 and #546 passed their Draft unit/quick-baseline/scope lanes; host-baseline and API 35 instrumentation were skipped. Earlier full run #527 predates the handoff source fix. P1-03/P2-06 remain fail-closed when no fresh attach event can uniquely identify the same phone. Android 10 chooser/re-enumeration, permission-refusal retry, DSP Split state and reboot acceptance remain `BLOCKED_DEVICE`; release signing/rollback remains `BLOCKED_ENV`; independent review remains `NOT_RUN`.
+- Independent code-review P1/P2 remediation: commits `8b64714d`, `b5a6182d`, `1c8ff8c6`, `190d4001`, `24a6d650` fix F-01–F-06. Full Shared/Common suites pass 688/688 and 236/236 (924 total); focused DSP/video/engine/stats suites pass. The attached report is received; second post-fix review remains `NOT_RUN`. TS10/K706 + iPhone codec/surface/audio acceptance and live-video performance comparison remain `BLOCKED_DEVICE`/`NOT_RUN`.
 
 ## Next
 
 1. Keep PR #45 Draft and G8 `NO_GO_THIS_RUN`; device acceptance and signed update still require TS10/K706+iPhone hardware and authorized signing credentials.
-2. Keep independent review `NOT_RUN` per the existing direction. Do not infer target-device audio/layout acceptance from emulator tests.
+2. Keep the second post-fix independent review `NOT_RUN` per the existing direction. Do not infer target-device audio/layout acceptance from emulator tests.

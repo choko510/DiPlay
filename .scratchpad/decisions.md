@@ -1,5 +1,9 @@
 # Decisions
 
+## XCertPlay OPT-00–OPT-08 adaptation
+
+Use the application context for `UsbManager` without changing permission or USB lifecycle behavior. Keep one `BufferInfo` per decoder worker; use capped approximate pending-output tracking, FIFO job priority, bounded 8 ms output waits and a 500 ms last-input deadline while preserving input-pump draining. Route MAIN keyframe requests with empty params and ALT with its nonblank SETUP UUID; stale/unknown requests do not fall back to MAIN. Keep changed-Surface recovery disabled by default until target-device evidence exists. Do not batch Host log delivery without real startup/reconnect cost measurements; retain the existing forward Annex B path.
+
 ## Topic guide
 
 The decisions below are retained with their full rationale; earlier choices may require validation against a newer PR head.

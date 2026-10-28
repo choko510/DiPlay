@@ -1,11 +1,4 @@
-# Current Work — DiPlay STEP4 / PR #45 (2026-10-27)
-
-## Active batch — 2026-10-28 XCertPlay OPT-00–OPT-08
-
-- Start SHA `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`; target `codex/step4-pr-00-test-baseline`, PR #45 open Draft, base remains `main` at `95ba398f95ee104527812cd2b095977d71c51f98`.
-- Baseline focused tests pass: shared 52/52 and common 22/22 on Windows/JDK 21.0.9/Android SDK 37.1. An API 36 x86_64 emulator is connected; TS10/K706 hardware is not attached.
-- Implement only independently safe optimization phases. Preserve decoder generations, recovery executor, queue bounds, codec fallback, Surface retirement ACKs, old codec release failure handling, LOCAL Split, DSP/audio behavior, and USB transport behavior.
-- Update `docs/step4/XCERTPLAY_3E07_ADAPTATION_REPORT.md` with the 20-file disposition, per-phase evidence, performance data or `NOT_RUN`, remaining hardware gates, and commit SHAs. Keep PR Draft and do not merge.
+# Current Work — DiPlay STEP4 / PR #45 (2026-10-28)
 
 ## Scope
 
@@ -15,6 +8,7 @@
 
 ## State
 
+- XCertPlay OPT-00–OPT-08 implementation is complete at source/test integration SHA `54b65005`, preserving the concurrent remote USB handoff updates. After integration, full Shared/Common suites pass 682/682 and 236/236; API 36.1 Shared instrumentation passes 19/19 (DSP suite, not video). Shared/mobile/automotive Debug and mobile/automotive Benchmark assemblies, mobile/automotive lint, and JNI mapping pass. Shared/Common lint still reports existing permission/API/Compose issues. Surface recovery remains default-off and all live-video performance/device acceptance is `NOT_RUN`.
 - Workflow-sensitive run #495 passed the full host, sanitizer, unit/build, JNI/R8 and API 35 lanes on product source/test head `6392b56f`; its artifacts confirm 865 unit tests and 20 API 35 instrumentation tests passed. All 56 x86_64 median wall-p99 gates passed (max median 15.440 ms, max single-run p99 17.720 ms, max thread-CPU p99 4.760 ms). Subsequent docs-only run #497 passed its static checks; runtime jobs were skipped.
 - The current test-only ComposeView measurement regression passes 9/9 locally and run #498's Draft unit job. Run #498 skipped host/native/lint/build/JNI/R8, `host-baseline`, and API 35 instrumentation; it adds no full-runtime evidence.
 - The updated evidence package was pushed to PR #45; docs-only run #499 passed `changes`, static `check`, and Draft scope. Host/native, all unit/build/JNI/R8/instrumentation jobs were skipped by the classifier.

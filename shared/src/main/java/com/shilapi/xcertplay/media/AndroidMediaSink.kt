@@ -592,6 +592,7 @@ private class VideoDecoder(
     private val codecReleaseAttempts = IdentityHashMap<MediaCodec, Int>()
     private val pendingSurfaceRetirements = mutableListOf<VideoSurfaceRetirement>()
     private val decoderOwnerId = NEXT_VIDEO_DECODER_OWNER_ID.incrementAndGet()
+    private val outputBufferInfo = MediaCodec.BufferInfo()
     private val lastFrameReceivedNs = AtomicLong()
     private val releaseBlockedSinceNs = AtomicLong()
     private var lastReleaseExceptionClass: String? = null
@@ -1081,7 +1082,7 @@ private class VideoDecoder(
     }
 
     private fun drainOutput(codec: MediaCodec) {
-        val info = MediaCodec.BufferInfo()
+        val info = outputBufferInfo
         while (running) {
             val index = codec.dequeueOutputBuffer(info, 0)
             when {

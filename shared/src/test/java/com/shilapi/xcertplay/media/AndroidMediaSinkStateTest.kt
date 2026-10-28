@@ -22,6 +22,30 @@ import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 class AndroidMediaSinkStateTest {
+    @Test fun eachVideoDecoderOwnsItsOutputBufferInfo() {
+        val sink = AndroidMediaSink()
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        sink.onScreenStreamActive(110, true)
+        sink.onScreenStreamActive(111, true)
+
+        try {
+            val mainDecoder = checkNotNull(decoderFactory.invoke(sink, 110))
+            val altDecoder = checkNotNull(decoderFactory.invoke(sink, 111))
+            val field = mainDecoder.javaClass.getDeclaredField("outputBufferInfo").apply { isAccessible = true }
+            val mainInfo = field.get(mainDecoder)
+            val altInfo = field.get(altDecoder)
+
+            assertTrue(mainInfo is MediaCodec.BufferInfo)
+            assertTrue(altInfo is MediaCodec.BufferInfo)
+            assertNotSame(mainInfo, altInfo)
+        } finally {
+            sink.close()
+        }
+    }
+
     @Test fun retiredVideoObserverCannotClaimAReplacementStreamFrame() {
         val generations = VideoStreamGenerations()
         val oldMain = generations.advance(110)

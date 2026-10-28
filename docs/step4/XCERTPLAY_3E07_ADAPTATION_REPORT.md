@@ -42,7 +42,7 @@
 |---|---|---|---|
 | OPT-00 | Freeze start state, review ownership and design regressions | `IMPLEMENTED_AND_TESTED` | Start SHA, 20-file disposition, ownership invariants and focused baseline are recorded above. |
 | OPT-01 | Read `UsbManager` from `appContext` | `IMPLEMENTED_AND_TESTED` | New regression failed before the fix (`usbManager must not be null`) and passed after it; `CarPlayControllerWatchdogTest` passed 5/5. Revert: OPT-01 commit. |
-| OPT-02 | Reuse one `MediaCodec.BufferInfo` on the decoder worker | `NOT_RUN` | Regressions and phase test to be recorded. Revert: phase commit. |
+| OPT-02 | Reuse one `MediaCodec.BufferInfo` on the decoder worker | `IMPLEMENTED_AND_TESTED` | `AndroidMediaSinkStateTest` passed 19/19; its regression verifies separate MAIN/ALT decoder-owned instances. This proves ownership and source-level allocation removal, not a codec runtime gain. Revert: OPT-02 commit. |
 | OPT-03 | Reduce idle polling while draining queued codec output with bounded waits | `NOT_RUN` | Regressions and phase test to be recorded. Revert: phase commit. |
 | OPT-04 | Send correctly addressed MAIN/ALT keyframe requests | `NOT_RUN` | Regressions and phase test to be recorded. Revert: phase commit. |
 | OPT-05 | Recover a changed Surface only after a bounded no-output condition | `NOT_RUN` | Device-unproven behavior must default off in release. Revert: phase commit. |
@@ -65,6 +65,7 @@
 | `:shared:testDebugUnitTest --rerun-tasks --tests AndroidMediaSinkStateTest --tests VideoDecodeQueueTest --tests CarPlayMediaEngineTest --tests MediaCodecSupportTest` | `c8a1ab0` | Windows, JDK 21.0.9 | `PASS`: 52 tests, 0 failures/errors/skips. |
 | `:common:testDebugUnitTest --rerun-tasks --tests CarPlayHostActivityReconnectTest --tests CarPlayHostActivityLocalScaleTest --tests CarPlayControllerWatchdogTest` | `c8a1ab0` | Windows, JDK 21.0.9 | `PASS`: 22 tests, 0 failures/errors/skips. |
 | `:common:testDebugUnitTest --tests CarPlayControllerWatchdogTest` | OPT-01 worktree | Windows, JDK 21.0.9 | `PASS`: 5 tests, 0 failures/errors/skips. The application-context regression fails on the original code and passes with the fix. |
+| `:shared:testDebugUnitTest --tests AndroidMediaSinkStateTest` | OPT-02 worktree | Windows, JDK 21.0.9 | `PASS`: 19 tests, 0 failures/errors/skips. MediaCodec output runtime behavior remains subject to emulator/device validation. |
 | API 36 instrumentation / physical acceptance | `c8a1ab0` | emulator attached; no target hardware | `NOT_RUN` at baseline. |
 
 ## Performance before/after

@@ -126,6 +126,12 @@ class EvidenceLedgerContractTest(unittest.TestCase):
     def test_current_ledger_is_consistent(self) -> None:
         self.assertEqual([], self.errors())
 
+    def test_write_tracker_refuses_to_overwrite_existing_evidence(self) -> None:
+        original = self.ledger.read_bytes()
+        with self.assertRaises(FileExistsError):
+            checker.create_tracker()
+        self.assertEqual(original, self.ledger.read_bytes())
+
     def test_tracker_status_must_match_canonical_matrix(self) -> None:
         self.update_row("PH02-T02", {"Status": "PARTIAL"})
         self.assertTrue(any("does not match TEST_MATRIX_DETAILED.md status 'PASS'" in error for error in self.errors()))

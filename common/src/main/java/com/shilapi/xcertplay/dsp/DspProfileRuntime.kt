@@ -52,6 +52,7 @@ internal class DspProfileRuntime private constructor(
         onPlaybackVolumeReadingChanged(reading)
     }
     private val playbackRouteOwners = PlaybackRouteOwners()
+    private val studioApplyCommitLock = Any()
     private val studioApplyGeneration = AtomicLong()
     internal var afterStudioFeatureFlagRuntimeApplyForTest: (() -> Unit)? = null
     internal var afterStudioWorkspaceApplyForTest: (() -> Unit)? = null
@@ -110,7 +111,7 @@ internal class DspProfileRuntime private constructor(
             Handler(Looper.getMainLooper()).post { onComplete(false) }
             return
         }
-        val generation = studioApplyGeneration.incrementAndGet()
+        val generation = nextStudioApplyGeneration()
         ioExecutor.execute {
             val previous = studioFeatureFlags.get()
             val previousActiveWorkspace = activeStudioWorkspace.get().deepCopy()
@@ -284,7 +285,7 @@ internal class DspProfileRuntime private constructor(
         enabled: Boolean,
         onComplete: (Boolean) -> Unit,
     ) {
-        val generation = studioApplyGeneration.incrementAndGet()
+        val generation = nextStudioApplyGeneration()
         if (!validStudioWorkspace(workspace)) {
             Handler(Looper.getMainLooper()).post { onComplete(false) }
             return
@@ -302,7 +303,7 @@ internal class DspProfileRuntime private constructor(
         enabled: Boolean,
         onComplete: (DspWorkspaceSaveResult) -> Unit,
     ) {
-        val generation = studioApplyGeneration.incrementAndGet()
+        val generation = nextStudioApplyGeneration()
         ioExecutor.execute {
             val candidate = workspace.deepCopy()
             val result = if (!validStudioWorkspace(candidate)) {
@@ -315,18 +316,20 @@ internal class DspProfileRuntime private constructor(
                     DspWorkspaceSaveResult.INVALID
                 } else {
                     afterStudioWorkspaceApplyForTest?.invoke()
-                    if (generation != studioApplyGeneration.get()) {
-                        DspWorkspaceSaveResult.STALE
-                    } else {
-                        val saveResult = workspaceRepository.save(candidate)
-                        if (saveResult == DspWorkspaceSaveResult.SAVED) {
-                            committedStudioWorkspace.set(candidate)
-                            preferences.edit {
-                                putBoolean(KEY_DSP_ENABLED, enabled)
-                                putString(KEY_SELECTED_PROFILE_ID, candidate.profileSourceId)
+                    synchronized(studioApplyCommitLock) {
+                        if (generation != studioApplyGeneration.get()) {
+                            DspWorkspaceSaveResult.STALE
+                        } else {
+                            val saveResult = workspaceRepository.save(candidate)
+                            if (saveResult == DspWorkspaceSaveResult.SAVED) {
+                                committedStudioWorkspace.set(candidate)
+                                preferences.edit {
+                                    putBoolean(KEY_DSP_ENABLED, enabled)
+                                    putString(KEY_SELECTED_PROFILE_ID, candidate.profileSourceId)
+                                }
                             }
+                            saveResult
                         }
-                        saveResult
                     }
                 }
             }
@@ -338,7 +341,7 @@ internal class DspProfileRuntime private constructor(
         enabled: Boolean,
         onComplete: (DspStudioRestoreRequest?) -> Unit,
     ) {
-        val generation = studioApplyGeneration.incrementAndGet()
+        val generation = nextStudioApplyGeneration()
         ioExecutor.execute {
             val workspace = committedStudioWorkspace.get().deepCopy()
             val restored = generation == studioApplyGeneration.get() &&
@@ -519,6 +522,10 @@ internal class DspProfileRuntime private constructor(
 
     private fun validStudioWorkspace(workspace: DspStudioWorkspace): Boolean =
         workspace.profileSourceId == workspace.baseProfileSnapshot.id && workspace.baseProfileSnapshot.hasValidEqCapacity()
+
+    private fun nextStudioApplyGeneration(): Long = synchronized(studioApplyCommitLock) {
+        studioApplyGeneration.incrementAndGet()
+    }
 
     private fun resolveStudioWorkspace(
         workspace: DspStudioWorkspace,

@@ -749,7 +749,6 @@ internal class DspStudioSessionCoordinator(
     }
 
     @Synchronized fun commitSaved(workspace: DspStudioWorkspace) {
-        if (activeCancelOperation != null) return
         resetComparison()
         finishActiveTransaction()
         committed = workspace.deepCopy()

@@ -750,6 +750,67 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun cancelInvalidatesSaveBeforeItsWorkspaceCommit() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        File(workspaceFile.path + ".bak").delete()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.get(context)
+        val committedProfile = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(committedProfile.id, committedProfile)
+        val candidateProfile = DspProfilePresets.find("vocal")!!
+        val candidate = DspStudioWorkspace(candidateProfile.id, candidateProfile)
+        val saveResult = AtomicReference<DspWorkspaceSaveResult?>()
+        val saveComplete = CountDownLatch(1)
+        val reachedSaveBarrier = CountDownLatch(1)
+        val releaseSave = CountDownLatch(1)
+        val restoreRequest = AtomicReference<DspStudioRestoreRequest?>()
+        val restoreComplete = CountDownLatch(1)
+
+        try {
+            val initialSave = CountDownLatch(1)
+            runtime.saveStudioWorkspaceAsync(committed, enabled = true) { initialSave.countDown() }
+            drainMainLooperUntil(initialSave)
+
+            runtime.afterStudioWorkspaceApplyForTest = {
+                reachedSaveBarrier.countDown()
+                check(releaseSave.await(5, TimeUnit.SECONDS))
+            }
+            runtime.saveStudioWorkspaceAsync(candidate, enabled = true) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            assertTrue(reachedSaveBarrier.await(5, TimeUnit.SECONDS))
+
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(enabled = true) {
+                restoreRequest.set(it)
+                restoreComplete.countDown()
+            }
+            releaseSave.countDown()
+            drainMainLooperUntil(saveComplete)
+            drainMainLooperUntil(restoreComplete)
+
+            assertEquals(DspWorkspaceSaveResult.STALE, saveResult.get())
+            assertTrue(restoreRequest.get() != null)
+            assertTrue(runtime.isCommittedStudioWorkspaceActive())
+            assertEquals(committedProfile, runtime.selectedProfile())
+            assertEquals(committed, DspStudioWorkspaceRepository(context.filesDir).load().let {
+                (it as DspWorkspaceReadResult.Loaded).workspace
+            })
+        } finally {
+            releaseSave.countDown()
+            runtime.afterStudioWorkspaceApplyForTest = null
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
+            workspaceFile.delete()
+            File(workspaceFile.path + ".bak").delete()
+        }
+    }
+
+    @Test
     fun masterToggleChangesOnlyActiveProfileAndApplyCommitsTheDraft() {
         val context: Application = RuntimeEnvironment.getApplication()
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()

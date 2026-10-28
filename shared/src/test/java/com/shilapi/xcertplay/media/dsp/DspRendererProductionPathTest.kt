@@ -593,6 +593,89 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun legacyWidthAndSymmetricSeatTrimWarmOnTheCommittedTrackWithoutLatencyChange() {
+        val initialSeatAlignment = DspSeatAlignmentConfig(enabled = true)
+        val initialConfig = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            seatAlignment = initialSeatAlignment,
+        )
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        fun finishWarmUpdate(generation: Long, firstSourceSample: Long, inputSample: Int) {
+            var block = 0
+            while (provider.rendererApplyStatus()?.let {
+                    it.generation == generation && it.phase == DspRendererApplyPhase.ACTIVE
+                } != true && block < 20
+            ) {
+                renderer.processDecodedPcmForTesting(
+                    source = pcm16(frames = 64, channels = 2, sample = inputSample + block),
+                    offset = 0,
+                    length = 256,
+                    decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                    sourceSample = firstSourceSample + block * 64L,
+                )
+                block++
+            }
+            awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation)
+        }
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 2, sample = 300),
+                offset = 0,
+                length = 256,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+            val initialPipeline = renderer.dspPipeline
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    stereoWidth = 1.25,
+                    seatAlignment = initialSeatAlignment,
+                ),
+            )
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            finishWarmUpdate(generation = 1L, firstSourceSample = 164L, inputSample = 400)
+            val widthPipeline = renderer.dspPipeline
+            assertTrue(initialPipeline !== widthPipeline)
+            assertEquals(0, renderer.trackLatencyForTesting)
+            assertNull(renderer.deferredDspGenerationForTesting)
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    stereoWidth = 1.25,
+                    seatAlignment = initialSeatAlignment.copy(leftTrimDb = -1.0, rightTrimDb = -1.0),
+                ),
+            )
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            finishWarmUpdate(generation = 2L, firstSourceSample = 228L, inputSample = 500)
+            assertTrue(widthPipeline !== renderer.dspPipeline)
+            assertEquals(0, renderer.trackLatencyForTesting)
+            assertNull(renderer.deferredDspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun rejectedHotUpdateRetriesAndReportsWhyTheActivePipelineIsKept() {
         val initial = DspRuntimeConfig(enabled = true)
         val provider = MutableConfigProvider(initial)
@@ -2706,7 +2789,8 @@ class DspRendererProductionPathTest {
             if (status?.generation == generation && status.phase == phase) return
             Thread.sleep(5)
         }
-        assertEquals(phase, provider.rendererApplyStatus()?.phase)
+        val finalStatus = provider.rendererApplyStatus()
+        assertEquals("Expected $phase for generation $generation, got $finalStatus", phase, finalStatus?.phase)
     }
 
     private class StateProcessor(

@@ -105,6 +105,34 @@ internal object DspUpdatePlanner {
         if (trackGenerationCommitted && currentLatencyFrames != targetLatencyFrames) {
             return DspUpdateDecision(DspUpdatePlan.DEFERRED, "algorithmic latency would change")
         }
+        if (trackGenerationCommitted && DspRuntimeField.WIDTH in changed &&
+            (current.advancedMs.enabled || target.advancedMs.enabled)
+        ) {
+            return DspUpdateDecision(
+                DspUpdatePlan.DEFERRED,
+                "Legacy Width is inactive while Advanced M/S is enabled; keeping the active pipeline",
+            )
+        }
+        if (trackGenerationCommitted && DspRuntimeField.SEAT_ALIGNMENT in changed) {
+            val currentSeat = current.seatAlignment
+            val targetSeat = target.seatAlignment
+            val onlyTrimsChanged = currentSeat.copy(
+                leftTrimDb = targetSeat.leftTrimDb,
+                rightTrimDb = targetSeat.rightTrimDb,
+            ) == targetSeat
+            if (!onlyTrimsChanged) {
+                return DspUpdateDecision(
+                    DspUpdatePlan.DEFERRED,
+                    "Seat delay, polarity, near-speaker, or enable changes require a new track",
+                )
+            }
+            if (targetSeat.enabled && targetSeat.leftTrimDb != targetSeat.rightTrimDb) {
+                return DspUpdateDecision(
+                    DspUpdatePlan.DEFERRED,
+                    "Asymmetric Seat trim may shift the center image; keeping the active pipeline",
+                )
+            }
+        }
         if (trackGenerationCommitted && DspRuntimeField.CONVOLVER in changed &&
             target.convolver.enabled && target.convolver.wet > 0.0
         ) {

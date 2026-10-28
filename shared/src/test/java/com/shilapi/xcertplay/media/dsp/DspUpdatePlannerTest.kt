@@ -55,6 +55,69 @@ class DspUpdatePlannerTest {
     }
 
     @Test
+    fun seatTrimAndLegacyWidthWarmOnlyWhenTheyPreserveSafeSpatialSemantics() {
+        val current = DspRuntimeConfig(enabled = true)
+        val wider = DspRuntimeConfig(enabled = true, stereoWidth = 1.25)
+        assertEquals(
+            DspUpdatePlan.WARM,
+            DspUpdatePlanner.classify(current, wider, true, true, 0, 0, false),
+        )
+
+        val advancedMsWidth = DspRuntimeConfig(
+            enabled = true,
+            stereoWidth = 1.25,
+            advancedMs = DspAdvancedMsConfig(enabled = true),
+        )
+        assertEquals(
+            "Legacy Width is inactive while Advanced M/S is enabled; keeping the active pipeline",
+            DspUpdatePlanner.decide(current, advancedMsWidth, true, true, 0, 0, false).reason,
+        )
+
+        val stateful = DspRuntimeConfig(enabled = true, compressor = DspCompressorConfig(enabled = true))
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(
+                stateful,
+                DspRuntimeConfig(enabled = true, stereoWidth = 1.25, compressor = stateful.compressor),
+                true,
+                true,
+                0,
+                0,
+                true,
+            ),
+        )
+
+        val seat = DspSeatAlignmentConfig(enabled = true)
+        val seatCurrent = DspRuntimeConfig(enabled = true, seatAlignment = seat)
+        val symmetricTrim = DspRuntimeConfig(
+            enabled = true,
+            seatAlignment = seat.copy(leftTrimDb = -1.0, rightTrimDb = -1.0),
+        )
+        assertEquals(
+            DspUpdatePlan.WARM,
+            DspUpdatePlanner.classify(seatCurrent, symmetricTrim, true, true, 0, 0, false),
+        )
+
+        val asymmetricTrim = DspRuntimeConfig(
+            enabled = true,
+            seatAlignment = seat.copy(leftTrimDb = -1.0, rightTrimDb = 1.0),
+        )
+        assertEquals(
+            "Asymmetric Seat trim may shift the center image; keeping the active pipeline",
+            DspUpdatePlanner.decide(seatCurrent, asymmetricTrim, true, true, 0, 0, false).reason,
+        )
+
+        val seatDelay = DspRuntimeConfig(
+            enabled = true,
+            seatAlignment = seat.withNearSpeaker(DspSeatNearSpeaker.LEFT).copy(distanceDifferenceCm = 20.0),
+        )
+        assertEquals(
+            "Seat delay, polarity, near-speaker, or enable changes require a new track",
+            DspUpdatePlanner.decide(seatCurrent, seatDelay, true, true, 0, 0, false).reason,
+        )
+    }
+
+    @Test
     fun studioOverlayChangesAreHotWhenAPipelineIsActive() {
         val current = DspRuntimeConfig(enabled = true)
         val target = DspRuntimeConfig(

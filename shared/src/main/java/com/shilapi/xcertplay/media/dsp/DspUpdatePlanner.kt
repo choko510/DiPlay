@@ -105,7 +105,7 @@ internal object DspUpdatePlanner {
         if (trackGenerationCommitted && currentLatencyFrames != targetLatencyFrames) {
             return DspUpdateDecision(DspUpdatePlan.DEFERRED, "algorithmic latency would change")
         }
-        if (trackGenerationCommitted && DspRuntimeField.WIDTH in changed &&
+        if (trackGenerationCommitted && current.enabled && target.enabled && DspRuntimeField.WIDTH in changed &&
             (current.advancedMs.enabled || target.advancedMs.enabled)
         ) {
             return DspUpdateDecision(
@@ -113,7 +113,9 @@ internal object DspUpdatePlanner {
                 "Legacy Width is inactive while Advanced M/S is enabled; keeping the active pipeline",
             )
         }
-        if (trackGenerationCommitted && DspRuntimeField.SEAT_ALIGNMENT in changed) {
+        if (trackGenerationCommitted && current.enabled && target.enabled &&
+            DspRuntimeField.SEAT_ALIGNMENT in changed
+        ) {
             val currentSeat = current.seatAlignment
             val targetSeat = target.seatAlignment
             val onlyTrimsChanged = currentSeat.copy(

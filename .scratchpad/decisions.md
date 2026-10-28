@@ -814,7 +814,7 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 
 2026-10-28 T-LOUD: Automatic correction remains unavailable unless a route-bound Android stream-volume reading is trustworthy and matches calibration. An unchanged stream index does not infer an OEM/MCU knob change; untrusted or mismatched readings produce zero Auto correction. Smart Loudness parameter toggles remain HOT and preserve the active pipeline's latency.
 
-2026-10-28 REM-03: Treat symmetric Seat trim and Legacy Width as same-latency whole-pipeline WARM only when no stateful stage requires continuity. Defer asymmetric Seat trims, Seat delay/polarity/near-speaker/enable changes, Legacy Width while Advanced M/S is active, and width/trim changes while stateful graphs are active; do not report them as Native HOT.
+2026-10-28 REM-03: While DSP remains enabled on a committed track, treat symmetric Seat trim and Legacy Width as same-latency whole-pipeline WARM only when no stateful stage requires continuity. Defer asymmetric Seat trims, Seat delay/polarity/near-speaker/enable changes, Legacy Width while Advanced M/S is active, and width/trim changes while stateful graphs are active; preserve the separate DSP-off crossfade path and do not report these spatial changes as Native HOT.
 
 2026-10-28 T-SAFE-08: Display Limiter threshold as a sample-peak ceiling and explicitly state that True Peak and continuous gain-reduction measurements are unavailable until those measurements are implemented; never label sample peak as True Peak.
 

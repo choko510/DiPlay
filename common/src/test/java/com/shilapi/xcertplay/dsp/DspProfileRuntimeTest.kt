@@ -547,7 +547,10 @@ class DspProfileRuntimeTest {
             modulePresets.saveCurrent(workspace, "bass", presetId, "Night"),
         )
         assertEquals(DspWorkspaceSaveResult.SAVED, workspaceRepository.save(workspace))
-        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName)
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName) { file, bytes ->
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+        }
         val session = runtime.createStudioSessionCoordinator()
         val result = AtomicReference<DspPresetStoreResult?>()
         val complete = CountDownLatch(1)

@@ -624,3 +624,5 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 2026-10-28 REM-04 JNI: A fingerprint only detects post-validation tampering; it does not establish coefficient/config consistency when the JNI bridge constructs a payload. Validate the complete relationship before enqueue, and verify rejection through ACK/deferred tokens plus an output comparison against a reference engine.
 
 2026-10-28 REM-04 JNI: Validate boolean doubles before any cast to `int`; comparison/finite checks after conversion cannot make NaN or out-of-range floating conversion defined. Exercise malformed flags in instrumentation and process a block before checking that rejection had no effect.
+
+2026-10-28 T-LOUD: Separate the resolver's calibration rules from the renderer's latency behavior. A trusted Auto volume change should update only Smart Loudness through HOT; simulated OEM knob movement without an Android stream-index change stays untrusted and must not apply compensation.

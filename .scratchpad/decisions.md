@@ -812,4 +812,6 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 
 2026-10-28 REM-04 JNI review follow-up: Validate the raw Dynamics and Dynamic EQ enable fields before constructing typed configs; C floating-to-integer conversion is undefined for NaN and out-of-range values.
 
+2026-10-28 T-LOUD: Automatic correction remains unavailable unless a route-bound Android stream-volume reading is trustworthy and matches calibration. An unchanged stream index does not infer an OEM/MCU knob change; untrusted or mismatched readings produce zero Auto correction. Smart Loudness parameter toggles remain HOT and preserve the active pipeline's latency.
+
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

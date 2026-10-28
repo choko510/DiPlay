@@ -362,11 +362,11 @@ class DspEqEditorGraphTest {
             down(center)
             up()
         }
-        composeRule.runOnIdle {
-            assertEquals(context.getString(R.string.dsp_eq_selected), bandTwo.fetchSemanticsNode().config[
-                androidx.compose.ui.semantics.SemanticsProperties.StateDescription,
-            ])
-        }
+        composeRule.waitForIdle()
+        assertEquals(
+            context.getString(R.string.dsp_eq_selected),
+            bandTwo.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription],
+        )
 
         bassEnabled.value = true
         composeRule.waitForIdle()
@@ -377,13 +377,16 @@ class DspEqEditorGraphTest {
             moveTo(plot.position(2_000.0, 0.0))
             up()
         }
-        composeRule.runOnIdle {
-            assertEquals(1_000.0, profile.value.eqBands[0].frequencyHz, 0.0)
-            assertTrue(profile.value.eqBands[1].frequencyHz > 1_500.0)
-            assertEquals(context.getString(R.string.dsp_eq_not_selected), bandOne.fetchSemanticsNode().config[
-                androidx.compose.ui.semantics.SemanticsProperties.StateDescription,
-            ])
+        composeRule.waitForIdle()
+        val editedFrequencies = composeRule.runOnIdle {
+            profile.value.eqBands[0].frequencyHz to profile.value.eqBands[1].frequencyHz
         }
+        assertEquals(1_000.0, editedFrequencies.first, 0.0)
+        assertTrue(editedFrequencies.second > 1_500.0)
+        assertEquals(
+            context.getString(R.string.dsp_eq_not_selected),
+            bandOne.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription],
+        )
     }
 
     @Test

@@ -1,5 +1,9 @@
 # Decisions
 
+## Keep per-ID evidence claims at the assertion boundary
+
+For REM-10 rows, name only assertions the mapped method executes. A test that resolves a selected-state resource string does not prove selected `StateDescription` semantics; stored undo/redo snapshot references do not prove redo interaction; and tab scroll restoration does not prove a Macro control is reachable. Keep these subpredicates explicitly open and keep PARTIAL status.
+
 ## Restore only committed Studio state when a runtime is reconstructed
 
 Treat an uncommitted Studio preview as runtime-owned state. When a new runtime is created, restore the persisted workspace and rebuild its effective DSP configuration rather than carrying over the preview. Runtime-reconstruction unit coverage is useful but does not substitute for Android process-death or Activity recreation evidence.

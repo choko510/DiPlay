@@ -1,5 +1,7 @@
 # Lessons
 
+- REM-10 evidence audit: assert that execution commands are copy-paste runnable; put task expansion in result/notes, and keep unrelated acceptance predicates open when a mapped test checks only neighboring state or resources.
+
 - A test that constructs a new runtime in the same JVM can verify persistence restoration and preview discard, but it does not prove Android process-death or Activity lifecycle behavior. Keep those acceptance rows partial until an OS-level test exists.
 
 - Compact navigation can expose five destinations in a narrow Split pane with a horizontally scrollable tab row; Compose UI tests should call `performScrollTo()` before clicking off-screen tabs. Compile Android-test Kotlin separately from connected instrumentation, since compilation alone is not interaction evidence.

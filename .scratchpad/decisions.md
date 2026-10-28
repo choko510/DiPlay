@@ -1,5 +1,9 @@
 # Decisions
 
+## Keep per-ID evidence claims at the assertion boundary
+
+For REM-10 rows, name only assertions the mapped method executes. A test that resolves a selected-state resource string does not prove selected `StateDescription` semantics; stored undo/redo snapshot references do not prove redo interaction; and tab scroll restoration does not prove a Macro control is reachable. Keep these subpredicates explicitly open and keep PARTIAL status.
+
 ## Restore only committed Studio state when a runtime is reconstructed
 
 Treat an uncommitted Studio preview as runtime-owned state. When a new runtime is created, restore the persisted workspace and rebuild its effective DSP configuration rather than carrying over the preview. Runtime-reconstruction unit coverage is useful but does not substitute for Android process-death or Activity recreation evidence.
@@ -797,6 +801,8 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 2026-10-28 REM-07: Keep each §12.2 evidence dimension in its own column. PARTIAL's `Missing evidence` enumerates exactly blank evidence fields while `Unproven predicate` identifies the acceptance criterion still open; a PARTIAL row may have all execution metadata populated if the acceptance remains incomplete.
 
 2026-10-28 REM-07 PH mapping: Associate run #40625689851 only with test methods present at its exact source SHA and tasks that its workflow actually ran. Keep the row `PARTIAL` when mapped assertions cover only a subpredicate, a reviewer is unrecorded, or native/physical evidence is still open; a successful aggregate must not promote acceptance status.
+
+2026-10-28 REM-10 T-UI/T-PRE mapping: Reuse a successful Actions run only for methods present at its source SHA and in a completed matching task. Keep API 35 screen evidence separate from physical CarPlay acceptance, and leave reviewer blank unless a reviewer was recorded.
 
 2026-10-28 REM-05 Native helper: Prepare and fully verify Compressor/Limiter coefficients on the control side; the render-side apply checks a sealed payload fingerprint without recomputing pow/exp. Preserve compressor envelope and limiter gain, defer enable/topology changes and Limiter threshold increases, slew Compressor curve/output gain plus makeup within bounded per-frame steps, and end ACK-pending after the configured frame count regardless of program-level variation.
 

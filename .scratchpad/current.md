@@ -17,6 +17,7 @@
 - The Static Bass JNI expectation, warm-history block-size fixture, and A/B runtime-snapshot race were repaired. Six follow-up P2 findings are recorded as closed in source; no open source-correctable P0/P1 is identified.
 - Runtime fixes include symlink-safe persistence/future-schema backup protection, feature-flag workspace rollback, monotonic process-wide renderer tokens, asynchronous retry scheduling, transient-safe Smart Loudness headroom, and opt-in PEQ/Static Bass LOCAL_WARM. Cabin Correction and IR remain deferred per specification.
 - Updated implementation, test, review, architecture, CI-failure, legacy-field, and field-update docs. Per-ID evidence remains partial; target-device gates are `NOT_RUN`.
+- REM-10 T-PRE/T-UI evidence mapping added 13 directly supported rows at the source SHAs for runs #40625689851 and #40631709640; a follow-up corrected backup-reference, Macro reachability, selected StateDescription, and runnable-command claims. The ledger remains 0 PASS / 153 PARTIAL / 17 NOT_RUN.
 
 ## Next
 

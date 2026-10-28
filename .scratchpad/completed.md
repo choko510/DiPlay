@@ -2,6 +2,10 @@
 
 > Append-only history, grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
+## 2026-10-29
+
+- PR #52 independent-review fixes F-01/F-02 landed in source/test commit `a0cb2d56`: Studio headroom refunds use a 20 ms ramp with exact endpoint and completion ACK fencing; owned Cancel restore requests fail closed when renderer status/ownership is missing or stale. Local Native, Shared/Common 734/734 + 356/356, app lint/Debug/Benchmark builds and JNI/R8 mapping pass. Hosted run #581 passed all required lanes on `a0cb2d56`; TS10/K706/iPhone acceptance remains NOT_RUN.
+
 ## 2026-10-28
 
 - PR #52 remaining-work completion at product source `fbfc3b6e` / evidence-test source `685d4e02`: Preamp HOT state-preservation and lock-free renderer-status fixes pass local Native/Shared/Common tests; local Debug/Benchmark builds, lint, and JNI mapping pass. Final hosted run #407041 passed at PR head `d0abecc5`. Evidence checker passes 170 IDs / 25 packages (2 PASS, 162 PARTIAL, 6 hardware/host-session NOT_RUN); four read-only reviews found no P0/P1. PR #52 remains open/unmerged; PR #45 and `main` are untouched. Physical TS10/K706/iPhone acceptance is still NOT_RUN.

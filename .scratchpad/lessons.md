@@ -6,6 +6,8 @@
 
 - Compact navigation can expose five destinations in a narrow Split pane with a horizontally scrollable tab row; Compose UI tests should call `performScrollTo()` before clicking off-screen tabs. Compile Android-test Kotlin separately from connected instrumentation, since compilation alone is not interaction evidence.
 
+- Native gain-refund coverage must test both entry paths: an already-settled graph can start the ramp at command acceptance, while an unsettled graph must wait until stage ramps finish. Include exact endpoint assertions because repeated float increments can finish slightly below target. For restore ACKs, test missing and replaced owner tokens independently from the explicit no-renderer case.
+
 For graph-level detector tests, vary upstream processing while feeding identical PCM, then compare detector state and audio output separately. The detector should remain stable even when the processed output changes.
 ## Video review fixes — 2026-10-28
 

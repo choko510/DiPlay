@@ -50,6 +50,10 @@ Prepare each enabled Dynamic EQ peak filter with its configured boost/cut cap, m
 
 Use one versioned field mask in the bounded Native HOT mailbox for Studio, Dynamics, and Dynamic EQ payloads. The graph preflights the complete command—including both stateful helpers and current topology—before any stage mutation; a gain-lowering protective ramp completes first, and a gain refund waits for all affected parameter/mix transitions. Compressor/Limiter enable changes, Limiter threshold increases, Dynamic EQ topology changes, and cap increases beyond the prepared filter ceiling remain deferred.
 
+## Make every Studio gain refund sample-continuous and ACK after the ramp
+
+Apply the same 20 ms linear sample ramp whether a headroom refund can begin immediately or must wait for module ramps to settle. Store the requested linear endpoint so floating-point accumulation cannot leave the ramp short, and let the existing graph transition fence hold the Native ACK through its final sample. Keep zero/unknown renderer ownership distinct from an owned restore whose status temporarily disappeared; only the former is ready for the next track, while the latter waits for a same/new owner to prove the committed generation ACTIVE or fails at timeout.
+
 ## Keep EX-08 provenance separate from current decisions
 
 Preserve the upstream catalog original source_review_state as provenance. Treat generated current_review_state and disposition as the present decision layer; NEED_EVIDENCE means a documented requirement remains unresolved, not semantic proof or parity. Report current totals from the generated ledger, never from stale catalog-state counts.

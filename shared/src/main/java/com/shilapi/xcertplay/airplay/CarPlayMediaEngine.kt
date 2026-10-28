@@ -142,6 +142,8 @@ class CarPlayMediaEngine(
 
     private val streams = ConcurrentHashMap<StreamKey, Closeable>()
     private val screenLifecycleLocks = ConcurrentHashMap<Int, Any>()
+    // Serialize owner swaps with keyframe dispatch without blocking media callbacks.
+    private val screenOwnershipLocks = ConcurrentHashMap<Int, Any>()
     private val screenStreamOwners = ConcurrentHashMap<Int, StreamKey>()
     private val audioStates = ConcurrentHashMap<StreamKey, AudioState>()
     private val audioSlots = ConcurrentHashMap<Int, AudioOwnerSlot<AudioState>>()
@@ -161,8 +163,10 @@ class CarPlayMediaEngine(
         val key = outputKey(session, stream) ?: return null
         val streamKey = StreamKey(session, type)
         val callbackLock = screenLifecycleLock(type)
-        return synchronized(callbackLock) {
-            if (session.isClosed) return@synchronized null
+        val ownershipLock = screenOwnershipLock(type)
+        return synchronized(ownershipLock) owner@{
+            synchronized(callbackLock) lifecycle@{
+            if (session.isClosed) return@lifecycle null
             Log.i(TAG, "airplay screen key connectionID=${unsignedPlistDecimal(stream["streamConnectionID"])}")
             val screen = ScreenStream(key, session::logDebug)
             val port = screen.listen(
@@ -176,13 +180,15 @@ class CarPlayMediaEngine(
                         TAG,
                         "screen stream ended type=$type reason=${cause?.message ?: "peer EOF"}",
                     )
-                    val shouldCloseSession = synchronized(callbackLock) {
-                        if (screenStreamOwners[type] == streamKey && streams.remove(streamKey, screen)) {
-                            screenStreamOwners.remove(type, streamKey)
-                            sink.onScreenStreamActive(type, false)
-                            true
-                        } else {
-                            false
+                    val shouldCloseSession = synchronized(ownershipLock) {
+                        synchronized(callbackLock) {
+                            if (screenStreamOwners[type] == streamKey && streams.remove(streamKey, screen)) {
+                                screenStreamOwners.remove(type, streamKey)
+                                sink.onScreenStreamActive(type, false)
+                                true
+                            } else {
+                                false
+                            }
                         }
                     }
                     if (shouldCloseSession) session.close()
@@ -213,6 +219,7 @@ class CarPlayMediaEngine(
                         setupUuid = setupUuid,
                         isCurrent = { screenStreamOwners[type] == streamKey && streams[streamKey] === screen },
                         sendCommand = session::sendCommand,
+                        ownerLock = ownershipLock,
                     )
                 ) {
                     ScreenKeyFrameRequestResult.SENT -> {
@@ -237,6 +244,7 @@ class CarPlayMediaEngine(
                 }
             }
             port
+            }
         }
     }
 
@@ -580,12 +588,14 @@ class CarPlayMediaEngine(
         val streamKey = StreamKey(session, type)
         if (isScreenStreamType(type)) {
             val callbackLock = screenLifecycleLock(type)
-            synchronized(callbackLock) {
-                val stream = streams.remove(streamKey)
-                val wasOwner = screenStreamOwners.remove(type, streamKey)
-                stream?.close()
-                if (wasOwner || screenStreamOwners[type] == null) {
-                    sink.onScreenStreamActive(type, false)
+            synchronized(screenOwnershipLock(type)) {
+                synchronized(callbackLock) {
+                    val stream = streams.remove(streamKey)
+                    val wasOwner = screenStreamOwners.remove(type, streamKey)
+                    stream?.close()
+                    if (wasOwner || screenStreamOwners[type] == null) {
+                        sink.onScreenStreamActive(type, false)
+                    }
                 }
             }
         } else {
@@ -599,13 +609,15 @@ class CarPlayMediaEngine(
         listOf(STREAM_TYPE_MAIN_SCREEN, STREAM_TYPE_ALT_SCREEN).forEach { type ->
             val key = StreamKey(session, type)
             val callbackLock = screenLifecycleLock(type)
-            synchronized(callbackLock) {
-                val screen = streams.remove(key)
-                val wasOwner = screenStreamOwners.remove(type, key)
-                if (wasOwner || (screenStreamOwners[type] == null && screen != null)) {
-                    sink.onScreenStreamActive(key.type, false)
+            synchronized(screenOwnershipLock(type)) {
+                synchronized(callbackLock) {
+                    val screen = streams.remove(key)
+                    val wasOwner = screenStreamOwners.remove(type, key)
+                    if (wasOwner || (screenStreamOwners[type] == null && screen != null)) {
+                        sink.onScreenStreamActive(key.type, false)
+                    }
+                    screen?.close()
                 }
-                screen?.close()
             }
         }
         val sessionStreams = streams.entries.filter { it.key.session === session }.toList()
@@ -833,6 +845,9 @@ class CarPlayMediaEngine(
     private fun screenLifecycleLock(type: Int): Any =
         screenLifecycleLocks.computeIfAbsent(type) { Any() }
 
+    private fun screenOwnershipLock(type: Int): Any =
+        screenOwnershipLocks.computeIfAbsent(type) { Any() }
+
     private fun microphoneConfig(
         session: AirPlaySession,
         type: Int,
@@ -926,17 +941,18 @@ internal fun requestScreenKeyFrame(
     type: Int,
     setupUuid: String?,
     isCurrent: () -> Boolean,
+    ownerLock: Any = Any(),
     sendCommand: (Map<String, Any?>) -> Boolean,
-): ScreenKeyFrameRequestResult {
-    if (!isCurrent()) return ScreenKeyFrameRequestResult.STALE_OWNER
-    val command = screenKeyFrameCommand(type, setupUuid) ?: return if (
+): ScreenKeyFrameRequestResult = synchronized(ownerLock) {
+    if (!isCurrent()) return@synchronized ScreenKeyFrameRequestResult.STALE_OWNER
+    val command = screenKeyFrameCommand(type, setupUuid) ?: return@synchronized if (
         type == AIRPLAY_ALT_SCREEN_TYPE
     ) {
         ScreenKeyFrameRequestResult.MISSING_DISPLAY_UUID
     } else {
         ScreenKeyFrameRequestResult.UNSUPPORTED_STREAM_TYPE
     }
-    return if (sendCommand(command)) {
+    if (sendCommand(command)) {
         ScreenKeyFrameRequestResult.SENT
     } else {
         ScreenKeyFrameRequestResult.SEND_FAILED

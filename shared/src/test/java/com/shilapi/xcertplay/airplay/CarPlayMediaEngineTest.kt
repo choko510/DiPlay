@@ -68,15 +68,15 @@ class CarPlayMediaEngineTest {
 
         assertEquals(
             ScreenKeyFrameRequestResult.MISSING_DISPLAY_UUID,
-            requestScreenKeyFrame(111, null, { true }, send),
+            requestScreenKeyFrame(111, null, { true }, sendCommand = send),
         )
         assertEquals(
             ScreenKeyFrameRequestResult.MISSING_DISPLAY_UUID,
-            requestScreenKeyFrame(111, "  ", { true }, send),
+            requestScreenKeyFrame(111, "  ", { true }, sendCommand = send),
         )
         assertEquals(
             ScreenKeyFrameRequestResult.UNSUPPORTED_STREAM_TYPE,
-            requestScreenKeyFrame(112, "unexpected", { true }, send),
+            requestScreenKeyFrame(112, "unexpected", { true }, sendCommand = send),
         )
         assertTrue(commands.isEmpty())
     }
@@ -88,14 +88,62 @@ class CarPlayMediaEngineTest {
 
         assertEquals(
             ScreenKeyFrameRequestResult.STALE_OWNER,
-            requestScreenKeyFrame(110, null, { false }, send),
+            requestScreenKeyFrame(110, null, { false }, sendCommand = send),
         )
         assertTrue(commands.isEmpty())
         assertEquals(
             ScreenKeyFrameRequestResult.SEND_FAILED,
-            requestScreenKeyFrame(110, null, { true }, send),
+            requestScreenKeyFrame(110, null, { true }, sendCommand = send),
         )
         assertEquals(1, commands.size)
+    }
+
+    @Test
+    fun screenReplacementWaitsForKeyframeDispatchAfterOwnerCheck() {
+        val ownerLock = Any()
+        val isOwner = AtomicBoolean(true)
+        val sendEntered = CountDownLatch(1)
+        val allowSendToFinish = CountDownLatch(1)
+        val replacementFinished = CountDownLatch(1)
+        val result = AtomicReference<ScreenKeyFrameRequestResult>()
+        val request = Thread({
+            result.set(
+                requestScreenKeyFrame(
+                    type = 110,
+                    setupUuid = null,
+                    isCurrent = isOwner::get,
+                    sendCommand = {
+                        sendEntered.countDown()
+                        check(allowSendToFinish.await(5, TimeUnit.SECONDS))
+                        true
+                    },
+                    ownerLock = ownerLock,
+                ),
+            )
+        }, "screen-keyframe-request").apply { isDaemon = true }
+        val replacement = Thread({
+            synchronized(ownerLock) { isOwner.set(false) }
+            replacementFinished.countDown()
+        }, "screen-owner-replacement").apply { isDaemon = true }
+
+        try {
+            request.start()
+            assertTrue(sendEntered.await(5, TimeUnit.SECONDS))
+            replacement.start()
+
+            assertFalse(replacementFinished.await(100, TimeUnit.MILLISECONDS))
+            allowSendToFinish.countDown()
+            assertTrue(replacementFinished.await(5, TimeUnit.SECONDS))
+            request.join(1_000)
+            replacement.join(1_000)
+
+            assertEquals(ScreenKeyFrameRequestResult.SENT, result.get())
+            assertFalse(isOwner.get())
+        } finally {
+            allowSendToFinish.countDown()
+            request.join(1_000)
+            replacement.join(1_000)
+        }
     }
 
     @Test

@@ -78,6 +78,12 @@ class AirPlaySession(
     private val wiredStartupTiming: WiredStartupTiming? = null,
     private val attachGeneration: Long? = null,
 ) : Closeable {
+    private enum class EventCommandWriteResult {
+        SENT,
+        NOT_READY,
+        FAILED,
+    }
+
     internal val wirelessAudio: Boolean
         get() = config.wirelessAudio
 
@@ -191,13 +197,16 @@ class AirPlaySession(
         if (notified.compareAndSet(false, true)) listener.onSessionEnded(this)
     }
 
-    fun sendCommand(command: Map<String, Any?>): Boolean = synchronized(eventWriteLock) {
-        sendCommandLocked(command)
+    fun sendCommand(command: Map<String, Any?>): Boolean {
+        val result = synchronized(eventWriteLock) { sendCommandLocked(command) }
+        // Session teardown runs media lifecycle callbacks, so it must not run under eventWriteLock.
+        if (result == EventCommandWriteResult.FAILED) close()
+        return result == EventCommandWriteResult.SENT
     }
 
-    private fun sendCommandLocked(command: Map<String, Any?>): Boolean {
-        val socket = eventSocket ?: return false
-        val cipher = eventCipher ?: return false
+    private fun sendCommandLocked(command: Map<String, Any?>): EventCommandWriteResult {
+        val socket = eventSocket ?: return EventCommandWriteResult.NOT_READY
+        val cipher = eventCipher ?: return EventCommandWriteResult.NOT_READY
         eventCseq++
         val body = BplistCodec.encode(command)
         val head = "POST /command RTSP/1.0\r\n" +
@@ -210,11 +219,10 @@ class AirPlaySession(
             val output = socket.getOutputStream()
             output.write(bytes)
             output.flush()
-            true
+            EventCommandWriteResult.SENT
         } catch (error: Exception) {
             Log.w(TAG, "airplay event command failed type=${command["type"]} error=${error.javaClass.simpleName}")
-            close()
-            false
+            EventCommandWriteResult.FAILED
         }
     }
 
@@ -276,14 +284,17 @@ class AirPlaySession(
 
         val deadlineNanos = System.nanoTime() + timeoutMillis * NANOS_PER_MILLISECOND
         while (true) {
-            val sent = synchronized(eventWriteLock) {
+            val result = synchronized(eventWriteLock) {
                 if (eventSocket == null || eventCipher == null) {
                     null
                 } else {
                     sendCommandLocked(command)
                 }
             }
-            if (sent != null) return sent
+            if (result != null) {
+                if (result == EventCommandWriteResult.FAILED) close()
+                return result == EventCommandWriteResult.SENT
+            }
             if (closed.get()) return false
 
             val remainingNanos = deadlineNanos - System.nanoTime()
@@ -301,18 +312,22 @@ class AirPlaySession(
         }
     }
 
-    fun setNightMode(night: Boolean): Boolean = synchronized(eventWriteLock) {
-        pendingNightMode = night
-        sendPendingNightModeLocked()
+    fun setNightMode(night: Boolean): Boolean {
+        val result = synchronized(eventWriteLock) {
+            pendingNightMode = night
+            sendPendingNightModeLocked()
+        }
+        if (result == EventCommandWriteResult.FAILED) close()
+        return result == EventCommandWriteResult.SENT
     }
 
-    private fun sendPendingNightModeLocked(): Boolean {
-        val night = pendingNightMode ?: return true
-        val sent = sendCommandLocked(
+    private fun sendPendingNightModeLocked(): EventCommandWriteResult {
+        val night = pendingNightMode ?: return EventCommandWriteResult.SENT
+        val result = sendCommandLocked(
             linkedMapOf("type" to "setNightMode", "params" to linkedMapOf("nightMode" to night)),
         )
-        if (sent) pendingNightMode = null
-        return sent
+        if (result == EventCommandWriteResult.SENT) pendingNightMode = null
+        return result
     }
 
     private fun sendHidReport(uid: Int, report: ByteArray): Boolean =
@@ -746,8 +761,12 @@ class AirPlaySession(
                 32,
             )
             eventCipher = ControlCipher(readKey, writeKey)
-            synchronized(eventWriteLock) {
+            val pendingNightModeResult = synchronized(eventWriteLock) {
                 sendPendingNightModeLocked()
+            }
+            if (pendingNightModeResult == EventCommandWriteResult.FAILED) {
+                close()
+                return
             }
             runEventRead(socket)
         } catch (error: Exception) {

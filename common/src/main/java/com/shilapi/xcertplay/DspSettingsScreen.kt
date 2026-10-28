@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -441,7 +442,7 @@ internal fun DspSettingsScreen(
             finishStudioCancel(operation, true)
             return@LaunchedEffect
         }
-        val deadline = System.currentTimeMillis() + STUDIO_RESTORE_ACK_TIMEOUT_MS
+        val deadline = SystemClock.elapsedRealtime() + STUDIO_RESTORE_ACK_TIMEOUT_MS
         while (isVisible) {
             val status = runtime.configProvider.rendererApplyStatus()
             rendererApplyStatus = status
@@ -449,7 +450,7 @@ internal fun DspSettingsScreen(
                 request = request,
                 status = status,
                 committedWorkspaceActive = runtime.isCommittedStudioWorkspaceActive(),
-                timedOut = System.currentTimeMillis() >= deadline,
+                timedOut = SystemClock.elapsedRealtime() >= deadline,
             )) {
                 DspStudioRestoreAcknowledgement.APPLIED -> {
                     finishStudioCancel(operation, true)

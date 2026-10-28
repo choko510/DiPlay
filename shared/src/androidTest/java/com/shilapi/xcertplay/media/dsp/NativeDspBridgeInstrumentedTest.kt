@@ -71,6 +71,18 @@ class NativeDspBridgeInstrumentedTest {
             assertTrue(mismatchedMakeup.all { it.isFinite() })
             assertEquals(2, NativeDspJni.applyHotConfig(handle,
                 safeUpdate.copy(dynamicsCoefficients = mismatchedMakeup)))
+            val nonFiniteCompressorFlag = safeUpdate.dynamicsValues.copyOf().also { it[0] = Double.NaN }
+            assertEquals(2, NativeDspJni.applyHotConfig(handle,
+                safeUpdate.copy(dynamicsValues = nonFiniteCompressorFlag)))
+            val outOfRangeLimiterFlag = safeUpdate.dynamicsValues.copyOf().also { it[7] = Double.MAX_VALUE }
+            assertEquals(2, NativeDspJni.applyHotConfig(handle,
+                safeUpdate.copy(dynamicsValues = outOfRangeLimiterFlag)))
+            val nonFiniteDynamicEqFlag = safeUpdate.dynamicEqValues.copyOf().also { it[0] = Double.NaN }
+            assertEquals(2, NativeDspJni.applyHotConfig(handle,
+                safeUpdate.copy(dynamicEqValues = nonFiniteDynamicEqFlag)))
+            val outOfRangeDynamicEqBandFlag = safeUpdate.dynamicEqValues.copyOf().also { it[1] = Double.MAX_VALUE }
+            assertEquals(2, NativeDspJni.applyHotConfig(handle,
+                safeUpdate.copy(dynamicEqValues = outOfRangeDynamicEqBandFlag)))
             assertEquals(0, NativeDspJni.hotAckToken(handle))
             assertEquals(0, NativeDspJni.hotDeferredToken(handle))
             referenceHandle = createNativeStudioHandle(format, initial)
@@ -82,6 +94,8 @@ class NativeDspBridgeInstrumentedTest {
                 assertEquals("rejected coefficient update leaves native PCM unchanged at $index",
                     referenceOutput[index], unmodifiedOutput[index], 0.0f)
             }
+            assertEquals(0, NativeDspJni.hotAckToken(handle))
+            assertEquals(0, NativeDspJni.hotDeferredToken(handle))
             assertEquals(0, NativeDspJni.applyHotConfig(handle, safeUpdate))
             assertEquals(0, NativeDspJni.hotAckToken(handle))
             repeat(12) { if (NativeDspJni.hotAckToken(handle) != safeUpdate.generationToken) processBlock() }

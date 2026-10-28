@@ -7,6 +7,10 @@
 #include <stdatomic.h>
 #include <stdint.h>
 
+static int hot_value_is_boolean(double value) {
+    return isfinite(value) && (value == 0.0 || value == 1.0);
+}
+
 #define DSP_HANDLE_SLOT_COUNT 64u
 #define DSP_RESERVED_POINTER ((dsp_engine *)(uintptr_t)1)
 #define DSP_MAX_HANDLE_GENERATION UINT32_C(0x7fffffff)
@@ -591,6 +595,17 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
         release_engine(&lease);
         return DSP_STATUS_INVALID_ARGUMENT;
     }
+    if (!hot_value_is_boolean(dynamics_values_data[0]) || !hot_value_is_boolean(dynamics_values_data[7]) ||
+        !hot_value_is_boolean(dynamic_eq_values_data[0])) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
+        if (!hot_value_is_boolean(dynamic_eq_values_data[1 + band * 10])) {
+            release_engine(&lease);
+            return DSP_STATUS_INVALID_ARGUMENT;
+        }
+    }
     if ((macro_values_data[0] != 0.0 && macro_values_data[0] != 1.0) ||
         !isfinite(macro_values_data[1]) || macro_values_data[1] < -2.0 || macro_values_data[1] > 4.0 ||
         !isfinite(macro_values_data[2]) || macro_values_data[2] < -2.0 || macro_values_data[2] > 2.5 ||
@@ -680,10 +695,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     for (size_t index = 0; index < 10; index++) {
         if (!isfinite(dynamic_eq_coefficients_data[index])) values_are_finite = 0;
     }
-    if (!values_are_finite || (dynamics_values_data[0] != 0.0 && dynamics_values_data[0] != 1.0) ||
-        (dynamics_values_data[7] != 0.0 && dynamics_values_data[7] != 1.0) ||
-        (dynamic_eq_values_data[0] != 0.0 && dynamic_eq_values_data[0] != 1.0) ||
-        !dsp_dynamics_hot_params_validate(&dynamics_params) ||
+    if (!values_are_finite || !dsp_dynamics_hot_params_validate(&dynamics_params) ||
         !dsp_dynamic_eq_prepare_hot_update_with_coefficients(sample_rate, &dynamic_eq_config,
             attack_coefficients, release_coefficients, &dynamic_eq_update)) {
         release_engine(&lease);

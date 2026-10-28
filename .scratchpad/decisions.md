@@ -802,4 +802,6 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 
 2026-10-28 REM-04 JNI follow-up: Run the full Dynamics HOT validator before enqueuing at the JNI boundary. The prepared-only validator is insufficient there because it accepts finite, in-range coefficients without proving they match the config and sample rate.
 
+2026-10-28 REM-04 JNI review follow-up: Validate the raw Dynamics and Dynamic EQ enable fields before constructing typed configs; C floating-to-integer conversion is undefined for NaN and out-of-range values.
+
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

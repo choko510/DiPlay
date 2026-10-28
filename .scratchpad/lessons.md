@@ -616,3 +616,5 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 2026-10-28 REM-04: For a combined HOT snapshot, a pure preflight per stateful stage must run before any Studio, Dynamics, Dynamic EQ, or gain mutation. Keep the command in the existing mailbox while protective attenuation ramps; refund headroom and ACK only after every affected bounded transition settles. Dynamic EQ ACK timing must use its own fixed processed-frame countdown, not detector convergence or the continually moving control-tick counter.
 
 2026-10-28 REM-04 JNI: A fingerprint only detects post-validation tampering; it does not establish coefficient/config consistency when the JNI bridge constructs a payload. Validate the complete relationship before enqueue, and verify rejection through ACK/deferred tokens plus an output comparison against a reference engine.
+
+2026-10-28 REM-04 JNI: Validate boolean doubles before any cast to `int`; comparison/finite checks after conversion cannot make NaN or out-of-range floating conversion defined. Exercise malformed flags in instrumentation and process a block before checking that rejection had no effect.

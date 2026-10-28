@@ -4,6 +4,7 @@ import android.content.res.Configuration
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -39,6 +40,7 @@ import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.File
 import java.util.Locale
+import kotlin.math.ln
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -147,6 +149,93 @@ class DspSettingsScreenTest {
             tabs.forEach { tab -> assertEquals(20, visits[tab]) }
         } finally {
             runtime.closeForTesting()
+        }
+    }
+
+    @Test
+    fun peqGraphDragCommitsOneUndoStepAndFlushesTheFinalDraftValue() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-eq-graph-undo-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        try {
+            restoreCommittedWorkspace(runtime)
+            val studioSession = runtime.createStudioSessionCoordinator()
+            val originalBand = runtime.editorSession.draftProfile.eqBands.first()
+            val rateHz = runtime.activePlaybackSampleRateHz() ?: 44_100
+            val maxFrequencyHz = minOf(20_000.0, rateHz * 0.45)
+            val targetHz = if (originalBand.frequencyHz < maxFrequencyHz / 1.5) {
+                originalBand.frequencyHz * 1.5
+            } else {
+                originalBand.frequencyHz / 1.5
+            }
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        presentation = DspPresentationMode.COMPACT_SPLIT,
+                        onBack = {},
+                    )
+                }
+            }
+
+            composeRule.onNodeWithContentDescription(context.getString(DspStudioTab.EQ.labelRes)).performClick()
+            val graph = composeRule.onNodeWithContentDescription(
+                context.getString(R.string.dsp_eq_graph_description, maxFrequencyHz.toInt(), rateHz),
+            )
+            graph.performScrollTo()
+            val bounds = graph.fetchSemanticsNode().boundsInRoot
+            val density = context.resources.displayMetrics.density
+            val plotLeft = 30f * density
+            val plotRight = bounds.width - 4f * density
+            val plotTop = 4f * density
+            val plotBottom = bounds.height - 18f * density
+            fun position(frequencyHz: Double, gainDb: Double): Offset = Offset(
+                plotLeft + (plotRight - plotLeft) *
+                    (ln(frequencyHz / 20.0) / ln(maxFrequencyHz / 20.0)).toFloat(),
+                plotTop + (plotBottom - plotTop) * ((18.0 - gainDb) / 36.0).toFloat(),
+            )
+            graph.performTouchInput {
+                down(position(originalBand.frequencyHz, originalBand.gainDb))
+                moveTo(position(targetHz, originalBand.gainDb))
+                up()
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                kotlin.math.abs(runtime.editorSession.draftProfile.eqBands.first().frequencyHz - targetHz) / targetHz < 0.04
+            }
+            composeRule.waitUntil(timeoutMillis = 5_000) { studioSession.canUndo }
+            composeRule.waitUntil(timeoutMillis = 15_000) {
+                kotlin.math.abs(runtime.configProvider.snapshot().peqBands.first().frequencyHz - targetHz) / targetHz < 0.04
+            }
+            val finalDraftHz = runtime.editorSession.draftProfile.eqBands.first().frequencyHz
+            assertTrue(kotlin.math.abs(finalDraftHz - targetHz) / targetHz < 0.04)
+            assertFalse(
+                "No-media preview must not be reported as an active renderer ACK",
+                runtime.configProvider.rendererApplyStatus()?.phase == DspRendererApplyPhase.ACTIVE,
+            )
+
+            composeRule.onNodeWithContentDescription(context.getString(DspStudioTab.STUDIO.labelRes)).performClick()
+            composeRule.onNodeWithText("Undo").performScrollTo().assertIsEnabled().performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                runtime.editorSession.draftProfile.eqBands.first().frequencyHz == originalBand.frequencyHz
+            }
+            assertFalse(studioSession.canUndo)
+        } finally {
+            try {
+                restoreCommittedWorkspace(runtime)
+            } finally {
+                runtime.closeForTesting()
+                preferences.edit().clear().commit()
+                filesDirectory.deleteRecursively()
+            }
         }
     }
 

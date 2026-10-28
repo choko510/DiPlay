@@ -56,7 +56,7 @@
     <string name="dsp_eq_band_gain">PEQ band %1$d gain</string>
     <string name="dsp_eq_band_gain_numeric">PEQ band %1$d gain (dB)</string>
     <string name="dsp_eq_band_q">PEQ band %1$d Q</string>
-    <string name="dsp_eq_graph_description">Predicted response graph for PEQ + Cabin, Macro + Smart Loudness, and their combined curve. Frequency 20 Hz to %1$d Hz at %2$d Hz sample rate; gain −18 dB to +18 dB. Dynamic Bass and stereo width are not included. Tap or drag a band handle to edit.</string>
+    <string name="dsp_eq_graph_description">Predicted linear-approximation response graph for Preamp + PEQ + Cabin, Macro + Smart Loudness, and their combined curve. Frequency 20 Hz to %1$d Hz at %2$d Hz sample rate; gain −18 dB to +18 dB. Dynamic Bass, stereo width, Mid/Side, Convolver, Harmonic and Seat processing are not included. Tap or drag a band handle to edit.</string>
     <string name="dsp_eq_toggle_sign">Toggle sign for %1$s</string>
     <string name="dsp_eq_filter_type_summary">Filter type · %1$s</string>
     <string name="dsp_eq_filter_peak">Peak</string>
@@ -329,12 +329,12 @@
     <string name="dsp_eq_editor_heading">Parametric EQ · %1$s/%2$s active · %3$s Cabin bands · %4$s</string>
     <string name="dsp_eq_playback_rate_active">Playback rate %1$d Hz</string>
     <string name="dsp_eq_playback_rate_unknown">Playback rate unknown; preview at %1$d Hz</string>
-    <string name="dsp_eq_predicted_response">Predicted static response (not measured) · PEQ + Cabin + Macro + Smart Loudness · 20–%1$d Hz · playback rate %2$d Hz</string>
-    <string name="dsp_eq_curve_peq">PEQ + Cabin</string>
+    <string name="dsp_eq_predicted_response">Predicted static linear approximation (not measured) · Preamp + PEQ + Cabin + Macro + Smart Loudness · 20–%1$d Hz · playback rate %2$d Hz</string>
+    <string name="dsp_eq_curve_peq">Preamp + PEQ + Cabin</string>
     <string name="dsp_eq_curve_tone">Macro + Smart Loudness</string>
     <string name="dsp_eq_curve_combined">Combined prediction</string>
-    <string name="dsp_eq_stereo_width_excluded">Stereo width and Seat processing are not included in this static curve.</string>
-    <string name="dsp_eq_dynamic_bass_excluded">Dynamic Bass changes over time and is not included in this static curve.</string>
+    <string name="dsp_eq_stereo_width_excluded">Stereo width, Mid/Side, Convolver, Harmonic and Seat processing are not included in this static curve.</string>
+    <string name="dsp_eq_dynamic_bass_excluded">Dynamic Bass varies with playback level and time and is not included in this static curve.</string>
     <string name="dsp_eq_select_band">Select PEQ band %1$d</string>
     <string name="dsp_eq_selected">Selected</string>
     <string name="dsp_eq_not_selected">Not selected</string>

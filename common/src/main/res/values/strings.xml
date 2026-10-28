@@ -9,12 +9,12 @@
     <string name="dsp_eq_editor_heading">Parametric EQ · 有効 %1$s/%2$s · Cabin EQ %3$sバンド · %4$s</string>
     <string name="dsp_eq_playback_rate_active">再生レート %1$d Hz</string>
     <string name="dsp_eq_playback_rate_unknown">再生レート不明。%1$d Hzでプレビュー</string>
-    <string name="dsp_eq_predicted_response">予測した静的応答（実測ではありません）· PEQ + Cabin + Macro + Smart Loudness · 20–%1$d Hz · 再生レート %2$d Hz</string>
-    <string name="dsp_eq_curve_peq">PEQ + Cabin</string>
+    <string name="dsp_eq_predicted_response">予測した静的な線形近似（実測ではありません）· Preamp + PEQ + Cabin + Macro + Smart Loudness · 20–%1$d Hz · 再生レート %2$d Hz</string>
+    <string name="dsp_eq_curve_peq">Preamp + PEQ + Cabin</string>
     <string name="dsp_eq_curve_tone">Macro + Smart Loudness</string>
     <string name="dsp_eq_curve_combined">合成予測</string>
-    <string name="dsp_eq_stereo_width_excluded">ステレオ幅やSeat処理はこの静的カーブに含みません。</string>
-    <string name="dsp_eq_dynamic_bass_excluded">Dynamic Bassは時間変化するため静的カーブに含めません。</string>
+    <string name="dsp_eq_stereo_width_excluded">ステレオ幅、M/S、Convolver、Harmonic、Seat処理はこの静的カーブに含みません。</string>
+    <string name="dsp_eq_dynamic_bass_excluded">Dynamic Bassは再生レベルと時間で変化するため静的カーブに含めません。</string>
     <string name="dsp_eq_select_band">PEQバンド%1$dを選択</string>
     <string name="dsp_eq_selected">選択中</string>
     <string name="dsp_eq_not_selected">未選択</string>

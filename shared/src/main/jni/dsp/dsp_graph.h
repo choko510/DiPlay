@@ -23,6 +23,13 @@
 
 #define DSP_GRAPH_HOT_APPLIED 1
 #define DSP_GRAPH_HOT_DEFERRED 2
+#define DSP_GRAPH_HOT_PROTECTIVE_RAMP 3
+#define DSP_GRAPH_HOT_DEFERRED_DYNAMICS 4
+#define DSP_GRAPH_HOT_DEFERRED_DYNAMIC_EQ_CAP 5
+#define DSP_GRAPH_HOT_REJECTED 6
+#define DSP_ENGINE_HOT_FIELD_STUDIO 1u
+#define DSP_ENGINE_HOT_FIELD_DYNAMICS 2u
+#define DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ 4u
 
 typedef struct {
     _Atomic unsigned long long sequence;
@@ -94,6 +101,27 @@ int dsp_graph_apply_studio_hot(
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);
+int dsp_graph_preflight_hot(
+    const dsp_graph *graph,
+    uint32_t field_mask,
+    double gain_db,
+    double gain_linear,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config,
+    const dsp_dynamics_hot_params *dynamics_params,
+    const dsp_dynamic_eq_hot_update *dynamic_eq_update);
+int dsp_graph_apply_hot(
+    dsp_graph *graph,
+    uint32_t field_mask,
+    double gain_db,
+    double gain_linear,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config,
+    const dsp_dynamics_hot_params *dynamics_params,
+    const dsp_dynamic_eq_hot_update *dynamic_eq_update);
+int dsp_graph_hot_transition_pending(const dsp_graph *graph);
 int dsp_graph_apply_preamp_hot(dsp_graph *graph, double gain_db, double gain_linear);
 int dsp_graph_prepare_local_peq(
     const dsp_graph *graph,

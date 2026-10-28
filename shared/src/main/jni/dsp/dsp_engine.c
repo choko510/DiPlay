@@ -31,6 +31,8 @@ struct dsp_engine {
     _Atomic uint32_t hot_write_index;
     _Atomic uint32_t hot_read_index;
     _Atomic uint32_t hot_ack_token;
+    _Atomic uint32_t hot_deferred_token;
+    _Atomic uint32_t hot_deferred_reason;
     uint32_t active_hot_ack_token;
     uint32_t active_hot_context_token;
     int active_hot_ack_after_ramp;
@@ -139,6 +141,8 @@ dsp_engine *dsp_engine_create_with_studio(
     atomic_init(&engine->hot_write_index, 0);
     atomic_init(&engine->hot_read_index, 0);
     atomic_init(&engine->hot_ack_token, 0);
+    atomic_init(&engine->hot_deferred_token, 0);
+    atomic_init(&engine->hot_deferred_reason, 0);
     atomic_init(&engine->local_peq_write_index, 0);
     atomic_init(&engine->local_peq_read_index, 0);
     atomic_init(&engine->local_peq_ack_token, 0);
@@ -243,11 +247,17 @@ int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_updat
             return 0;
         }
     } else if (update->payload_kind != DSP_ENGINE_HOT_KIND_STUDIO ||
-        !dsp_graph_studio_hot_config_is_valid(
+        update->hot_version != 1 ||
+        update->field_mask == 0 || (update->field_mask & ~7u) != 0 ||
+        (((update->field_mask & DSP_ENGINE_HOT_FIELD_STUDIO) != 0) && !dsp_graph_studio_hot_config_is_valid(
             update->gain_db,
             &update->macro,
             &update->smart_loudness,
-            &update->dynamic_bass) || update->gain_pair_validated != 1 ||
+            &update->dynamic_bass)) ||
+        (((update->field_mask & DSP_ENGINE_HOT_FIELD_DYNAMICS) != 0) &&
+            (update->dynamics.validation_token == 0 || update->dynamics.sample_rate != engine->sample_rate)) ||
+        (((update->field_mask & DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ) != 0) &&
+            update->dynamic_eq.sample_rate != engine->sample_rate) || update->gain_pair_validated != 1 ||
         !isfinite(update->gain_linear) || update->gain_linear < 1.0e-35 ||
         update->gain_linear > 15.84893193) return 0;
     const uint32_t write_index = atomic_load_explicit(&engine->hot_write_index, memory_order_relaxed);
@@ -255,6 +265,8 @@ int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_updat
     if ((uint32_t)(write_index - read_index) >= DSP_HOT_UPDATE_QUEUE_CAPACITY) return 0;
     engine->hot_updates[write_index % DSP_HOT_UPDATE_QUEUE_CAPACITY] = *update;
     atomic_store_explicit(&engine->hot_ack_token, 0, memory_order_relaxed);
+    atomic_store_explicit(&engine->hot_deferred_token, 0, memory_order_relaxed);
+    atomic_store_explicit(&engine->hot_deferred_reason, 0, memory_order_relaxed);
     atomic_store_explicit(&engine->local_peq_ack_token, 0, memory_order_relaxed);
     atomic_store_explicit(&engine->hot_write_index, write_index + 1, memory_order_release);
     atomic_store_explicit(&engine->hot_last_generation, update->generation, memory_order_release);
@@ -442,6 +454,16 @@ uint32_t dsp_engine_get_hot_ack_token(const dsp_engine *engine) {
 uint32_t dsp_engine_get_preamp_ack_token(const dsp_engine *engine) {
     if (!engine_is_prepared(engine)) return 0;
     return atomic_load_explicit(&engine->hot_ack_token, memory_order_acquire);
+}
+
+uint32_t dsp_engine_get_hot_deferred_token(const dsp_engine *engine) {
+    return engine_is_prepared(engine)
+        ? atomic_load_explicit(&engine->hot_deferred_token, memory_order_acquire) : 0;
+}
+
+uint32_t dsp_engine_get_hot_deferred_reason(const dsp_engine *engine) {
+    return engine_is_prepared(engine)
+        ? atomic_load_explicit(&engine->hot_deferred_reason, memory_order_acquire) : 0;
 }
 
 uint32_t dsp_engine_get_local_peq_ack_token(const dsp_engine *engine) {
@@ -639,16 +661,25 @@ dsp_status dsp_engine_process(
             hot_read_index++;
             continue;
         }
-        const int studio_hot_result = dsp_graph_apply_studio_hot(
+        const int studio_hot_result = dsp_graph_apply_hot(
                 &engine->graph,
+                update->field_mask,
                 update->gain_db,
                 update->gain_linear,
                 &update->macro,
                 &update->smart_loudness,
-                &update->dynamic_bass);
-        if (studio_hot_result == DSP_GRAPH_HOT_DEFERRED) break;
+                &update->dynamic_bass,
+                &update->dynamics,
+                &update->dynamic_eq);
+        if (studio_hot_result == DSP_GRAPH_HOT_PROTECTIVE_RAMP) break;
+        if (studio_hot_result != DSP_GRAPH_HOT_APPLIED) {
+            atomic_store_explicit(&engine->hot_deferred_reason, (uint32_t)studio_hot_result, memory_order_relaxed);
+            atomic_store_explicit(&engine->hot_deferred_token, update->generation_token, memory_order_release);
+            hot_read_index++;
+            continue;
+        }
         if (studio_hot_result == DSP_GRAPH_HOT_APPLIED) {
-            if (engine->graph.gain.ramp_remaining > 0) {
+            if (dsp_graph_hot_transition_pending(&engine->graph)) {
                 engine->active_hot_ack_token = update->generation_token;
                 engine->active_hot_context_token = update->hot_context_token;
                 engine->active_hot_ack_after_ramp = 1;
@@ -690,7 +721,7 @@ dsp_status dsp_engine_process(
         atomic_store_explicit(&engine->hot_ack_token, processed_hot_token, memory_order_release);
     }
     if (engine->active_hot_ack_token != 0 && engine->active_hot_ack_after_ramp &&
-        engine->graph.gain.ramp_remaining == 0 && engine->active_hot_context_token == atomic_load_explicit(
+        !dsp_graph_hot_transition_pending(&engine->graph) && engine->active_hot_context_token == atomic_load_explicit(
             &engine->hot_context_token, memory_order_acquire)) {
         if (engine->active_hot_ack_token == hot_generation_token(atomic_load_explicit(
                 &engine->hot_last_generation, memory_order_acquire))) {

@@ -36,6 +36,10 @@ Capture finite-checked PCM before gain or graph stages and pass it separately to
 
 Prepare each enabled Dynamic EQ peak filter with its configured boost/cut cap, matching the existing transfer function exactly. A Native HOT update may lower the active cap while retaining that filter and its detector delay, envelope, and current mix; it schedules target recalculation on the next frame and ramps from the retained mix. A cap above the prepared filter's range returns `DEFERRED` without mutation. This adds only a Native helper; renderer/JNI mailbox wiring must remain a separate integration step.
 
+## Keep Dynamics and Dynamic EQ HOT on the existing fenced mailbox
+
+Use one versioned field mask in the bounded Native HOT mailbox for Studio, Dynamics, and Dynamic EQ payloads. The graph preflights the complete command—including both stateful helpers and current topology—before any stage mutation; a gain-lowering protective ramp completes first, and a gain refund waits for all affected parameter/mix transitions. Compressor/Limiter enable changes, Limiter threshold increases, Dynamic EQ topology changes, and cap increases beyond the prepared filter ceiling remain deferred.
+
 ## Keep EX-08 provenance separate from current decisions
 
 Preserve the upstream catalog original source_review_state as provenance. Treat generated current_review_state and disposition as the present decision layer; NEED_EVIDENCE means a documented requirement remains unresolved, not semantic proof or parity. Report current totals from the generated ledger, never from stale catalog-state counts.
@@ -803,5 +807,9 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 2026-10-28 REM-05 Native helper: Prepare and fully verify Compressor/Limiter coefficients on the control side; the render-side apply checks a sealed payload fingerprint without recomputing pow/exp. Preserve compressor envelope and limiter gain, defer enable/topology changes and Limiter threshold increases, slew Compressor curve/output gain plus makeup within bounded per-frame steps, and end ACK-pending after the configured frame count regardless of program-level variation.
 
 2026-10-28 REM-04 Save/Cancel: Advance request generations atomically without waiting on persistence. Write the workspace to AtomicFile's temporary path, then check the generation immediately before `finishWrite` as the linearization point: an earlier Cancel aborts via `failWrite`; a later Cancel restores the workspace that committed first. Do not hold a monitor across workspace file I/O on the UI path.
+
+2026-10-28 REM-04 JNI follow-up: Run the full Dynamics HOT validator before enqueuing at the JNI boundary. The prepared-only validator is insufficient there because it accepts finite, in-range coefficients without proving they match the config and sample rate.
+
+2026-10-28 REM-04 JNI review follow-up: Validate the raw Dynamics and Dynamic EQ enable fields before constructing typed configs; C floating-to-integer conversion is undefined for NaN and out-of-range values.
 
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

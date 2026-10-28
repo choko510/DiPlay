@@ -132,8 +132,29 @@ int dsp_dynamic_eq_prepare_hot_update(
     return 1;
 }
 
-dsp_dynamic_eq_hot_update_result dsp_dynamic_eq_apply_hot_update(
-    dsp_dynamic_eq *dynamic_eq,
+int dsp_dynamic_eq_prepare_hot_update_with_coefficients(
+    int sample_rate,
+    const dsp_dynamic_eq_config *config,
+    const float *attack_coefficients,
+    const float *release_coefficients,
+    dsp_dynamic_eq_hot_update *update) {
+    if (!sample_rate_is_valid(sample_rate) || config == NULL || attack_coefficients == NULL ||
+        release_coefficients == NULL || update == NULL || (config->enabled != 0 && config->enabled != 1)) return 0;
+    dsp_dynamic_eq_hot_update prepared = { .sample_rate = sample_rate, .config = *config };
+    for (size_t index = 0; index < DSP_DYNAMIC_EQ_MAX_BANDS; index++) {
+        if (!band_config_is_valid(&config->bands[index]) || !isfinite(attack_coefficients[index]) ||
+            attack_coefficients[index] < 0.0f || attack_coefficients[index] >= 1.0f ||
+            !isfinite(release_coefficients[index]) || release_coefficients[index] < 0.0f ||
+            release_coefficients[index] >= 1.0f) return 0;
+        prepared.attack_coefficients[index] = attack_coefficients[index];
+        prepared.release_coefficients[index] = release_coefficients[index];
+    }
+    *update = prepared;
+    return 1;
+}
+
+dsp_dynamic_eq_hot_update_result dsp_dynamic_eq_can_apply_hot_update(
+    const dsp_dynamic_eq *dynamic_eq,
     const dsp_dynamic_eq_hot_update *update) {
     if (dynamic_eq == NULL || update == NULL || !sample_rate_is_valid(dynamic_eq->sample_rate) ||
         update->sample_rate != dynamic_eq->sample_rate ||
@@ -164,6 +185,15 @@ dsp_dynamic_eq_hot_update_result dsp_dynamic_eq_apply_hot_update(
     }
     if (exceeds_prepared_peak) return DSP_DYNAMIC_EQ_HOT_UPDATE_DEFERRED;
 
+    return DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED;
+}
+
+dsp_dynamic_eq_hot_update_result dsp_dynamic_eq_apply_hot_update(
+    dsp_dynamic_eq *dynamic_eq,
+    const dsp_dynamic_eq_hot_update *update) {
+    const dsp_dynamic_eq_hot_update_result preflight =
+        dsp_dynamic_eq_can_apply_hot_update(dynamic_eq, update);
+    if (preflight != DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED) return preflight;
     dynamic_eq->config = update->config;
     for (size_t index = 0; index < DSP_DYNAMIC_EQ_MAX_BANDS; index++) {
         dsp_dynamic_eq_band *band = &dynamic_eq->bands[index];
@@ -177,6 +207,8 @@ dsp_dynamic_eq_hot_update_result dsp_dynamic_eq_apply_hot_update(
         band->release_coefficient = update->release_coefficients[index];
         /* Recalculate the mix target next frame without changing the current mix. */
         band->frames_until_control = 0;
+        band->hot_transition_remaining = dynamic_eq->config.enabled && band->config.enabled
+            ? DSP_DYNAMIC_EQ_CONTROL_FRAMES : 0;
     }
     return DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED;
 }
@@ -192,6 +224,7 @@ void dsp_dynamic_eq_reset(dsp_dynamic_eq *dynamic_eq) {
         band->target_mix = 0.0f;
         band->mix_step = 0.0f;
         band->frames_until_control = 0;
+        band->hot_transition_remaining = 0;
     }
 }
 
@@ -256,7 +289,16 @@ void dsp_dynamic_eq_process_frame(dsp_dynamic_eq *dynamic_eq, float *left, float
             const float filtered_right = dsp_biquad_process_sample(&band->filter, source_right, 1);
             *right = source_right + band->current_mix * (filtered_right - source_right);
         }
+        if (band->hot_transition_remaining > 0) band->hot_transition_remaining--;
     }
+}
+
+int dsp_dynamic_eq_hot_transition_pending(const dsp_dynamic_eq *dynamic_eq) {
+    if (dynamic_eq == NULL) return 0;
+    for (size_t index = 0; index < DSP_DYNAMIC_EQ_MAX_BANDS; index++) {
+        if (dynamic_eq->bands[index].hot_transition_remaining > 0) return 1;
+    }
+    return 0;
 }
 
 void dsp_dynamic_eq_flush_denormals(dsp_dynamic_eq *dynamic_eq) {

@@ -40,6 +40,7 @@ import com.shilapi.xcertplay.media.dsp.DspPcmConverter
 import com.shilapi.xcertplay.media.dsp.DspPcmPipeline
 import com.shilapi.xcertplay.media.dsp.DspTpdfDither
 import com.shilapi.xcertplay.media.dsp.DspPreparedUpdate
+import com.shilapi.xcertplay.media.dsp.DspPreparedHotUpdate
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyWarning
@@ -2543,6 +2544,18 @@ internal class AudioRenderer(
                         studioLocalWarmEnabled = dspConfigProvider.studioLocalWarmEnabled(),
                     ) == DspUpdatePlan.HOT
                 ) {
+                    val changedFields = DspUpdatePlanner.diff(current, snapshot.config)
+                    val hotFieldMask = (if (changedFields.any { it in setOf(
+                            DspRuntimeField.MACRO_TONE,
+                            DspRuntimeField.SMART_LOUDNESS,
+                            DspRuntimeField.DYNAMIC_BASS,
+                        ) }) DspPreparedHotUpdate.HOT_FIELD_STUDIO else 0) or
+                        (if (DspRuntimeField.COMPRESSOR in changedFields || DspRuntimeField.LIMITER in changedFields) {
+                            DspPreparedHotUpdate.HOT_FIELD_DYNAMICS
+                        } else 0) or
+                        (if (DspRuntimeField.DYNAMIC_EQ in changedFields) {
+                            DspPreparedHotUpdate.HOT_FIELD_DYNAMIC_EQ
+                        } else 0)
                     snapshot.config.prepareHotUpdate(
                         candidateFormat,
                         snapshot.generation,
@@ -2551,6 +2564,7 @@ internal class AudioRenderer(
                         pcmFormatEpoch = pcmFormatEpoch,
                         hotContextToken = hotBoundContextToken,
                         mediaRole = classification.dspRole == DspStreamRole.MEDIA,
+                        hotFieldMask = hotFieldMask,
                     )
                 } else {
                     null
@@ -3341,6 +3355,19 @@ internal class AudioRenderer(
         val preampHotUpdate = update.preampHotUpdate
         val localPeqWarmUpdate = update.localPeqWarmUpdate
         if (pipeline !== pending.pipeline || pipeline !== dspPipeline) return
+        if (hotUpdate != null && pipeline.hotDeferredToken() == hotUpdate.generationToken) {
+            if (!pendingHotApply.compareAndSet(pending, null)) return
+            deferredDspGeneration = update.generation
+            val reason = when (pipeline.hotDeferredReason()) {
+                4 -> if ((hotUpdate.hotFieldMask and DspPreparedHotUpdate.HOT_FIELD_DYNAMICS) != 0) {
+                    "COMPRESSOR/LIMITER Native HOT preflight deferred; active dynamics state was retained"
+                } else "Native HOT dynamics preflight deferred; active graph was retained"
+                5 -> "DYNAMIC_EQ maxBoost/maxCut increase exceeds the prepared filter ceiling; active filter state was retained"
+                else -> "Native HOT command failed full-command preflight; no stage mutation was applied"
+            }
+            reportDspApplyStatus(prepared.deferredStatus.copy(reason = reason))
+            return
+        }
         if (localPeqWarmUpdate != null && pipeline.hasRejected(localPeqWarmUpdate)) {
             if (pendingHotApply.compareAndSet(pending, null)) {
                 val latestGeneration = runCatching { dspConfigProvider.versionedSnapshot().generation }

@@ -889,6 +889,126 @@ static void test_dynamics_hot_params_preserve_state_and_validate_atomically(void
         "deferred limiter disable leaves active state unchanged");
 }
 
+static void test_combined_dynamics_dynamic_eq_hot_preflights_before_any_mutation(void) {
+    dsp_dynamics_config current_dynamics = bypass_dynamics;
+    current_dynamics.compressor_enabled = 1;
+    dsp_dynamic_eq_config current_eq = bypass_dynamic_eq;
+    current_eq.enabled = 1;
+    current_eq.bands[0].enabled = 1;
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    dsp_graph graph = {0};
+    assert_true(dsp_graph_prepare(&graph, 48000, 2, -6.0, NULL, 0, &current_dynamics,
+        &bypass_multiband, &current_eq, NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver,
+        &bypass_harmonic, &macro, &loudness, &dynamic_bass), "combined HOT preflight graph prepares");
+    graph.dynamics.compressor_envelope = 0.375f;
+    graph.dynamic_eq.bands[0].envelope = 0.25f;
+    graph.dynamic_eq.bands[0].filter.z1[0] = 0.125f;
+    const dsp_dynamics before_dynamics = graph.dynamics;
+    const dsp_dynamic_eq before_eq = graph.dynamic_eq;
+    const dsp_gain before_gain = graph.gain;
+    const dsp_macro before_macro = graph.macro;
+    const dsp_smart_loudness before_loudness = graph.smart_loudness;
+    const dsp_dynamic_bass before_bass = graph.dynamic_bass;
+    const dsp_macro_config target_macro = {1, 1.0, 0.5, 0.25, 1.2};
+
+    dsp_dynamics_config safe_dynamics = current_dynamics;
+    safe_dynamics.compressor_threshold_db = -28.0;
+    dsp_dynamics_hot_params dynamics_update = {0};
+    assert_true(dsp_dynamics_prepare_hot_params(48000, &safe_dynamics, &dynamics_update),
+        "safe Dynamics HOT payload prepares");
+    dsp_dynamic_eq_config unsafe_eq = current_eq;
+    unsafe_eq.bands[0].frequency_hz = 125.0;
+    dsp_dynamic_eq_hot_update eq_update = {0};
+    assert_true(dsp_dynamic_eq_prepare_hot_update(48000, &unsafe_eq, &eq_update),
+        "unsafe topology payload is structurally valid");
+    assert_true(dsp_graph_apply_hot(&graph,
+        DSP_ENGINE_HOT_FIELD_STUDIO | DSP_ENGINE_HOT_FIELD_DYNAMICS | DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ,
+        -8.0, pow(10.0, -8.0 / 20.0), &target_macro, &loudness, &dynamic_bass,
+        &dynamics_update, &eq_update) == DSP_GRAPH_HOT_REJECTED,
+        "safe Dynamics plus unsafe Dynamic EQ topology rejects as one command");
+    assert_true(memcmp(&graph.dynamics, &before_dynamics, sizeof(before_dynamics)) == 0,
+        "unsafe Dynamic EQ topology leaves compressor configuration and envelope unchanged");
+    assert_true(memcmp(&graph.dynamic_eq, &before_eq, sizeof(before_eq)) == 0,
+        "unsafe Dynamic EQ topology leaves filter and envelope unchanged");
+    assert_true(memcmp(&graph.gain, &before_gain, sizeof(before_gain)) == 0,
+        "unsafe mixed command leaves protective gain unchanged");
+    assert_true(memcmp(&graph.macro, &before_macro, sizeof(before_macro)) == 0 &&
+        memcmp(&graph.smart_loudness, &before_loudness, sizeof(before_loudness)) == 0 &&
+        memcmp(&graph.dynamic_bass, &before_bass, sizeof(before_bass)) == 0,
+        "unsafe Dynamic EQ leaves all pre-existing Studio stages unchanged");
+
+    dsp_dynamics_config unsafe_dynamics = safe_dynamics;
+    unsafe_dynamics.compressor_enabled = 0;
+    assert_true(dsp_dynamics_prepare_hot_params(48000, &unsafe_dynamics, &dynamics_update),
+        "unsafe compressor topology payload prepares structurally");
+    dsp_dynamic_eq_config safe_eq = current_eq;
+    safe_eq.bands[0].threshold_db = -30.0;
+    assert_true(dsp_dynamic_eq_prepare_hot_update(48000, &safe_eq, &eq_update),
+        "safe Dynamic EQ parameter payload prepares");
+    assert_true(dsp_graph_apply_hot(&graph,
+        DSP_ENGINE_HOT_FIELD_STUDIO | DSP_ENGINE_HOT_FIELD_DYNAMICS | DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ,
+        -8.0, pow(10.0, -8.0 / 20.0), &target_macro, &loudness, &dynamic_bass,
+        &dynamics_update, &eq_update) == DSP_GRAPH_HOT_DEFERRED_DYNAMICS,
+        "unsafe Dynamics topology plus safe Dynamic EQ rejects as one command");
+    assert_true(memcmp(&graph.dynamics, &before_dynamics, sizeof(before_dynamics)) == 0 &&
+        memcmp(&graph.dynamic_eq, &before_eq, sizeof(before_eq)) == 0 &&
+        memcmp(&graph.gain, &before_gain, sizeof(before_gain)) == 0 &&
+        memcmp(&graph.macro, &before_macro, sizeof(before_macro)) == 0 &&
+        memcmp(&graph.smart_loudness, &before_loudness, sizeof(before_loudness)) == 0 &&
+        memcmp(&graph.dynamic_bass, &before_bass, sizeof(before_bass)) == 0,
+        "unsafe Dynamics topology leaves every stage and gain unchanged");
+
+    dsp_dynamic_eq_config cap_increase = current_eq;
+    cap_increase.bands[0].max_cut_db = 8.0;
+    assert_true(dsp_dynamic_eq_prepare_hot_update(48000, &cap_increase, &eq_update),
+        "filter cap increase payload prepares structurally");
+    assert_true(dsp_graph_apply_hot(&graph,
+        DSP_ENGINE_HOT_FIELD_STUDIO | DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ,
+        -6.0, pow(10.0, -6.0 / 20.0), &macro, &loudness, &dynamic_bass,
+        &dynamics_update, &eq_update) == DSP_GRAPH_HOT_DEFERRED_DYNAMIC_EQ_CAP,
+        "unprepared Dynamic EQ cap increase explicitly defers");
+
+    dsp_dynamics_config gain_increasing_dynamics = current_dynamics;
+    gain_increasing_dynamics.compressor_makeup_db = 2.0;
+    assert_true(dsp_dynamics_prepare_hot_params(48000, &gain_increasing_dynamics, &dynamics_update),
+        "gain-increasing Compressor parameters prepare");
+    safe_eq = current_eq;
+    safe_eq.bands[0].threshold_db = -26.0;
+    assert_true(dsp_dynamic_eq_prepare_hot_update(48000, &safe_eq, &eq_update),
+        "gain-increasing combined Dynamic EQ parameters prepare");
+    assert_true(dsp_graph_apply_hot(&graph,
+        DSP_ENGINE_HOT_FIELD_DYNAMICS | DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ,
+        -8.0, pow(10.0, -8.0 / 20.0), &macro, &loudness, &dynamic_bass,
+        &dynamics_update, &eq_update) == DSP_GRAPH_HOT_PROTECTIVE_RAMP,
+        "protective preamp ramp starts before the gain-increasing stage command");
+    assert_true(graph.dynamics.config.compressor_makeup_db == before_dynamics.config.compressor_makeup_db &&
+        graph.dynamic_eq.bands[0].config.threshold_db == before_eq.bands[0].config.threshold_db,
+        "Dynamics and Dynamic EQ remain unchanged while protective attenuation ramps");
+    float ramp_input[1920];
+    float ramp_output[1920] = {0.0f};
+    for (size_t index = 0; index < 1920; index++) ramp_input[index] = 0.1f;
+    uint64_t nonfinite_input = 0;
+    uint64_t nonfinite_output = 0;
+    dsp_graph_process(&graph, ramp_input, ramp_output, 960, 2, &nonfinite_input, &nonfinite_output);
+    assert_true(graph.gain.ramp_remaining == 0, "protective attenuation ramp completes before stage apply");
+    assert_true(dsp_graph_apply_hot(&graph,
+        DSP_ENGINE_HOT_FIELD_DYNAMICS | DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ,
+        -8.0, pow(10.0, -8.0 / 20.0), &macro, &loudness, &dynamic_bass,
+        &dynamics_update, &eq_update) == DSP_GRAPH_HOT_APPLIED,
+        "gain-increasing stages apply after protective attenuation finishes");
+    assert_true(graph.dynamics.config.compressor_makeup_db == 2.0 &&
+        graph.dynamic_eq.bands[0].config.threshold_db == -26.0,
+        "prepared stage targets commit together after the safety ramp");
+    assert_true(dsp_graph_hot_transition_pending(&graph),
+        "bounded parameter and mix transitions keep the final ACK pending");
+    dsp_graph_process(&graph, ramp_input, ramp_output, 960, 2, &nonfinite_input, &nonfinite_output);
+    assert_true(!dsp_graph_hot_transition_pending(&graph),
+        "final HOT completion waits for makeup and Dynamic EQ mix ramps");
+    dsp_graph_close(&graph);
+}
+
 static void test_stereo_limiter_caps_sample_peaks_and_preserves_image(void) {
     dsp_dynamics_config config = bypass_dynamics;
     config.limiter_enabled = 1;
@@ -2707,7 +2827,7 @@ static void test_studio_hot_refund_waits_for_stage_gain_release(void) {
     const dsp_macro_config initial_macro = {1, 4.0, 0.0, 0.0, 1.0};
     const dsp_smart_loudness_config initial_loudness = {1, 3.0, 0.0};
     const dsp_dynamic_bass_config initial_dynamic_bass = {
-        1, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 1000.0,
+        1, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 100.0,
     };
     dsp_engine *engine = create_studio_test_engine_with_gain(
         48000, 2, 512, -12.0, &initial_macro, &initial_loudness, &initial_dynamic_bass);
@@ -2739,9 +2859,11 @@ static void test_studio_hot_refund_waits_for_stage_gain_release(void) {
         .gain_db = 0.0,
         .gain_linear = 1.0,
         .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
         .macro = {0, 0.0, 0.0, 0.0, 1.0},
         .smart_loudness = {0, 0.0, 0.0},
-        .dynamic_bass = {0, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 1000.0},
+        .dynamic_bass = {0, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 100.0},
     };
     assert_true(dsp_engine_enqueue_hot_update(engine, &disable_update),
         "headroom refund test queues module disable");
@@ -2758,6 +2880,10 @@ static void test_studio_hot_refund_waits_for_stage_gain_release(void) {
         }
         assert_true(dsp_engine_process(engine, full_scale_input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
             "full-scale low-frequency blocks process while old stage gains release");
+        if (block == 0) {
+            assert_true(dsp_engine_get_hot_ack_token(engine) == 0,
+                "gain refund with Macro/Loudness/Dynamic Bass release has no early HOT ACK");
+        }
         for (size_t sample = 0; sample < 1024; sample++) {
             const double absolute_output = fabs((double)output[sample]);
             if (absolute_output > maximum_absolute_output) maximum_absolute_output = absolute_output;
@@ -2767,7 +2893,7 @@ static void test_studio_hot_refund_waits_for_stage_gain_release(void) {
     assert_true(maximum_absolute_output <= 1.001,
         "preamp refund waits for Macro, Loudness, and Dynamic Bass to leave their old boost envelope");
     assert_true(dsp_engine_get_hot_ack_token(engine) == 42,
-        "headroom refund HOT update is acknowledged after its first processed block");
+        "headroom refund HOT update is acknowledged after stage release and gain refund settle");
     dsp_engine_destroy(engine);
 }
 
@@ -3311,6 +3437,8 @@ static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
         .gain_db = 0.0,
         .gain_linear = 1.0,
         .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
         .macro = {1, 0.0, 0.0, 0.0, 1.25},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
@@ -3354,6 +3482,10 @@ static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
     assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "hot command waits for a processed block");
     assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
         "hot command block processes");
+    for (int block = 0; block < 8 && dsp_engine_get_hot_ack_token(engine) != 44; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "bounded HOT transition completion block processes");
+    }
     assert_true(dsp_engine_get_hot_ack_token(engine) == 44, "latest queued generation is applied and acknowledged");
     assert_true(fabsf(output[1022]) > 0.5f && fabsf(output[1022]) < 0.63f,
         "macro width moves toward its target without an abrupt step");
@@ -3476,6 +3608,8 @@ static void test_preamp_hot_mailbox_coalesces_and_preserves_concurrent_studio_ga
         .renderer_owner_token = 9, .pcm_format_epoch = 3, .hot_context_token = 1,
         .media_role = 1, .gain_db = -6.0,
         .gain_linear = 0.5011872336, .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
         .macro = {1, 0.0, 0.0, 0.0, 1.25},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
@@ -3491,6 +3625,10 @@ static void test_preamp_hot_mailbox_coalesces_and_preserves_concurrent_studio_ga
         "neither concurrent HOT command is acknowledged before the ramp finishes");
     assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 448, 2) == DSP_STATUS_OK,
         "concurrent Preamp/Studio ramp completion block processes");
+    for (int block = 0; block < 8 && dsp_engine_get_hot_ack_token(engine) != 43; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 448, 2) == DSP_STATUS_OK,
+            "concurrent Studio HOT transition completion block processes");
+    }
     assert_true(dsp_engine_get_hot_ack_token(engine) == 43 && dsp_engine_get_preamp_ack_token(engine) == 43,
         "latest compatible Studio HOT receives the final shared mailbox ACK");
     assert_true(fabsf(output[894] - 0.5f * 0.50118723f) < 1e-3f,
@@ -3540,6 +3678,10 @@ static void test_preamp_hot_mailbox_coalesces_and_preserves_concurrent_studio_ga
     assert_true(dsp_engine_get_hot_ack_token(engine) == 0, "superseded Preamp target is not ACKed over newer Studio HOT");
     assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
         "deferred Studio HOT applies after Preamp ramp completion");
+    for (int block = 0; block < 8 && dsp_engine_get_hot_ack_token(engine) != 43; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "deferred Studio HOT transition completion block processes");
+    }
     assert_true(dsp_engine_get_hot_ack_token(engine) == 43, "deferred latest Studio HOT is eventually acknowledged");
     dsp_engine_destroy(engine);
 }
@@ -3609,6 +3751,8 @@ static void test_studio_hot_update_rejects_invalid_module_configs_atomically(voi
         .gain_db = 6.0,
         .gain_linear = 1.995262315,
         .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
         .macro = {1, 0.0, 0.0, 0.0, 1.0},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
@@ -3654,6 +3798,8 @@ static void test_studio_hot_update_validates_ack_generation_token(void) {
         .gain_db = 0.0,
         .gain_linear = 1.0,
         .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
         .macro = {1, 0.0, 0.0, 0.0, 1.0},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
@@ -3667,6 +3813,10 @@ static void test_studio_hot_update_validates_ack_generation_token(void) {
     assert_true(dsp_engine_enqueue_hot_update(engine, &update), "matching generation token is accepted");
     assert_true(dsp_engine_process(engine, input, 4, output, 4, 2, 2) == DSP_STATUS_OK,
         "matching generation token update processes");
+    for (int block = 0; block < 1024 && dsp_engine_get_hot_ack_token(engine) != 42; block++) {
+        assert_true(dsp_engine_process(engine, input, 4, output, 4, 2, 2) == DSP_STATUS_OK,
+            "matching generation bounded transition block processes");
+    }
     assert_true(dsp_engine_get_hot_ack_token(engine) == 42, "matching generation token is acknowledged");
 
     dsp_engine_hot_update wrapped_token_update = update;
@@ -3676,6 +3826,10 @@ static void test_studio_hot_update_validates_ack_generation_token(void) {
         "zero low-31-bit generation uses JNI fallback token");
     assert_true(dsp_engine_process(engine, input, 4, output, 4, 2, 2) == DSP_STATUS_OK,
         "wrapped generation token update processes");
+    for (int block = 0; block < 1024 && dsp_engine_get_hot_ack_token(engine) != 1; block++) {
+        assert_true(dsp_engine_process(engine, input, 4, output, 4, 2, 2) == DSP_STATUS_OK,
+            "wrapped generation bounded transition block processes");
+    }
     assert_true(dsp_engine_get_hot_ack_token(engine) == 1, "wrapped generation uses token one for acknowledgement");
     dsp_engine_destroy(engine);
 }
@@ -3957,6 +4111,7 @@ int main(void) {
     test_compressor_transfer_curve();
     test_compressor_attack_and_release_steps();
     test_dynamics_hot_params_preserve_state_and_validate_atomically();
+    test_combined_dynamics_dynamic_eq_hot_preflights_before_any_mutation();
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
     test_spatial_width_and_mono_input_behavior();
     test_spatial_seat_alignment_and_latency();

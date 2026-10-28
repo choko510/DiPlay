@@ -46,8 +46,8 @@
 | OPT-03 | Reduce idle polling while draining queued codec output with bounded waits | `IMPLEMENTED_AND_TESTED` | Focused queue/sink suites passed 30/30. Simulated output covers final-frame drain, multiple delayed outputs, 8 ms cap, 500 ms expiry, bounded pending count, Surface reset and ACK. Device wake/latency effect remains unmeasured. Revert: OPT-03 commit. |
 | OPT-04 | Send correctly addressed MAIN/ALT keyframe requests | `IMPLEMENTED_AND_TESTED` | `CarPlayMediaEngineTest` passed 22/22; MAIN/ALT payload shape, missing UUID, unknown type, send failure and stale owner are covered. Diagnostics contain no UUID. Device command acceptance remains unverified. Revert: OPT-04 commit. |
 | OPT-05 | Recover a changed Surface only after a bounded no-output condition | `IMPLEMENTED_DEVICE_PENDING` | The policy waits 250 ms, requires a running decoder/config/non-null Surface, stops after a non-config output, and uses the existing 1 s request gate. `VideoDecodeQueueTest` and `AndroidMediaSinkStateTest` passed 32/32; production default is OFF. Target frame continuity/request rate is unverified. Revert: OPT-05 commit. |
-| OPT-06 | Batch Activity log delivery | `NOT_RUN` | Adoption requires real startup/reconnect counters; do not infer from synthetic tests. |
-| OPT-07 | Validate existing NAL conversion and justify non-migration | `IN_PROGRESS` | Existing `MediaCodecSupportTest` baseline passed; final source and output-byte evidence to be recorded. |
+| OPT-06 | Batch Activity log delivery | `NOT_ADOPTED_RISK` | `onDebugLog` posts each redacted message to the UI, but no real startup/reconnect dispatch count or UI/file-write timing was available. Batching without evidence risks changing ordering/snapshot and durable log behavior. |
+| OPT-07 | Validate existing NAL conversion and justify non-migration | `IMPLEMENTED_AND_TESTED` | Kept the existing forward conversion/random-access scan. `MediaCodecSupportTest` passed 14/14 including byte-exact output, unchanged input, 3/4-byte Annex B headers, zero/oversized lengths, H.264/H.265. No donor reverse converter was added. |
 | OPT-08 | Add bounded, payload-free video-path measurements | `NOT_RUN` | Report emulator/device comparisons only when actually measured. |
 
 ## Behavioral invariants
@@ -69,6 +69,7 @@
 | `:shared:testDebugUnitTest --tests VideoDecodeQueueTest --tests AndroidMediaSinkStateTest` | OPT-03 worktree | Windows, JDK 21.0.9 | `PASS`: 30 tests, 0 failures/errors/skips. The fake-output drain tests are software timing evidence, not OEM MediaCodec evidence. |
 | `:shared:testDebugUnitTest --tests CarPlayMediaEngineTest` | OPT-04 worktree | Windows, JDK 21.0.9 | `PASS`: 22 tests, 0 failures/errors/skips. No live event-channel/iPhone acknowledgement was exercised. |
 | `:shared:testDebugUnitTest --tests VideoDecodeQueueTest --tests AndroidMediaSinkStateTest` | OPT-05 worktree | Windows, JDK 21.0.9 | `PASS`: 32 tests, 0 failures/errors/skips. Policy tests validate delay/gates and explicit-off default, not actual Surface frame presentation. |
+| `:shared:testDebugUnitTest --tests MediaCodecSupportTest` | OPT-07 worktree | Windows, JDK 21.0.9 | `PASS`: 14 tests, 0 failures/errors/skips. |
 | API 36 instrumentation / physical acceptance | `c8a1ab0` | emulator attached; no target hardware | `NOT_RUN` at baseline. |
 
 ## Performance before/after
@@ -78,7 +79,7 @@
 | Decoder idle wake rate and thread CPU | `NOT_RUN` | `NOT_RUN` | Requires decoder runtime; no source-level estimate substituted. | API 36 emulator instrumentation pending; TS10/K706 unavailable. |
 | Queue-wait/dequeue-output time and frame-to-Surface p50/p95/p99 | `NOT_RUN` | `NOT_RUN` | Same device/codec/mode/log settings required. | No comparable before/after data yet. |
 | MediaCodec per-output allocation | One `BufferInfo` allocation per drain invocation at start SHA | `NOT_RUN` | Source-level allocation reduction will not be described as a measured runtime gain. | Emulator/device allocation profile pending. |
-| Activity log dispatch cost | `NOT_RUN` | `NOT_RUN` | OPT-06 requires real redacted startup/reconnect counters. | No CarPlay target session available. |
+| Activity log dispatch cost | `NOT_RUN` | `NOT_RUN` | OPT-06 requires real redacted startup/reconnect counters and UI/file-write timing. | No CarPlay target session available; batching not adopted. |
 
 ## Open gates
 

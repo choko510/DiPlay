@@ -13,7 +13,9 @@ import com.shilapi.xcertplay.media.dsp.DspConfigSnapshot
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import com.shilapi.xcertplay.airplay.VideoRecoveryDispatchResult
 import java.net.InetAddress
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -27,6 +29,83 @@ import org.robolectric.util.ReflectionHelpers
 
 @RunWith(RobolectricTestRunner::class)
 class AndroidMediaSinkStateTest {
+    @Test fun eachVideoDecoderOwnsItsOutputBufferInfo() {
+        val sink = AndroidMediaSink()
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        sink.onScreenStreamActive(110, true)
+        sink.onScreenStreamActive(111, true)
+
+        try {
+            val mainDecoder = checkNotNull(decoderFactory.invoke(sink, 110))
+            val altDecoder = checkNotNull(decoderFactory.invoke(sink, 111))
+            val field = mainDecoder.javaClass.getDeclaredField("outputBufferInfo").apply { isAccessible = true }
+            val mainInfo = field.get(mainDecoder)
+            val altInfo = field.get(altDecoder)
+
+            assertTrue(mainInfo is MediaCodec.BufferInfo)
+            assertTrue(altInfo is MediaCodec.BufferInfo)
+            assertNotSame(mainInfo, altInfo)
+        } finally {
+            sink.close()
+        }
+    }
+
+    @Test fun changingSurfaceResetsPendingOutputWaitBeforeRetirementAck() {
+        val oldSurface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val newSurface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val sink = AndroidMediaSink(surface = oldSurface)
+        val type = 110
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        sink.onScreenStreamActive(type, true)
+        val decoder = checkNotNull(decoderFactory.invoke(sink, type))
+        val pending = privateField(decoder, "pendingOutputState") as VideoPendingOutputState
+        pending.onInputQueued(System.nanoTime())
+        val detached = CountDownLatch(1)
+
+        try {
+            sink.setSurface(type, newSurface)
+            sink.clearSurface(type, oldSurface) { detached.countDown() }
+
+            assertTrue(detached.await(2, TimeUnit.SECONDS))
+            assertEquals(0, pending.pendingOutputCount)
+            assertSame(newSurface, privateField(decoder, "outputSurface"))
+        } finally {
+            sink.close()
+            runCatching { oldSurface.release() }
+            runCatching { newSurface.release() }
+        }
+    }
+
+    @Test fun sinkSurfaceRecoveryDefaultsOffAndRequiresExplicitTestOptIn() {
+        val disabledSink = AndroidMediaSink()
+        val enabledSink = AndroidMediaSink().apply { surfaceRecoveryEnabledForTest = true }
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        disabledSink.onScreenStreamActive(110, true)
+        enabledSink.onScreenStreamActive(110, true)
+
+        try {
+            val disabledDecoder = checkNotNull(decoderFactory.invoke(disabledSink, 110))
+            val enabledDecoder = checkNotNull(decoderFactory.invoke(enabledSink, 110))
+            val disabledPolicy = privateField(disabledDecoder, "surfaceRecoveryPolicy") as VideoSurfaceRecoveryPolicy
+            val enabledPolicy = privateField(enabledDecoder, "surfaceRecoveryPolicy") as VideoSurfaceRecoveryPolicy
+
+            assertFalse(disabledPolicy.enabled)
+            assertTrue(enabledPolicy.enabled)
+        } finally {
+            disabledSink.close()
+            enabledSink.close()
+        }
+    }
+
     @Test fun retiredVideoObserverCannotClaimAReplacementStreamFrame() {
         val generations = VideoStreamGenerations()
         val oldMain = generations.advance(110)
@@ -63,6 +142,81 @@ class AndroidMediaSinkStateTest {
             assertTrue(altCompleted.await(5, TimeUnit.SECONDS))
         } finally {
             allowMain.countDown()
+            sink.close()
+        }
+    }
+
+    @Test fun recoveryMetricsSeparateMainAltSendResultsAndStaleGenerationDrops() {
+        val sink = AndroidMediaSink()
+        sink.onScreenStreamActive(110, true)
+        sink.onScreenStreamActive(111, true)
+        val mainCallback = CountDownLatch(1)
+        val altCallback = CountDownLatch(1)
+        val requestRecovery = AndroidMediaSink::class.java.getDeclaredMethod(
+            "requestVideoRecovery",
+            Int::class.javaPrimitiveType!!,
+            Long::class.javaPrimitiveType!!,
+        ).apply { isAccessible = true }
+        sink.setVideoRecoveryResultHandler(110) {
+            mainCallback.countDown()
+            VideoRecoveryDispatchResult.SENT
+        }
+        sink.setVideoRecoveryResultHandler(111) {
+            altCallback.countDown()
+            VideoRecoveryDispatchResult.SEND_FAILED
+        }
+
+        try {
+            requestRecovery.invoke(sink, 110, sink.videoStreamGenerationForTest(110))
+            requestRecovery.invoke(sink, 111, sink.videoStreamGenerationForTest(111))
+            assertTrue(mainCallback.await(2, TimeUnit.SECONDS))
+            assertTrue(altCallback.await(2, TimeUnit.SECONDS))
+
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            var main = sink.videoRecoveryMetricsForTest(110)
+            var alt = sink.videoRecoveryMetricsForTest(111)
+            while (System.nanoTime() < deadline &&
+                (main.queued == 0L || main.sent == 0L || alt.queued == 0L || alt.sendFailed == 0L)
+            ) {
+                Thread.yield()
+                main = sink.videoRecoveryMetricsForTest(110)
+                alt = sink.videoRecoveryMetricsForTest(111)
+            }
+
+            assertEquals(1L, main.attempts)
+            assertEquals(1L, main.queued)
+            assertEquals(1L, main.sent)
+            assertEquals(0L, main.sendFailed)
+            assertFalse(main.toDiagnosticString().contains("uuid"))
+            assertEquals(1L, alt.attempts)
+            assertEquals(1L, alt.queued)
+            assertEquals(0L, alt.sent)
+            assertEquals(1L, alt.sendFailed)
+
+            val altSkipped = CountDownLatch(1)
+            sink.setVideoRecoveryResultHandler(111) {
+                altSkipped.countDown()
+                VideoRecoveryDispatchResult.SKIPPED
+            }
+            requestRecovery.invoke(sink, 111, sink.videoStreamGenerationForTest(111))
+            assertTrue(altSkipped.await(2, TimeUnit.SECONDS))
+            val altDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            var updatedAlt = sink.videoRecoveryMetricsForTest(111)
+            while (System.nanoTime() < altDeadline && (updatedAlt.queued < 2L || updatedAlt.skipped == 0L)) {
+                Thread.yield()
+                updatedAlt = sink.videoRecoveryMetricsForTest(111)
+            }
+            assertEquals(2L, updatedAlt.attempts)
+            assertEquals(1L, updatedAlt.skipped)
+
+            val oldGeneration = sink.videoStreamGenerationForTest(110)
+            sink.onScreenStreamActive(110, false)
+            requestRecovery.invoke(sink, 110, oldGeneration)
+            val stale = sink.videoRecoveryMetricsForTest(110)
+            assertEquals(2L, stale.attempts)
+            assertEquals(1L, stale.staleDrops)
+            assertEquals(1L, stale.sent)
+        } finally {
             sink.close()
         }
     }
@@ -268,6 +422,7 @@ class AndroidMediaSinkStateTest {
         val stopEntered = CountDownLatch(1)
         val allowStop = CountDownLatch(1)
         val releaseAttempts = AtomicInteger()
+        val diagnostics = CopyOnWriteArrayList<String>()
         val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
             "videoDecoder",
             Int::class.javaPrimitiveType,
@@ -289,6 +444,7 @@ class AndroidMediaSinkStateTest {
             releaseAttempts.incrementAndGet()
             throw IllegalStateException("injected MediaCodec release failure")
         }
+        sink.setVideoDiagnosticHandler(type) { diagnostics += it }
         sink.onScreenStreamActive(type, true)
         val oldDecoder = checkNotNull(decoderFactory.invoke(sink, type))
 
@@ -306,17 +462,128 @@ class AndroidMediaSinkStateTest {
             assertFalse(privateField(oldDecoder, "surfaceReleaseSafe") as Boolean)
             assertSame(surface, privateField(oldDecoder, "outputSurface"))
             assertSame(oldDecoder, field(sink, "retiringVideoDecoders")[type])
+            assertTrue(diagnostics.any { it.contains("state=SESSION_RESTART_REQUIRED") })
 
             sink.onScreenStreamActive(type, true)
             assertNull(decoderFactory.invoke(sink, type))
             assertSame(oldDecoder, field(sink, "retiringVideoDecoders")[type])
+
+            val retryRelease = oldDecoder.javaClass.getDeclaredMethod("releaseDecoder").apply { isAccessible = true }
+            assertFalse(retryRelease.invoke(oldDecoder) as Boolean)
+            assertEquals(2, releaseAttempts.get())
+            assertFalse(retryRelease.invoke(oldDecoder) as Boolean)
+            assertEquals(2, releaseAttempts.get())
         } finally {
             allowStop.countDown()
             sink.videoCodecReleaseForTest = null
-            val retryRelease = oldDecoder.javaClass.getDeclaredMethod("releaseDecoder").apply { isAccessible = true }
-            assertTrue(retryRelease.invoke(oldDecoder) as Boolean)
             sink.close()
             runCatching { surface.release() }
+        }
+    }
+
+    @Test fun transientCodecReleaseFailureRetriesOnItsWorkerAndCompletesSurfaceRetirement() {
+        val surface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val sink = AndroidMediaSink(surface = surface)
+        val type = 110
+        val releaseAttempts = AtomicInteger()
+        val detached = CountDownLatch(1)
+        val diagnostics = CopyOnWriteArrayList<String>()
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        sink.setVideoDiagnosticHandler(type) { diagnostics += it }
+        sink.videoCodecReleaseForTest = { codec ->
+            if (releaseAttempts.incrementAndGet() == 1) {
+                throw IllegalStateException("injected transient release failure")
+            }
+            codec.release()
+        }
+        sink.onScreenStreamActive(type, true)
+        val decoder = checkNotNull(decoderFactory.invoke(sink, type))
+        val codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        decoder.javaClass.getDeclaredField("decoder").apply { isAccessible = true }.set(decoder, codec)
+
+        try {
+            sink.clearSurface(type, surface) { detached.countDown() }
+
+            assertTrue(detached.await(5, TimeUnit.SECONDS))
+            assertEquals(2, releaseAttempts.get())
+            assertTrue(diagnostics.any { it.contains("state=RETRYING_SAFE_RELEASE") })
+            assertTrue(diagnostics.any { it.contains("state=RECOVERED") })
+            assertFalse(diagnostics.any { it.contains("state=SESSION_RESTART_REQUIRED") })
+        } finally {
+            sink.videoCodecReleaseForTest = null
+            sink.close()
+            runCatching { surface.release() }
+        }
+    }
+
+    @Test fun mainCodecReleaseFailureDoesNotBlockAltSurfaceAcknowledgement() {
+        val mainSurface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val altSurface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val sink = AndroidMediaSink()
+        val mainType = 110
+        val altType = 111
+        val mainReleaseAttempts = AtomicInteger()
+        val altReleaseAttempts = AtomicInteger()
+        val mainDetached = CountDownLatch(1)
+        val altDetached = CountDownLatch(1)
+        val mainRestartRequired = CountDownLatch(1)
+        val mainDiagnostics = CopyOnWriteArrayList<String>()
+        val altDiagnostics = CopyOnWriteArrayList<String>()
+        sink.setSurface(mainType, mainSurface)
+        sink.setSurface(altType, altSurface)
+        sink.setVideoDiagnosticHandler(mainType) {
+            mainDiagnostics += it
+            if (it.contains("state=SESSION_RESTART_REQUIRED")) mainRestartRequired.countDown()
+        }
+        sink.setVideoDiagnosticHandler(altType) { altDiagnostics += it }
+        sink.onScreenStreamActive(mainType, true)
+        sink.onScreenStreamActive(altType, true)
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        val mainDecoder = checkNotNull(decoderFactory.invoke(sink, mainType))
+        val altDecoder = checkNotNull(decoderFactory.invoke(sink, altType))
+        val mainCodec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        val altCodec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        mainDecoder.javaClass.getDeclaredField("decoder").apply { isAccessible = true }.set(mainDecoder, mainCodec)
+        altDecoder.javaClass.getDeclaredField("decoder").apply { isAccessible = true }.set(altDecoder, altCodec)
+        sink.videoCodecReleaseForTest = { codec ->
+            if (codec === mainCodec) {
+                mainReleaseAttempts.incrementAndGet()
+                throw IllegalStateException("injected MAIN release failure")
+            }
+            altReleaseAttempts.incrementAndGet()
+            codec.release()
+        }
+
+        try {
+            sink.clearSurface(mainType, mainSurface) { mainDetached.countDown() }
+            sink.clearSurface(altType, altSurface) { altDetached.countDown() }
+
+            assertTrue(altDetached.await(5, TimeUnit.SECONDS))
+            assertTrue(mainRestartRequired.await(5, TimeUnit.SECONDS))
+            assertFalse(mainDetached.await(100, TimeUnit.MILLISECONDS))
+            assertEquals(2, mainReleaseAttempts.get())
+            assertEquals(1, altReleaseAttempts.get())
+
+            sink.onScreenStreamActive(mainType, false)
+            sink.onScreenStreamActive(altType, false)
+            assertTrue(awaitVideoDecoderStopped(mainDecoder))
+            assertTrue(awaitVideoDecoderStopped(altDecoder))
+            assertFalse(privateField(mainDecoder, "surfaceReleaseSafe") as Boolean)
+            assertTrue(privateField(altDecoder, "surfaceReleaseSafe") as Boolean)
+            assertSame(mainDecoder, field(sink, "retiringVideoDecoders")[mainType])
+            assertNull(field(sink, "retiringVideoDecoders")[altType])
+            assertTrue(mainDiagnostics.any { it.contains("state=SESSION_RESTART_REQUIRED") })
+        } finally {
+            sink.videoCodecReleaseForTest = null
+            sink.close()
+            runCatching { mainSurface.release() }
+            runCatching { altSurface.release() }
         }
     }
 

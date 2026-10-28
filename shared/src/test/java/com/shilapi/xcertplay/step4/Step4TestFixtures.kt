@@ -5,6 +5,7 @@ import java.util.PriorityQueue
 
 internal sealed interface UsbRequestWaitFixture {
     data class Completed(val bytes: ByteArray) : UsbRequestWaitFixture
+    data class TimeoutAfter(val delayMillis: Long) : UsbRequestWaitFixture
     data object Timeout : UsbRequestWaitFixture
     data object NullResult : UsbRequestWaitFixture
     data object UnexpectedCompletion : UsbRequestWaitFixture

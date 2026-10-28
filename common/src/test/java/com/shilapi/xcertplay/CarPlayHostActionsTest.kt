@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.ComponentName
 import android.content.pm.PackageManager
 import android.app.PendingIntent
+import android.hardware.usb.UsbManager
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -97,6 +98,65 @@ class CarPlayHostActionsTest {
                 action = null,
             ),
         )
+        assertEquals(
+            HostLayoutMode.CARPLAY_DSP_SPLIT,
+            CarPlayHostActions.pendingSplitModeAfterLaunch(
+                HostLayoutMode.CARPLAY_DSP_SPLIT,
+                CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+            ),
+        )
+    }
+
+    @Test
+    fun usbAutoLaunchCanCarryTransientHostLayoutStateAcrossWirelessHandoff() {
+        val application = RuntimeEnvironment.getApplication()
+        val identity = UsbAttachDeviceIdentity(
+            deviceId = 14,
+            deviceName = "test-apple-device",
+            vendorId = 0x05ac,
+            productId = 0x12a8,
+        )
+        val launchState = CarPlayHostLaunchState(
+            layoutMode = HostLayoutMode.CARPLAY_DSP_SPLIT,
+            carPlayFraction = 0.62f,
+            pendingSplitMode = HostLayoutMode.CARPLAY_DSP_SPLIT,
+        )
+        val internalIntent = CarPlayHostActions.createInternalIntent(
+            application,
+            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+            identity,
+            launchState,
+        )
+
+        val request = CarPlayHostActions.consumeInternalRequest(internalIntent)
+
+        assertEquals(CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED, request?.action)
+        assertEquals(identity, request?.usbDeviceIdentity)
+        assertEquals(launchState, request?.hostLaunchState)
+    }
+
+    @Test
+    fun autoUsbIntentCanRecoverAfterItsProcessLocalTokenExpires() {
+        val application = RuntimeEnvironment.getApplication()
+        val identity = UsbAttachDeviceIdentity(
+            deviceId = 22,
+            deviceName = "test-apple-device",
+            vendorId = 0x05ac,
+            productId = 0x12a8,
+        )
+        val autoUsbIntent = CarPlayHostActions.createInternalIntent(
+            application,
+            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+            identity,
+        )
+        repeat(16) {
+            CarPlayHostActions.createInternalIntent(application, CarPlayHostActions.OPEN_CARPLAY)
+        }
+
+        val recovered = CarPlayHostActions.consumeInternalRequest(autoUsbIntent)
+
+        assertEquals(CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED, recovered?.action)
+        assertEquals(identity, recovered?.usbDeviceIdentity)
     }
 
     @Test
@@ -128,7 +188,7 @@ class CarPlayHostActionsTest {
     }
 
     @Test
-    fun onlyUsbTrampolineIsExported() {
+    fun usbEntryPointsAreExportedWithDifferentTrustPolicies() {
         val application = RuntimeEnvironment.getApplication()
         val packageManager = application.packageManager
         val host = packageManager.getActivityInfo(
@@ -139,9 +199,19 @@ class CarPlayHostActionsTest {
             ComponentName(application, CarPlayUsbAttachActivity::class.java),
             PackageManager.GET_META_DATA,
         )
+        val iphoneUsbEntry = packageManager.getActivityInfo(
+            ComponentName(application, IphoneUsbAutoAttachActivity::class.java),
+            PackageManager.GET_META_DATA or PackageManager.MATCH_DISABLED_COMPONENTS,
+        )
 
         assertFalse(host.exported)
         assertTrue(usbTrampoline.exported)
         assertEquals("android.permission.MANAGE_USB", usbTrampoline.permission)
+        assertTrue(iphoneUsbEntry.exported)
+        assertFalse(iphoneUsbEntry.enabled)
+        assertEquals("android.permission.MANAGE_USB", iphoneUsbEntry.permission)
+        assertTrue(
+            iphoneUsbEntry.metaData?.getInt(UsbManager.ACTION_USB_DEVICE_ATTACHED, 0) != 0,
+        )
     }
 }

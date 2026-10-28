@@ -13,6 +13,16 @@ Treat an uncommitted Studio preview as runtime-owned state. When a new runtime i
 - **Decision:** Use Studio for macros and legacy profile/basic controls, EQ for PEQ, Spatial for legacy width/mono bass plus Seat and M/S, Dynamics for Smart Loudness/Dynamic Bass and compressor-family stages, and Advanced for headroom, cabin, Harmonic, Convolver, and diagnostics.
 - **Reason:** This satisfies the product tab contract while keeping every existing editor reachable and all edits bound to the screen's existing profile/editor and studio session owners.
 - **Status:** Implemented on the PR #52 Phase 02 child branch; connected host geometry and session continuity remain unverified.
+## Independent code-review remediation — 2026-10-28
+
+- Fail closed after a DSP retirement error: on the audio owner, retire active/fading graphs, keep PCM fallback safe, and rescale saved algorithmic latency duration when the decoder sample rate changes. Never prepare or publish another graph in the failed renderer.
+- Serialize MAIN/ALT owner validation through keyframe command dispatch with a separate per-screen ownership lock. Release the event-write lock before session teardown callbacks so the lock order stays acyclic.
+- Treat codec-config/empty buffers as non-pictures; only valid pictures consume pending output hints or count as Surface submissions. Keep the Surface recovery default off.
+- Report PTS-correlation latency through codec Surface-release call completion, including unmatched/overwritten fractions. Do not describe it as compositor or panel presentation latency.
+
+## XCertPlay OPT-00–OPT-08 adaptation
+
+Use the application context for `UsbManager` without changing permission or USB lifecycle behavior. Keep one `BufferInfo` per decoder worker; use capped approximate pending-output tracking, FIFO job priority, bounded 8 ms output waits and a 500 ms last-input deadline while preserving input-pump draining. Route MAIN keyframe requests with empty params and ALT with its nonblank SETUP UUID; stale/unknown requests do not fall back to MAIN. Keep changed-Surface recovery disabled by default until target-device evidence exists. Do not batch Host log delivery without real startup/reconnect cost measurements; retain the existing forward Annex B path.
 
 ## Topic guide
 
@@ -26,7 +36,7 @@ Store committed workspace state in its own schema-v1 AtomicFile under `files/dsp
 - **Wired NCM / USBMUX:** [persistent NCM IN](#keep-ncm-bulk-in-persistent-and-drain-an-available-status-endpoint), [USBMUX recovery](#keep-one-usbmux-in-request-and-use-bounded-recovery), [teardown](#fence-and-serialize-wired-teardown).
 - **AirPlay / host split:** [LOCAL Split](#keep-local-split-resizing-inside-android), [ViewAreas](#keep-multiple-viewareas-explicit-and-wire-switching-disabled), [DSP Split](#add-dsp-as-a-mutually-exclusive-host-split-mode).
 - **DSP:** [OFF baseline](#preserve-the-dsp-off-baseline-before-extending-the-graph), [Seat](#align-seat-timing-by-explicit-near-speaker-and-preserve-graph-history), [Cabin](#cabin-correction-requires-external-measurements-and-explicit-approval), [Harmonic](#harmonic-effects-use-bounded-2-fir-oversampling-and-report-the-dry-matched-latency).
-- **CI / security:** [draft gates](#defer-emulator-instrumentation-while-a-pr-is-draft), [privacy](#keep-connection-traces-opt-in-and-app-owned), [MFi local identity](#keep-local-mfi-identity-outside-tracked-source).
+- **CI / security:** [draft gates](#defer-emulator-instrumentation-while-a-pr-is-draft), [privacy](#keep-connection-traces-opt-in-and-app-owned), [MFi local identity](#keep-local-mfi-identity-outside-tracked-source), [USB auto-launch](#keep-usb-auto-launch-as-a-validated-entry-to-the-existing-controller).
 
 ## Keep Dynamic Bass detection on the sanitized raw-input tap
 
@@ -825,3 +835,38 @@ REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the acti
 2026-10-28 PR #52 evidence: detailed matrix and evidence tracker status must match exactly; keep emulator/host subcases PARTIAL when a physical clause remains, and reject evidence regeneration over an existing populated tracker.
 
 2026-10-28 PR #52 Preamp: a Preamp HOT update may alter only the shared gain ramp; test the active Compressor/Limiter state, Convolver history, and reported latency before/after applying the command.
+## Keep USB auto-launch as a validated entry to the existing Controller
+
+Keep the Apple attach component disabled by default and enable it only with the independent user setting. Require the exact current USB device plus the existing CarPlay USBMUX/NCM configuration before launching; keep permission requests, USB opens, and re-enumeration with `IphoneUsbHost` and `CarPlayController`. Gate background-session adoption on the requested transport. During a wireless-to-wired handoff, retain only the latest validated attach identity, revalidate after teardown, fence stale callbacks, and preserve the Host split snapshot. Keep boot recovery user-initiated with a notification when background launch is unavailable. Use `MANAGE_USB` only as an Activity caller restriction; do not request it for the app.
+
+## Do not hand off a Controller before close is confirmed
+
+On a shutdown or full-stack restart, keep a process-local teardown barrier until `CarPlayController.awaitClosed()` succeeds and the old sink close call returns. A timeout or failure is diagnostic and triggers bounded retries; callbacks that start a new Host receive `CLOSED` only after the barrier is cleared. Deferred USB requests resume after that point. Never clear ownership and then treat a timeout as successful completion.
+
+## Label video latency by its actual endpoint
+
+The PTS-correlated diagnostic ends after `releaseOutputBuffer(..., true)` returns. Name it `receivedToCodecSurfaceReleaseMs`; do not describe it as frame display time. Keep display-presentation timing as a separate device measurement and include unmatched/overwritten correlation fractions.
+
+## Resume verified USB attaches only after the current teardown owner completes
+
+For an existing wired Host, a verified single-use USB attach is a new start-condition event and must call `maybeStartCarPlay()` without bypassing its controller, background-owner, VPN, display, permission, menu, and shutdown guards. If a non-process shutdown is already active, coalesce one wired resume or wireless-to-wired switch callback and run it only after the old controller and sink have closed; process-exit shutdown remains a hard stop.
+
+## Detach DSP ownership before asynchronous native destruction
+
+On a decoder format change, the audio owner first removes the old graph from all processing/fade/pending references, then queues its one-time close on the existing DSP reaper. Keep the new-format initial graph preparation synchronous where the first decoded PCM requires its state. A failed old close stays sticky for that renderer, reports `updatesBlocked`, and can be cleared only by a new renderer publishing its own active graph.
+
+## Bound codec release retries to the owning video worker
+
+Retry a throwing `MediaCodec.release()` only on its decoder worker, at most twice for the same codec owner. Keep the Surface ACK blocked and retain old references after the retry budget is exhausted; report restart-required rather than creating a replacement against uncertain ownership.
+
+## Resume verified USB attaches only after the current teardown owner completes
+
+For an existing wired Host, a verified single-use USB attach is a new start-condition event and must call `maybeStartCarPlay()` without bypassing its controller, background-owner, VPN, display, permission, menu, and shutdown guards. If a non-process shutdown is already active, coalesce one wired resume or wireless-to-wired switch callback and run it only after the old controller and sink have closed; process-exit shutdown remains a hard stop.
+
+## Detach DSP ownership before asynchronous native destruction
+
+On a decoder format change, the audio owner first removes the old graph from all processing/fade/pending references, then queues its one-time close on the existing DSP reaper. Keep the new-format initial graph preparation synchronous where the first decoded PCM requires its state. A failed old close stays sticky for that renderer, reports `updatesBlocked`, and can be cleared only by a new renderer publishing its own active graph.
+
+## Bound codec release retries to the owning video worker
+
+Retry a throwing `MediaCodec.release()` only on its decoder worker, at most twice for the same codec owner. Keep the Surface ACK blocked and retain old references after the retry budget is exhausted; report restart-required rather than creating a replacement against uncertain ownership.

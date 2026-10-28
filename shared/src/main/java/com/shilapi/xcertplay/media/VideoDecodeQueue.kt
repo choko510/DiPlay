@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media
 
+import android.media.MediaCodec
 import android.view.Surface
 import com.shilapi.xcertplay.airplay.VideoCodec
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -99,9 +100,183 @@ internal class VideoDecodeQueue(
 
     internal fun oldestQueuedSurfaceRetirementNs(): Long? = surfaceRetirements.peek()?.createdNs
 
-    internal val queuedJobsForTest: Int get() = jobs.size
+    internal val queuedJobCount: Int get() = jobs.size
+    internal val queuedJobsForTest: Int get() = queuedJobCount
 
     fun poll(timeoutMillis: Long): VideoJob? = jobs.poll(timeoutMillis, TimeUnit.MILLISECONDS)
+}
+
+internal data class VideoOutputBufferDisposition(
+    val renderableFrame: Boolean,
+    val submitToSurface: Boolean,
+    val endOfStream: Boolean,
+)
+
+internal fun videoOutputBufferDisposition(
+    size: Int,
+    flags: Int,
+    surfaceAvailable: Boolean,
+): VideoOutputBufferDisposition {
+    val renderableFrame = size > 0 && flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0
+    return VideoOutputBufferDisposition(
+        renderableFrame = renderableFrame,
+        submitToSurface = renderableFrame && surfaceAvailable,
+        endOfStream = flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0,
+    )
+}
+
+internal class VideoFirstFrameSubmissionState {
+    private var submitted = false
+
+    fun onOutputSubmittedToSurface(submittedToSurface: Boolean): Boolean {
+        if (!submittedToSurface || submitted) return false
+        submitted = true
+        return true
+    }
+
+    fun reset() {
+        submitted = false
+    }
+}
+
+/** A bounded wake-up hint, not exact input/output pairing; keep a short drain grace for delayed output. */
+internal class VideoPendingOutputState(
+    private val maxPendingOutputs: Int = 64,
+    private val waitLimitNs: Long = TimeUnit.MILLISECONDS.toNanos(500),
+    private val maxDequeueWaitUs: Long = 8_000L,
+    private val outputDrainGraceNs: Long = TimeUnit.MILLISECONDS.toNanos(50),
+) {
+    var pendingOutputCount: Int = 0
+        private set
+    var waitTimeoutCount: Long = 0
+        private set
+    private var lastQueuedNs = 0L
+    private var hasInputActivity = false
+    private var lastInputNs = 0L
+    private var hasOutputActivity = false
+    private var lastOutputNs = 0L
+
+    init {
+        require(maxPendingOutputs > 0)
+        require(waitLimitNs > 0L)
+        require(maxDequeueWaitUs > 0L)
+        require(outputDrainGraceNs > 0L)
+    }
+
+    fun onInputQueued(nowNs: Long) {
+        lastQueuedNs = nowNs
+        lastInputNs = nowNs
+        hasInputActivity = true
+        if (pendingOutputCount < maxPendingOutputs) pendingOutputCount++
+    }
+
+    fun onOutputDequeued(renderableFrame: Boolean, nowNs: Long = System.nanoTime()) {
+        if (!renderableFrame) return
+        lastOutputNs = nowNs
+        hasOutputActivity = true
+        if (pendingOutputCount > 0) {
+            pendingOutputCount--
+            if (pendingOutputCount == 0) lastQueuedNs = 0L
+        }
+    }
+
+    fun nextDequeueTimeoutUs(nowNs: Long): Long {
+        if (pendingOutputCount > 0) {
+            val elapsedNs = (nowNs - lastQueuedNs).coerceAtLeast(0L)
+            val remainingNs = waitLimitNs - elapsedNs
+            if (remainingNs > 0L) return boundedTimeoutUs(remainingNs)
+            pendingOutputCount = 0
+            lastQueuedNs = 0L
+            waitTimeoutCount++
+        }
+
+        val lastActivityNs = when {
+            hasInputActivity && hasOutputActivity -> maxOf(lastInputNs, lastOutputNs)
+            hasInputActivity -> lastInputNs
+            hasOutputActivity -> lastOutputNs
+            else -> return 0L
+        }
+        val graceRemainingNs = outputDrainGraceNs - (nowNs - lastActivityNs).coerceAtLeast(0L)
+        return if (graceRemainingNs > 0L) boundedTimeoutUs(graceRemainingNs) else 0L
+    }
+
+    fun reset() {
+        pendingOutputCount = 0
+        lastQueuedNs = 0L
+        hasInputActivity = false
+        lastInputNs = 0L
+        hasOutputActivity = false
+        lastOutputNs = 0L
+    }
+
+    private fun boundedTimeoutUs(remainingNs: Long): Long {
+        val remainingUs = ((remainingNs + 999L) / 1_000L).coerceAtLeast(1L)
+        return minOf(maxDequeueWaitUs, remainingUs)
+    }
+}
+
+internal class VideoSurfaceRecoveryPolicy(
+    val enabled: Boolean = false,
+    private val initialDelayNs: Long = TimeUnit.MILLISECONDS.toNanos(250),
+) {
+    private var surfaceChangedAtNs: Long? = null
+    private var requestSent = false
+
+    init {
+        require(initialDelayNs >= 0L)
+    }
+
+    fun onSurfaceChanged(surfaceAvailable: Boolean, nowNs: Long) {
+        if (!enabled || !surfaceAvailable) {
+            reset()
+            return
+        }
+        surfaceChangedAtNs = nowNs
+        requestSent = false
+    }
+
+    fun shouldRequestKeyFrame(
+        nowNs: Long,
+        streamActive: Boolean,
+        decoderAvailable: Boolean,
+        surfaceAvailable: Boolean,
+        configAvailable: Boolean,
+    ): Boolean {
+        val changedAtNs = surfaceChangedAtNs ?: return false
+        return enabled && !requestSent && streamActive && decoderAvailable && surfaceAvailable &&
+            configAvailable && (nowNs - changedAtNs).coerceAtLeast(0L) >= initialDelayNs
+    }
+
+    fun onKeyFrameRequested() {
+        if (enabled && surfaceChangedAtNs != null) requestSent = true
+    }
+
+    fun onOutputSubmitted() = reset()
+
+    fun reset() {
+        surfaceChangedAtNs = null
+        requestSent = false
+    }
+}
+
+internal fun drainVideoCodecOutput(
+    running: () -> Boolean,
+    dequeue: (Long) -> Int,
+    onFormatChanged: () -> Unit,
+    onOutputBuffer: (Int) -> Boolean,
+    firstTimeoutUs: Long = 0L,
+) {
+    var timeoutUs = firstTimeoutUs
+    while (running()) {
+        val index = dequeue(timeoutUs)
+        timeoutUs = 0L
+        when {
+            index == MediaCodec.INFO_TRY_AGAIN_LATER -> return
+            index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> onFormatChanged()
+            index >= 0 -> if (!onOutputBuffer(index)) return
+            else -> return
+        }
+    }
 }
 
 /** Drain output while waiting for input: full output buffers can otherwise starve input forever. */

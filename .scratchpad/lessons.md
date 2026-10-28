@@ -7,6 +7,16 @@
 - Compact navigation can expose five destinations in a narrow Split pane with a horizontally scrollable tab row; Compose UI tests should call `performScrollTo()` before clicking off-screen tabs. Compile Android-test Kotlin separately from connected instrumentation, since compilation alone is not interaction evidence.
 
 For graph-level detector tests, vary upstream processing while feeding identical PCM, then compare detector state and audio output separately. The detector should remain stable even when the processed output changes.
+## Video review fixes — 2026-10-28
+
+- A codec-config or empty output is not evidence that an input picture drained; preserve the bounded output hint until a non-config picture arrives, then reset it on EOS.
+- Snapshot counters and the bounded latency sample under a short lock, then sort, format and log outside it. A blocked logger regression can prove producer progress without making a quantitative performance claim.
+- `releaseOutputBuffer(..., true)` returning marks a codec Surface-release request completion. It does not establish compositor/panel display time; publish correlation denominators and keep target-device values separate.
+- A permanent DSP retirement error must prevent later graph preparation in the same renderer. Preserve the previous latency duration when converting its frame count to a new sample rate.
+
+## Correlate decoder input and codec Surface release without per-frame allocations
+
+Correlate the MediaCodec output PTS with the original frame receive timestamp using bounded primitive arrays. The timer stops after `releaseOutputBuffer(..., true)` returns; it does not measure compositor or panel presentation. Report unmatched outputs and overwritten input slots as numerator/denominator counts. Use a bounded percentile window and keep thread/process allocation and PSS scopes explicit; emulator and synthetic output do not establish head-unit behavior.
 
 ## Topic guide
 
@@ -17,7 +27,7 @@ These cumulative lessons include general rules followed by individual incident f
 - **USB / NCM:** [readiness proof](#require-bidirectional-proof-before-ncm-readiness), [request timeout](#treat-usb-request-wait-timeouts-as-pending-operations), [NDP](#separate-ndp-accounting-from-startup-retries).
 - **DSP / audio:** [DSP eligibility](#do-not-infer-dsp-eligibility-from-android-usage), [buffer validation](#validate-audio-buffers-with-frames-channels-and-encoding-together), [live DSP](#exercise-live-dsp-through-the-production-renderer-boundary).
 - **AirPlay / Split:** [IME resize](#keep-ime-resize-separate-from-negotiated-carplay-size), [phone identity](#revalidate-profile-identity-across-a-carplay-controller-restart).
-- **CI / release security:** [JNI symbol retention](#verify-jni-symbol-retention-from-the-optimized-mapping), [MFi identity](#bundle-local-mfi-identity-only-through-an-explicit-input), [APK signature](#verify-the-apk-signature-schemes-explicitly).
+- **CI / release security:** [JNI symbol retention](#verify-jni-symbol-retention-from-the-optimized-mapping), [MFi identity](#bundle-local-mfi-identity-only-through-an-explicit-input), [APK signature](#verify-the-apk-signature-schemes-explicitly), [USB auto-launch](#verify-usb-device-identity-at-each-auto-launch-boundary).
 
 ## General CI / review lessons
 
@@ -579,6 +589,14 @@ For a receive-path performance comparison, warm each mode, interleave the measur
 
 Treat performance instrumentation as a distribution gate: retain both passing and failing runs at the exact SHA, do not average away a p99 breach, and do not claim a Draft workflow passed jobs it skipped. On macOS, run Android tests directly when the helper's GNU `timeout` dependency is unavailable, then capture the required filtered logcat separately.
 
+For USB re-entry on an existing Host, test `onNewIntent` directly after the one-use internal token is consumed. Set up a non-finishing Host in Robolectric first; the private-beta bootstrap can otherwise finish the test Activity before the event arrives. Test readiness blocking and controller-present guards separately so a no-op event is not mistaken for a successful resume.
+
+When a verified attach arrives during teardown, queue at most one continuation behind the teardown completion callback. Running it immediately can launch a second controller while the prior sink is still closing; a recurring timer is unnecessary.
+
+For asynchronous native close measurements, separate audio-owner detach/enqueue duration from actual reaper destroy duration. Emit format-transition timing once at first PCM write and capture the native close duration on the reaper thread; do not add per-block diagnostic work.
+
+Keep MediaCodec release attempts keyed by codec object identity and perform the bounded retry on its existing worker. A persistent failure must keep the decoder and Surface owner retained and leave replacement blocked; timeout or a later session callback is not an ACK.
+
 2026-10-27 B09: an API 35 Shared p99 failure can be followed by a full 19/19 pass on the same code/test head without source changes. Preserve both; a repeat establishes the current run result, not the cause or stability of the earlier outlier.
 
 2026-10-27 B09: verify CI report artifacts by opening the uploaded ZIP and checking that expected JUnit XML files and suite counts are present; a passing job alone does not prove reports needed to diagnose future failures were retained. Run #490 confirmed 865 unit-test and 20 connected-instrumentation results were archived.
@@ -644,3 +662,12 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 2026-10-28 PR #52 review follow-up: use a single immutable AtomicReference value for related renderer owner/status data. A monitor around a short status update can still block the PCM processing path; CAS lets the owner and phase advance as one state transition.
 
 2026-10-28 PR #52 evidence: a validator should compare the per-ID disposition in both the detailed matrix and tracker, and its write/initialize mode must refuse to replace an existing populated evidence file.
+2026-10-27 B09: preserve benchmark results by ABI, build variant, and exact run. A passing x86_64 CI median does not override failing arm64 Debug emulator assertions. Compare thread-CPU p99 before attributing wall tails to scheduling; a later run can also show CPU p99 over budget. Debug `-O0` versus Release `-O2` is a relevant variant difference, not proof of cause.
+
+## Verify USB device identity at each auto-launch boundary
+
+Android's attach chooser can grant temporary USB permission when the user selects an app. An entry Activity should validate the event action and currently attached device, then hand access to the existing USB Controller; it should not send USB control requests or request a second permission itself. Re-enumeration can change `deviceId` and `deviceName`, so reject stale identities and allow a new current attach to replace a stale launch. During session teardown, retain one latest validated USB request and process it after the owner transition; never adopt a Controller whose transport differs from the Host's requested transport. Emulator tests do not establish physical attach routing.
+
+For asynchronous USB read tests, do not model a timeout with a 1–2 ms real-time sleep when the assertion depends on the queued-request state being observable first. Use a scripted delay longer than the test's internal timeout and a larger external wait bound; verify timeout and request state separately. Hosted scheduling exposed the race even when local runs passed.
+
+For deferred USB launch work, distinguish a replay of the same queued request from a new attach event: the replay must retain the original request and bypass physical-event debounce after revalidation, while explicit user retries also bypass it. For codecs, pending input/output counts are only hints; retain a short output-drain grace after the estimate reaches zero, and name latency metrics by the event they actually observe.

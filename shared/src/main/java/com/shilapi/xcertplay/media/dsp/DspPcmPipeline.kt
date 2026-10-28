@@ -5,6 +5,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 internal class DspPcmPipeline(
@@ -17,7 +18,11 @@ internal class DspPcmPipeline(
     private val retirementQueued = AtomicBoolean()
     private val retirementCount = AtomicReference<AtomicInteger?>(null)
     private val retirementFailureHandler = AtomicReference<((Throwable) -> Unit)?>(null)
+    private val retirementCompletionHandler = AtomicReference<(() -> Unit)?>(null)
     private val closed = AtomicBoolean()
+    private val closeDuration = AtomicLong()
+    @Volatile internal var audioOwnerEpoch: Long? = null
+    @Volatile internal var trackGeneration: Long? = null
     @Volatile internal var configGeneration: Long? = null
     @Volatile internal var reaperNext: DspPcmPipeline? = null
     private val diagnostics = DspDiagnostics()
@@ -73,10 +78,15 @@ internal class DspPcmPipeline(
     val algorithmicLatencyFrames: Int
         get() = processor.latencyFrames + outputDelayFrames
 
-    internal fun claimRetirement(counter: AtomicInteger, onCloseFailure: (Throwable) -> Unit): Boolean {
+    internal fun claimRetirement(
+        counter: AtomicInteger,
+        onCloseFailure: (Throwable) -> Unit,
+        onCloseComplete: () -> Unit,
+    ): Boolean {
         if (!retirementQueued.compareAndSet(false, true)) return false
         retirementCount.set(counter)
         retirementFailureHandler.set(onCloseFailure)
+        retirementCompletionHandler.set(onCloseComplete)
         return true
     }
 
@@ -84,8 +94,16 @@ internal class DspPcmPipeline(
         runCatching { retirementFailureHandler.get()?.invoke(error) }
     }
 
+    internal fun reportRetirementCompleted() {
+        runCatching { retirementCompletionHandler.get()?.invoke() }
+    }
+
+    internal val closeDurationNs: Long
+        get() = closeDuration.get()
+
     internal fun decrementRetirementCount() {
         retirementFailureHandler.set(null)
+        retirementCompletionHandler.set(null)
         retirementCount.getAndSet(null)?.decrementAndGet()
     }
 
@@ -301,7 +319,13 @@ internal class DspPcmPipeline(
     }
 
     override fun close() {
-        if (closed.compareAndSet(false, true)) processor.close()
+        if (!closed.compareAndSet(false, true)) return
+        val startedNs = System.nanoTime()
+        try {
+            processor.close()
+        } finally {
+            closeDuration.set(System.nanoTime() - startedNs)
+        }
     }
 
     private fun fail(): Int {

@@ -46,6 +46,7 @@ internal class DspLiveUpdateController(
     private val hotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedHotUpdate?)? = null,
     private val preampHotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedPreampHotUpdate?)? = null,
     private val localPeqWarmPreparer: DspLocalPeqWarmPreparer? = null,
+    private val onRetirementCompleted: (DspPcmPipeline, Long) -> Unit = { _, _ -> },
 ) : Closeable {
     private val closed = AtomicBoolean(false)
     private val workRequested = AtomicBoolean(false)
@@ -195,11 +196,16 @@ internal class DspLiveUpdateController(
     }
 
     fun retire(pipeline: DspPcmPipeline?) {
-        if (pipeline == null || !pipeline.claimRetirement(retiredPipelineCount) { error ->
+        if (pipeline == null) return
+        val claimed = pipeline.claimRetirement(
+            counter = retiredPipelineCount,
+            onCloseFailure = { error ->
                 failedRetirementCount.incrementAndGet()
                 runCatching { onRetirementFailed(pipeline, error) }
-            }
-        ) return
+            },
+            onCloseComplete = { runCatching { onRetirementCompleted(pipeline, pipeline.closeDurationNs) } },
+        )
+        if (!claimed) return
         retiredPipelineCount.incrementAndGet()
         DspPipelineReaper.enqueue(pipeline)
     }

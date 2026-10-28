@@ -2507,6 +2507,222 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun decoderFormatChangeDoesNotWaitForOldNativeCloseOnTheAudioOwner() {
+        val closeEntered = CountDownLatch(1)
+        val releaseClose = CountDownLatch(1)
+        val closeThreadName = AtomicReference<String>()
+        val formatChangeFinished = CountDownLatch(1)
+        val retirementReported = CountDownLatch(1)
+        val diagnostics = CopyOnWriteArrayList<String>()
+        val provider = MutableConfigProvider(DspRuntimeConfig(enabled = true))
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.AAC_LC, channels = 1),
+            initialConfig = DspRuntimeConfig(enabled = true),
+            provider = provider,
+            diagnostics = { message ->
+                diagnostics += message
+                if (message.startsWith("DSP retirement completed")) retirementReported.countDown()
+            },
+            pipelinePreparer = { audioFormat, _ ->
+                val processor = StateProcessor(audioFormat, 0, 1.0f)
+                if (audioFormat.sampleRate == 48_000) {
+                    processor.onClose = {
+                        closeThreadName.set(Thread.currentThread().name)
+                        closeEntered.countDown()
+                        check(releaseClose.await(5, TimeUnit.SECONDS))
+                    }
+                }
+                DspPcmPipeline(audioFormat, processor, forceInitialLatencySilence = false)
+            },
+        )
+        val formatChange = Thread({
+            renderer.prepareDecoderPcmFormatForTesting(44_100, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            formatChangeFinished.countDown()
+        }, "carplay-audio").apply { isDaemon = true }
+
+        try {
+            renderer.prepareDecoderPcmFormatForTesting(48_000, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            formatChange.start()
+
+            assertTrue(closeEntered.await(5, TimeUnit.SECONDS))
+            assertTrue(closeThreadName.get().startsWith("dsp-pipeline-reaper"))
+            assertTrue(
+                "the audio owner must finish format preparation while detached native state is retired",
+                formatChangeFinished.await(100, TimeUnit.MILLISECONDS),
+            )
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(64, 1, 200),
+                0,
+                128,
+                AndroidAudioFormat.ENCODING_PCM_16BIT,
+                20,
+            )
+            val transition = diagnostics.first { it.startsWith("DSP format transition") }
+            assertTrue(transition.contains("audioOwnerEpoch="))
+            assertTrue(transition.contains("trackGeneration="))
+            assertTrue(transition.contains("dspConfigGeneration="))
+            assertTrue(transition.contains("prepareDurationNs="))
+            assertTrue(transition.contains("retireRequestDurationNs="))
+            assertTrue(transition.contains("trackCreateDurationNs="))
+            assertTrue(transition.contains("firstWriteDelayNs="))
+            assertTrue(transition.contains("audioThreadName=carplay-audio"))
+            assertTrue(transition.contains("fallbackReason=none"))
+            releaseClose.countDown()
+            assertTrue(retirementReported.await(5, TimeUnit.SECONDS))
+            val retired = diagnostics.first { it.startsWith("DSP retirement completed") }
+            assertTrue(retired.contains("destroyDurationNs="))
+            assertTrue(retired.contains("retirementThreadName=dsp-pipeline-reaper"))
+        } finally {
+            releaseClose.countDown()
+            formatChange.join(1_000)
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun oldFormatRetirementFailureBlocksUpdatesUntilANewRendererOwnsTheGraph() {
+        val closeEntered = CountDownLatch(1)
+        val releaseClose = CountDownLatch(1)
+        val prepared = CountDownLatch(1)
+        val formatChangeFinished = CountDownLatch(1)
+        val pipelinePreparations = AtomicInteger()
+        val provider = MutableConfigProvider(DspRuntimeConfig(enabled = true))
+        val activeRenderer = renderer(
+            format = audioFormat(AudioCodecKind.AAC_LC, channels = 1),
+            initialConfig = DspRuntimeConfig(enabled = true),
+            provider = provider,
+            onPrepared = prepared::countDown,
+            pipelinePreparer = { audioFormat, _ ->
+                pipelinePreparations.incrementAndGet()
+                val latencyFrames = if (audioFormat.sampleRate == 44_100) 128 else 0
+                val processor = StateProcessor(audioFormat, latencyFrames, 1.0f)
+                if (audioFormat.sampleRate == 48_000 && audioFormat.channels == 1) {
+                    processor.onClose = {
+                        closeEntered.countDown()
+                        check(releaseClose.await(5, TimeUnit.SECONDS))
+                        throw IllegalStateException("injected native destroy failure")
+                    }
+                }
+                DspPcmPipeline(audioFormat, processor, forceInitialLatencySilence = false)
+            },
+        )
+        val formatChange = Thread({
+            activeRenderer.prepareDecoderPcmFormatForTesting(44_100, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            formatChangeFinished.countDown()
+        }, "carplay-audio").apply { isDaemon = true }
+        var replacementRenderer: AudioRenderer? = null
+
+        try {
+            activeRenderer.prepareDecoderPcmFormatForTesting(48_000, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            formatChange.start()
+            assertTrue(closeEntered.await(5, TimeUnit.SECONDS))
+            assertTrue(formatChangeFinished.await(5, TimeUnit.SECONDS))
+
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = 2.0))
+            assertTrue(prepared.await(5, TimeUnit.SECONDS))
+            releaseClose.countDown()
+            val blockedStatus = awaitRetirementBlockedStatus(provider)
+            assertTrue(blockedStatus.updatesBlocked)
+            assertEquals(0L, activeRenderer.dspGenerationForTesting)
+
+            activeRenderer.beginTrackGenerationForTesting()
+            activeRenderer.processDecodedPcmForTesting(
+                pcm16(64, 1, 200),
+                0,
+                128,
+                AndroidAudioFormat.ENCODING_PCM_16BIT,
+                20,
+            )
+            assertEquals(128, activeRenderer.trackLatencyForTesting)
+            assertEquals(null, activeRenderer.dspPipeline)
+            assertEquals(0L, activeRenderer.dspGenerationForTesting)
+            assertTrue(provider.rendererApplyStatus()?.updatesBlocked == true)
+
+            val blockedPreparations = pipelinePreparations.get()
+            activeRenderer.prepareDecoderPcmFormatForTesting(32_000, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            assertEquals(blockedPreparations, pipelinePreparations.get())
+            assertEquals(93, activeRenderer.trackLatencyForTesting)
+            assertEquals(null, activeRenderer.dspPipeline)
+
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = 4.0))
+            Thread.sleep(100)
+            assertEquals(blockedPreparations, pipelinePreparations.get())
+            assertTrue(provider.rendererApplyStatus()?.updatesBlocked == true)
+
+            replacementRenderer = renderer(
+                format = audioFormat(AudioCodecKind.AAC_LC, channels = 1),
+                initialConfig = DspRuntimeConfig.disabled(),
+                provider = provider,
+                pipelinePreparer = { audioFormat, _ -> pipeline(audioFormat, latencyFrames = 0, gain = 1.0f) },
+            )
+            replacementRenderer.prepareDecoderPcmFormatForTesting(
+                44_100,
+                1,
+                AndroidAudioFormat.ENCODING_PCM_16BIT,
+            )
+            assertEquals(2L, replacementRenderer.dspGenerationForTesting)
+            assertFalse(provider.rendererApplyStatus()?.updatesBlocked == true)
+        } finally {
+            releaseClose.countDown()
+            formatChange.join(1_000)
+            activeRenderer.releaseForTesting()
+            replacementRenderer?.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun lateRetirementFailureFromReleasedRendererDoesNotBlockTheNewOwner() {
+        val closeEntered = CountDownLatch(1)
+        val releaseClose = CountDownLatch(1)
+        val closeFinished = CountDownLatch(1)
+        val provider = MutableConfigProvider(DspRuntimeConfig(enabled = true))
+        val oldRenderer = renderer(
+            format = audioFormat(AudioCodecKind.AAC_LC, channels = 1),
+            initialConfig = DspRuntimeConfig(enabled = true),
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                val processor = StateProcessor(audioFormat, 0, 1.0f)
+                processor.onClose = {
+                    closeEntered.countDown()
+                    try {
+                        check(releaseClose.await(5, TimeUnit.SECONDS))
+                        throw IllegalStateException("injected late destroy failure")
+                    } finally {
+                        closeFinished.countDown()
+                    }
+                }
+                DspPcmPipeline(audioFormat, processor, forceInitialLatencySilence = false)
+            },
+        )
+        var newRenderer: AudioRenderer? = null
+
+        try {
+            oldRenderer.prepareDecoderPcmFormatForTesting(48_000, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            oldRenderer.releaseForTesting()
+            assertTrue(closeEntered.await(5, TimeUnit.SECONDS))
+
+            newRenderer = renderer(
+                format = audioFormat(AudioCodecKind.AAC_LC, channels = 1),
+                initialConfig = DspRuntimeConfig.disabled(),
+                provider = provider,
+                pipelinePreparer = { audioFormat, _ -> pipeline(audioFormat, latencyFrames = 0, gain = 1.0f) },
+            )
+            newRenderer.prepareDecoderPcmFormatForTesting(48_000, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            assertFalse(provider.rendererApplyStatus()?.updatesBlocked == true)
+
+            releaseClose.countDown()
+            assertTrue(closeFinished.await(5, TimeUnit.SECONDS))
+            assertFalse(provider.rendererApplyStatus()?.updatesBlocked == true)
+            assertEquals(0L, newRenderer.dspGenerationForTesting)
+        } finally {
+            releaseClose.countDown()
+            oldRenderer.releaseForTesting()
+            newRenderer?.releaseForTesting()
+        }
+    }
+
+    @Test
     fun staleFormatCandidateIsClosedWhenRendererFormatReturnsToItsPreviousValue() {
         val enteredOldPublish = CountDownLatch(1)
         val releaseOldPublish = CountDownLatch(1)
@@ -2620,6 +2836,7 @@ class DspRendererProductionPathTest {
         initialConfig: DspRuntimeConfig,
         provider: MutableConfigProvider = MutableConfigProvider(initialConfig),
         writeAdapter: AudioTrackWriteAdapterForTest = AudioTrackWriteAdapterForTest { _, _, length, _ -> length },
+        diagnostics: (String) -> Unit = {},
         beforeDspUpdatePublish: () -> Unit = {},
         afterDspUpdateOwnerCheck: () -> Unit = {},
         onPrepared: () -> Unit = {},
@@ -2641,7 +2858,7 @@ class DspRendererProductionPathTest {
             transport = "wired",
             audioManager = null,
             mediaBufferMillis = 300,
-            report = {},
+            report = diagnostics,
             dspConfigProvider = provider,
             dspPipelinePreparer = pipelinePreparer,
             audioTrackWriteAdapterForTest = writeAdapter,
@@ -2791,6 +3008,16 @@ class DspRendererProductionPathTest {
         }
         val finalStatus = provider.rendererApplyStatus()
         assertEquals("Expected $phase for generation $generation, got $finalStatus", phase, finalStatus?.phase)
+    }
+
+    private fun awaitRetirementBlockedStatus(provider: MutableConfigProvider): DspRendererApplyStatus {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (System.nanoTime() < deadline) {
+            provider.rendererApplyStatus()?.takeIf { it.updatesBlocked }?.let { return it }
+            Thread.sleep(5)
+        }
+        assertTrue(provider.rendererApplyStatus()?.updatesBlocked == true)
+        return requireNotNull(provider.rendererApplyStatus())
     }
 
     private class StateProcessor(

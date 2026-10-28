@@ -155,6 +155,7 @@ class NcmUsbBridge internal constructor(
     private val wiredPathDiagnostics: WiredPathDiagnostics? = null,
     private val wiredStartupTiming: WiredStartupTiming? = null,
     private val incompleteNtbNoProgressTimeoutMillis: Long = DEFAULT_INCOMPLETE_NTB_NO_PROGRESS_TIMEOUT_MILLIS,
+    private val incompleteNtbClockNanos: () -> Long = System::nanoTime,
 ) : Closeable {
     private val descriptorMac = descriptorHostMac?.copyOf()
     val hostMac: ByteArray? get() = descriptorMac?.copyOf()
@@ -757,17 +758,17 @@ class NcmUsbBridge internal constructor(
                 sequence = sequence,
                 blockLength = blockLength,
                 bufferedBytes = bufferedSize,
-                lastProgressAtNanos = System.nanoTime(),
+                lastProgressAtNanos = incompleteNtbClockNanos(),
             )
         } else if (bufferedSize > current.bufferedBytes) {
             current.bufferedBytes = bufferedSize
-            current.lastProgressAtNanos = System.nanoTime()
+            current.lastProgressAtNanos = incompleteNtbClockNanos()
         }
     }
 
     private fun failIfIncompleteNtbStalled() {
         val progress = incompleteNtbProgress ?: return
-        val elapsedNanos = System.nanoTime() - progress.lastProgressAtNanos
+        val elapsedNanos = incompleteNtbClockNanos() - progress.lastProgressAtNanos
         if (elapsedNanos < incompleteNtbNoProgressTimeoutMillis * NANOS_PER_MILLISECOND) return
         val elapsedMillis = elapsedNanos / NANOS_PER_MILLISECOND
         throw failSession(
@@ -959,7 +960,7 @@ class NcmUsbBridge internal constructor(
         if (length > 0) {
             incompleteNtbProgress?.let { progress ->
                 progress.bufferedBytes = bufferedSize
-                progress.lastProgressAtNanos = System.nanoTime()
+                progress.lastProgressAtNanos = incompleteNtbClockNanos()
             }
         }
     }

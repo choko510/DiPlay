@@ -60,8 +60,9 @@ class DspRuntimeConfig(
         val changed = DspUpdatePlanner.diff(this, other)
         return enabled && other.enabled && changed.isNotEmpty() && changed.all {
             it == DspRuntimeField.MACRO_TONE || it == DspRuntimeField.SMART_LOUDNESS ||
-                it == DspRuntimeField.DYNAMIC_BASS
-        }
+                it == DspRuntimeField.DYNAMIC_BASS || it == DspRuntimeField.COMPRESSOR ||
+                it == DspRuntimeField.LIMITER || it == DspRuntimeField.DYNAMIC_EQ
+        } && DspUpdatePlanner.canHotDynamics(this, other) && DspUpdatePlanner.canHotDynamicEq(this, other)
     }
 
     internal fun canApplyPreampHotUpdateTo(other: DspRuntimeConfig): Boolean =

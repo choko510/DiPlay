@@ -235,7 +235,9 @@ static int studio_module_gains_are_settled(const dsp_graph *graph) {
         : 1.0;
     return graph->macro.ramp_frames_remaining <= 0 &&
         graph->smart_loudness.ramp_frames_remaining <= 0 &&
-        graph->dynamic_bass.current_gain <= dynamic_bass_gain_ceiling + 1.0e-6;
+        graph->dynamic_bass.current_gain <= dynamic_bass_gain_ceiling + 1.0e-6 &&
+        !dsp_dynamics_hot_transition_pending(&graph->dynamics) &&
+        !dsp_dynamic_eq_hot_transition_pending(&graph->dynamic_eq);
 }
 
 int dsp_graph_apply_studio_hot(
@@ -271,6 +273,83 @@ int dsp_graph_apply_studio_hot(
         }
     }
     return DSP_GRAPH_HOT_APPLIED;
+}
+
+int dsp_graph_preflight_hot(
+    const dsp_graph *graph,
+    uint32_t field_mask,
+    double gain_db,
+    double gain_linear,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config,
+    const dsp_dynamics_hot_params *dynamics_params,
+    const dsp_dynamic_eq_hot_update *dynamic_eq_update) {
+    const uint32_t known_fields = DSP_ENGINE_HOT_FIELD_STUDIO |
+        DSP_ENGINE_HOT_FIELD_DYNAMICS | DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ;
+    if (graph == NULL || field_mask == 0 || (field_mask & ~known_fields) != 0 ||
+        !isfinite(gain_db) || !isfinite(gain_linear) || gain_linear <= 0.0) return DSP_GRAPH_HOT_REJECTED;
+    if ((field_mask & DSP_ENGINE_HOT_FIELD_STUDIO) != 0 &&
+        !dsp_graph_studio_hot_config_is_valid(
+            gain_db, macro_config, smart_loudness_config, dynamic_bass_config)) return DSP_GRAPH_HOT_REJECTED;
+    if ((field_mask & DSP_ENGINE_HOT_FIELD_DYNAMICS) != 0) {
+        const int result = dsp_dynamics_can_apply_hot_params(
+            &graph->dynamics, dynamics_params, graph->sample_rate / 50);
+        if (result == DSP_DYNAMICS_HOT_DEFERRED) return DSP_GRAPH_HOT_DEFERRED_DYNAMICS;
+        if (result != DSP_DYNAMICS_HOT_APPLIED) return DSP_GRAPH_HOT_REJECTED;
+    }
+    if ((field_mask & DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ) != 0) {
+        const int result = dsp_dynamic_eq_can_apply_hot_update(&graph->dynamic_eq, dynamic_eq_update);
+        if (result == DSP_DYNAMIC_EQ_HOT_UPDATE_DEFERRED) return DSP_GRAPH_HOT_DEFERRED_DYNAMIC_EQ_CAP;
+        if (result != DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED) return DSP_GRAPH_HOT_REJECTED;
+    }
+    return DSP_GRAPH_HOT_APPLIED;
+}
+
+int dsp_graph_apply_hot(
+    dsp_graph *graph,
+    uint32_t field_mask,
+    double gain_db,
+    double gain_linear,
+    const dsp_macro_config *macro_config,
+    const dsp_smart_loudness_config *smart_loudness_config,
+    const dsp_dynamic_bass_config *dynamic_bass_config,
+    const dsp_dynamics_hot_params *dynamics_params,
+    const dsp_dynamic_eq_hot_update *dynamic_eq_update) {
+    const int preflight = dsp_graph_preflight_hot(graph, field_mask, gain_db, gain_linear,
+            macro_config, smart_loudness_config, dynamic_bass_config,
+            dynamics_params, dynamic_eq_update);
+    if (preflight != DSP_GRAPH_HOT_APPLIED) return preflight;
+    if (graph->gain.ramp_remaining > 0) return DSP_GRAPH_HOT_PROTECTIVE_RAMP;
+    if (gain_db < graph->gain.decibels) {
+        if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db,
+                (uint32_t)(graph->sample_rate / 50))) return DSP_GRAPH_HOT_REJECTED;
+        graph->studio_gain_refund_pending = 0;
+        return DSP_GRAPH_HOT_PROTECTIVE_RAMP;
+    }
+    if ((field_mask & DSP_ENGINE_HOT_FIELD_DYNAMICS) != 0 &&
+        dsp_dynamics_apply_hot_params(&graph->dynamics, dynamics_params, graph->sample_rate / 50) !=
+            DSP_DYNAMICS_HOT_APPLIED) return DSP_GRAPH_HOT_REJECTED;
+    if ((field_mask & DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ) != 0 &&
+        dsp_dynamic_eq_apply_hot_update(&graph->dynamic_eq, dynamic_eq_update) !=
+            DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED) return DSP_GRAPH_HOT_REJECTED;
+    if ((field_mask & DSP_ENGINE_HOT_FIELD_STUDIO) != 0) {
+        const int studio_result = dsp_graph_apply_studio_hot(graph, gain_db, gain_linear,
+            macro_config, smart_loudness_config, dynamic_bass_config);
+        if (studio_result != DSP_GRAPH_HOT_APPLIED) return studio_result;
+    }
+    if ((field_mask & DSP_ENGINE_HOT_FIELD_STUDIO) == 0 && gain_db > graph->gain.decibels) {
+        graph->pending_studio_gain_db = gain_db;
+        graph->pending_studio_gain_linear = (float)gain_linear;
+        graph->studio_gain_refund_pending = 1;
+    }
+    return DSP_GRAPH_HOT_APPLIED;
+}
+
+int dsp_graph_hot_transition_pending(const dsp_graph *graph) {
+    if (graph == NULL) return 0;
+    return graph->gain.ramp_remaining > 0 || graph->studio_gain_refund_pending ||
+        !studio_module_gains_are_settled(graph);
 }
 
 int dsp_graph_apply_preamp_hot(dsp_graph *graph, double gain_db, double gain_linear) {

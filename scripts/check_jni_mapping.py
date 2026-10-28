@@ -17,6 +17,8 @@ JNI_CLASSES = {
         "nativeEnqueueLocalPeqUpdate",
         "nativeCancelLocalPeqUpdate",
         "nativeGetHotAckToken",
+        "nativeGetHotDeferredToken",
+        "nativeGetHotDeferredReason",
         "nativeGetPreampHotAckToken",
         "nativeGetLocalPeqAckToken",
         "nativeGetLocalPeqRejectedToken",

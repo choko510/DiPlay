@@ -56,3 +56,9 @@ if [[ $sanitize -eq 1 ]]; then
 else
   "$build_dir/test_dsp_engine"
 fi
+
+if [[ $sanitize -eq 1 ]]; then
+  bash "$root_dir/scripts/test_dsp_dynamic_eq_hot.sh" --sanitize
+else
+  bash "$root_dir/scripts/test_dsp_dynamic_eq_hot.sh"
+fi

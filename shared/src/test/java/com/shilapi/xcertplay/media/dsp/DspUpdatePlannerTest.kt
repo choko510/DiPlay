@@ -7,6 +7,54 @@ import org.junit.Test
 
 class DspUpdatePlannerTest {
     @Test
+    fun dynamicsAndDynamicEqSafeFieldsAreHotButTopologyAndUnsafeLimiterChangesDefer() {
+        val compressor = DspCompressorConfig(enabled = true)
+        val limiter = DspSafetyLimiterConfig(enabled = true)
+        val current = DspRuntimeConfig(enabled = true, compressor = compressor, safetyLimiter = limiter)
+        val compressorParameters = DspRuntimeConfig(
+            enabled = true,
+            compressor = compressor.copy(thresholdDb = -26.0, ratio = 5.0, attackMs = 14.0,
+                releaseMs = 140.0, kneeDb = 4.0, makeupDb = 2.0),
+            safetyLimiter = limiter.copy(thresholdDb = -2.0, releaseMs = 90.0),
+        )
+        assertEquals(DspUpdatePlan.HOT,
+            DspUpdatePlanner.classify(current, compressorParameters, true, true, 0, 0, true))
+        assertTrue(current.canApplyStudioHotUpdateTo(compressorParameters))
+
+        val compressorTopology = DspRuntimeConfig(enabled = true, compressor = compressor.copy(enabled = false), safetyLimiter = limiter)
+        assertEquals("COMPRESSOR enabled topology change is unsafe for HOT; keeping the active pipeline",
+            DspUpdatePlanner.decide(current, compressorTopology, true, true, 0, 0, true).reason)
+        val unsafeLimiter = DspRuntimeConfig(enabled = true, compressor = compressor,
+            safetyLimiter = limiter.copy(thresholdDb = -0.5))
+        assertEquals(DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, unsafeLimiter, true, true, 0, 0, true))
+
+        val eqCurrent = DspRuntimeConfig(enabled = true, dynamicEq = DspDynamicEqConfig(enabled = true))
+        val eqThreshold = DspDynamicEqConfig(enabled = true, bands = eqCurrent.dynamicEq.bands.mapIndexed { index, band ->
+            if (index == 0) band.copy(thresholdDb = -30.0, ratio = 3.0, attackMs = 12.0,
+                releaseMs = 130.0, maxBoostDb = 4.0, maxCutDb = 5.0) else band
+        })
+        val eqTarget = DspRuntimeConfig(enabled = true, dynamicEq = eqThreshold)
+        assertEquals(DspUpdatePlan.HOT,
+            DspUpdatePlanner.classify(eqCurrent, eqTarget, true, true, 0, 0, true))
+        val frequencyTarget = DspRuntimeConfig(enabled = true, dynamicEq = DspDynamicEqConfig(
+            enabled = true, bands = eqThreshold.bands.mapIndexed { index, band ->
+                if (index == 0) band.copy(frequencyHz = 125.0) else band
+            }))
+        assertEquals(DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(eqCurrent, frequencyTarget, true, true, 0, 0, true))
+        assertEquals("DYNAMIC_EQ enabled/mode/frequency/Q topology change is unsafe for HOT; keeping the active pipeline",
+            DspUpdatePlanner.decide(eqCurrent, frequencyTarget, true, true, 0, 0, true).reason)
+
+        val mixedSafeDynamicsUnsafeEq = DspRuntimeConfig(enabled = true,
+            compressor = compressor.copy(thresholdDb = -30.0), dynamicEq = frequencyTarget.dynamicEq)
+        val bothCurrent = DspRuntimeConfig(enabled = true, compressor = compressor,
+            dynamicEq = eqCurrent.dynamicEq)
+        assertEquals(DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(bothCurrent, mixedSafeDynamicsUnsafeEq, true, true, 0, 0, true))
+    }
+
+    @Test
     fun studioOverlayChangesAreHotWhenAPipelineIsActive() {
         val current = DspRuntimeConfig(enabled = true)
         val target = DspRuntimeConfig(

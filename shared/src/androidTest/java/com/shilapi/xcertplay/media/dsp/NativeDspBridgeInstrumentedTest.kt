@@ -16,6 +16,112 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class NativeDspBridgeInstrumentedTest {
     @Test
+    fun nativeDynamicsAndDynamicEqHotPayloadsAreAtomicFencedAndAcknowledgedAfterTransition() {
+        assertTrue(NativeDspLibrary.ensureLoaded())
+        val format = DspAudioFormat(48_000, 2)
+        val initial = DspRuntimeConfig(
+            enabled = true,
+            gainDb = -8.0,
+            compressor = DspCompressorConfig(enabled = true),
+            dynamicEq = DspDynamicEqConfig(enabled = true, bands = DspDynamicEqConfig.defaultBands()
+                .mapIndexed { index, band -> if (index == 0) band.copy(enabled = true) else band }),
+        )
+        val prepared = initial.prepare(format)
+        val handle = NativeDspJni.createWithStudio(
+            sampleRate = format.sampleRate,
+            channels = format.channels,
+            maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
+            gainDb = prepared.appliedPreampDb,
+            eqCoefficients = prepared.eqCoefficients,
+            dynamics = prepared.dynamics,
+            multiband = prepared.multiband,
+            dynamicEq = prepared.dynamicEq,
+            bassCoefficients = prepared.bassCoefficients,
+            monoBassCoefficients = prepared.monoBassCoefficients,
+            spatial = prepared.spatial,
+            convolverConfig = prepared.convolverConfig,
+            convolverSamples = prepared.convolverSamples,
+            harmonicValues = prepared.harmonic,
+            macroValues = prepared.macroTone,
+            smartLoudnessValues = prepared.smartLoudness,
+            dynamicBassValues = prepared.dynamicBass,
+        )
+        assertTrue(handle > 0L)
+        try {
+            assertTrue(NativeDspJni.bindHotUpdateContext(handle, format, 7L, 9L, 3L, 1, mediaRole = true))
+            fun update(config: DspRuntimeConfig, generation: Long, mask: Int =
+                DspPreparedHotUpdate.HOT_FIELD_DYNAMICS or DspPreparedHotUpdate.HOT_FIELD_DYNAMIC_EQ) =
+                config.prepareHotUpdate(format, generation, 7L, 9L, 3L, 1, true, mask)
+            fun processBlock(frames: Int = 512) {
+                val input = ByteBuffer.allocateDirect(frames * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
+                repeat(frames) { input.putFloat(0.25f).putFloat(0.25f) }
+                input.flip()
+                val output = ByteBuffer.allocateDirect(input.remaining()).order(ByteOrder.nativeOrder())
+                assertEquals(0, NativeDspJni.process(handle, input, 0, input.remaining(), output, 0,
+                    output.capacity(), frames, 2))
+            }
+
+            val safeTarget = DspRuntimeConfig(
+                enabled = true,
+                gainDb = -8.0,
+                compressor = initial.compressor.copy(thresholdDb = -28.0, ratio = 5.0,
+                    attackMs = 14.0, releaseMs = 140.0, kneeDb = 4.0, makeupDb = 2.0),
+                dynamicEq = DspDynamicEqConfig(enabled = true, bands = initial.dynamicEq.bands.mapIndexed { index, band ->
+                    if (index == 0) band.copy(thresholdDb = -30.0, ratio = 3.0, attackMs = 12.0,
+                        releaseMs = 130.0, maxCutDb = 4.0) else band
+                }),
+            )
+            val safeUpdate = update(safeTarget, 100L)
+            assertEquals(10, safeUpdate.dynamicsValues.size)
+            assertEquals(51, safeUpdate.dynamicEqValues.size)
+            assertEquals(5, safeUpdate.dynamicsCoefficients.size)
+            assertEquals(10, safeUpdate.dynamicEqCoefficients.size)
+            assertEquals(5, NativeDspJni.applyHotConfig(handle, safeUpdate.copy(rendererOwnerToken = 10L)))
+            assertEquals(5, NativeDspJni.applyHotConfig(handle, safeUpdate.copy(pcmFormatEpoch = 4L)))
+            assertEquals(2, NativeDspJni.applyHotConfig(handle, safeUpdate.copy(hotPayloadVersion = 2)))
+            assertEquals(2, NativeDspJni.applyHotConfig(handle,
+                safeUpdate.copy(dynamicEqValues = safeUpdate.dynamicEqValues.copyOf(50))))
+            val nonFinite = safeUpdate.dynamicEqValues.copyOf().also { it[5] = Double.NaN }
+            assertEquals(2, NativeDspJni.applyHotConfig(handle, safeUpdate.copy(dynamicEqValues = nonFinite)))
+            assertEquals(0, NativeDspJni.applyHotConfig(handle, safeUpdate))
+            assertEquals(0, NativeDspJni.hotAckToken(handle))
+            repeat(12) { if (NativeDspJni.hotAckToken(handle) != safeUpdate.generationToken) processBlock() }
+            assertEquals(safeUpdate.generationToken, NativeDspJni.hotAckToken(handle))
+
+            fun targetWithThreshold(thresholdDb: Double) = DspRuntimeConfig(
+                enabled = true,
+                gainDb = -8.0,
+                compressor = safeTarget.compressor.copy(thresholdDb = thresholdDb),
+                dynamicEq = safeTarget.dynamicEq,
+            )
+            val next = update(targetWithThreshold(-32.0), 101L)
+            val latest = update(targetWithThreshold(-34.0), 102L)
+            assertEquals(0, NativeDspJni.applyHotConfig(handle, next))
+            assertEquals(0, NativeDspJni.applyHotConfig(handle, latest))
+            repeat(12) { if (NativeDspJni.hotAckToken(handle) != latest.generationToken) processBlock() }
+            assertEquals(latest.generationToken, NativeDspJni.hotAckToken(handle))
+            assertTrue(NativeDspJni.hotAckToken(handle) != next.generationToken)
+
+            val capTarget = DspRuntimeConfig(
+                enabled = true,
+                gainDb = -8.0,
+                compressor = safeTarget.compressor,
+                dynamicEq = DspDynamicEqConfig(enabled = true, bands = safeTarget.dynamicEq.bands.mapIndexed { index, band ->
+                    if (index == 0) band.copy(maxCutDb = 8.0) else band
+                }),
+            )
+            val capUpdate = update(capTarget, 103L, DspPreparedHotUpdate.HOT_FIELD_DYNAMIC_EQ)
+            assertEquals(0, NativeDspJni.applyHotConfig(handle, capUpdate))
+            processBlock()
+            assertEquals(capUpdate.generationToken, NativeDspJni.hotDeferredToken(handle))
+            assertEquals(5, NativeDspJni.hotDeferredReason(handle))
+            assertTrue(NativeDspJni.hotAckToken(handle) != capUpdate.generationToken)
+        } finally {
+            NativeDspJni.destroy(handle)
+        }
+    }
+
+    @Test
     fun nativePreampHotUpdateRampsPcmAndAcknowledgesOnlyTheCompletedTarget() {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val format = DspAudioFormat(48_000, 2)

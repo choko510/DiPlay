@@ -260,6 +260,10 @@ internal class DspPcmPipeline(
     internal fun hasAcknowledged(update: DspPreparedHotUpdate): Boolean =
         processor.hotAcknowledgedToken() == update.generationToken
 
+    internal fun hotDeferredToken(): Int = processor.hotDeferredToken()
+
+    internal fun hotDeferredReason(): Int = processor.hotDeferredReason()
+
     internal fun hasAcknowledged(update: DspPreparedPreampHotUpdate): Boolean =
         processor.preampHotAcknowledgedToken() == update.generationToken
 

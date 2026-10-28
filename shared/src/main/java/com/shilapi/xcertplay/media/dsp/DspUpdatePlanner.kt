@@ -124,6 +124,24 @@ internal object DspUpdatePlanner {
                 "preamp HOT requires Auto Headroom and at least 6 dB of reserve",
             )
         }
+        if (trackGenerationCommitted && hasActivePipeline && current.enabled && target.enabled) {
+            if (DspRuntimeField.COMPRESSOR in changed &&
+                current.compressor.enabled != target.compressor.enabled) {
+                return DspUpdateDecision(DspUpdatePlan.DEFERRED,
+                    "COMPRESSOR enabled topology change is unsafe for HOT; keeping the active pipeline")
+            }
+            if (DspRuntimeField.LIMITER in changed && (
+                    current.safetyLimiter.enabled != target.safetyLimiter.enabled ||
+                        target.safetyLimiter.thresholdDb > current.safetyLimiter.thresholdDb
+                    )) {
+                return DspUpdateDecision(DspUpdatePlan.DEFERRED,
+                    "LIMITER enable transition or threshold increase is unsafe for HOT; keeping the active pipeline")
+            }
+            if (DspRuntimeField.DYNAMIC_EQ in changed && !canHotDynamicEq(current, target)) {
+                return DspUpdateDecision(DspUpdatePlan.DEFERRED,
+                    "DYNAMIC_EQ enabled/mode/frequency/Q topology change is unsafe for HOT; keeping the active pipeline")
+            }
+        }
         if (trackGenerationCommitted && hasActivePipeline && current.enabled && target.enabled &&
             changed == setOf(DspRuntimeField.PREAMP)
         ) {
@@ -139,6 +157,15 @@ internal object DspUpdatePlanner {
             }
         }
 
+        if (trackGenerationCommitted && hasActivePipeline && current.enabled && target.enabled &&
+            changed.all { isHotField(it) || it == DspRuntimeField.COMPRESSOR ||
+                it == DspRuntimeField.LIMITER || it == DspRuntimeField.DYNAMIC_EQ } &&
+            (!requiresStateContinuity || changed.all(::isContinuityIndependentHotField)) &&
+            canHotDynamics(current, target) && canHotDynamicEq(current, target)
+        ) {
+            return if (studioHotUpdatesEnabled) DspUpdateDecision(DspUpdatePlan.HOT)
+            else DspUpdateDecision(DspUpdatePlan.DEFERRED, "Native HOT updates are disabled")
+        }
         if (mediaRole && hasActivePipeline && current.enabled && target.enabled &&
             changed.all(::isHotField) &&
             (!requiresStateContinuity || changed.all(::isContinuityIndependentHotField))
@@ -175,10 +202,31 @@ internal object DspUpdatePlanner {
 
     private fun isContinuityIndependentHotField(field: DspRuntimeField): Boolean = field in setOf(
         DspRuntimeField.PREAMP,
+        DspRuntimeField.COMPRESSOR,
+        DspRuntimeField.LIMITER,
+        DspRuntimeField.DYNAMIC_EQ,
         DspRuntimeField.MACRO_TONE,
         DspRuntimeField.SMART_LOUDNESS,
         DspRuntimeField.DYNAMIC_BASS,
     )
+
+    internal fun canHotDynamics(current: DspRuntimeConfig, target: DspRuntimeConfig): Boolean {
+        if (current.compressor.enabled != target.compressor.enabled ||
+            current.safetyLimiter.enabled != target.safetyLimiter.enabled) return false
+        return target.safetyLimiter.thresholdDb <= current.safetyLimiter.thresholdDb
+    }
+
+    internal fun canHotDynamicEq(current: DspRuntimeConfig, target: DspRuntimeConfig): Boolean {
+        val old = current.dynamicEq
+        val next = target.dynamicEq
+        if (old.enabled != next.enabled || old.bands.size != next.bands.size) return false
+        return old.bands.indices.all { index ->
+            val before = old.bands[index]
+            val after = next.bands[index]
+            before.enabled == after.enabled && before.mode == after.mode &&
+                before.frequencyHz == after.frequencyHz && before.q == after.q
+        }
+    }
 
     private fun isLocalWarmField(field: DspRuntimeField): Boolean = field in setOf(
         DspRuntimeField.PEQ,

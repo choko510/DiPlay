@@ -53,9 +53,13 @@ typedef struct {
     double gain_linear;
     uint32_t gain_pair_validated;
     uint32_t payload_kind;
+    uint32_t field_mask;
+    uint32_t hot_version;
     dsp_macro_config macro;
     dsp_smart_loudness_config smart_loudness;
     dsp_dynamic_bass_config dynamic_bass;
+    dsp_dynamics_hot_params dynamics;
+    dsp_dynamic_eq_hot_update dynamic_eq;
 } dsp_engine_hot_update;
 
 #define DSP_ENGINE_HOT_KIND_STUDIO 0u
@@ -149,6 +153,8 @@ int dsp_engine_bind_hot_update_context(
     int media_role);
 uint32_t dsp_engine_get_hot_ack_token(const dsp_engine *engine);
 uint32_t dsp_engine_get_preamp_ack_token(const dsp_engine *engine);
+uint32_t dsp_engine_get_hot_deferred_token(const dsp_engine *engine);
+uint32_t dsp_engine_get_hot_deferred_reason(const dsp_engine *engine);
 uint32_t dsp_engine_get_local_peq_ack_token(const dsp_engine *engine);
 uint32_t dsp_engine_get_local_peq_rejected_token(const dsp_engine *engine);
 dsp_status dsp_engine_process(
@@ -168,6 +174,7 @@ void dsp_engine_destroy(dsp_engine *engine);
 #ifdef DSP_ENGINE_TESTING
 void dsp_engine_test_set_processed_frames(dsp_engine *engine, uint32_t value);
 float dsp_engine_test_get_compressor_envelope(const dsp_engine *engine);
+float dsp_engine_test_get_dynamic_eq_envelope(const dsp_engine *engine, int band);
 #endif
 
 #endif

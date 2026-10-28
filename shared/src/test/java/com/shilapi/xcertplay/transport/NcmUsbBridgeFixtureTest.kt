@@ -871,11 +871,11 @@ class NcmUsbBridgeFixtureTest {
         val frame = Step4TestFixtures.ethernetFrame(length = 60)
         val block = Ntb16Codec.build(frame, sequence = 11)
         val (bridge, script) = newBridge()
-        script.enqueueRead(UsbRequestWaitFixture.Timeout)
+        script.enqueueRead(UsbRequestWaitFixture.TimeoutAfter(delayMillis = 300L))
         script.enqueueRead(UsbRequestWaitFixture.Completed(block))
 
         bridge.use {
-            assertNull(it.recv(2))
+            assertNull(it.recv(200))
             val timedOut = it.diagnosticSnapshot()
             assertEquals(PersistentUsbReadRequestState.State.QUEUED, timedOut.readState)
             assertEquals(1L, timedOut.readQueues)
@@ -1147,6 +1147,10 @@ internal class ScriptedUsbDeviceConnectionShadow {
             UsbRequestWaitFixture.Timeout -> {
                 Thread.sleep(timeoutMillis.coerceAtLeast(1L).coerceAtMost(2L))
                 throw TimeoutException("fixture timeout")
+            }
+            is UsbRequestWaitFixture.TimeoutAfter -> {
+                Thread.sleep(outcome.delayMillis.coerceAtLeast(1L))
+                throw TimeoutException("fixture timeout after ${outcome.delayMillis}ms")
             }
             UsbRequestWaitFixture.NullResult -> null
             UsbRequestWaitFixture.UnexpectedCompletion -> ReflectionHelpers.callConstructor(UsbRequest::class.java)

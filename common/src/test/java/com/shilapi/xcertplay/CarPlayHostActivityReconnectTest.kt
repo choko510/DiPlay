@@ -64,6 +64,7 @@ class CarPlayHostActivityReconnectTest {
             activity.startCarPlayForTest = startRequests::add
             field(activity, "controller").set(activity, controller)
             field(activity, "sink").set(activity, sink)
+            CarPlayBackgroundSession.store(controller, sink, 800, 480, activity) { done -> done() }
             activity.awaitControllerClosedForTest = { _, _ ->
                 if (attempts.incrementAndGet() == 1) {
                     firstWait.countDown()

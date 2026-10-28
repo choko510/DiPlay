@@ -3252,6 +3252,96 @@ static void test_studio_gain_refund_ack_waits_for_ramp_and_newer_generation(void
     dsp_engine_destroy(engine);
 }
 
+static void test_studio_refund_waits_for_dynamics_and_dynamic_eq(void) {
+    const int sample_rate = 48000;
+    const uint32_t module_ramp_frames = (uint32_t)(sample_rate / 50);
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {
+        0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0,
+    };
+    dsp_dynamics_config initial_dynamics = bypass_dynamics;
+    initial_dynamics.compressor_enabled = 1;
+    initial_dynamics.compressor_makeup_db = 6.0;
+    dsp_dynamics_config target_dynamics = initial_dynamics;
+    target_dynamics.compressor_makeup_db = 0.0;
+    dsp_dynamics_hot_params dynamics_update = {0};
+    assert_true(dsp_dynamics_prepare_hot_params(sample_rate, &target_dynamics, &dynamics_update),
+        "Compressor makeup reduction prepares before headroom refund");
+
+    dsp_dynamic_eq_config initial_dynamic_eq = bypass_dynamic_eq;
+    initial_dynamic_eq.enabled = 1;
+    initial_dynamic_eq.bands[0].enabled = 1;
+    initial_dynamic_eq.bands[0].mode = DSP_DYNAMIC_EQ_BOOST;
+    initial_dynamic_eq.bands[0].frequency_hz = 1000.0;
+    initial_dynamic_eq.bands[0].q = 1.0;
+    initial_dynamic_eq.bands[0].threshold_db = -10.0;
+    initial_dynamic_eq.bands[0].ratio = 4.0;
+    initial_dynamic_eq.bands[0].attack_ms = 0.1;
+    initial_dynamic_eq.bands[0].release_ms = 100.0;
+    initial_dynamic_eq.bands[0].max_boost_db = 6.0;
+    dsp_dynamic_eq_config target_dynamic_eq = initial_dynamic_eq;
+    target_dynamic_eq.bands[0].threshold_db = -30.0;
+    dsp_dynamic_eq_hot_update dynamic_eq_update = {0};
+    assert_true(dsp_dynamic_eq_prepare_hot_update(sample_rate, &target_dynamic_eq, &dynamic_eq_update),
+        "Dynamic EQ boost reduction prepares before headroom refund");
+
+    dsp_graph graph = {0};
+    assert_true(dsp_graph_prepare(
+            &graph, sample_rate, 2, -6.0, NULL, 0, &initial_dynamics, &bypass_multiband,
+            &initial_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver,
+            &bypass_harmonic, &macro, &loudness, &dynamic_bass),
+        "combined Dynamics/Dynamic EQ refund graph prepares");
+    float input[2] = {0.1f, 0.1f};
+    float output[2] = {0.0f, 0.0f};
+    uint64_t non_finite_input = 0;
+    uint64_t non_finite_output = 0;
+    const float starting_gain = graph.gain.linear;
+    assert_true(dsp_graph_apply_hot(
+            &graph,
+            DSP_ENGINE_HOT_FIELD_STUDIO | DSP_ENGINE_HOT_FIELD_DYNAMICS | DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ,
+            0.0, 1.0, &macro, &loudness, &dynamic_bass, &dynamics_update, &dynamic_eq_update) ==
+            DSP_GRAPH_HOT_APPLIED,
+        "combined stage reductions and headroom refund are accepted atomically");
+    assert_true(dsp_graph_hot_transition_pending(&graph) && graph.studio_gain_refund_pending,
+        "combined command remains pending while module gains settle");
+    assert_true(graph.dynamics.compressor_makeup_ramp_remaining == (int)module_ramp_frames &&
+            dsp_dynamic_eq_hot_transition_pending(&graph.dynamic_eq),
+        "Compressor makeup and Dynamic EQ ramps both gate the refund");
+
+    size_t frames_before_refund = 0;
+    while (graph.gain.ramp_remaining == 0 && graph.studio_gain_refund_pending &&
+        frames_before_refund <= module_ramp_frames + DSP_DYNAMIC_EQ_CONTROL_FRAMES + 2) {
+        dsp_graph_process(&graph, input, output, 1, 2, &non_finite_input, &non_finite_output);
+        frames_before_refund++;
+        if (graph.gain.ramp_remaining == 0) {
+            assert_true(graph.gain.linear == starting_gain,
+                "preamp gain stays at the prior safe value until module ramps settle");
+        }
+    }
+    assert_true(frames_before_refund > module_ramp_frames,
+        "refund waits for the Compressor makeup ramp to settle");
+    assert_true(graph.dynamics.compressor_makeup_ramp_remaining == 0 &&
+            !dsp_dynamic_eq_hot_transition_pending(&graph.dynamic_eq),
+        "all gain-affecting module transitions settle before preamp refund starts");
+    assert_true(graph.gain.ramp_remaining == module_ramp_frames - 1 &&
+            dsp_graph_hot_transition_pending(&graph),
+        "20 ms refund ramp starts only after module transitions settle");
+
+    while (graph.gain.ramp_remaining > 0) {
+        dsp_graph_process(&graph, input, output, 1, 2, &non_finite_input, &non_finite_output);
+        if (graph.gain.ramp_remaining > 0) {
+            assert_true(dsp_graph_hot_transition_pending(&graph),
+                "HOT remains pending until the preamp refund ramp ends");
+        }
+    }
+    assert_true(!dsp_graph_hot_transition_pending(&graph),
+        "combined HOT completion follows all module and preamp ramps");
+    assert_true(non_finite_input == 0 && non_finite_output == 0,
+        "combined headroom refund produces finite samples");
+    dsp_graph_close(&graph);
+}
+
 static void test_local_peq_warm_preserves_downstream_state_and_latency(void) {
     enum { BLOCK_FRAMES = 512, WARM_BLOCKS = 8 };
     const dsp_dynamics_config compressor = {
@@ -4562,6 +4652,7 @@ int main(void) {
     test_studio_gain_refund_is_sample_ramped_at_supported_formats();
     test_studio_gain_refund_ramps_when_modules_are_already_settled();
     test_studio_gain_refund_ack_waits_for_ramp_and_newer_generation();
+    test_studio_refund_waits_for_dynamics_and_dynamic_eq();
     test_studio_neutral_macro_preserves_exact_samples();
     test_studio_hot_command_is_acknowledged_after_its_block();
     test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completion();

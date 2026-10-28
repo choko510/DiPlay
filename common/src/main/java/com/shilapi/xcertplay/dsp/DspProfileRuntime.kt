@@ -346,6 +346,7 @@ internal class DspProfileRuntime private constructor(
         enabled: Boolean,
         onComplete: (DspStudioRestoreRequest?) -> Unit,
     ) {
+        val rendererOwnerTokenAtRequestStart = runtimeConfig.rendererApplyStatus()?.rendererOwnerToken
         val generation = nextStudioApplyGeneration()
         ioExecutor.execute {
             val workspace = committedStudioWorkspace.get().deepCopy()
@@ -357,6 +358,7 @@ internal class DspProfileRuntime private constructor(
             val request = if (restored) {
                 val snapshot = runtimeConfig.versionedSnapshot()
                 val rendererOwnerToken = runtimeConfig.rendererApplyStatus()?.rendererOwnerToken
+                    ?: rendererOwnerTokenAtRequestStart
                 preferences.edit {
                     putBoolean(KEY_DSP_ENABLED, enabled)
                     putString(KEY_SELECTED_PROFILE_ID, workspace.profileSourceId)

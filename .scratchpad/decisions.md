@@ -52,7 +52,7 @@ Use one versioned field mask in the bounded Native HOT mailbox for Studio, Dynam
 
 ## Make every Studio gain refund sample-continuous and ACK after the ramp
 
-Apply the same 20 ms linear sample ramp whether a headroom refund can begin immediately or must wait for module ramps to settle. Store the requested linear endpoint so floating-point accumulation cannot leave the ramp short, and let the existing graph transition fence hold the Native ACK through its final sample. Keep zero/unknown renderer ownership distinct from an owned restore whose status temporarily disappeared; only the former is ready for the next track, while the latter waits for a same/new owner to prove the committed generation ACTIVE or fails at timeout.
+Apply the same 20 ms linear sample ramp whether a headroom refund can begin immediately or must wait for module ramps to settle. Accumulate the ramp in double precision, land exactly on the requested linear endpoint, and let the graph transition fence hold the Native ACK through its final sample. Keep zero/unknown renderer ownership distinct from an owned restore whose status temporarily disappeared; retain the owner observed when the request starts, and only allow a same/new owner to prove the committed generation ACTIVE or fail at timeout.
 
 ## Keep EX-08 provenance separate from current decisions
 

@@ -27,38 +27,22 @@ class NativeDspBridgeInstrumentedTest {
                 .mapIndexed { index, band -> if (index == 0) band.copy(enabled = true) else band }),
         )
         val prepared = initial.prepare(format)
-        val handle = NativeDspJni.createWithStudio(
-            sampleRate = format.sampleRate,
-            channels = format.channels,
-            maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
-            gainDb = prepared.appliedPreampDb,
-            eqCoefficients = prepared.eqCoefficients,
-            dynamics = prepared.dynamics,
-            multiband = prepared.multiband,
-            dynamicEq = prepared.dynamicEq,
-            bassCoefficients = prepared.bassCoefficients,
-            monoBassCoefficients = prepared.monoBassCoefficients,
-            spatial = prepared.spatial,
-            convolverConfig = prepared.convolverConfig,
-            convolverSamples = prepared.convolverSamples,
-            harmonicValues = prepared.harmonic,
-            macroValues = prepared.macroTone,
-            smartLoudnessValues = prepared.smartLoudness,
-            dynamicBassValues = prepared.dynamicBass,
-        )
+        val handle = createNativeStudioHandle(format, initial)
         assertTrue(handle > 0L)
+        var referenceHandle = 0L
         try {
             assertTrue(NativeDspJni.bindHotUpdateContext(handle, format, 7L, 9L, 3L, 1, mediaRole = true))
             fun update(config: DspRuntimeConfig, generation: Long, mask: Int =
                 DspPreparedHotUpdate.HOT_FIELD_DYNAMICS or DspPreparedHotUpdate.HOT_FIELD_DYNAMIC_EQ) =
                 config.prepareHotUpdate(format, generation, 7L, 9L, 3L, 1, true, mask)
-            fun processBlock(frames: Int = 512) {
+            fun processBlock(processHandle: Long = handle, frames: Int = 512): FloatArray {
                 val input = ByteBuffer.allocateDirect(frames * 2 * Float.SIZE_BYTES).order(ByteOrder.nativeOrder())
                 repeat(frames) { input.putFloat(0.25f).putFloat(0.25f) }
                 input.flip()
                 val output = ByteBuffer.allocateDirect(input.remaining()).order(ByteOrder.nativeOrder())
-                assertEquals(0, NativeDspJni.process(handle, input, 0, input.remaining(), output, 0,
+                assertEquals(0, NativeDspJni.process(processHandle, input, 0, input.remaining(), output, 0,
                     output.capacity(), frames, 2))
+                return FloatArray(frames * 2) { output.getFloat(it * Float.SIZE_BYTES) }
             }
 
             val safeTarget = DspRuntimeConfig(
@@ -83,6 +67,21 @@ class NativeDspBridgeInstrumentedTest {
                 safeUpdate.copy(dynamicEqValues = safeUpdate.dynamicEqValues.copyOf(50))))
             val nonFinite = safeUpdate.dynamicEqValues.copyOf().also { it[5] = Double.NaN }
             assertEquals(2, NativeDspJni.applyHotConfig(handle, safeUpdate.copy(dynamicEqValues = nonFinite)))
+            val mismatchedMakeup = safeUpdate.dynamicsCoefficients.copyOf().also { it[2] = 1.0 }
+            assertTrue(mismatchedMakeup.all { it.isFinite() })
+            assertEquals(2, NativeDspJni.applyHotConfig(handle,
+                safeUpdate.copy(dynamicsCoefficients = mismatchedMakeup)))
+            assertEquals(0, NativeDspJni.hotAckToken(handle))
+            assertEquals(0, NativeDspJni.hotDeferredToken(handle))
+            referenceHandle = createNativeStudioHandle(format, initial)
+            assertTrue(referenceHandle > 0L)
+            val unmodifiedOutput = processBlock()
+            val referenceOutput = processBlock(referenceHandle)
+            assertEquals(unmodifiedOutput.size, referenceOutput.size)
+            unmodifiedOutput.indices.forEach { index ->
+                assertEquals("rejected coefficient update leaves native PCM unchanged at $index",
+                    referenceOutput[index], unmodifiedOutput[index], 0.0f)
+            }
             assertEquals(0, NativeDspJni.applyHotConfig(handle, safeUpdate))
             assertEquals(0, NativeDspJni.hotAckToken(handle))
             repeat(12) { if (NativeDspJni.hotAckToken(handle) != safeUpdate.generationToken) processBlock() }
@@ -117,8 +116,32 @@ class NativeDspBridgeInstrumentedTest {
             assertEquals(5, NativeDspJni.hotDeferredReason(handle))
             assertTrue(NativeDspJni.hotAckToken(handle) != capUpdate.generationToken)
         } finally {
+            if (referenceHandle > 0L) NativeDspJni.destroy(referenceHandle)
             NativeDspJni.destroy(handle)
         }
+    }
+
+    private fun createNativeStudioHandle(format: DspAudioFormat, config: DspRuntimeConfig): Long {
+        val prepared = config.prepare(format)
+        return NativeDspJni.createWithStudio(
+            sampleRate = format.sampleRate,
+            channels = format.channels,
+            maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
+            gainDb = prepared.appliedPreampDb,
+            eqCoefficients = prepared.eqCoefficients,
+            dynamics = prepared.dynamics,
+            multiband = prepared.multiband,
+            dynamicEq = prepared.dynamicEq,
+            bassCoefficients = prepared.bassCoefficients,
+            monoBassCoefficients = prepared.monoBassCoefficients,
+            spatial = prepared.spatial,
+            convolverConfig = prepared.convolverConfig,
+            convolverSamples = prepared.convolverSamples,
+            harmonicValues = prepared.harmonic,
+            macroValues = prepared.macroTone,
+            smartLoudnessValues = prepared.smartLoudness,
+            dynamicBassValues = prepared.dynamicBass,
+        )
     }
 
     @Test

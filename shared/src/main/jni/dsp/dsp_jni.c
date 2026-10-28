@@ -683,7 +683,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     if (!values_are_finite || (dynamics_values_data[0] != 0.0 && dynamics_values_data[0] != 1.0) ||
         (dynamics_values_data[7] != 0.0 && dynamics_values_data[7] != 1.0) ||
         (dynamic_eq_values_data[0] != 0.0 && dynamic_eq_values_data[0] != 1.0) ||
-        !dsp_dynamics_hot_params_validate_prepared(&dynamics_params) ||
+        !dsp_dynamics_hot_params_validate(&dynamics_params) ||
         !dsp_dynamic_eq_prepare_hot_update_with_coefficients(sample_rate, &dynamic_eq_config,
             attack_coefficients, release_coefficients, &dynamic_eq_update)) {
         release_engine(&lease);

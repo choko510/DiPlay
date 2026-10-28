@@ -19,7 +19,7 @@ internal enum class DspWorkspaceSaveResult { SAVED, STALE, FUTURE_SCHEMA_PRESERV
 
 internal class DspStudioWorkspaceRepository(
     private val filesDirectory: File,
-    private val writer: (File, ByteArray) -> Unit = ::atomicWrite,
+    private val writer: ((File, ByteArray) -> Unit)? = null,
 ) {
     private val filesRoot = filesDirectory.canonicalFile
     private val file = File(File(filesRoot, "dsp"), "workspace/current.json")
@@ -67,7 +67,11 @@ internal class DspStudioWorkspaceRepository(
         DspWorkspaceReadResult.NotFound -> false
     }
 
-    @Synchronized fun save(workspace: DspStudioWorkspace, updatedAtMs: Long = System.currentTimeMillis()): DspWorkspaceSaveResult {
+    @Synchronized fun save(
+        workspace: DspStudioWorkspace,
+        updatedAtMs: Long = System.currentTimeMillis(),
+        beforeCommit: () -> Boolean = { true },
+    ): DspWorkspaceSaveResult {
         if (!validWorkspace(workspace) || updatedAtMs < 0L) return DspWorkspaceSaveResult.INVALID
         if (!safeWorkspaceStorage()) return DspWorkspaceSaveResult.INVALID
         if (fileEntryExists(file) || fileEntryExists(backupFile)) {
@@ -98,8 +102,15 @@ internal class DspStudioWorkspaceRepository(
                 .put("smartLoudness", workspace.smartLoudness.toJson()).put("dynamicBass", workspace.dynamicBass.toJson())
                 .put("selectedModulePresetIds", JSONObject(workspace.selectedModulePresetIds))
                 .put("lastUpdatedAtMs", updatedAtMs)
-            writer(file, json.toString().toByteArray(StandardCharsets.UTF_8))
-            DspWorkspaceSaveResult.SAVED
+            val bytes = json.toString().toByteArray(StandardCharsets.UTF_8)
+            if (writer == null) {
+                atomicWorkspaceWrite(file, bytes, beforeCommit)
+            } else if (!beforeCommit()) {
+                DspWorkspaceSaveResult.STALE
+            } else {
+                writer.invoke(file, bytes)
+                DspWorkspaceSaveResult.SAVED
+            }
         } catch (_: Exception) { DspWorkspaceSaveResult.WRITE_FAILED }
     }
 
@@ -893,5 +904,24 @@ private fun DspSmartLoudnessSettings.toJson() = JSONObject().put("mode", mode.na
 private fun JSONObject.toLoudness() = DspSmartLoudnessSettings(DspSmartLoudnessMode.valueOf(getString("mode")), getDouble("strength"), getDouble("maxLowBoostDb"), getDouble("maxHighBoostDb"), optJSONObject("calibration")?.let { DspLoudnessCalibration(it.getString("routeToken"), it.getDouble("quietVolumeFraction"), it.getDouble("referenceVolumeFraction")) }, getDouble("quietListeningLevel"), getDouble("referenceListeningLevel"), getDouble("manualListeningLevel"), getDouble("fixedAmount"))
 private fun DspDynamicBassSettings.toJson() = JSONObject().put("enabled", enabled).put("strength", strength).put("maxBoostDb", maxBoostDb).put("detectorCutoffHz", detectorCutoffHz).put("silenceGateDbfs", silenceGateDbfs).put("lowThresholdDbfs", lowThresholdDbfs).put("highThresholdDbfs", highThresholdDbfs).put("attackMs", attackMs).put("releaseMs", releaseMs)
 private fun JSONObject.toDynamicBass() = DspDynamicBassSettings(getBoolean("enabled"), getDouble("strength"), getDouble("maxBoostDb"), getDouble("detectorCutoffHz"), getDouble("silenceGateDbfs"), getDouble("lowThresholdDbfs"), getDouble("highThresholdDbfs"), getDouble("attackMs"), getDouble("releaseMs"))
+
+private fun atomicWorkspaceWrite(file: File, bytes: ByteArray, beforeCommit: () -> Boolean): DspWorkspaceSaveResult {
+    val atomic = AtomicFile(file)
+    var stream: java.io.FileOutputStream? = null
+    try {
+        val out = atomic.startWrite()
+        stream = out
+        out.write(bytes)
+        if (!beforeCommit()) {
+            atomic.failWrite(out)
+            return DspWorkspaceSaveResult.STALE
+        }
+        atomic.finishWrite(out)
+        return DspWorkspaceSaveResult.SAVED
+    } catch (_: Exception) {
+        stream?.let { failedStream -> runCatching { atomic.failWrite(failedStream) } }
+        return DspWorkspaceSaveResult.WRITE_FAILED
+    }
+}
 
 private fun atomicWrite(file: File, bytes: ByteArray) { val atomic = AtomicFile(file); var stream: java.io.FileOutputStream? = null; try { val out = atomic.startWrite(); stream = out; out.write(bytes); atomic.finishWrite(out) } catch (e: Exception) { stream?.let(atomic::failWrite); throw e } }

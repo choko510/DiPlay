@@ -52,10 +52,10 @@ internal class DspProfileRuntime private constructor(
         onPlaybackVolumeReadingChanged(reading)
     }
     private val playbackRouteOwners = PlaybackRouteOwners()
-    private val studioApplyCommitLock = Any()
     private val studioApplyGeneration = AtomicLong()
     internal var afterStudioFeatureFlagRuntimeApplyForTest: (() -> Unit)? = null
     internal var afterStudioWorkspaceApplyForTest: (() -> Unit)? = null
+    internal var beforeStudioWorkspaceCommitForTest: (() -> Unit)? = null
     internal var beforeStudioWorkspaceRestoreForTest: (() -> Boolean)? = null
     internal var persistStudioFeatureFlagsForTest: (() -> Boolean)? = null
     private val activeStudioWorkspace: AtomicReference<DspStudioWorkspace>
@@ -316,20 +316,21 @@ internal class DspProfileRuntime private constructor(
                     DspWorkspaceSaveResult.INVALID
                 } else {
                     afterStudioWorkspaceApplyForTest?.invoke()
-                    synchronized(studioApplyCommitLock) {
-                        if (generation != studioApplyGeneration.get()) {
-                            DspWorkspaceSaveResult.STALE
-                        } else {
-                            val saveResult = workspaceRepository.save(candidate)
-                            if (saveResult == DspWorkspaceSaveResult.SAVED) {
-                                committedStudioWorkspace.set(candidate)
-                                preferences.edit {
-                                    putBoolean(KEY_DSP_ENABLED, enabled)
-                                    putString(KEY_SELECTED_PROFILE_ID, candidate.profileSourceId)
-                                }
+                    if (generation != studioApplyGeneration.get()) {
+                        DspWorkspaceSaveResult.STALE
+                    } else {
+                        val saveResult = workspaceRepository.save(candidate, beforeCommit = {
+                            beforeStudioWorkspaceCommitForTest?.invoke()
+                            generation == studioApplyGeneration.get()
+                        })
+                        if (saveResult == DspWorkspaceSaveResult.SAVED) {
+                            committedStudioWorkspace.set(candidate)
+                            preferences.edit {
+                                putBoolean(KEY_DSP_ENABLED, enabled)
+                                putString(KEY_SELECTED_PROFILE_ID, candidate.profileSourceId)
                             }
-                            saveResult
                         }
+                        saveResult
                     }
                 }
             }
@@ -523,9 +524,7 @@ internal class DspProfileRuntime private constructor(
     private fun validStudioWorkspace(workspace: DspStudioWorkspace): Boolean =
         workspace.profileSourceId == workspace.baseProfileSnapshot.id && workspace.baseProfileSnapshot.hasValidEqCapacity()
 
-    private fun nextStudioApplyGeneration(): Long = synchronized(studioApplyCommitLock) {
-        studioApplyGeneration.incrementAndGet()
-    }
+    private fun nextStudioApplyGeneration(): Long = studioApplyGeneration.incrementAndGet()
 
     private fun resolveStudioWorkspace(
         workspace: DspStudioWorkspace,

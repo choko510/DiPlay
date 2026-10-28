@@ -811,6 +811,74 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun cancelDuringAtomicWorkspaceWriteDoesNotBlockAndPreventsStaleCommit() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        File(workspaceFile.path + ".bak").delete()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.get(context)
+        val committedProfile = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(committedProfile.id, committedProfile)
+        val candidateProfile = DspProfilePresets.find("vocal")!!
+        val candidate = DspStudioWorkspace(candidateProfile.id, candidateProfile)
+        val saveResult = AtomicReference<DspWorkspaceSaveResult?>()
+        val saveComplete = CountDownLatch(1)
+        val reachedCommitBarrier = CountDownLatch(1)
+        val releaseCommit = CountDownLatch(1)
+        val restoreRequest = AtomicReference<DspStudioRestoreRequest?>()
+        val restoreComplete = CountDownLatch(1)
+
+        try {
+            val initialSave = CountDownLatch(1)
+            runtime.saveStudioWorkspaceAsync(committed, enabled = true) { initialSave.countDown() }
+            drainMainLooperUntil(initialSave)
+
+            runtime.beforeStudioWorkspaceCommitForTest = {
+                reachedCommitBarrier.countDown()
+                check(releaseCommit.await(5, TimeUnit.SECONDS))
+            }
+            runtime.saveStudioWorkspaceAsync(candidate, enabled = true) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            assertTrue(reachedCommitBarrier.await(5, TimeUnit.SECONDS))
+
+            val cancelStart = System.nanoTime()
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(enabled = true) {
+                restoreRequest.set(it)
+                restoreComplete.countDown()
+            }
+            val cancelElapsedNanos = System.nanoTime() - cancelStart
+            assertTrue(
+                "Cancel generation request must not wait for the workspace file write",
+                cancelElapsedNanos < TimeUnit.MILLISECONDS.toNanos(500),
+            )
+
+            releaseCommit.countDown()
+            drainMainLooperUntil(saveComplete)
+            drainMainLooperUntil(restoreComplete)
+
+            assertEquals(DspWorkspaceSaveResult.STALE, saveResult.get())
+            assertTrue(restoreRequest.get() != null)
+            assertTrue(runtime.isCommittedStudioWorkspaceActive())
+            assertEquals(committedProfile, runtime.selectedProfile())
+            assertEquals(committed, DspStudioWorkspaceRepository(context.filesDir).load().let {
+                (it as DspWorkspaceReadResult.Loaded).workspace
+            })
+        } finally {
+            releaseCommit.countDown()
+            runtime.beforeStudioWorkspaceCommitForTest = null
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
+            workspaceFile.delete()
+            File(workspaceFile.path + ".bak").delete()
+        }
+    }
+
+    @Test
     fun masterToggleChangesOnlyActiveProfileAndApplyCommitsTheDraft() {
         val context: Application = RuntimeEnvironment.getApplication()
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()

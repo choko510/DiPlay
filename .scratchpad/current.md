@@ -18,7 +18,7 @@
 - Runtime fixes include symlink-safe persistence/future-schema backup protection, feature-flag workspace rollback, monotonic process-wide renderer tokens, asynchronous retry scheduling, transient-safe Smart Loudness headroom, and opt-in PEQ/Static Bass LOCAL_WARM. Cabin Correction and IR remain deferred per specification.
 - Updated implementation, test, review, architecture, CI-failure, legacy-field, and field-update docs. Per-ID evidence remains partial; target-device gates are `NOT_RUN`.
 - REM-10 T-PRE/T-UI evidence mapping added 13 directly supported rows at the source SHAs for runs #40625689851 and #40631709640; a follow-up corrected backup-reference, Macro reachability, selected StateDescription, and runnable-command claims. The ledger remains 0 PASS / 153 PARTIAL / 17 NOT_RUN.
-- REM-04 Save/Cancel persistence race fix is in child PR [#78](https://github.com/choko510/DiPlay/pull/78), targeting `codex/dsp-studio-final`. Targeted Common race and Shared warm-candidate tests pass; the full two-class Common run still has one unrelated preset-deletion test failure, so the broader Cancel/failure/retry matrix remains partial.
+- REM-04 Save/Cancel persistence race fix is in child PR [#78](https://github.com/choko510/DiPlay/pull/78), targeting `codex/dsp-studio-final`. The workspace is written to AtomicFile's temporary path before a final nonblocking generation check immediately before `finishWrite`; a prior Cancel aborts the save, and a later Cancel restores the committed save. Targeted Cancel tests pass; the full Common run still has a Windows Robolectric AtomicFile overwrite limitation in the unrelated preset-deletion test. CI/review for the latest PR head is pending.
 
 ## Next
 

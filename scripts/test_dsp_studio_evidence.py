@@ -29,6 +29,15 @@ class EvidenceLedgerContractTest(unittest.TestCase):
             "repository": "choko510/DiPlay",
             "runs": [
                 {
+                    "id": 40700507509,
+                    "url": "https://github.com/choko510/DiPlay/actions/runs/40700507509",
+                    "metadata_source": "https://api.github.com/repos/choko510/DiPlay/actions/runs/40700507509",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "head_sha": "9e4dd30281142fc5b2f1eb1162e7382bc2ab3b25",
+                    "observed_at": "2026-10-28T14:01:03Z",
+                },
+                {
                     "id": 40686737568,
                     "url": "https://github.com/choko510/DiPlay/actions/runs/40686737568",
                     "metadata_source": "https://api.github.com/repos/choko510/DiPlay/actions/runs/40686737568",

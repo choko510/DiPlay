@@ -1414,7 +1414,8 @@ class DspRendererProductionPathTest {
             onPrepared = prepared::countDown,
             pipelinePreparer = { audioFormat, _ ->
                 pipelinePreparations.incrementAndGet()
-                val processor = StateProcessor(audioFormat, 0, 1.0f)
+                val latencyFrames = if (audioFormat.sampleRate == 44_100) 128 else 0
+                val processor = StateProcessor(audioFormat, latencyFrames, 1.0f)
                 if (audioFormat.sampleRate == 48_000 && audioFormat.channels == 1) {
                     processor.onClose = {
                         closeEntered.countDown()
@@ -1452,10 +1453,17 @@ class DspRendererProductionPathTest {
                 AndroidAudioFormat.ENCODING_PCM_16BIT,
                 20,
             )
+            assertEquals(128, activeRenderer.trackLatencyForTesting)
+            assertEquals(null, activeRenderer.dspPipeline)
             assertEquals(0L, activeRenderer.dspGenerationForTesting)
             assertTrue(provider.rendererApplyStatus()?.updatesBlocked == true)
 
             val blockedPreparations = pipelinePreparations.get()
+            activeRenderer.prepareDecoderPcmFormatForTesting(32_000, 1, AndroidAudioFormat.ENCODING_PCM_16BIT)
+            assertEquals(blockedPreparations, pipelinePreparations.get())
+            assertEquals(93, activeRenderer.trackLatencyForTesting)
+            assertEquals(null, activeRenderer.dspPipeline)
+
             provider.update(DspRuntimeConfig(enabled = true, gainDb = 4.0))
             Thread.sleep(100)
             assertEquals(blockedPreparations, pipelinePreparations.get())

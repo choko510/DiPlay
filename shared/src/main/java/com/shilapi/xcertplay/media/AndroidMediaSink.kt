@@ -1430,6 +1430,8 @@ internal class AudioRenderer(
     private val liveUpdateControllerEpoch = AtomicLong()
     private val audioOwnerEpoch = NEXT_AUDIO_OWNER_EPOCH.incrementAndGet()
     private val dspRetirementFailed = AtomicBoolean()
+    private val dspRetirementStateLock = Any()
+    private val dspRetirementFallbackLatencyNanos = AtomicLong(-1L)
     private val dspRetirementFailureStatus = AtomicReference<DspRendererApplyStatus?>(null)
     private val blockedStatusSubscription = AtomicReference<Closeable?>(null)
     private var pendingDspFormatTransition: DspFormatTransitionTrace? = null
@@ -2397,6 +2399,14 @@ internal class AudioRenderer(
             recordTransition()
             return
         }
+        if (dspRetirementFailed.get()) {
+            fallbackReason = "DSP_RETIREMENT_BLOCKED"
+            retireRequestDurationNs += enterDspRetirementFallback(nextFormat)
+            reportDsp("DSP unavailable: reason=DSP_RETIREMENT_BLOCKED fallback=LATENCY_PRESERVING_PCM")
+            reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
+            recordTransition()
+            return
+        }
         if (liveUpdateFormat == nextFormat && liveUpdateController != null) {
             val providerGeneration = runCatching { dspConfigProvider.versionedSnapshot().generation }.getOrNull()
             if (dspPipeline?.format == nextFormat || livePreparationPending || pendingDspUpdate.get() != null ||
@@ -2405,19 +2415,29 @@ internal class AudioRenderer(
                 return
             }
         }
-        val latestSnapshot = if (dspRetirementFailed.get()) {
-            fallbackReason = "DSP_RETIREMENT_BLOCKED"
+        val latestSnapshot = runCatching { dspConfigProvider.versionedSnapshot() }.getOrElse {
+            fallbackReason = "CONFIG_SNAPSHOT_FAILED"
+            reportDsp("DSP unavailable: reason=CONFIG_SNAPSHOT_FAILED fallback=LEGACY_PCM")
+            reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
             DspConfigSnapshot(activeDspGeneration, activeDspConfig)
-        } else {
-            runCatching { dspConfigProvider.versionedSnapshot() }.getOrElse {
-                fallbackReason = "CONFIG_SNAPSHOT_FAILED"
-                reportDsp("DSP unavailable: reason=CONFIG_SNAPSHOT_FAILED fallback=LEGACY_PCM")
-                reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
-                DspConfigSnapshot(activeDspGeneration, activeDspConfig)
+        }
+        val snapshotAccepted = synchronized(dspRetirementStateLock) {
+            if (dspRetirementFailed.get()) {
+                false
+            } else {
+                activeDspConfig = latestSnapshot.config
+                activeDspGeneration = latestSnapshot.generation
+                true
             }
         }
-        activeDspConfig = latestSnapshot.config
-        activeDspGeneration = latestSnapshot.generation
+        if (!snapshotAccepted) {
+            fallbackReason = "DSP_RETIREMENT_BLOCKED"
+            retireRequestDurationNs += enterDspRetirementFallback(nextFormat)
+            reportDsp("DSP unavailable: reason=DSP_RETIREMENT_BLOCKED fallback=LATENCY_PRESERVING_PCM")
+            reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
+            recordTransition()
+            return
+        }
         retireRequestDurationNs += detachAndRetireCurrentDspPipeline()
         if (!DspStreamPolicy.shouldProcess(activeDspConfig.enabled, classification.dspRole)) {
             fallbackReason = if (!activeDspConfig.enabled) "DSP_DISABLED" else "ROLE_NOT_MEDIA"
@@ -2428,6 +2448,14 @@ internal class AudioRenderer(
             return
         }
         val graphConfig = configuredDspGraph(nextFormat, activeDspConfig)
+        if (dspRetirementFailed.get()) {
+            fallbackReason = "DSP_RETIREMENT_BLOCKED"
+            retireRequestDurationNs += enterDspRetirementFallback(nextFormat)
+            reportDsp("DSP unavailable: reason=DSP_RETIREMENT_BLOCKED fallback=LATENCY_PRESERVING_PCM")
+            reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
+            recordTransition()
+            return
+        }
         val preparedPipeline = try {
             dspPipelinePreparer(nextFormat, graphConfig)
         } catch (_: Exception) {
@@ -2436,7 +2464,15 @@ internal class AudioRenderer(
             null
         }
         if (preparedPipeline == null) {
-            fallbackReason = if (dspRetirementFailed.get()) "DSP_RETIREMENT_BLOCKED" else "NATIVE_CREATE_FAILED"
+            if (dspRetirementFailed.get()) {
+                fallbackReason = "DSP_RETIREMENT_BLOCKED"
+                retireRequestDurationNs += enterDspRetirementFallback(nextFormat)
+                reportDsp("DSP unavailable: reason=DSP_RETIREMENT_BLOCKED fallback=LATENCY_PRESERVING_PCM")
+                reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
+                recordTransition()
+                return
+            }
+            fallbackReason = "NATIVE_CREATE_FAILED"
             activeDspGraphConfig = DspRuntimeConfig.disabled()
             reportDsp("DSP unavailable: reason=NATIVE_CREATE_FAILED fallback=LEGACY_PCM")
             configureLiveUpdates(nextFormat, forcePrepareCurrent = true)
@@ -2450,9 +2486,23 @@ internal class AudioRenderer(
         preparedPipeline.audioOwnerEpoch = audioOwnerEpoch
         preparedPipeline.trackGeneration = audioTrackGeneration
         preparedPipeline.configGeneration = activeDspGeneration
-        dspPipeline = preparedPipeline.also {
-            reportDsp("DSP: Float32 pipeline ready sampleRate=${nextFormat.sampleRate} channels=${nextFormat.channels}")
+        val installed = synchronized(dspRetirementStateLock) {
+            if (dspRetirementFailed.get()) {
+                false
+            } else {
+                dspPipeline = preparedPipeline
+                true
+            }
         }
+        if (!installed) {
+            fallbackReason = "DSP_RETIREMENT_BLOCKED"
+            retireRequestDurationNs += enterDspRetirementFallback(nextFormat, preparedPipeline)
+            reportDsp("DSP unavailable: reason=DSP_RETIREMENT_BLOCKED fallback=LATENCY_PRESERVING_PCM")
+            reportCurrentDspApplyStatus(DspRendererApplyPhase.FAILED)
+            recordTransition()
+            return
+        }
+        reportDsp("DSP: Float32 pipeline ready sampleRate=${nextFormat.sampleRate} channels=${nextFormat.channels}")
         activeDspGraphConfig = effectiveDspGraphConfig(nextFormat, activeDspConfig, preparedPipeline)
         liveUpdateLatencyFrames.set(preparedPipeline.algorithmicLatencyFrames)
         configureLiveUpdates(nextFormat)
@@ -2496,12 +2546,21 @@ internal class AudioRenderer(
             retiredPipelineId = System.identityHashCode(pipeline),
             updatesBlocked = true,
         )
-        if (!rendererReleased) {
-            dspRetirementFailureStatus.set(status)
-            if (dspRetirementFailed.compareAndSet(false, true)) {
-                blockLiveUpdatesAfterRetirementFailure()
+        val firstFailure = synchronized(dspRetirementStateLock) {
+            if (rendererReleased) {
+                false
+            } else {
+                val activePipeline = dspPipeline ?: liveFadeFrom ?: liveFadeTo
+                if (activePipeline != null) {
+                    rememberDspRetirementFallbackLatency(activePipeline)
+                } else {
+                    rememberDspRetirementFallbackLatencyIfUnset(pipeline)
+                }
+                dspRetirementFailureStatus.set(status)
+                dspRetirementFailed.compareAndSet(false, true)
             }
         }
+        if (firstFailure) blockLiveUpdatesAfterRetirementFailure()
         reportDsp(
             "DSP retirement failed retiredPipelineId=${System.identityHashCode(pipeline)} " +
                 "retiredGeneration=${pipeline.configGeneration ?: "unknown"} " +
@@ -2513,6 +2572,57 @@ internal class AudioRenderer(
                 "updatesBlocked=${!rendererReleased} error=${error.javaClass.simpleName}",
         )
         if (!rendererReleased) runCatching { reportDspApplyStatus(status) }
+    }
+
+    private fun rememberDspRetirementFallbackLatency(pipeline: DspPcmPipeline) {
+        dspRetirementFallbackLatencyNanos.set(
+            pipeline.algorithmicLatencyFrames.toLong() * TimeUnit.SECONDS.toNanos(1) /
+                pipeline.format.sampleRate,
+        )
+    }
+
+    private fun rememberDspRetirementFallbackLatencyIfUnset(pipeline: DspPcmPipeline) {
+        val latencyNanos = pipeline.algorithmicLatencyFrames.toLong() * TimeUnit.SECONDS.toNanos(1) /
+            pipeline.format.sampleRate
+        dspRetirementFallbackLatencyNanos.compareAndSet(-1L, latencyNanos)
+    }
+
+    private fun retirementFallbackLatencyFrames(format: DspAudioFormat): Int {
+        val latencyNanos = dspRetirementFallbackLatencyNanos.get().coerceAtLeast(0L)
+        val frames = Math.round(latencyNanos.toDouble() * format.sampleRate / TimeUnit.SECONDS.toNanos(1))
+        return frames.coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+    }
+
+    private fun enterDspRetirementFallback(
+        format: DspAudioFormat,
+        preparedPipeline: DspPcmPipeline? = null,
+    ): Long {
+        val currentPipelines = listOfNotNull(dspPipeline, liveFadeFrom, liveFadeTo).distinct()
+        currentPipelines.firstOrNull()?.let(::rememberDspRetirementFallbackLatency)
+        preparedPipeline?.let(::rememberDspRetirementFallbackLatency)
+        val pipelinesToRetire = (currentPipelines + listOfNotNull(preparedPipeline)).distinct()
+        dspPipeline = null
+        activeDspGraphConfig = DspRuntimeConfig.disabled()
+        liveUpdateFormat = format
+        if (liveFadeInProgress) abandonLiveFade()
+        val fallbackLatencyFrames = retirementFallbackLatencyFrames(format)
+        trackGenerationLatencyFrames = fallbackLatencyFrames
+        liveUpdateLatencyFrames.set(fallbackLatencyFrames)
+        val retireStartedNs = System.nanoTime()
+        pipelinesToRetire.forEach(::retireDetachedPipeline)
+        return (System.nanoTime() - retireStartedNs).coerceAtLeast(0L)
+    }
+
+    private fun detachCurrentDspAfterRetirementFailure() {
+        if (!dspRetirementFailed.get()) return
+        if (dspPipeline == null && !liveFadeInProgress && liveFadeFrom == null && liveFadeTo == null &&
+            !activeDspGraphConfig.enabled
+        ) {
+            return
+        }
+        val format = liveUpdateFormat ?: dspPipeline?.format ?: liveFadeFrom?.format ?: liveFadeTo?.format
+            ?: return
+        enterDspRetirementFallback(format)
     }
 
     private fun reportDspRetirementCompleted(pipeline: DspPcmPipeline, durationNs: Long) {
@@ -2855,6 +2965,7 @@ internal class AudioRenderer(
         dspEncoding: DspPcmEncoding,
         sourceSample: Long?,
     ): Boolean {
+        detachCurrentDspAfterRetirementFailure()
         adoptPreparedDspUpdate()
         val currentFallback = latencyPreservingBypass
         val currentFallbackFrames = currentFallback?.process(
@@ -3241,7 +3352,11 @@ internal class AudioRenderer(
         }
         trackGenerationContentCommitted = false
         deferredDspGeneration = null
-        trackGenerationLatencyFrames = dspPipeline?.algorithmicLatencyFrames ?: 0
+        trackGenerationLatencyFrames = if (dspRetirementFailed.get()) {
+            retirementFallbackLatencyFrames(effectiveFormat)
+        } else {
+            dspPipeline?.algorithmicLatencyFrames ?: 0
+        }
         liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
         runCatching { dspPipeline?.reset() }
         val seatSource = if (dspPipeline != null) activeDspGraphConfig else activeDspConfig

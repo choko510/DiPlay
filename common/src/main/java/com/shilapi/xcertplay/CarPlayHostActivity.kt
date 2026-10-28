@@ -533,6 +533,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var autoUsbLaunchIdentity: UsbAttachDeviceIdentity? = null
     private var autoUsbLaunchBlocked = false
     private var autoUsbSwitchGeneration = 0L
+    private var backgroundTransportHandoffPending = false
+    private var backgroundTransportHandoffGeneration = 0L
     private var ncmDiagnosticProfile = NcmDiagnosticProfile.AUTO
     private var mfiTarget = MfiTarget.USB_CH341
     private var mfiI2cPath = AirPlayPersistence.DEFAULT_MFI_I2C_PATH
@@ -807,6 +809,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (initialAction == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED) {
             val identity = initialRequest.usbDeviceIdentity
             if (identity == null || IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
+                identity?.let(IphoneUsbAutoLaunchDispatcher::failLaunch)
                 Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=host_create result=stale_or_disabled")
                 finish()
                 return
@@ -827,6 +830,7 @@ class CarPlayHostActivity : ComponentActivity() {
             CarPlayBackgroundSession.clearRestartSuppression()
         }
         val launchState = initialRequest?.hostLaunchState
+            ?: CarPlayBackgroundSession.snapshot()?.hostLaunchState
         hostLayoutState = HostLayoutState(
             mode = HostLayoutState.restoreMode(
                 savedMode = savedInstanceState?.getString(STATE_HOST_LAYOUT_MODE) ?: launchState?.layoutMode?.name,
@@ -1107,87 +1111,73 @@ class CarPlayHostActivity : ComponentActivity() {
         if (action == null) return
         if (action == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED) {
             val identity = request.usbDeviceIdentity
-            val launchState = request.hostLaunchState
             if (identity == null || IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
+                identity?.let(IphoneUsbAutoLaunchDispatcher::failLaunch)
                 Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=host_new_intent result=stale_or_disabled")
                 return
             }
-            if (isDestroyed) return
+            if (isDestroyed || shutdownTerminatesProcess.get()) {
+                IphoneUsbAutoLaunchDispatcher.failLaunch(identity)
+                Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=host_new_intent result=shutdown_blocked")
+                return
+            }
+            val requestedLayout = request.hostLaunchState ?: currentHostLaunchState()
+            if (IphoneUsbAutoLaunchDispatcher.replaceHandoffRequest(identity, requestedLayout)) {
+                autoUsbLaunchIdentity = identity
+                autoUsbLaunchBlocked = false
+                return
+            }
+            if (shuttingDown.get()) {
+                autoUsbLaunchIdentity = identity
+                IphoneUsbAutoLaunchDispatcher.deferTransition(
+                    identity,
+                    IphoneUsbAutoLaunchSource.ATTACH,
+                )
+                return
+            }
+            if (isFinishing) {
+                IphoneUsbAutoLaunchDispatcher.failLaunch(identity)
+                return
+            }
             autoUsbLaunchIdentity = identity
             autoUsbLaunchBlocked = false
             IphoneUsbAutoLaunchNotification.cancel(this)
             CarPlayBackgroundSession.clearRestartSuppression()
-            if (shuttingDown.get()) {
-                if (shutdownTerminatesProcess.get() ||
-                    !wiredUsbResumeAfterShutdownRequested.compareAndSet(false, true)
-                ) return
-                enqueueShutdownCompletion {
-                    if (IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
-                        Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=shutdown_resume result=stale_or_disabled")
-                        return@enqueueShutdownCompletion
+            val snapshot = CarPlayBackgroundSession.snapshot()
+            val currentController = controller ?: snapshot?.controller
+            if (currentController?.isUsingWiredTransport() == true) {
+                AirPlayPersistence.saveWirelessEnabled(this, false)
+                wirelessEnabled = false
+                maybeStartCarPlay()
+                return
+            }
+            if (currentController != null) {
+                AirPlayPersistence.saveWirelessEnabled(this, false)
+                wirelessEnabled = false
+                if (CarPlayBackgroundSession.isOwner(this)) {
+                    if (controller == null && snapshot != null) {
+                        controller = snapshot.controller
+                        sink = snapshot.sink
                     }
-                    startActivity(
-                        CarPlayHostActions.createInternalIntent(
-                            this,
-                            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
-                            identity,
-                            launchState,
-                        ),
+                    beginOwnedUsbTransportHandoff(identity, requestedLayout)
+                } else if (snapshot != null) {
+                    requestBackgroundTransportHandoff(snapshot)
+                } else {
+                    IphoneUsbAutoLaunchDispatcher.deferTransition(
+                        identity,
+                        IphoneUsbAutoLaunchSource.ATTACH,
                     )
-                    finish()
                 }
-                finish()
                 return
             }
-            if (isFinishing) return
-            if (wirelessEnabled) {
-                if (!wirelessUsbSwitchRequested.compareAndSet(false, true)) return
-                val transition = ++autoUsbSwitchGeneration
-                var expectedOwnerEpoch = -1L
-                shutdown(false, "switching to wired USB CarPlay") {
-                    if (transition != autoUsbSwitchGeneration ||
-                        CarPlayBackgroundSession.ownerEpoch() != expectedOwnerEpoch
-                    ) return@shutdown
-                    if (IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
-                        Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=stale_after_shutdown")
-                        try {
-                            startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY))
-                        } catch (error: RuntimeException) {
-                            Log.w(
-                                TAG,
-                                "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=restore_failed " +
-                                    "error=${error.javaClass.simpleName}",
-                            )
-                        }
-                        return@shutdown
-                    }
-                    AirPlayPersistence.saveWirelessEnabled(this, false)
-                    try {
-                        startActivity(
-                            CarPlayHostActions.createInternalIntent(
-                                this,
-                                CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
-                                identity,
-                                launchState ?: CarPlayHostLaunchState(
-                                    layoutMode = hostLayoutState.mode,
-                                    carPlayFraction = hostLayoutState.carPlayFraction,
-                                    pendingSplitMode = pendingSplitMode,
-                                ),
-                            ),
-                        )
-                    } catch (error: RuntimeException) {
-                        Log.w(
-                            TAG,
-                            "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=launch_failed " +
-                                "error=${error.javaClass.simpleName}",
-                        )
-                        IphoneUsbAutoLaunchNotification.show(this)
-                    }
-                }
-                expectedOwnerEpoch = CarPlayBackgroundSession.ownerEpoch()
-                finish()
+            if (CarPlayBackgroundSession.hasPendingRestart() || CarPlayBackgroundSession.hasSession()) {
+                IphoneUsbAutoLaunchDispatcher.deferTransition(identity, IphoneUsbAutoLaunchSource.ATTACH)
                 return
             }
+            AirPlayPersistence.saveWirelessEnabled(this, false)
+            wirelessEnabled = false
+            wirelessPermissionsReady = true
+            if (microphonePermissionResolved) requestStartupPrerequisites()
             maybeStartCarPlay()
             return
         }
@@ -1236,7 +1226,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
                 shutdown(false, "switching to USB") {
                     AirPlayPersistence.saveWirelessEnabled(this, false)
-                    startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY))
+                    startActivity(
+                        CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
+                    )
                 }
                 finish()
             } else {
@@ -1271,6 +1263,59 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             CarPlayHostLayoutCommand.NONE -> Unit
         }
+    }
+
+    private fun beginOwnedUsbTransportHandoff(
+        identity: UsbAttachDeviceIdentity,
+        hostLaunchState: CarPlayHostLaunchState,
+    ) {
+        val transition = ++autoUsbSwitchGeneration
+        val handoffGeneration = IphoneUsbAutoLaunchDispatcher.beginHandoff(identity, hostLaunchState)
+        var expectedOwnerEpoch = -1L
+        shutdown(false, "switching to wired USB CarPlay") {
+            if (transition != autoUsbSwitchGeneration) return@shutdown
+            val latestRequest = IphoneUsbAutoLaunchDispatcher.completeHandoff(handoffGeneration)
+            if (shutdownTerminatesProcess.get() ||
+                CarPlayBackgroundSession.ownerEpoch() != expectedOwnerEpoch
+            ) return@shutdown
+            val latestIdentity = latestRequest?.identity ?: identity
+            if (IphoneUsbAutoLaunchSettings.currentCandidate(this, latestIdentity) == null) {
+                IphoneUsbAutoLaunchDispatcher.failLaunch(latestIdentity)
+                AirPlayPersistence.saveWirelessEnabled(this, true)
+                try {
+                    startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY))
+                } catch (error: RuntimeException) {
+                    Log.w(
+                        TAG,
+                        "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=restore_failed " +
+                            "error=${error.javaClass.simpleName}",
+                    )
+                }
+                return@shutdown
+            }
+            autoUsbLaunchIdentity = latestIdentity
+            autoUsbLaunchBlocked = false
+            AirPlayPersistence.saveWirelessEnabled(this, false)
+            try {
+                startActivity(
+                    CarPlayHostActions.createInternalIntent(
+                        this,
+                        CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+                        latestIdentity,
+                        latestRequest?.hostLaunchState ?: hostLaunchState,
+                    ),
+                )
+            } catch (error: RuntimeException) {
+                Log.w(
+                    TAG,
+                    "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=launch_failed " +
+                        "error=${error.javaClass.simpleName}",
+                )
+                IphoneUsbAutoLaunchNotification.show(this)
+            }
+        }
+        expectedOwnerEpoch = CarPlayBackgroundSession.ownerEpoch()
+        finish()
     }
 
     override fun onResume() {
@@ -1606,6 +1651,7 @@ class CarPlayHostActivity : ComponentActivity() {
         dspPaneVisible.value = dspSplit
         pendingSplitStatusView?.visibility = if (pendingSplitMode == null) View.GONE else View.VISIBLE
         hostContentRow?.requestLayout()
+        CarPlayBackgroundSession.updateHostLaunchState(this, currentHostLaunchState())
     }
 
     private fun ensureDspComposeView() {
@@ -4689,6 +4735,14 @@ class CarPlayHostActivity : ComponentActivity() {
             CarPlayBackgroundSession.clear(snapshot.controller)
             return false
         }
+        if (!CarPlaySessionTransportPolicy.shouldAdoptBackgroundSession(
+                existingWired = snapshot.controller.isUsingWiredTransport(),
+                requestedWired = !wirelessEnabled,
+            )
+        ) {
+            requestBackgroundTransportHandoff(snapshot)
+            return false
+        }
         displayDiagnosticAttempt = DisplayDiagnosticSnapshot.currentAttempt(this)
         controller = snapshot.controller
         sink = snapshot.sink
@@ -4698,6 +4752,7 @@ class CarPlayHostActivity : ComponentActivity() {
             snapshot.width,
             snapshot.height,
             this,
+            currentHostLaunchState(),
             backgroundStopAction(),
         )
         if (snapshot.width > 0 && snapshot.height > 0) {
@@ -4744,6 +4799,68 @@ class CarPlayHostActivity : ComponentActivity() {
         tryApplyPendingLocalPaneViewport()
         return true
     }
+
+    private fun requestBackgroundTransportHandoff(snapshot: CarPlayBackgroundSession.Snapshot) {
+        if (backgroundTransportHandoffPending) return
+        backgroundTransportHandoffPending = true
+        val generation = ++backgroundTransportHandoffGeneration
+        val previousWired = snapshot.controller.isUsingWiredTransport()
+        val identity = autoUsbLaunchIdentity
+        val handoffGeneration = identity?.let {
+            IphoneUsbAutoLaunchDispatcher.beginHandoff(it, currentHostLaunchState())
+        }
+        CarPlayBackgroundSession.stop {
+            runOnUiThread {
+                if (generation != backgroundTransportHandoffGeneration) return@runOnUiThread
+                backgroundTransportHandoffPending = false
+                val handoffRequest = if (identity != null) {
+                    IphoneUsbAutoLaunchDispatcher.completeHandoff(handoffGeneration)
+                } else {
+                    null
+                }
+                val latestIdentity = handoffRequest?.identity ?: autoUsbLaunchIdentity
+                if (latestIdentity != null &&
+                    IphoneUsbAutoLaunchSettings.currentCandidate(this, latestIdentity) == null
+                ) {
+                    IphoneUsbAutoLaunchDispatcher.failLaunch(latestIdentity)
+                    autoUsbLaunchIdentity = null
+                    autoUsbLaunchBlocked = false
+                    wirelessEnabled = !previousWired
+                    AirPlayPersistence.saveWirelessEnabled(this, wirelessEnabled)
+                    wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
+                    wirelessPermissionsRefused = false
+                    if (microphonePermissionResolved) requestStartupPrerequisites()
+                    return@runOnUiThread
+                }
+                if (latestIdentity != null) autoUsbLaunchIdentity = latestIdentity
+                val current = CarPlayBackgroundSession.snapshot()
+                if (current?.controller === snapshot.controller) {
+                    autoUsbLaunchBlocked = true
+                    appendLog("Transport handoff did not close the previous Controller")
+                    return@runOnUiThread
+                }
+                if (current != null &&
+                    !CarPlaySessionTransportPolicy.shouldAdoptBackgroundSession(
+                        existingWired = current.controller.isUsingWiredTransport(),
+                        requestedWired = !wirelessEnabled,
+                    )
+                ) {
+                    requestBackgroundTransportHandoff(current)
+                    return@runOnUiThread
+                }
+                maybeStartCarPlay()
+                if (latestIdentity != null && !isFinishing && !isDestroyed) {
+                    IphoneUsbAutoLaunchDispatcher.resumeDeferred(this)
+                }
+            }
+        }
+    }
+
+    private fun currentHostLaunchState(): CarPlayHostLaunchState = CarPlayHostLaunchState(
+        layoutMode = hostLayoutState.mode,
+        carPlayFraction = hostLayoutState.carPlayFraction,
+        pendingSplitMode = pendingSplitMode,
+    )
 
     private fun startCarPlay(size: DisplaySize) {
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
@@ -4823,11 +4940,20 @@ class CarPlayHostActivity : ComponentActivity() {
             onWiredStartupTiming = traceStore::appendWiredStartupTiming,
         )
         controller = next
-        CarPlayBackgroundSession.store(next, renderer, size.width, size.height, this, backgroundStopAction())
+        CarPlayBackgroundSession.store(
+            next,
+            renderer,
+            size.width,
+            size.height,
+            this,
+            currentHostLaunchState(),
+            backgroundStopAction(),
+        )
         localViewportSize?.takeIf { canScaleCarPlayLocally() }?.let(::applyLocalCarPlayBounds)
         try {
             startForegroundService(Intent(this, DiPlaySessionService::class.java))
             next.start()
+            IphoneUsbAutoLaunchDispatcher.resumeDeferred(this)
             tryApplyPendingLocalPaneViewport()
             SplitPerformanceTracer.increment(SplitPerformanceCounter.CARPLAY_CONTROLLER_STARTS)
             if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
@@ -5116,6 +5242,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun maybeStartCarPlay() {
         if (shuttingDown.get() || isFinishing || isDestroyed) return
+        if (backgroundTransportHandoffPending) return
         if (CarPlayBackgroundSession.isRestartSuppressed()) return
         if (CarPlayBackgroundSession.hasPendingRestart()) {
             if (restartHandoffToken != null) return
@@ -5156,6 +5283,7 @@ class CarPlayHostActivity : ComponentActivity() {
         if (autoUsbLaunchBlocked) return
         autoUsbLaunchIdentity?.let { identity ->
             if (IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
+                IphoneUsbAutoLaunchDispatcher.failLaunch(identity)
                 autoUsbLaunchBlocked = true
                 appendLog("iPhone USB auto-launch canceled because the setting or device is no longer valid")
                 return
@@ -5333,7 +5461,10 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun exitApplication() {
-        if (shuttingDown.get()) return
+        if (shuttingDown.get()) {
+            shutdown(terminateProcess = true, reason = "settings exit application")
+            return
+        }
         restoreSettingsBaseline()
         finishAndRemoveTask()
         shutdown(terminateProcess = true, reason = "settings exit application")
@@ -5379,7 +5510,12 @@ class CarPlayHostActivity : ComponentActivity() {
             Log.i(TAG, "shutdown complete clean=$clean")
             applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java))
             teardownExecutor.shutdown()
-            mainHandler.post { completeShutdownCallbacks() }
+            mainHandler.post {
+                completeShutdownCallbacks()
+                if (!shutdownTerminatesProcess.get()) {
+                    IphoneUsbAutoLaunchDispatcher.resumeDeferred(this)
+                }
+            }
             if (shutdownTerminatesProcess.get()) Process.killProcess(Process.myPid())
         }
     }
@@ -5409,7 +5545,9 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun runShutdownCompletion(completion: () -> Unit) {
-        runCatching(completion).onFailure { error ->
+        try {
+            completion()
+        } catch (error: RuntimeException) {
             Log.e(TAG, "shutdown completion failed error=${error.javaClass.simpleName}")
         }
     }
@@ -5873,22 +6011,32 @@ internal object CarPlayBackgroundSession {
         val sink: AndroidMediaSink,
         val width: Int,
         val height: Int,
+        val hostLaunchState: CarPlayHostLaunchState?,
     )
 
     private var controller: CarPlayController? = null
     private var sink: AndroidMediaSink? = null
     private var width = 0
     private var height = 0
+    private var hostLaunchState: CarPlayHostLaunchState? = null
 
     @Synchronized
     fun snapshot(): Snapshot? {
         val currentController = controller ?: return null
         val currentSink = sink ?: return null
-        return Snapshot(currentController, currentSink, width, height)
+        return Snapshot(currentController, currentSink, width, height, hostLaunchState)
     }
 
     @Synchronized
-    fun store(controller: CarPlayController, sink: AndroidMediaSink, width: Int, height: Int, owner: Any, stop: ((() -> Unit)) -> Unit) {
+    fun store(
+        controller: CarPlayController,
+        sink: AndroidMediaSink,
+        width: Int,
+        height: Int,
+        owner: Any,
+        hostLaunchState: CarPlayHostLaunchState? = null,
+        stop: ((() -> Unit)) -> Unit,
+    ) {
         restartHandoff.clear()
         restartSuppressed = false
         this.stopAction = stop
@@ -5898,6 +6046,12 @@ internal object CarPlayBackgroundSession {
         this.sink = sink
         this.width = width
         this.height = height
+        this.hostLaunchState = hostLaunchState
+    }
+
+    @Synchronized
+    fun updateHostLaunchState(owner: Any, hostLaunchState: CarPlayHostLaunchState) {
+        if (this.owner === owner) this.hostLaunchState = hostLaunchState
     }
 
     @Synchronized
@@ -5963,6 +6117,7 @@ internal object CarPlayBackgroundSession {
             stopAction = null
             stopActionOwner = null
             setOwner(null)
+            hostLaunchState = null
         }
         active = false
         width = 0

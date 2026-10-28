@@ -65,7 +65,7 @@
     <string name="ui_iphone_usb_autolaunch_confirmation_message">AndroidのUSB使用許可が必要になることがあります。バックグラウンド起動や車載機の省電力設定により、タップして開く操作が必要な場合があります。</string>
     <string name="ui_iphone_usb_autolaunch_enabled">iPhone USB自動起動は有効です。</string>
     <string name="ui_iphone_usb_autolaunch_disabled">iPhone USB自動起動は無効です。</string>
-    <string name="ui_iphone_usb_autolaunch_unavailable">この端末ではUSB Hostを利用できません。</string>
+    <string name="ui_iphone_usb_autolaunch_unavailable">AndroidがUSB Host機能を宣言していません。車載機の実機対応を確認してください。</string>
     <string name="ui_iphone_usb_autolaunch_connected">CarPlay対応iPhoneが接続されています。</string>
     <string name="ui_iphone_usb_autolaunch_permission_needed">接続時にAndroidのUSB許可が必要になる場合があります。</string>
     <string name="ui_iphone_usb_autolaunch_open_connected">接続中のiPhoneでCarPlayを開く</string>
@@ -75,6 +75,7 @@
     <string name="ui_iphone_usb_autolaunch_enable_failed">USB自動起動の設定を適用できませんでした。</string>
     <string name="ui_iphone_usb_autolaunch_not_found">CarPlay対応iPhoneが見つかりません。</string>
     <string name="ui_iphone_usb_autolaunch_ambiguous">接続中のiPhoneを1台だけにしてから、もう一度お試しください。</string>
+    <string name="ui_iphone_usb_autolaunch_open_failed">CarPlay画面を開けませんでした。</string>
     <string name="ui_enable">有効にする</string>
     <string name="ui_choose_iphone_named">iPhoneを選択 · %1$s</string>
     <string name="ui_wireless_connection">ワイヤレス接続</string>

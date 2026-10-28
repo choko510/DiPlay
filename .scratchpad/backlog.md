@@ -5,6 +5,7 @@
 ## P0 — Review and acceptance blockers
 
 - [ ] Run the supported TS10/K706 + iPhone matrix: wired NCM/IPv6→TUN; Siri/call/AEC/AGC; MAIN/ALT and local Split continuity; Surface/rotation/HID/safeArea; DSP THD/headroom/latency/A-V/CPU/underruns; 30–60-minute soak; install/signature/update/rollback. SH M20 remains PARTIAL evidence only.
+- [ ] On TS10/K706 Android 10, verify the `MANAGE_USB`-restricted Apple attach entry appears in the USB chooser, cold-launches after task removal, handles permission refusal/retry and 20 re-enumerations without duplicate Controllers, and preserves wireless→wired plus DSP/YouTube Split state. ADB had only an emulator in the 2026-10-28 implementation run.
 - [ ] Validate F8-01 MAIN/ALT pre-RECORD disconnect recovery, F8-02 4 MiB RTSP-body compatibility, and F8-03 four-session cap/release under supported-device reconnect traffic.
 - [ ] On SH-M27, verify DSP Split inset visibility, scroll boundaries and ComposeView measurement diagnostics while CarPlay remains active. C-00 itself remains USER_CONFIRMED_RESOLVED; this gate is device evidence only.
 - [ ] Release-signed update and installed rollback; release credentials/keystore are currently unavailable. Do not substitute a debug signature.

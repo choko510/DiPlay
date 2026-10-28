@@ -1,10 +1,11 @@
 # Completed — dated history
 
-> 221 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
+> 222 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
 ## 2026-10-28
 
 - Added opt-in iPhone USB auto-launch to PR #45 with a default-off setting, Apple CarPlay descriptor/current-device validation, existing Controller USB permission ownership, idempotent attach dispatch, boot notification fallback, and physical test instructions. Local Shared/Common suites passed 884/884; mobile/automotive Debug builds, lint, and merged manifests passed. API 29 physical USB acceptance is `NOT_RUN_HARDWARE`.
+- Followed up review findings by refusing cross-transport background-session adoption, retaining the latest USB identity through shutdown/handoff, resuming deferred attach requests, bringing an existing wired Host forward for user actions, gating the exported Apple entry with `MANAGE_USB`, and keeping USB Host feature declarations advisory. Full Shared/Common suites pass 659/229; both app Debug builds/lints and merged Manifests pass. Physical acceptance remains `NOT_RUN_HARDWARE`; follow-up CI is pending.
 
 ## 2026-10-27
 
@@ -267,3 +268,4 @@
 - 2026-10-26: B06 added capture-loop proof that repeated zero AudioRecord reads send no packet and positive reads resume transmission, plus initial DSP-OFF PCM16 exactness across 44.1/48 kHz mono/stereo. Test commit `686516f5a3fbd220822c89e394c5c12222a24eb8`; full shared suite passed 646/646. Product behavior was already correct; physical audio validation remains `NOT_RUN`.
 - 2026-10-26: B07 recorded SHA-specific decisions for the fixed 111-commit overlay and classified all 51 merges. No new adaptation met the evidence bar; 37 reviewed rows remain evidence-gated. EX-08 regression tests passed 19/19 and the 1,289-row legacy prefix remains byte-identical.
 - 2026-10-26: B08 added observation-only, attempt-relative Stage3 timing with bounded in-memory reporting and a reproducible host per-thread CPU/allocation comparison. Transmission behavior is unchanged; target-device causal timing remains blocked.
+- 2026-10-28: PR #45 review-fix batch restored existing-host wired USB attach reevaluation; added AUDIO format/retirement timing and moved detached DSP graph destruction to the reaper; added fail-closed renderer retirement status and bounded MediaCodec release recovery. Local Shared/Common unit suites pass 664/664 and 231/231; mobile/automotive lint, Debug/Benchmark builds, and API 36.1 emulator instrumentation pass. GitHub run #527 passed host/native/ASan+UBSan/unit/lint/build/JNI/R8 and API 35 instrumentation; test-only run #533 passed the extra USB owner-adoption and MAIN/ALT failure cases. Physical-device acceptance, signed update/rollback, and independent review remain open; local MSYS2 ASan/UBSan cannot link because its runtime libraries are absent.

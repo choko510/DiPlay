@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.youtube.HostLayoutMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -92,5 +93,72 @@ class IphoneUsbAutoLaunchCoordinatorTest {
 
         assertTrue(coordinator.decide(identity, IphoneUsbSessionSnapshot.NONE, nowMillis = 11L)
             is IphoneUsbAutoLaunchDecision.Launch)
+    }
+
+    @Test
+    fun deferredQueueKeepsOnlyTheLatestCurrentUsbIdentity() {
+        val queue = IphoneUsbAutoLaunchRequestQueue()
+        val first = DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH)
+        val latest = DeferredIphoneUsbAutoLaunch(
+            identity.copy(deviceId = 32, deviceName = "reenumerated-test-device"),
+            IphoneUsbAutoLaunchSource.ATTACH,
+        )
+
+        queue.defer(first)
+        queue.defer(latest)
+
+        assertEquals(latest, queue.takeDeferred())
+        assertEquals(null, queue.takeDeferred())
+    }
+
+    @Test
+    fun handoffQueueUsesTheLatestIdentityAndPreservesTheSplitSnapshot() {
+        val queue = IphoneUsbAutoLaunchRequestQueue()
+        val layoutState = CarPlayHostLaunchState(
+            HostLayoutMode.CARPLAY_DSP_SPLIT,
+            0.62f,
+            HostLayoutMode.CARPLAY_DSP_SPLIT,
+        )
+        queue.beginHandoff(
+            DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH, layoutState),
+        )
+
+        repeat(20) { index ->
+            assertTrue(
+                queue.replaceDuringHandoff(
+                    DeferredIphoneUsbAutoLaunch(
+                        identity.copy(
+                            deviceId = 33 + index,
+                            deviceName = "reenumerated-test-device-$index",
+                        ),
+                        IphoneUsbAutoLaunchSource.ATTACH,
+                    ),
+                ),
+            )
+        }
+        assertEquals(
+            DeferredIphoneUsbAutoLaunch(
+                identity.copy(deviceId = 52, deviceName = "reenumerated-test-device-19"),
+                IphoneUsbAutoLaunchSource.ATTACH,
+                layoutState,
+            ),
+            queue.completeHandoff(),
+        )
+        assertEquals(null, queue.completeHandoff())
+    }
+
+    @Test
+    fun duplicateSystemAttachDoesNotRaiseTheHostButAnExplicitOpenDoes() {
+        assertTrue(shouldBringWiredHostToFront(IphoneUsbAutoLaunchSource.SETTINGS))
+        assertTrue(shouldBringWiredHostToFront(IphoneUsbAutoLaunchSource.FOREGROUND))
+        assertEquals(false, shouldBringWiredHostToFront(IphoneUsbAutoLaunchSource.ATTACH))
+    }
+
+    @Test
+    fun backgroundControllerIsReusableOnlyWhenItsTransportMatchesTheRequestedTransport() {
+        assertTrue(CarPlaySessionTransportPolicy.shouldAdoptBackgroundSession(existingWired = true, requestedWired = true))
+        assertTrue(CarPlaySessionTransportPolicy.shouldAdoptBackgroundSession(existingWired = false, requestedWired = false))
+        assertEquals(false, CarPlaySessionTransportPolicy.shouldAdoptBackgroundSession(existingWired = false, requestedWired = true))
+        assertEquals(false, CarPlaySessionTransportPolicy.shouldAdoptBackgroundSession(existingWired = true, requestedWired = false))
     }
 }

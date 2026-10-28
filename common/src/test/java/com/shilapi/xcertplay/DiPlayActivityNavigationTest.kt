@@ -77,6 +77,7 @@ class DiPlayActivityNavigationTest {
             assertTrue(hasText(activity, activity.getString(R.string.ui_iphone_usb_autolaunch_description)))
             assertNotNull(control)
             assertFalse(control!!.isChecked)
+            assertTrue(control.isEnabled)
             activity.finish()
         } finally {
             val editor = preferences.edit()

@@ -5,7 +5,7 @@
 - Source: `shilapi/xcertplay@3e07bca57c8700d1268db3f45ba2c22607da1930`
 - Target PR: https://github.com/choko510/DiPlay/pull/45
 - Target start SHA: `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`
-- Final source/test integration SHA: `54b65005ffeffb2cdd802028bceffea28eaa68ee` (includes the merge retaining concurrent PR #45 USB handoff work; documentation closeout follows separately)
+- Final source/test integration SHA: `54b65005ffeffb2cdd802028bceffea28eaa68ee` (includes concurrent PR #45 USB handoff work; follow-up documentation commits are listed below)
 - Target branch/base: `codex/step4-pr-00-test-baseline` / `main` (`95ba398f95ee104527812cd2b095977d71c51f98`)
 - PR status: open, Draft, unmerged
 - Code/test environment: Windows; Android Studio JBR 21.0.9; Android SDK 37.1; connected API 36 x86_64 emulator. No TS10/K706 head unit or iPhone is attached.
@@ -124,3 +124,5 @@
 - `5694f3a7` — OPT-06 non-adoption evidence and OPT-07 NAL conversion regression coverage.
 - `245e06a8` — OPT-08 decoder/recovery measurement instrumentation and focused tests.
 - `54b65005` — Merge current remote PR #45 work to preserve the concurrent USB handoff/review updates; no main branch update or PR merge.
+- `99b96535` — Initial evidence and Working Memory closeout.
+- `178739b1` — Merge remote PR #45 USB review follow-up documentation without dropping the OPT implementation.

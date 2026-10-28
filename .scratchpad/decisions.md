@@ -802,4 +802,6 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 
 2026-10-28 REM-05 Native helper: Prepare and fully verify Compressor/Limiter coefficients on the control side; the render-side apply checks a sealed payload fingerprint without recomputing pow/exp. Preserve compressor envelope and limiter gain, defer enable/topology changes and Limiter threshold increases, slew Compressor curve/output gain plus makeup within bounded per-frame steps, and end ACK-pending after the configured frame count regardless of program-level variation.
 
+2026-10-28 REM-04 Save/Cancel: Serialize studio generation changes with the persistence commit. If Save commits first, its callback must update the session's persisted snapshot even while Cancel is pending, so Cancel restores the value that actually reached storage.
+
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

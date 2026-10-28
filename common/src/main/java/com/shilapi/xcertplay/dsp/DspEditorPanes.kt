@@ -462,6 +462,7 @@ private fun EqResponseGraph(
                 val index = nearestEditableBand(
                     currentBands,
                     currentEditableBandCount,
+                    currentSelectedBandIndex,
                     down.position,
                     axisLeftPx,
                     axisTopPx,
@@ -475,24 +476,10 @@ private fun EqResponseGraph(
                     val dragStart = awaitTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
                     if (dragStart != null) {
                         var edited = false
-                        editGraphBandAt(
-                            index,
-                            dragStart.position,
-                            currentBands,
-                            axisLeftPx,
-                            axisTopPx,
-                            size.width.toFloat() - axisRightPx,
-                            size.height.toFloat() - axisBottomPx,
-                            maxFrequencyHz,
-                            currentOnBandEdit,
-                        )
-                        edited = true
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        try {
                             editGraphBandAt(
                                 index,
-                                change.position,
+                                dragStart.position,
                                 currentBands,
                                 axisLeftPx,
                                 axisTopPx,
@@ -502,13 +489,30 @@ private fun EqResponseGraph(
                                 currentOnBandEdit,
                             )
                             edited = true
-                            if (change.pressed) {
-                                change.consume()
-                            } else {
-                                break
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                if (event.changes.any { it.id != down.id && it.pressed }) break
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                editGraphBandAt(
+                                    index,
+                                    change.position,
+                                    currentBands,
+                                    axisLeftPx,
+                                    axisTopPx,
+                                    size.width.toFloat() - axisRightPx,
+                                    size.height.toFloat() - axisBottomPx,
+                                    maxFrequencyHz,
+                                    currentOnBandEdit,
+                                )
+                                if (change.pressed) {
+                                    change.consume()
+                                } else {
+                                    break
+                                }
                             }
+                        } finally {
+                            if (edited) currentOnEditFinished()
                         }
-                        if (edited) currentOnEditFinished()
                     }
                 }
             }
@@ -597,9 +601,10 @@ private fun EqResponseGraph(
     }
 }
 
-private fun nearestEditableBand(
+internal fun nearestEditableBand(
     bands: List<DspEqBand>,
     editableBandCount: Int,
+    selectedBandIndex: Int,
     position: Offset,
     plotLeft: Float,
     plotTop: Float,
@@ -609,7 +614,7 @@ private fun nearestEditableBand(
     hitRadiusPx: Float,
 ): Int {
     if (plotRight <= plotLeft || plotBottom <= plotTop) return -1
-    return bands.take(editableBandCount).indices
+    val candidates = bands.take(editableBandCount).indices
         .map { index ->
             val band = bands[index]
             val x = plotLeft + (plotRight - plotLeft) * (ln(band.frequencyHz.coerceIn(20.0, maxFrequencyHz) / 20.0) / ln(maxFrequencyHz / 20.0)).toFloat()
@@ -617,8 +622,9 @@ private fun nearestEditableBand(
             index to (Offset(x, y.toFloat()) - position).getDistance()
         }
         .filter { it.second <= hitRadiusPx }
-        .minByOrNull { it.second }
-        ?.first ?: -1
+    val selectedDistance = candidates.firstOrNull { it.first == selectedBandIndex }?.second
+    if (selectedDistance != null) return selectedBandIndex
+    return candidates.minWithOrNull(compareBy<Pair<Int, Float>> { it.second }.thenBy { it.first })?.first ?: -1
 }
 
 private fun editGraphBandAt(

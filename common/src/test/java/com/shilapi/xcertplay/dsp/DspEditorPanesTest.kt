@@ -1,9 +1,11 @@
 package com.shilapi.xcertplay.dsp
 
+import androidx.compose.ui.geometry.Offset
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMacroToneConfig
 import com.shilapi.xcertplay.media.dsp.DspSmartLoudnessRuntimeConfig
+import kotlin.math.ln
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -89,11 +91,58 @@ class DspEditorPanesTest {
     }
 
     @Test
+    fun overlappingGraphHandlesPreferSelectedBandThenStableIndexTieBreak() {
+        val overlapping = listOf(
+            DspEqBand(DspEqType.PEAK, 1_000.0),
+            DspEqBand(DspEqType.PEAK, 1_000.0),
+        )
+        assertEquals(
+            1,
+            nearestEditableBand(
+                bands = overlapping,
+                editableBandCount = 2,
+                selectedBandIndex = 1,
+                position = Offset(100f * (ln(1_000.0 / 20.0) / ln(20_000.0 / 20.0)).toFloat(), 50f),
+                plotLeft = 0f,
+                plotTop = 0f,
+                plotRight = 100f,
+                plotBottom = 100f,
+                maxFrequencyHz = 20_000.0,
+                hitRadiusPx = 1f,
+            ),
+        )
+
+        val equidistant = listOf(
+            DspEqBand(DspEqType.PEAK, 100.0),
+            DspEqBand(DspEqType.PEAK, 1_000.0),
+            DspEqBand(DspEqType.PEAK, 20_000.0),
+        )
+        val lowX = 100f * (ln(100.0 / 20.0) / ln(20_000.0 / 20.0)).toFloat()
+        val highX = 100f * (ln(1_000.0 / 20.0) / ln(20_000.0 / 20.0)).toFloat()
+        assertEquals(
+            0,
+            nearestEditableBand(
+                bands = equidistant,
+                editableBandCount = 3,
+                selectedBandIndex = 2,
+                position = Offset((lowX + highX) / 2f, 50f),
+                plotLeft = 0f,
+                plotTop = 0f,
+                plotRight = 100f,
+                plotBottom = 100f,
+                maxFrequencyHz = 20_000.0,
+                hitRadiusPx = 20f,
+            ),
+        )
+    }
+
+    @Test
     fun numericEqValuesStayInsideRuntimeBounds() {
         assertEquals(20.0, safeEqNumericValue(1.0, 20.0..19_845.0), 0.0)
         assertEquals(19_845.0, safeEqNumericValue(30_000.0, 20.0..19_845.0), 0.0)
         assertEquals(-18.0, safeEqNumericValue(Double.NEGATIVE_INFINITY, -18.0..18.0), 0.0)
         assertEquals(0.1, safeEqNumericValue(0.01, 0.1..20.0), 0.0)
+        assertEquals(20.0, safeEqNumericValue(20.01, 0.1..20.0), 0.0)
         assertEquals(20.0, safeEqNumericValue(Double.NaN, 20.0..20_000.0), 0.0)
     }
 

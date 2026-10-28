@@ -13,7 +13,7 @@
 
 ## P1 — Measurements before conditional changes
 
-- [ ] Collect same-device TS10/K706 + supported-iPhone video worker, frame-to-Surface, MAIN/ALT request-result, Surface recovery, and 30–60-minute memory/FD metrics before enabling the default-off Surface recovery policy. Measure Host log dispatch/file-write cost before considering OPT-06 batching.
+- [ ] Collect same-device TS10/K706 + supported-iPhone video worker, `receiveToSurfaceSubmitMs`, actual display-presentation delay, MAIN/ALT request-result, Surface recovery, and 30–60-minute memory/FD metrics before enabling the default-off Surface recovery policy. Surface-submit percentiles do not measure visible display time. Measure Host log dispatch/file-write cost before considering OPT-06 batching.
 - [ ] Same-device NCM `AUTO` vs `NO_STATUS_POLLING` A/B with first-frame, `SCREEN_STREAM_OPENED`, and timeout evidence; do not change status behavior or add control requests without cause.
 - [ ] Reproduce `queue()==false` / `requestWait()==null` while the USB device is present; preserve persistent USB-request ownership otherwise.
 - [ ] Keep Stage3 diagnostics timing-only and EX05 second StartSession retry disabled until target packet timing proves the need.

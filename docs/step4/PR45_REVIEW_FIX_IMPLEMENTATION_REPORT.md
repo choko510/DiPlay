@@ -10,17 +10,17 @@
 
 **Start HEAD:** `a99066f6133c2fe6f5258a2515a89986b75e042e`
 
-**Latest source snapshot:** `d4954869f14b945dba3dfd4732146a34ddc708f6` (includes USB handoff implementation `5f69b20c`)
+**Latest source snapshot:** `7aff2f8bc8bff05af3962e6c6887e020ad80be81` (includes USB teardown and video metric/drain fixes)
 
-**Latest test-only HEAD:** `a3c66a68af57b52bcd9302e25839fa795468cbf3`
+**Latest test HEAD:** `3e81cd5d6f250ffc0a4e9189bd83bc718bd40f3e`
 
-PR #45 remains open and Draft. No merge, close, or ready-for-review action was performed. The concurrent PR-branch commit `d140f6e` (opt-in iPhone USB auto-launch) arrived during this work and was preserved. P1-01/P1-02 now have source fixes and regression coverage; physical Android 10 acceptance and the no-attach-event re-enumeration case remain open.
+PR #45 remains open and Draft. No merge, close, or ready-for-review action was performed. The concurrent remote video/USB commits through `f7aa6705` and original opt-in iPhone USB commit `d140f6e` were preserved. P1 shutdown and deferred-replay paths now have source fixes and regression coverage; Android 10 acceptance and no-attach-event re-enumeration remain open.
 
 | Gate | Result | Evidence / limit |
 |---|---|---|
-| Code | `SOURCE_FIXES_COMPLETE_WITH_DEVICE_LIMITS` | P1-01/P1-02 and P2-01/P2-03/P2-05 have code fixes. P1-03/P2-06 retain exact current-device validation; same-device timed rediscovery cannot be proven if Android supplies no new attach event. P2-02/P2-04 and T05/T09/T10 still have platform or lifecycle evidence gaps. |
-| Local host checks | `PASS` | Full Shared 664/664 and Common 235/235 suites passed on the merged tree; after the timeout-fixture fix, full Shared passed again and both expanded Common USB classes passed. Mobile/automotive Debug lint, Debug builds, Benchmark builds, and merged manifests passed on that source snapshot. |
-| GitHub CI | `CI_VERIFIED_DRAFT_LANE` | Run [#545](https://github.com/choko510/DiPlay/actions/runs/40628808576) passed the corrected Shared test fixture on `1290fb8`. Run [#546](https://github.com/choko510/DiPlay/actions/runs/40629443355) passed `changes`, Draft unit/quick-baseline, and Draft scope on `a3c66a68`; host-baseline and Android instrumentation were skipped. Earlier full run [#527](https://github.com/choko510/DiPlay/actions/runs/40531665594) passed source snapshot `c8a1ab0`, before the handoff follow-up. |
+| Code | `SOURCE_FIXES_COMPLETE_WITH_DEVICE_LIMITS` | Shutdown timeouts now retain a teardown barrier; internal deferred replay and explicit user retries bypass attach debounce; handoff release is generation/owner guarded. Video output has a 50 ms drain grace after recent codec activity and the latency metric name identifies Surface submission. Device-only USB and actual display-presentation evidence remain open. |
+| Local host checks | `PASS` | Full Shared 683/683 and Common 241/241 suites passed. Mobile/automotive Debug builds and lint passed on the merged source snapshot. |
+| GitHub CI | `PASS_CI` | Run [#568](https://github.com/choko510/DiPlay/actions/runs/40675349338) passed changes/EX-08, host native, ASan/UBSan, full unit/lint/Debug+optimized builds/JNI+R8, `host-baseline`, Draft scope, and API 35 instrumentation on test head `3e81cd5d`; check and instrumentation artifacts `12810711700` and `12811100979` were uploaded. The separate Draft-unit and quick-baseline jobs were skipped because full checks ran. |
 | Device acceptance | `BLOCKED_DEVICE` | Only an API 36.1 x86_64 emulator was attached. TS10/K706 and iPhone acceptance remains untested. |
 | Release | `NO_GO_THIS_RUN` | Device, signed update/rollback, and independent review gates remain incomplete. |
 
@@ -38,6 +38,9 @@ PR #45 remains open and Draft. No merge, close, or ready-for-review action was p
 | `5f69b20` | Keep the newest validated USB request through Controller handoff and reject cross-transport session adoption. |
 | `1290fb8` | Replace a scheduler-sensitive 2 ms USB timeout test with a delayed deterministic fixture. |
 | `a3c66a6` | Exercise 20 repeated wired attaches and 20 handoff identity replacements. |
+| `8151439` | Merge remote OPT-00–OPT-08/video changes into the updated USB branch without rewriting history. |
+| `7aff2f8` | Keep shutdown/restart fail-closed until Controller and sink close; bypass attach debounce for deferred/manual retries; add video drain grace and precise latency label. |
+| `3e81cd5` | Assert background-session ownership remains gated through a Controller-close timeout. |
 
 The implementation report and test matrix are committed after the source/test head; their documentation commit ID is recorded in the final response and the PR branch history.
 
@@ -45,7 +48,7 @@ The implementation report and test matrix are committed after the source/test he
 
 - The initial GitHub PR snapshot matched start HEAD `a99066f`, base `main@95ba398`, and the local PR branch. At that point the latest run was #505: static checks passed while host-baseline and API 35 instrumentation were skipped.
 - During implementation, GitHub advanced the same PR branch to `d140f6e`. The branch was fetched and merged without rebasing or force-pushing; the new opt-in iPhone USB auto-launch behavior was preserved.
-- USB handoff source snapshot `d4954869` includes `5f69b20`; the latest test-only head is `a3c66a68`. These supersede the older current-head summary below; the PR is still Draft. No upstream-ledger row or disposition was changed.
+- Current source snapshot `7aff2f8b` includes the remote Video/OPT work and the USB shutdown/deferred-replay follow-up; current test head is `3e81cd5d`. These supersede older current-head summaries below; the PR is still Draft. No upstream-ledger row or disposition was changed.
 
 ## Phase 01 — USB-01 wired attach recovery
 
@@ -66,6 +69,34 @@ An existing wired Controller remains the owner for duplicate attach events. Sett
 USB identities remain exact (`deviceId` and `deviceName` included). A newly observed attach can replace a stale request; the implementation does not guess that a different identity is the same phone when no new attach notification arrives. Timed same-device rediscovery is not inferred because multiple attached Apple devices with the same descriptors cannot be safely distinguished through that heuristic. Android 10 OEM chooser delivery and no-event re-enumeration remain device gates.
 
 **Tests:** `backgroundControllerIsReusableOnlyWhenItsTransportMatchesTheRequestedTransport`, `wirelessUsbAttachDuringShutdownSwitchesToWiredOnlyOnceAfterTeardown`, `deferredQueueKeepsOnlyTheLatestCurrentUsbIdentity`, `handoffQueueUsesTheLatestIdentityAndPreservesTheSplitSnapshot`, `twentyVerifiedWiredAttachesKeepTheExistingControllerAndDoNotStartAnother`, `duplicateSystemAttachDoesNotRaiseTheHostButAnExplicitOpenDoes`, `failedDispatchCanReleaseItsOwnGenerationForRetry`, stale/current identity policy tests, and manifest/explicit-intent validation tests. The 20-event checks model event sequences, not 20 physical USB re-enumerations.
+
+## Phase 01C — Confirmed teardown and retry ownership
+
+The shutdown and `restartCarPlay()` paths now create a process-local teardown token before dropping the Activity's Controller references. A Controller-close timeout reports `TIMED_OUT`, keeps the token visible through `CarPlayBackgroundSession.hasSession()`, retries `awaitClosed()` off the main thread, and does not run Host-start callbacks. The token is released only after the Controller close is confirmed and the old `AndroidMediaSink.close()` call returns. A close exception reports `FAILED`; if the Controller is still open, close is retried. The process-exit path can still terminate the process without opening a replacement Controller.
+
+Shutdown callbacks now receive `CLOSED`, `TIMED_OUT`, or `FAILED`. Callbacks that create a new Host act only on `CLOSED`; timeout/failure notifications leave them pending for the later confirmed close. `maybeStartCarPlay()` and `startCarPlay()` both check the teardown barrier. A background stop request with no remaining stop owner waits for pending teardown completion instead of reporting success immediately.
+
+Deferred queue replays carry an internal replay flag through `dispatch()`, so replay bypasses the 1.5 s physical-event debounce while still revalidating the current attached device and enabled setting. Explicit `SETTINGS` and `FOREGROUND` requests also bypass that debounce; repeated system `ATTACH` events remain deduplicated. A stale/destroyed handoff owner releases its generation only after confirmed teardown and returns the latest request to the deferred queue. A failed `startActivity()` releases its debounce generation.
+
+**Tests:** `shutdownTimeoutKeepsTheTeardownBarrierUntilTheControllerCloses`, `pendingControllerTeardownBlocksSessionStartsUntilExplicitCompletion`, and `backgroundStopWaitsForAnExistingTeardownBarrier` cover timeout, start gating, and stop completion. `deferredReplayIsNotDiscardedInsideTheDuplicateWindow`, `failedCompletedHandoffReleasesTheQueueAndPreservesItsLatestRequestForRetry`, and explicit-source debounce assertions cover replay/manual retry semantics.
+
+## Phase 01C — Confirmed teardown and retry ownership
+
+The shutdown and `restartCarPlay()` paths now create a process-local teardown token before dropping the Activity's Controller references. A Controller-close timeout reports `TIMED_OUT`, keeps the token visible through `CarPlayBackgroundSession.hasSession()`, retries `awaitClosed()` off the main thread, and does not run Host-start callbacks. The token is released only after the Controller close is confirmed and the old `AndroidMediaSink.close()` call returns. A close exception reports `FAILED`; if the Controller is still open, close is retried. The process-exit path can still terminate the process without opening a replacement Controller.
+
+Shutdown callbacks now receive `CLOSED`, `TIMED_OUT`, or `FAILED`. Callbacks that create a new Host act only on `CLOSED`; timeout/failure notifications leave them pending for the later confirmed close. `maybeStartCarPlay()` and `startCarPlay()` both check the teardown barrier. A background stop request with no remaining stop owner waits for pending teardown completion instead of reporting success immediately.
+
+Deferred queue replays carry an internal replay flag through `dispatch()`, so replay bypasses the 1.5 s physical-event debounce while still revalidating the current attached device and enabled setting. Explicit `SETTINGS` and `FOREGROUND` requests also bypass that debounce; repeated system `ATTACH` events remain deduplicated. A stale/destroyed handoff owner releases its generation only after confirmed teardown and returns the latest request to the deferred queue. A failed `startActivity()` releases its debounce generation.
+
+**Tests:** `shutdownTimeoutKeepsTheTeardownBarrierUntilTheControllerCloses` holds the close waiter across its first timeout and verifies the barrier prevents a start request until the next wait confirms closure. `pendingControllerTeardownBlocksSessionStartsUntilExplicitCompletion` and `backgroundStopWaitsForAnExistingTeardownBarrier` cover the process session gate. `deferredReplayIsNotDiscardedInsideTheDuplicateWindow`, `failedCompletedHandoffReleasesTheQueueAndPreservesItsLatestRequestForRetry`, and explicit-source debounce assertions cover replay/manual retry semantics.
+
+## Phase 08 — Output-drain grace and metric meaning
+
+`VideoPendingOutputState` remains a bounded hint rather than an exact input/output pairing count. When the estimate reaches zero, recent input or output activity keeps output draining in at most 8 ms dequeue slices for a 50 ms grace; after that the existing 100 ms idle queue poll can resume. The 500 ms pending limit, 250 ms frame-age bound, queue capacity and default-off Surface-recovery policy are unchanged.
+
+The PTS-correlated percentile is now logged as `receiveToSurfaceSubmitMs`. Its endpoint is after `releaseOutputBuffer(..., true)` returns; it is not the time Android presents the frame on screen. Target visible-frame timing remains a separate device measurement.
+
+**Tests:** `VideoDecodeQueueTest.recentInputAndOutputKeepTheZeroCountDrainGraceShort` verifies that recent output activity prevents the 100 ms idle queue wait after the approximate pending count reaches zero. Existing delayed-output/500 ms bound tests remain. `VideoStatsTest` verifies the corrected `receiveToSurfaceSubmitMs` label.
 
 ## Phases 02–03 — AUDIO-01 transition measurement and safe retirement
 
@@ -99,19 +130,19 @@ The updated [OWNERSHIP_MAP.md](OWNERSHIP_MAP.md) records the USB token/start gua
 
 ## Phase 07 — Verification and evidence
 
-Run #527 passed `changes`, `check`, `host-baseline`, API 35 instrumentation, and Draft scope on earlier source head `c8a1ab0`; it does not include handoff fix `5f69b20`. Run #541 exposed a scheduling race in the Shared USB read-timeout fixture. Commit `1290fb8` made its delay deterministic, and run #545 passed `changes`, Draft unit/quick-baseline, and Draft scope. Run #546 passed `changes`, Draft unit/quick-baseline, and Draft scope for the 20-event follow-up tests; host-baseline and Android instrumentation were skipped on both Draft test runs. Docs-only run #530 is historical evidence for its own documentation head.
+Full run #568 passed changes/EX-08, host native, ASan/UBSan, full unit tests, lint, Debug/optimized builds, JNI/R8, `host-baseline`, Draft scope, and API 35 instrumentation on test head `3e81cd5d`. The separate Draft-unit and quick-baseline jobs were skipped because the full check covered them. The Android instrumentation artifact is separate from the target TS10/K706/Android 10 USB acceptance gate. Previous runs #545/#546 and the earlier XCertPlay integration run #551 remain historical evidence for their own heads.
 
 Local verification on Windows:
 
-- `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel --build-cache --stacktrace` — full local suites contain 664 Shared + 235 Common tests, 0 failures/errors/skips. The full Shared suite passed again after replacing the timing-sensitive timeout fixture; the two expanded Common USB classes passed after the 20-event additions.
-- `:mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark` — passed. No new lint warning was reported in the changed source. Existing NDK 28.2 missing-`source.properties` and dependency strip warnings remain; the build completed with the configured NDK 27 path.
-- `scripts/run_android_instrumentation.sh` — an earlier local API 36.1 x86_64 run passed 19 Shared Release + 1 Common Debug instrumentation test. Run #527 passed the same 19 + 1 split on API 35, before source snapshot `d4954869`; run #545/#546 skipped instrumentation under Draft classification. Emulator results do not prove USB chooser or vehicle behavior.
+- `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel --stacktrace` — full local suites contain 683 Shared + 241 Common tests, 0 failures/errors/skips. This includes the teardown barrier, deferred replay/manual retry, and video drain-grace regressions.
+- `:mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug` — passed on the current source. No new lint warning was reported in the changed source. GitHub run #568 also passed the optimized builds. Existing NDK 28.2 missing-`source.properties` and dependency strip warnings remain; the local build completed with the configured NDK 27 path.
+- `scripts/run_android_instrumentation.sh` — an earlier local API 36.1 x86_64 run passed 19 Shared Release + 1 Common Debug instrumentation test. Run #568 passed API 35 instrumentation on the current code/test head. Emulator results do not prove USB chooser or vehicle behavior.
 - `scripts/test_dsp_native.sh` — passed with MSYS2 GCC. `scripts/test_dsp_native.sh --sanitize` was attempted but could not link because this host's MSYS2 installation lacks `libasan` and `libubsan`.
 - `scripts/check_jni_mapping.py`, `scripts/test_android_ci_classifier.sh`, `scripts/test_android_instrumentation_evidence.sh`, `scripts/test_step4_ex08_delta111.py` (19/19), `scripts/generate_step4_ex08_inventory.py --check` (1,400 unique SHAs), and `scripts/check_public_tree.py` — passed. The Windows checkout uses `core.autocrlf=true`; the byte-frozen EX-08 checks passed after temporary LF normalization of the ledger/manifest/override files, then those files were restored without content changes.
 
 ## Remaining gates
 
-- `HW-01`–`HW-10`, `HW-12`, and `HW-13` remain `BLOCKED_DEVICE`; no TS10/K706 or supported iPhone was attached. Specifically, Android 10 USB chooser delivery, permission-refusal retry, same-device re-enumeration, DSP Split draft continuity, and the already-connected reboot path are not physically verified.
+- `HW-01`–`HW-10`, `HW-12`, and `HW-13` remain `BLOCKED_DEVICE`; no TS10/K706 or supported iPhone was attached. Specifically, Android 10 USB chooser delivery, permission-refusal retry, same-device re-enumeration, DSP Split draft continuity, already-connected reboot, final-frame timing, and visible-display latency are not physically verified.
 - `HW-11` signed update/rollback remains `BLOCKED_ENV`; no release signing credentials or release APK were used.
 - Local API 35 instrumentation is `NOT_RUN` because an API 35 emulator image is unavailable. Hosted API 35 instrumentation passed in run #527.
 - Independent second review remains `NOT_RUN` per prior user direction.

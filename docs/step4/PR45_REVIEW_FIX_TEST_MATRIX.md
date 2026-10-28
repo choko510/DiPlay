@@ -4,11 +4,11 @@
 
 **Base:** `95ba398f95ee104527812cd2b095977d71c51f98`
 
-**Latest source snapshot:** `d4954869f14b945dba3dfd4732146a34ddc708f6` (USB handoff implementation `5f69b20c`)
+**Latest source snapshot:** `7aff2f8bc8bff05af3962e6c6887e020ad80be81` (Controller teardown and video drain follow-up)
 
-**Latest test-only head:** `a3c66a68af57b52bcd9302e25839fa795468cbf3`
+**Latest test head:** `3e81cd5d6f250ffc0a4e9189bd83bc718bd40f3`
 
-**Latest GitHub Actions:** [run #546](https://github.com/choko510/DiPlay/actions/runs/40629443355) (Draft unit/quick-baseline/scope passed; host-baseline and instrumentation skipped)
+**Latest GitHub Actions:** [run #568](https://github.com/choko510/DiPlay/actions/runs/40675349338) (full host/native/unit/lint/build/JNI/R8 and API 35 instrumentation passed)
 **Physical target:** no TS10/K706 or supported iPhone attached; all HW rows remain blocked.
 
 `PASS` means the named local test or gate passed at its stated scope. `NOT_RUN` means the specific injection or combination has no dedicated evidence. Emulator results never promote a device row to `PASS`.
@@ -44,6 +44,20 @@
 | T10 | iPhone is already connected during Android navigation reboot | Boot path offers a user-initiated notification fallback | NOT_RUN_DEVICE; no target reboot test |
 
 The test fixture timeout that failed in run #541 was changed from a scheduler-sensitive 2 ms timeout to an explicit delayed timeout. Run #545 passed after that correction. Run #546 passed after the 20-event regressions were added; host-baseline and Android instrumentation remain skipped for this Draft update.
+
+## Follow-up review findings — 2026-10-28
+
+| ID | Scenario | Local evidence | Status / limit |
+|---|---|---|---|
+| P1-NEW-01 | Controller `awaitClosed()` times out during shutdown/full-stack restart | `shutdownTimeoutKeepsTheTeardownBarrierUntilTheControllerCloses`; `CarPlayBackgroundSession` remains session-active and prevents another start until a later close confirmation | PASS_LOCAL; synthetic wait verifies callback/start gate. Real USB/VPN close timing remains device-gated |
+| P1-NEW-02 | Deferred USB request is replayed inside the 1.5 s attach duplicate window | `deferredReplayIsNotDiscardedInsideTheDuplicateWindow`; queue replay carries an internal bypass flag and still revalidates the current device | PASS_LOCAL; physical attach/permission flow remains `BLOCKED_DEVICE` |
+| P2-NEW-01 | Handoff owner becomes stale/destroyed after teardown or launch dispatch fails | `failedCompletedHandoffReleasesTheQueueAndPreservesItsLatestRequestForRetry`; generation/owner mismatch defers the latest request after close confirmation; launch failure releases its debounce generation | PASS_LOCAL; abnormal OEM Activity lifecycle remains unverified |
+| P2-NEW-02 | User explicitly retries from settings/foreground after an auto-launch attempt | `duplicateSystemAttachDoesNotRaiseTheHostButAnExplicitOpenDoes` now checks the explicit source bypasses attach debounce | PASS_LOCAL; device UI and Android permission refusal remain untested |
+| P2-NEW-03 | Pending output estimate reaches zero before a delayed final codec output | `VideoDecodeQueueTest.recentInputAndOutputKeepTheZeroCountDrainGraceShort`; recent input/output activity uses up to 8 ms output dequeues for a 50 ms grace | PASS_LOCAL; OEM MediaCodec final-frame timing remains `BLOCKED_DEVICE` |
+| P2-NEW-04 | Frame latency metric could be mistaken for visible display presentation | `VideoStatsTest` expects `receiveToSurfaceSubmitMs`; timestamp ends after `releaseOutputBuffer(..., true)` returns | PASS_LOCAL for naming; actual display-presentation latency remains unmeasured |
+| P2-USB-HW | Android 10 TS10 USB resolver/chooser and `MANAGE_USB` delivery | No target attached; source manifest restriction unchanged | BLOCKED_DEVICE; verify using USB chooser plus `adb shell dumpsys usb` on the target |
+
+Run [#568](https://github.com/choko510/DiPlay/actions/runs/40675349338) passed after the updated shutdown, replay, drain-grace and metric-name tests were added. Its API 35 instrumentation remains an emulator result; USB chooser delivery and actual display-presentation timing need target hardware.
 
 ## AUDIO-01A / AUDIO-01B
 
@@ -90,20 +104,21 @@ The test fixture timeout that failed in run #541 was changed from a scheduler-se
 | Full/Split viewport, touch, session and Surface identity | `CarPlayHostActivityLocalScaleTest.fullAndSplitViewportCyclesKeepTheRemoteControllerSessionAndSurface`, touch-cancel tests, `CarPlayMediaEngineTest` stale-session tests | PASS (Robolectric) |
 | 30–60 minute memory/FD/native allocation soak | Target vehicle and iPhone under sustained CarPlay/DSP load | BLOCKED_DEVICE |
 | Android API 26 runtime | Current app minimum SDK is 28; no API 26 runtime lane exists in this checkout | NOT_RUN |
-| Full shared/common JVM unit suites | `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel`: 664 shared + 231 common, 0 failed/errors/skipped at test-only head `344181eb` | PASS |
+| Full shared/common JVM unit suites | `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel`: 683 Shared + 241 Common, 0 failed/errors/skipped at current test head `3e81cd5d` | PASS |
 | Mobile/automotive lint and build | `:mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark` | PASS |
 | Native DSP C tests | `scripts/test_dsp_native.sh` using MSYS2 GCC | PASS |
 | ASan/UBSan | `scripts/test_dsp_native.sh --sanitize`; local linker reports missing `-lasan` and `-lubsan` | BLOCKED_ENV |
 | JNI/R8 mapping | `python -B scripts/check_jni_mapping.py`; mobile and automotive Benchmark mappings | PASS |
 | API 36.1 emulator instrumentation | `scripts/run_android_instrumentation.sh`: Shared Release 19/19 + Common Debug 1/1; instrumentation evidence validator passed | PASS (emulator) |
-| API 35 emulator instrumentation | GitHub run #527: Shared Release 19/19 + Common Debug 1/1; the uploaded artifact has 20 tests, 0 failures/errors/skips ([artifact 12747252715](https://github.com/choko510/DiPlay/actions/runs/40531665594/artifacts/12747252715)) | PASS |
-| GitHub host/native/unit/lint/build/JNI/R8 | Run #527 `check` and `host-baseline` passed; host native, ASan/UBSan, full units, lint, Debug/Benchmark builds, and R8 passed. The uploaded check artifact has 893 tests, 0 failures/errors/skips ([artifact 12747761188](https://github.com/choko510/DiPlay/actions/runs/40531665594/artifacts/12747761188)). `quick-baseline` was skipped because full host-baseline ran; nested draft-unit/JNI steps were skipped because the full check path covered them. | PASS |
+| API 35 emulator instrumentation | Current GitHub run #568: API 35 instrumentation passed; artifact 12811100979 was uploaded. Earlier run #527 also passed Shared Release 19/19 + Common Debug 1/1 (artifact 12747252715). | PASS_CI |
+| GitHub host/native/unit/lint/build/JNI/R8 | Current run #568 passed `check`, host native, ASan/UBSan, full units, lint, Debug/optimized builds, and R8/JNI verification. Check artifact 12810711700 was uploaded. Earlier run #527 results are historical to source head `c8a1ab0`. | PASS_CI |
 | CI classifier/evidence validators | `scripts/test_android_ci_classifier.sh`; `scripts/test_android_instrumentation_evidence.sh` via MSYS2 Bash | PASS |
 | EX-08 delta-111 / generated ledger | `scripts/test_step4_ex08_delta111.py` 19/19; `scripts/generate_step4_ex08_inventory.py --check`; 1,400 unique SHAs | PASS after temporary LF normalization for Windows `core.autocrlf=true`; tracked source data restored afterward |
 | Public source tree | `python -B scripts/check_public_tree.py` | PASS |
-| Concurrent branch update `d140f6e` | Opt-in iPhone USB auto-launch policy/settings/coordinator/trampoline and internal-intent fallback | `IphoneUsbAutoLaunchPolicyTest`, `IphoneUsbAutoLaunchSettingsTest`, `IphoneUsbAutoLaunchCoordinatorTest`, `IphoneUsbAutoAttachActivityTest`, `CarPlayHostActionsTest`; Common suite 235/235 on the merged tree, with the two expanded USB classes passing again on latest head | PASS_LOCAL |
+| Concurrent branch update `d140f6e` | Opt-in iPhone USB auto-launch policy/settings/coordinator/trampoline and internal-intent fallback | `IphoneUsbAutoLaunchPolicyTest`, `IphoneUsbAutoLaunchSettingsTest`, `IphoneUsbAutoLaunchCoordinatorTest`, `IphoneUsbAutoAttachActivityTest`, `CarPlayHostActionsTest`; Common suite 241/241 on current tree | PASS_LOCAL |
 | GitHub Actions run #527 | [Android checks](https://github.com/choko510/DiPlay/actions/runs/40531665594) on product-source head `c8a1ab0`; `changes`, `check`, `host-baseline`, `android-instrumentation`, and Draft scope succeeded | PASS |
 | Test-only follow-up run #533 | USB background-owner adoption and MAIN/ALT release-failure isolation tests at `344181eb`; Draft unit/quick-baseline passed, with 32 tests and 0 failures/errors/skips in artifact 12789926418. Android instrumentation and host-baseline were skipped because product source did not change. | PASS |
+| Current review follow-up run #568 | Head `3e81cd5d`; `changes`/EX-08, host native, ASan/UBSan, full Gradle unit/lint/build, JNI/R8, and API 35 instrumentation passed. Check/instrumentation artifacts 12810711700 and 12811100979 were uploaded. | PASS_CI |
 | TS10/K706 + supported iPhone acceptance | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-01–HW-10/HW-12/HW-13 | BLOCKED_DEVICE |
 | Release-signed update and installed rollback | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-11 | BLOCKED_ENV |
 | Independent review | Kept `NOT_RUN` per prior user direction | NOT_RUN |

@@ -4,9 +4,9 @@
 
 ## 2026-10-28 — Bound decoder output waits and add video-path metrics
 
-- Replaced the unconditional 5 ms queue timeout with a 100 ms FIFO wait when no codec output is pending. After successful input, wait in at most 8 ms dequeue slices until 500 ms after the latest input, then return to normal queue polling. The pending count is capped and approximate; close, Surface/config replacement, resync and release reset it. The existing input-pump drain and 250 ms/60-frame/8 MiB bounds are unchanged.
-- Reuse one worker-owned `MediaCodec.BufferInfo` per decoder. Add five-second queue/dequeue timing, thread CPU, PTS-correlated frame-to-Surface-submit p50/p95/p99, pending peaks/timeouts, process allocation/GC/PSS (debug-tag opt-in), and per-type MAIN/ALT recovery outcomes.
-- Source-level idle queue timeout cadence changes from nominal 200 polls/s to 10 polls/s when no output is pending, but no live video stream was available for an actual CPU, allocation, latency or p99 comparison. Do not call the expected cadence change a measured performance gain.
+- Replaced the unconditional 5 ms queue timeout with a 100 ms FIFO wait only when there is neither an estimated pending output nor recent codec activity. When the bounded pending count reaches zero, retain a 50 ms drain grace from the latest input/output and use at most 8 ms output-dequeue waits during that interval. The count remains a wake-up hint because codecs can drop, reorder or emit multiple outputs per input. The 500 ms pending limit and 250 ms/60-frame/8 MiB backlog bounds remain unchanged.
+- Reuse one worker-owned `MediaCodec.BufferInfo` per decoder. Diagnostics include five-second queue/dequeue timing, thread CPU, PTS-correlated `receiveToSurfaceSubmitMs` p50/p95/p99, pending peaks/timeouts, process allocation/GC/PSS (debug-tag opt-in), and per-type MAIN/ALT recovery outcomes. The latency metric ends after `releaseOutputBuffer` submits to the Surface; it is not display-presentation time.
+- Source-level idle queue timeout cadence changes from nominal 200 polls/s to 10 polls/s only after the pending estimate and recent-activity grace expire. No live video stream was available for an actual CPU, allocation, latency, final-frame or p99 comparison. Do not call the expected cadence change a measured performance gain.
 
 ## PR-DSP-12 — DSP pipeline profiling and performance gate (historical API 36.1)
 

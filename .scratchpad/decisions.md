@@ -724,6 +724,14 @@ The decoder-retirement test must keep its stop gate closed until the assertion c
 
 Keep the Apple attach component disabled by default and enable it only with the independent user setting. Require the exact current USB device plus the existing CarPlay USBMUX/NCM configuration before launching; keep permission requests, USB opens, and re-enumeration with `IphoneUsbHost` and `CarPlayController`. Gate background-session adoption on the requested transport. During a wireless-to-wired handoff, retain only the latest validated attach identity, revalidate after teardown, fence stale callbacks, and preserve the Host split snapshot. Keep boot recovery user-initiated with a notification when background launch is unavailable. Use `MANAGE_USB` only as an Activity caller restriction; do not request it for the app.
 
+## Do not hand off a Controller before close is confirmed
+
+On a shutdown or full-stack restart, keep a process-local teardown barrier until `CarPlayController.awaitClosed()` succeeds and the old sink close call returns. A timeout or failure is diagnostic and triggers bounded retries; callbacks that start a new Host receive `CLOSED` only after the barrier is cleared. Deferred USB requests resume after that point. Never clear ownership and then treat a timeout as successful completion.
+
+## Label video latency by its actual endpoint
+
+The PTS-correlated diagnostic ends after `releaseOutputBuffer(..., true)` submits a frame to the Surface. Name it `receiveToSurfaceSubmitMs`; do not describe it as frame display time. Keep display-presentation timing as a separate device measurement.
+
 ## Resume verified USB attaches only after the current teardown owner completes
 
 For an existing wired Host, a verified single-use USB attach is a new start-condition event and must call `maybeStartCarPlay()` without bypassing its controller, background-owner, VPN, display, permission, menu, and shutdown guards. If a non-process shutdown is already active, coalesce one wired resume or wireless-to-wired switch callback and run it only after the old controller and sink have closed; process-exit shutdown remains a hard stop.

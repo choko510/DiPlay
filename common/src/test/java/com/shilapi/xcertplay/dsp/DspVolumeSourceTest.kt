@@ -99,5 +99,44 @@ class DspVolumeSourceTest {
         assertEquals(0.0, untrusted.breakdown.loudnessLowDb, 0.0)
     }
 
+    @Test
+    fun oemKnobChangeWithoutAndroidStreamIndexChangeLeavesAutoUnavailable() {
+        val before = playbackVolumeReading(
+            deviceType = 11,
+            deviceAddress = "device",
+            usesMusicStream = true,
+            streamIndex = 4,
+            streamMaximum = 16,
+            volumeFixed = false,
+        )
+        val afterOemKnobChange = playbackVolumeReading(
+            deviceType = 11,
+            deviceAddress = "device",
+            usesMusicStream = true,
+            streamIndex = 4,
+            streamMaximum = 16,
+            volumeFixed = false,
+        )
+        val settings = DspSmartLoudnessSettings(
+            mode = DspSmartLoudnessMode.AUTO_CALIBRATED,
+            strength = 1.0,
+            calibration = DspLoudnessCalibration(before.routeToken!!, 0.2, 0.8),
+        )
+
+        val resolution = DspTuningResolver.resolve(
+            flatProfile(),
+            masterEnabled = true,
+            loudness = settings,
+            volumeReading = afterOemKnobChange,
+        )
+
+        assertEquals(before, afterOemKnobChange)
+        assertEquals(0.25, afterOemKnobChange.volumeFraction!!, 0.0)
+        assertFalse(afterOemKnobChange.trustworthy)
+        assertFalse(resolution.breakdown.loudnessAvailable)
+        assertEquals(0.0, resolution.breakdown.loudnessLowDb, 0.0)
+        assertFalse(resolution.runtimeConfig.smartLoudness.enabled)
+    }
+
     private fun flatProfile(): DspAudioProfile = DspProfilePresets.find("flat")!!
 }

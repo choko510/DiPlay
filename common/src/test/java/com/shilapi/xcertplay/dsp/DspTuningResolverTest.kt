@@ -120,6 +120,37 @@ class DspTuningResolverTest {
     }
 
     @Test
+    fun tLoud10AutoVolumeAndOffChangesResolveTwentyTimesWithoutMutatingTheProfile() {
+        val profile = flatProfile()
+        val profileSnapshot = profile.copy(eqBands = profile.eqBands.toList())
+        val calibration = DspLoudnessCalibration("route_a", 0.2, 0.8)
+
+        repeat(20) { index ->
+            val mode = if (index % 2 == 0) {
+                DspSmartLoudnessMode.AUTO_CALIBRATED
+            } else {
+                DspSmartLoudnessMode.OFF
+            }
+            val volume = listOf(0.2, 0.35, 0.5, 0.65, 0.8)[index % 5]
+            val resolution = DspTuningResolver.resolve(
+                profile,
+                masterEnabled = true,
+                loudness = DspSmartLoudnessSettings(
+                    mode = mode,
+                    strength = 1.0,
+                    calibration = calibration,
+                ),
+                volumeReading = DspVolumeReading("route_a", volume, trustworthy = true),
+            )
+
+            assertEquals(mode == DspSmartLoudnessMode.AUTO_CALIBRATED, resolution.breakdown.loudnessAvailable)
+            assertTrue(resolution.runtimeConfig.smartLoudness.lowGainDb.isFinite())
+            assertTrue(resolution.runtimeConfig.smartLoudness.highGainDb.isFinite())
+            assertEquals(profileSnapshot, profile.copy(eqBands = profile.eqBands.toList()))
+        }
+    }
+
+    @Test
     fun tLoud08FixedCompensationDoesNotNeedAnAutomaticVolumeSource() {
         val result = DspTuningResolver.resolve(
             flatProfile(),

@@ -14,6 +14,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.isToggleable
@@ -22,8 +23,10 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -40,8 +43,11 @@ import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.File
 import java.util.Locale
-import kotlin.math.ln
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.ln
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -70,6 +76,7 @@ class DspSettingsScreenTest {
         )
         try {
             restoreCommittedWorkspace(runtime)
+            val studioSession = runtime.createStudioSessionCoordinator()
             composeRule.setContent {
                 MaterialTheme {
                     DspSettingsScreen(
@@ -80,6 +87,18 @@ class DspSettingsScreenTest {
                 }
             }
 
+            if (!runtime.configProvider.snapshot().macroTone.enabled) {
+                composeRule.onNodeWithContentDescription("Macro Power").performClick()
+            }
+            composeRule.waitUntil(timeoutMillis = 15_000) { runtime.configProvider.snapshot().macroTone.enabled }
+            val macroBassImpact = 80
+            composeRule.onNodeWithContentDescription("Bass Impact")
+                .performSemanticsAction(SemanticsActions.SetProgress) { setProgress ->
+                    setProgress(macroBassImpact.toFloat())
+                }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                studioSession.preview.macros.bassImpact == macroBassImpact
+            }
             composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
             val scrollPositions = mutableMapOf(
                 DspStudioTab.STUDIO to composeRule.onNodeWithTag("dsp-tab-scroll-pane").verticalScrollPosition(),
@@ -147,6 +166,10 @@ class DspSettingsScreenTest {
                 }
             }
             tabs.forEach { tab -> assertEquals(20, visits[tab]) }
+            assertEquals(macroBassImpact, studioSession.preview.macros.bassImpact)
+            assertTrue(studioSession.isDirty)
+            composeRule.onNodeWithText("Unsaved DSP Studio draft").assertExists()
+            assertEquals(expectedGainDb, runtime.editorSession.draftProfile.eqBands[2].gainDb, 0.05)
         } finally {
             runtime.closeForTesting()
         }
@@ -241,6 +264,143 @@ class DspSettingsScreenTest {
 
     private fun SemanticsNodeInteraction.verticalScrollPosition(): Float =
         fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange].value()
+
+    @Test
+    fun saveFailureKeepsDraftUnsavedAndAudioStatusDeferred() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-save-failure-status-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_save_failure_status_test"
+        val preferences = context.getSharedPreferences(preferencesName, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val saveEnteredWriter = CountDownLatch(1)
+        val releaseWriter = CountDownLatch(1)
+        val writerAttempts = AtomicInteger()
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName) { _, _ ->
+            writerAttempts.incrementAndGet()
+            saveEnteredWriter.countDown()
+            check(releaseWriter.await(5, TimeUnit.SECONDS))
+            error("disk full")
+        }
+        val studioSession = runtime.createStudioSessionCoordinator()
+        try {
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        presentation = DspPresentationMode.FULL,
+                        onBack = {},
+                    )
+                }
+            }
+
+            if (!runtime.configProvider.snapshot().macroTone.enabled) {
+                composeRule.onNodeWithContentDescription("Macro Power").performClick()
+                composeRule.waitUntil(timeoutMillis = 15_000) {
+                    runtime.configProvider.snapshot().macroTone.enabled
+                }
+            }
+            val macroBassImpact = 80
+            composeRule.onNodeWithContentDescription("Bass Impact")
+                .performScrollTo()
+                .performSemanticsAction(SemanticsActions.SetProgress) { setProgress ->
+                    setProgress(macroBassImpact.toFloat())
+                }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                studioSession.preview.macros.bassImpact == macroBassImpact && studioSession.isDirty
+            }
+
+            val unsavedLabel = "Unsaved DSP Studio draft"
+            val saveLabel = context.getString(R.string.dsp_save)
+            composeRule.onNodeWithText(unsavedLabel).assertExists()
+            composeRule.onNodeWithText(saveLabel).performScrollTo().performClick()
+            assertTrue(saveEnteredWriter.await(5, TimeUnit.SECONDS))
+            composeRule.onNodeWithText(saveLabel).assertIsNotEnabled()
+
+            val deferredReason = "workspace persistence failed while audio stayed deferred"
+            (runtime.configProvider as DspRuntimeConfigStore).reportRendererApplyStatus(
+                DspRendererApplyStatus(
+                    generation = runtime.configProvider.versionedSnapshot().generation,
+                    phase = DspRendererApplyPhase.DEFERRED,
+                    activeGeneration = 0L,
+                    reason = deferredReason,
+                ),
+            )
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithText(unsavedLabel).assertExists()
+            assertTrue(studioSession.isDirty)
+
+            releaseWriter.countDown()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                writerAttempts.get() == 1 && runCatching {
+                    composeRule.onNodeWithText(saveLabel).assertIsEnabled()
+                }.isSuccess
+            }
+            assertEquals(1, writerAttempts.get())
+            composeRule.onNodeWithText(unsavedLabel).assertExists()
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
+            }
+            assertTrue(studioSession.isDirty)
+            assertFalse(File(filesDirectory, "dsp/workspace/current.json").exists())
+        } finally {
+            releaseWriter.countDown()
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun largeFontPresetDialogAcceptsImeTextEntry() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-large-font-ime-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences(TEST_PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(
+            context = context,
+            filesDirectory = filesDirectory,
+            preferencesName = TEST_PREFERENCES_NAME,
+        )
+        val largeConfiguration = Configuration(context.resources.configuration).apply { fontScale = 1.5f }
+
+        try {
+            composeRule.setContent {
+                CompositionLocalProvider(LocalConfiguration provides largeConfiguration) {
+                    MaterialTheme {
+                        DspSettingsScreen(
+                            runtime = runtime,
+                            presentation = DspPresentationMode.FULL,
+                            onBack = {},
+                        )
+                    }
+                }
+            }
+
+            val saveAs = context.getString(R.string.dsp_module_preset_save_as)
+            val presetNameLabel = context.getString(R.string.dsp_module_preset_name)
+            composeRule.onNodeWithText(saveAs).performScrollTo().performClick()
+            composeRule.onNodeWithText(presetNameLabel).assertIsDisplayed()
+            val presetName = composeRule.onNode(hasSetTextAction())
+            presetName.performTextInput("Large font preset")
+            presetName.performImeAction()
+
+            composeRule.onNodeWithText("Large font preset").assertExists()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_save)).assertIsEnabled()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_cancel)).performClick()
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
 
     @Test
     fun macroPreviewSurvivesCompactAndFullLayoutsAndCancelRestoresCommittedState() {

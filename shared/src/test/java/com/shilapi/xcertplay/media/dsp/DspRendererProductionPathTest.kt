@@ -526,6 +526,73 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun smartLoudnessAutoAndOffToggleTwentyTimesWithoutPipelineRebuildOrAddedLatency() {
+        val initialConfig = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
+        val provider = MutableConfigProvider(initialConfig)
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                HotProcessor(audioFormat).also(processorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 300),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+            val activePipeline = renderer.dspPipeline
+            assertEquals(0, activePipeline?.algorithmicLatencyFrames)
+
+            repeat(20) { index ->
+                val enabled = index % 2 == 0
+                val lowGainDb = if (enabled) 0.25 + (index % 5) * 0.1 else 0.0
+                val highGainDb = if (enabled) lowGainDb / 2.0 else 0.0
+                provider.update(
+                    DspRuntimeConfig(
+                        enabled = true,
+                        autoHeadroomEnabled = false,
+                        smartLoudness = DspSmartLoudnessRuntimeConfig(
+                            enabled = enabled,
+                            lowGainDb = lowGainDb,
+                            highGainDb = highGainDb,
+                        ),
+                    ),
+                )
+                val generation = index + 1L
+                awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation)
+
+                renderer.processDecodedPcmForTesting(
+                    source = pcm16(frames = 64, channels = 1, sample = 300 + index),
+                    offset = 0,
+                    length = 128,
+                    decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                    sourceSample = 164L + index * 64L,
+                )
+
+                awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation)
+                assertTrue(activePipeline === renderer.dspPipeline)
+                assertEquals(0, renderer.trackLatencyForTesting)
+                assertEquals(0, renderer.dspPipeline?.algorithmicLatencyFrames)
+                assertFalse(renderer.hasPendingHotApplyForTesting)
+            }
+
+            assertEquals(20, processorRef.get()?.hotUpdateEnqueueAttempts)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun rejectedHotUpdateRetriesAndReportsWhyTheActivePipelineIsKept() {
         val initial = DspRuntimeConfig(enabled = true)
         val provider = MutableConfigProvider(initial)

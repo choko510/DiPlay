@@ -19,6 +19,8 @@
 
 ## Hosted CI / emulator
 
+- 2026-10-29: On final PR #52 head `f5673dd7`, dispatch run #583 completed all required host and API 35 lanes, while the push-triggered PR run #582 was cancelled during workflow concurrency on both attempts. Count #583 as the final-source CI evidence; do not treat the cancelled run as a source failure or a pass.
+
 - 2026-10-02: `reactivecircus/android-emulator-runner` runs `script:` lines as separate shell invocations. Put multi-step test, logcat capture, and evidence assertions in a checked-in bash script and invoke it with a single command; capture before the action shuts down the emulator.
 - 2026-10-02: This managed worktree inherits no `ANDROID_HOME`; set it to `C:\Users\eita2\AppData\Local\Android\Sdk` for Gradle. MSYS2 UCRT GCC can run `scripts/test_dsp_native.sh` but lacks `libasan`/`libubsan`; the NDK Clang x86_64 suite passed on the API 36 emulator with `ASAN_OPTIONS=detect_leaks=0` and `UBSAN_OPTIONS=halt_on_error=1`. SDK warns about a duplicate API 37.1 platform and an incomplete NDK 28.2 folder; selected NDK 27 builds and tests pass.
 - 2026-10-09: `:shared:testDebugUnitTest` had one unrelated IPv6 loopback failure (`SocketException: Permission denied: connect`) in `AirPlayIapTunnelStreamTest`; the targeted NCM profile tests pass. The ADB list showed only `emulator-5554` offline; connecting to `192.168.1.28:9876` timed out.

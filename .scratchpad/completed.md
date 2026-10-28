@@ -5,6 +5,8 @@
 ## 2026-10-29
 
 - PR #52 independent-review fixes F-01/F-02 landed in source/test updates `a0cb2d56` and `f5673dd7`: Studio headroom refunds use a 20 ms double-accumulated ramp with exact endpoint and completion ACK fencing; owned Cancel restore requests retain their start owner and fail closed on missing/stale status. Local Native, Shared/Common 734/734 + 357/357, app lint/Debug/Benchmark builds and JNI/R8 mapping pass. Hosted run #581 passed on `a0cb2d56`; validation of `f5673dd7` is pending. TS10/K706/iPhone acceptance remains NOT_RUN.
+- Synced the latest PR #45 base `07c0141c` into PR #52 only, resolving DSP retirement/PCM-format conflicts while preserving both ownership fences. Shared/Common passed 734/734 and 353/353, Native, JNI, lint, Debug/Benchmark builds, and the 24 evidence fixtures passed locally. Hosted PR run #579 and workflow_dispatch run #580 both passed at code/test head `f40d51ea`, including Release verification in #579; PR #52 remains open/unmerged, PR #45 and `main` refs are unchanged, and hardware acceptance remains `NOT_RUN`.
+- Fixed the independent f40 review's P1 findings F-01/F-02 on PR #52. Studio headroom refund waits for module gains and uses a 20 ms sample ramp with exact final gain and latest-generation ACK; owned Cancel restore waits for status/owner proof and fails on timeout. Native, Common 357/357, AndroidTest compilation, Debug/Benchmark builds, lint and JNI pass locally; run #583 passed Native/ASan/UBSan, Shared/Common, API 35 Shared Release 23/23 + Common Debug 29/29, builds/lint/JNI and host-baseline at `f5673dd7`. PR #52 remains open/unmerged; hardware acceptance is `NOT_RUN`.
 
 ## 2026-10-28
 

@@ -23,10 +23,10 @@
 - 修正後の `scripts/test_dsp_native.sh` 成功。Native DSPとDynamic EQ HOT両suiteがpass。
 - 統合後の `:shared:testDebugUnitTest` 734/734、`:common:testDebugUnitTest` 357/357、failure/error/skip 0。
 - `:mobile:lintDebug`、`:automotive:lintDebug`、両アプリのDebug/Benchmark assemble成功。JNI/R8 mapping check成功。
-- ローカル `scripts/test_dsp_native.sh --sanitize` はMSYS2 GCCに `libasan`／`libubsan` がなくリンク不可。Hosted Actions run [#581](https://github.com/choko510/DiPlay/actions/runs/40719476119) は source/test head `a0cb2d56` に対して全必要jobがsuccessしたが、後続commit `f5673dd7` はそのrunに含まれない。`f5673dd7`を含むPR同期runは、この報告更新時点で未確認。`quick-baseline`はfull checkで代替されたためskipで、pass扱いしていない。
+- ローカル `scripts/test_dsp_native.sh --sanitize` はMSYS2 GCCに `libasan`／`libubsan` がなくリンク不可。Hosted run [#581](https://github.com/choko510/DiPlay/actions/runs/40719476119) は先行head `a0cb2d56` で成功し、final head `f5673dd7` は [run #583](https://github.com/choko510/DiPlay/actions/runs/40722523549) で `changes`, evidence, Native, ASan/UBSan, Shared/Common, lint, Debug/Benchmark, JNI/R8, API 35 instrumentation, `host-baseline` が成功。API 35 Shared Release 23/23、Common Debug 29/29。Artifacts: [check](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12830824159), [instrumentation](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12831597236)。`quick-baseline`とRelease verificationはworkflow_dispatchでskipされ、PASS扱いしていない。PR-triggered #582はworkflow concurrencyによりcancelledで、成功runとして数えない。
 
 ## 未検証の受入項目
 
 - この修正で170行の受入台帳のstatusは変更していない。現行集計はPASS 2 / PARTIAL 162 / NOT_RUN 6のまま。
-- API 35 emulator instrumentationはrun #581でpassした。TS10/K706＋iPhoneの音声・USB・Surface・Touch、route volume、A/V、CPU/RSS、20回再接続、soakは未検証。Emulatorの結果を実機検査の代替とはしない。
+- API 35 emulator instrumentationはrun #583でpassした。TS10/K706＋iPhoneの音声・USB・Surface・Touch、route volume、A/V、CPU/RSS、20回再接続、soakは未検証。Emulatorの結果を実機検査の代替とはしない。
 - PR #52はOpenのまま。マージは行っていない。

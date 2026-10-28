@@ -631,6 +631,8 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 
 2026-10-28 REM-03: A spatial field can use whole-pipeline WARM only when current and target latency match and no stateful history needs preservation. Keep legacy Width inactive under Advanced M/S and defer asymmetric Seat trim when center-image preservation is required; do not let these guards override the dedicated DSP-off crossfade path.
 
+2026-10-28 REM-03 renderer test: WARM apply status remains PREPARED until the full PCM crossfade has consumed enough frames. Drive the test through the fade window before expecting ACTIVE; a single decoded block is not enough evidence.
+
 2026-10-28 PH02-T07: Record UI-switch elapsed time and allocation deltas alongside the 100-transition assertions. Emulator numbers support software regressions but are not physical CarPlay performance evidence.
 
 2026-10-28 T-SAFE-08: When the current signal path has no True Peak or gain-reduction telemetry, disclose that limitation beside the Limiter control rather than implying a measurement or warning exists.

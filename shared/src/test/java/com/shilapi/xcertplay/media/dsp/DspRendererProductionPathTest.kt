@@ -617,7 +617,7 @@ class DspRendererProductionPathTest {
             var block = 0
             while (provider.rendererApplyStatus()?.let {
                     it.generation == generation && it.phase == DspRendererApplyPhase.ACTIVE
-                } != true && block < 20
+                } != true && block < 100
             ) {
                 renderer.processDecodedPcmForTesting(
                     source = pcm16(frames = 64, channels = 2, sample = inputSample + block),

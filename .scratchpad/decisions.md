@@ -28,6 +28,10 @@ Store committed workspace state in its own schema-v1 AtomicFile under `files/dsp
 
 Capture finite-checked PCM before gain or graph stages and pass it separately to the detector, while leaving Dynamic Bass at its existing output position. This makes detector gain independent of compressor/IR processing without changing the established audio-stage order or disabled path.
 
+## Keep Dynamic EQ HOT limits independent of filter coefficients
+
+Prepare each enabled Dynamic EQ peak filter at a fixed ±12 dB reference. The requested maximum boost/cut then changes only the bounded dry/wet mix target, allowing a prepared Native parameter update to preserve detector/filter delay state, envelope, and current mix. This adds only a Native helper; renderer/JNI mailbox wiring must remain a separate integration step.
+
 ## Keep EX-08 provenance separate from current decisions
 
 Preserve the upstream catalog original source_review_state as provenance. Treat generated current_review_state and disposition as the present decision layer; NEED_EVIDENCE means a documented requirement remains unresolved, not semantic proof or parity. Report current totals from the generated ledger, never from stale catalog-state counts.

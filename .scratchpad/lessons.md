@@ -603,4 +603,6 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 2026-10-27: Evidence validation should resolve local artifact and runbook links within the repository boundary and compare acceptance wording with the canonical predicate, so plausible-looking but stale links or rewritten criteria cannot pass by ID alone.
 2026-10-27: For tabbed Compose content that is replaced on selection, use a distinct saveable `ScrollState` per tab; a single shared scroll state leaks the prior tab's viewport position into the next tab.
 
+2026-10-28: When dynamic gain limits must change without resetting a biquad, keep the reference filter coefficients independent of the user limit and adjust only the bounded mix. Precompute sample-rate-dependent envelope coefficients before handing the command to the audio callback; test both parameter acceptance and retained delay/envelope state.
+
 2026-10-27: A descendant's `rememberSaveable` value is forgotten when its conditional tab pane leaves composition. Wrap the pane in `SaveableStateProvider(tabKey)` when selection must survive tab changes.

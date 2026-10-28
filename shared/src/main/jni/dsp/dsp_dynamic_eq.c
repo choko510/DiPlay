@@ -12,12 +12,18 @@ static int band_config_is_valid(const dsp_dynamic_eq_band_config *config) {
         isfinite(config->ratio) && config->ratio >= 1.0 && config->ratio <= 20.0 &&
         isfinite(config->attack_ms) && config->attack_ms >= 0.1 && config->attack_ms <= 2000.0 &&
         isfinite(config->release_ms) && config->release_ms >= 0.1 && config->release_ms <= 2000.0 &&
-        isfinite(config->max_boost_db) && config->max_boost_db >= 0.0 && config->max_boost_db <= 12.0 &&
-        isfinite(config->max_cut_db) && config->max_cut_db >= 0.0 && config->max_cut_db <= 12.0;
+        isfinite(config->max_boost_db) && config->max_boost_db >= 0.0 &&
+        config->max_boost_db <= DSP_DYNAMIC_EQ_MAX_GAIN_DB &&
+        isfinite(config->max_cut_db) && config->max_cut_db >= 0.0 &&
+        config->max_cut_db <= DSP_DYNAMIC_EQ_MAX_GAIN_DB;
 }
 
 static float time_coefficient(int sample_rate, double time_ms) {
     return (float)exp(-1.0 / ((double)sample_rate * time_ms * 0.001));
+}
+
+static int sample_rate_is_valid(int sample_rate) {
+    return sample_rate >= 8000 && sample_rate <= 192000;
 }
 
 static int design_detector(
@@ -61,11 +67,12 @@ static int design_dynamic_peak(
 }
 
 int dsp_dynamic_eq_prepare(dsp_dynamic_eq *dynamic_eq, int sample_rate, const dsp_dynamic_eq_config *config) {
-    if (dynamic_eq == NULL || config == NULL || sample_rate < 8000 || sample_rate > 192000 ||
+    if (dynamic_eq == NULL || config == NULL || !sample_rate_is_valid(sample_rate) ||
         (config->enabled != 0 && config->enabled != 1)) {
         return 0;
     }
     dynamic_eq->config = *config;
+    dynamic_eq->sample_rate = sample_rate;
     for (size_t index = 0; index < DSP_DYNAMIC_EQ_MAX_BANDS; index++) {
         dsp_dynamic_eq_band *band = &dynamic_eq->bands[index];
         band->config = config->bands[index];
@@ -82,14 +89,78 @@ int dsp_dynamic_eq_prepare(dsp_dynamic_eq *dynamic_eq, int sample_rate, const ds
         double detector_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
         double filter_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
         const double static_gain_db = band->config.mode == DSP_DYNAMIC_EQ_CUT
-            ? -band->config.max_cut_db
-            : band->config.max_boost_db;
+            ? -DSP_DYNAMIC_EQ_MAX_GAIN_DB
+            : DSP_DYNAMIC_EQ_MAX_GAIN_DB;
         if (!design_detector(sample_rate, &band->config, detector_coefficients) ||
             !design_dynamic_peak(sample_rate, &band->config, static_gain_db, filter_coefficients) ||
             !dsp_biquad_prepare(&band->detector, detector_coefficients) ||
             !dsp_biquad_prepare(&band->filter, filter_coefficients)) {
             return 0;
         }
+    }
+    return 1;
+}
+
+int dsp_dynamic_eq_prepare_hot_update(
+    int sample_rate,
+    const dsp_dynamic_eq_config *config,
+    dsp_dynamic_eq_hot_update *update) {
+    if (!sample_rate_is_valid(sample_rate) || config == NULL || update == NULL ||
+        (config->enabled != 0 && config->enabled != 1)) {
+        return 0;
+    }
+
+    dsp_dynamic_eq_hot_update prepared = {0};
+    prepared.sample_rate = sample_rate;
+    prepared.config = *config;
+    for (size_t index = 0; index < DSP_DYNAMIC_EQ_MAX_BANDS; index++) {
+        const dsp_dynamic_eq_band_config *band = &config->bands[index];
+        if (!band_config_is_valid(band)) return 0;
+        const float attack = time_coefficient(sample_rate, band->attack_ms);
+        const float release = time_coefficient(sample_rate, band->release_ms);
+        if (!isfinite(attack) || attack < 0.0f || attack >= 1.0f ||
+            !isfinite(release) || release < 0.0f || release >= 1.0f) {
+            return 0;
+        }
+        prepared.attack_coefficients[index] = attack;
+        prepared.release_coefficients[index] = release;
+    }
+    *update = prepared;
+    return 1;
+}
+
+int dsp_dynamic_eq_apply_hot_update(dsp_dynamic_eq *dynamic_eq, const dsp_dynamic_eq_hot_update *update) {
+    if (dynamic_eq == NULL || update == NULL || !sample_rate_is_valid(dynamic_eq->sample_rate) ||
+        update->sample_rate != dynamic_eq->sample_rate ||
+        (update->config.enabled != 0 && update->config.enabled != 1) ||
+        update->config.enabled != dynamic_eq->config.enabled) {
+        return 0;
+    }
+
+    for (size_t index = 0; index < DSP_DYNAMIC_EQ_MAX_BANDS; index++) {
+        const dsp_dynamic_eq_band_config *target = &update->config.bands[index];
+        const dsp_dynamic_eq_band_config *current = &dynamic_eq->bands[index].config;
+        const float attack = update->attack_coefficients[index];
+        const float release = update->release_coefficients[index];
+        if (!band_config_is_valid(target) || target->enabled != current->enabled ||
+            target->mode != current->mode || target->frequency_hz != current->frequency_hz ||
+            target->q != current->q || !isfinite(attack) || attack < 0.0f || attack >= 1.0f ||
+            !isfinite(release) || release < 0.0f || release >= 1.0f) {
+            return 0;
+        }
+    }
+
+    dynamic_eq->config = update->config;
+    for (size_t index = 0; index < DSP_DYNAMIC_EQ_MAX_BANDS; index++) {
+        dsp_dynamic_eq_band *band = &dynamic_eq->bands[index];
+        band->config.threshold_db = update->config.bands[index].threshold_db;
+        band->config.ratio = update->config.bands[index].ratio;
+        band->config.attack_ms = update->config.bands[index].attack_ms;
+        band->config.release_ms = update->config.bands[index].release_ms;
+        band->config.max_boost_db = update->config.bands[index].max_boost_db;
+        band->config.max_cut_db = update->config.bands[index].max_cut_db;
+        band->attack_coefficient = update->attack_coefficients[index];
+        band->release_coefficient = update->release_coefficients[index];
     }
     return 1;
 }
@@ -123,7 +194,7 @@ static float target_mix(const dsp_dynamic_eq_band *band) {
         overshoot * (float)(1.0 - 1.0 / band->config.ratio));
     const float sign = band->config.mode == DSP_DYNAMIC_EQ_CUT ? -1.0f : 1.0f;
     const float desired_gain = powf(10.0f, sign * gain_change_db / 20.0f);
-    const float static_gain = powf(10.0f, sign * maximum / 20.0f);
+    const float static_gain = powf(10.0f, sign * (float)DSP_DYNAMIC_EQ_MAX_GAIN_DB / 20.0f);
     const float denominator = static_gain - 1.0f;
     if (!isfinite(desired_gain) || !isfinite(static_gain) || fabsf(denominator) <= 1e-12f) return 0.0f;
     const float mix = (desired_gain - 1.0f) / denominator;

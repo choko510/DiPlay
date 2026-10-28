@@ -59,7 +59,7 @@ static int same_band_state(const dsp_dynamic_eq_band *left, const dsp_dynamic_eq
 }
 
 static void test_hot_update_changes_parameters_and_preserves_all_band_state(void) {
-    dsp_dynamic_eq_config initial = make_config(DSP_DYNAMIC_EQ_BOOST, 3.0);
+    dsp_dynamic_eq_config initial = make_config(DSP_DYNAMIC_EQ_BOOST, DSP_DYNAMIC_EQ_MAX_GAIN_DB);
     dsp_dynamic_eq eq;
     assert_true(prepare_eq(&eq, &initial), "initial five-band Dynamic EQ prepares");
 
@@ -88,7 +88,8 @@ static void test_hot_update_changes_parameters_and_preserves_all_band_state(void
     dsp_dynamic_eq_hot_update update;
     assert_true(dsp_dynamic_eq_prepare_hot_update(TEST_SAMPLE_RATE, &target, &update),
         "all five band parameters prepare off the render path");
-    assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update), "five-band parameter update applies");
+    assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update) == DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED,
+        "five-band parameter update applies");
 
     for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
         assert_true(same_band_state(&before.bands[band], &eq.bands[band]),
@@ -136,7 +137,8 @@ static void test_topology_and_invalid_value_rejections_are_atomic(void) {
         dsp_dynamic_eq_hot_update update;
         assert_true(dsp_dynamic_eq_prepare_hot_update(TEST_SAMPLE_RATE, &target, &update),
             "validly shaped topology candidate prepares");
-        assert_true(!dsp_dynamic_eq_apply_hot_update(&eq, &update), "topology change is rejected");
+        assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update) == DSP_DYNAMIC_EQ_HOT_UPDATE_REJECTED,
+            "topology change is rejected");
         assert_true(memcmp(&eq, &before, sizeof(eq)) == 0, "rejected topology leaves the full graph unchanged");
     }
 
@@ -163,7 +165,8 @@ static void test_topology_and_invalid_value_rejections_are_atomic(void) {
     assert_true(dsp_dynamic_eq_prepare_hot_update(TEST_SAMPLE_RATE, &initial, &update),
         "valid HOT payload prepares");
     update.config.bands[4].max_cut_db = 12.01;
-    assert_true(!dsp_dynamic_eq_apply_hot_update(&eq, &update), "Native apply revalidates payload bounds");
+    assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update) == DSP_DYNAMIC_EQ_HOT_UPDATE_REJECTED,
+        "Native apply revalidates payload bounds");
     assert_true(memcmp(&eq, &before, sizeof(eq)) == 0, "tampered payload is rejected atomically");
 }
 
@@ -192,32 +195,43 @@ static complex_value biquad_response(const dsp_biquad *filter, double frequency_
     };
 }
 
-static void test_filter_peak_is_independent_of_limits_and_phase_is_zero_at_center(void) {
-    const double limits[] = {0.0, 3.0, 6.0, 12.0};
-    for (int mode = DSP_DYNAMIC_EQ_CUT; mode <= DSP_DYNAMIC_EQ_BOOST; mode++) {
-        dsp_dynamic_eq reference;
-        dsp_dynamic_eq_config first = make_config(mode, limits[0]);
-        assert_true(prepare_eq(&reference, &first), "reference peak filter prepares");
-        const dsp_biquad expected = reference.bands[0].filter;
-        const double signed_peak_db = mode == DSP_DYNAMIC_EQ_CUT ? -12.0 : 12.0;
-        const complex_value response = biquad_response(&expected, TEST_FREQUENCY_HZ, TEST_SAMPLE_RATE);
-        assert_near(hypot(response.real, response.imaginary), pow(10.0, signed_peak_db / 20.0), 1.0e-8,
-            "fixed peak filter has the expected 12 dB center gain");
-        assert_near(atan2(response.imaginary, response.real), 0.0, 1.0e-8,
-            "fixed peak filter has zero center-frequency phase");
+static void test_configured_peak_filters_match_legacy_off_center_golden_response(void) {
+    const struct {
+        int mode;
+        double cap_db;
+        double expected_center_gain_db;
+        double expected_off_center_gain_db;
+        double expected_off_center_phase;
+    } cases[] = {
+        {DSP_DYNAMIC_EQ_BOOST, 3.0, 3.0, 1.266050271, -0.169738947},
+        {DSP_DYNAMIC_EQ_BOOST, 6.0, 6.0, 2.545087702, -0.334802977},
+        {DSP_DYNAMIC_EQ_CUT, 3.0, -3.0, -1.266050271, 0.169738947},
+        {DSP_DYNAMIC_EQ_CUT, 6.0, -6.0, -2.545087702, 0.334802977},
+    };
 
-        for (size_t index = 1; index < sizeof(limits) / sizeof(limits[0]); index++) {
-            dsp_dynamic_eq candidate;
-            dsp_dynamic_eq_config config = make_config(mode, limits[index]);
-            assert_true(prepare_eq(&candidate, &config), "limit-specific graph prepares");
-            assert_true(same_biquad(&expected, &candidate.bands[0].filter),
-                "changing the dynamic limit does not change filter coefficients or delay state");
-            const complex_value candidate_response = biquad_response(
-                &candidate.bands[0].filter, TEST_FREQUENCY_HZ, TEST_SAMPLE_RATE);
-            assert_near(atan2(candidate_response.imaginary, candidate_response.real),
-                atan2(response.imaginary, response.real), 0.0,
-                "dynamic limit leaves filter phase unchanged");
-        }
+    for (size_t index = 0; index < sizeof(cases) / sizeof(cases[0]); index++) {
+        dsp_dynamic_eq_config config = make_config(cases[index].mode, cases[index].cap_db);
+        config.bands[0].frequency_hz = TEST_FREQUENCY_HZ;
+        for (size_t band = 1; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) config.bands[band].enabled = 0;
+        dsp_dynamic_eq eq;
+        assert_true(prepare_eq(&eq, &config), "configured-cap Dynamic EQ graph prepares");
+
+        const complex_value center = biquad_response(
+            &eq.bands[0].filter, TEST_FREQUENCY_HZ, TEST_SAMPLE_RATE);
+        assert_near(20.0 * log10(hypot(center.real, center.imaginary)),
+            cases[index].expected_center_gain_db, 1.0e-7,
+            "configured cap matches its legacy center-frequency gain");
+        assert_near(atan2(center.imaginary, center.real), 0.0, 1.0e-7,
+            "configured cap retains zero phase at center frequency");
+
+        const complex_value off_center = biquad_response(
+            &eq.bands[0].filter, 1500.0, TEST_SAMPLE_RATE);
+        assert_near(20.0 * log10(hypot(off_center.real, off_center.imaginary)),
+            cases[index].expected_off_center_gain_db, 1.0e-7,
+            "configured cap matches legacy off-center magnitude golden");
+        assert_near(atan2(off_center.imaginary, off_center.real),
+            cases[index].expected_off_center_phase, 1.0e-7,
+            "configured cap matches legacy off-center phase golden");
     }
 }
 
@@ -255,7 +269,7 @@ static tone_result measure_dynamic_eq_tone(dsp_dynamic_eq *eq, int mode, int sta
 
 static void test_gain_caps_track_center_gain_without_changing_phase_or_latency(void) {
     for (int mode = DSP_DYNAMIC_EQ_CUT; mode <= DSP_DYNAMIC_EQ_BOOST; mode++) {
-        dsp_dynamic_eq_config config = make_config(mode, 0.0);
+        dsp_dynamic_eq_config config = make_config(mode, DSP_DYNAMIC_EQ_MAX_GAIN_DB);
         config.bands[0].frequency_hz = TEST_FREQUENCY_HZ;
         config.bands[0].threshold_db = mode == DSP_DYNAMIC_EQ_BOOST ? -10.0 : -30.0;
         config.bands[0].ratio = 20.0;
@@ -266,10 +280,11 @@ static void test_gain_caps_track_center_gain_without_changing_phase_or_latency(v
         dsp_dynamic_eq eq;
         assert_true(prepare_eq(&eq, &config), "single-band transfer test graph prepares");
         tone_result result = measure_dynamic_eq_tone(&eq, mode, 0, 24000);
-        assert_near(result.gain_db, 0.0, 0.05, "zero dB cap leaves the signal unchanged");
-        assert_near(result.phase_radians, 0.0, 0.01, "zero cap adds no phase shift at center");
+        assert_near(result.gain_db, mode == DSP_DYNAMIC_EQ_BOOST ? 12.0 : -12.0, 0.12,
+            "prepared cap produces its full-scale center gain");
+        assert_near(result.phase_radians, 0.0, 0.01, "prepared cap adds no phase shift at center");
 
-        const double caps[] = {3.0, 6.0, 12.0};
+        const double caps[] = {6.0, 3.0, 0.0};
         for (size_t index = 0; index < sizeof(caps) / sizeof(caps[0]); index++) {
             dsp_dynamic_eq_config target = eq.config;
             target.bands[0].max_boost_db = caps[index];
@@ -278,24 +293,91 @@ static void test_gain_caps_track_center_gain_without_changing_phase_or_latency(v
             assert_true(dsp_dynamic_eq_prepare_hot_update(TEST_SAMPLE_RATE, &target, &update),
                 "gain cap HOT update prepares");
             const dsp_biquad filter_before = eq.bands[0].filter;
-            assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update), "gain cap HOT update applies");
+            assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update) == DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED,
+                "lower gain cap HOT update applies");
             assert_true(same_biquad(&filter_before, &eq.bands[0].filter),
                 "gain cap update preserves filter coefficients and delay state");
             const int start = 24000 + (int)index * 24000;
             result = measure_dynamic_eq_tone(&eq, mode, start, 24000);
             assert_near(result.gain_db, mode == DSP_DYNAMIC_EQ_BOOST ? caps[index] : -caps[index], 0.12,
-                "HOT cap produces the requested center gain");
+                "lower HOT cap produces the requested center gain");
             assert_near(result.phase_radians, 0.0, 0.01,
                 "gain cap does not add center-frequency phase or latency");
         }
     }
 }
 
+static void test_unrepresentable_cap_increases_defer_without_mutation(void) {
+    for (int mode = DSP_DYNAMIC_EQ_CUT; mode <= DSP_DYNAMIC_EQ_BOOST; mode++) {
+        const double initial_caps[] = {3.0, 0.0};
+        for (size_t index = 0; index < sizeof(initial_caps) / sizeof(initial_caps[0]); index++) {
+            dsp_dynamic_eq_config config = make_config(mode, initial_caps[index]);
+            dsp_dynamic_eq eq;
+            assert_true(prepare_eq(&eq, &config), "increase-deferral graph prepares");
+            dsp_dynamic_eq before = eq;
+            dsp_dynamic_eq_config target = eq.config;
+            const double higher_cap = initial_caps[index] == 0.0 ? 1.0 : initial_caps[index] + 1.0;
+            if (mode == DSP_DYNAMIC_EQ_BOOST) target.bands[2].max_boost_db = higher_cap;
+            else target.bands[2].max_cut_db = higher_cap;
+            dsp_dynamic_eq_hot_update update;
+            assert_true(dsp_dynamic_eq_prepare_hot_update(TEST_SAMPLE_RATE, &target, &update),
+                "higher but in-range cap prepares as a candidate");
+            assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update) == DSP_DYNAMIC_EQ_HOT_UPDATE_DEFERRED,
+                "unrepresentable cap increase is explicitly deferred");
+            assert_true(memcmp(&eq, &before, sizeof(eq)) == 0,
+                "deferred cap increase leaves the active graph unchanged");
+        }
+    }
+}
+
+static void test_cap_decrease_during_active_mix_ramp_preserves_ramp_and_history(void) {
+    dsp_dynamic_eq_config config = make_config(DSP_DYNAMIC_EQ_BOOST, 6.0);
+    config.bands[0].frequency_hz = TEST_FREQUENCY_HZ;
+    config.bands[0].threshold_db = -10.0;
+    config.bands[0].ratio = 20.0;
+    config.bands[0].attack_ms = 0.1;
+    config.bands[0].release_ms = 0.1;
+    for (size_t band = 1; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) config.bands[band].enabled = 0;
+    dsp_dynamic_eq eq;
+    assert_true(prepare_eq(&eq, &config), "ramping cap-update graph prepares");
+    for (int frame = 0; frame < 40; frame++) {
+        float left = 0.05f * sinf((float)(2.0 * 3.14159265358979323846 * TEST_FREQUENCY_HZ * frame /
+            TEST_SAMPLE_RATE));
+        float right = 0.0f;
+        dsp_dynamic_eq_process_frame(&eq, &left, &right, 1);
+    }
+    eq.bands[0].current_mix = 0.5f;
+    eq.bands[0].target_mix = 1.0f;
+    eq.bands[0].mix_step = 0.03125f;
+    eq.bands[0].frames_until_control = 8;
+    assert_true(eq.bands[0].current_mix > 0.0f && eq.bands[0].mix_step != 0.0f &&
+        eq.bands[0].frames_until_control > 0 && eq.bands[0].frames_until_control < DSP_DYNAMIC_EQ_CONTROL_FRAMES,
+        "test reaches an active mix ramp");
+    dsp_dynamic_eq_band before = eq.bands[0];
+
+    dsp_dynamic_eq_config target = eq.config;
+    target.bands[0].max_boost_db = 3.0;
+    dsp_dynamic_eq_hot_update update;
+    assert_true(dsp_dynamic_eq_prepare_hot_update(TEST_SAMPLE_RATE, &target, &update),
+        "lower cap prepares during mix ramp");
+    assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update) == DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED,
+        "lower cap applies during mix ramp");
+    assert_true(same_biquad(&before.detector, &eq.bands[0].detector) &&
+        same_biquad(&before.filter, &eq.bands[0].filter),
+        "active-ramp cap change preserves detector and filter coefficients and delay state");
+    assert_true(eq.bands[0].envelope == before.envelope && eq.bands[0].current_mix == before.current_mix &&
+        eq.bands[0].target_mix == before.target_mix && eq.bands[0].mix_step == before.mix_step &&
+        eq.bands[0].frames_until_control == before.frames_until_control,
+        "active-ramp cap change preserves envelope and in-flight mix ramp");
+}
+
 int main(void) {
     test_hot_update_changes_parameters_and_preserves_all_band_state();
     test_topology_and_invalid_value_rejections_are_atomic();
-    test_filter_peak_is_independent_of_limits_and_phase_is_zero_at_center();
+    test_configured_peak_filters_match_legacy_off_center_golden_response();
     test_gain_caps_track_center_gain_without_changing_phase_or_latency();
+    test_unrepresentable_cap_increases_defer_without_mutation();
+    test_cap_decrease_during_active_mix_ramp_preserves_ramp_and_history();
     if (failures != 0) {
         fprintf(stderr, "%d Dynamic EQ HOT test(s) failed\n", failures);
         return EXIT_FAILURE;

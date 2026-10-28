@@ -28,9 +28,9 @@ Store committed workspace state in its own schema-v1 AtomicFile under `files/dsp
 
 Capture finite-checked PCM before gain or graph stages and pass it separately to the detector, while leaving Dynamic Bass at its existing output position. This makes detector gain independent of compressor/IR processing without changing the established audio-stage order or disabled path.
 
-## Keep Dynamic EQ HOT limits independent of filter coefficients
+## Preserve the configured Dynamic EQ transfer when adding HOT limits
 
-Prepare each enabled Dynamic EQ peak filter at a fixed ±12 dB reference. The requested maximum boost/cut then changes only the bounded dry/wet mix target, allowing a prepared Native parameter update to preserve detector/filter delay state, envelope, and current mix. This adds only a Native helper; renderer/JNI mailbox wiring must remain a separate integration step.
+Prepare each enabled Dynamic EQ peak filter with its configured boost/cut cap, matching the existing transfer function exactly. A Native HOT update may lower the active cap while retaining that filter and its detector delay, envelope, and mix state; a cap above the prepared filter's range returns `DEFERRED` without mutation. This adds only a Native helper; renderer/JNI mailbox wiring must remain a separate integration step.
 
 ## Keep EX-08 provenance separate from current decisions
 

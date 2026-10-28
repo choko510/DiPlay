@@ -42,6 +42,7 @@ typedef struct {
     dsp_dynamic_eq_band_config config;
     dsp_biquad detector;
     dsp_biquad filter;
+    double prepared_peak_gain_db;
     float envelope;
     float attack_coefficient;
     float release_coefficient;
@@ -50,6 +51,12 @@ typedef struct {
     float mix_step;
     int frames_until_control;
 } dsp_dynamic_eq_band;
+
+typedef enum {
+    DSP_DYNAMIC_EQ_HOT_UPDATE_REJECTED = 0,
+    DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED = 1,
+    DSP_DYNAMIC_EQ_HOT_UPDATE_DEFERRED = 2,
+} dsp_dynamic_eq_hot_update_result;
 
 typedef struct {
     dsp_dynamic_eq_config config;
@@ -63,7 +70,9 @@ int dsp_dynamic_eq_prepare_hot_update(
     int sample_rate,
     const dsp_dynamic_eq_config *config,
     dsp_dynamic_eq_hot_update *update);
-int dsp_dynamic_eq_apply_hot_update(dsp_dynamic_eq *dynamic_eq, const dsp_dynamic_eq_hot_update *update);
+dsp_dynamic_eq_hot_update_result dsp_dynamic_eq_apply_hot_update(
+    dsp_dynamic_eq *dynamic_eq,
+    const dsp_dynamic_eq_hot_update *update);
 void dsp_dynamic_eq_reset(dsp_dynamic_eq *dynamic_eq);
 void dsp_dynamic_eq_process_frame(dsp_dynamic_eq *dynamic_eq, float *left, float *right, int channels);
 void dsp_dynamic_eq_flush_denormals(dsp_dynamic_eq *dynamic_eq);

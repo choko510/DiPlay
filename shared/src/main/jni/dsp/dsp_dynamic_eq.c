@@ -84,13 +84,16 @@ int dsp_dynamic_eq_prepare(dsp_dynamic_eq *dynamic_eq, int sample_rate, const ds
         band->target_mix = 0.0f;
         band->mix_step = 0.0f;
         band->frames_until_control = 0;
+        band->prepared_peak_gain_db = band->config.mode == DSP_DYNAMIC_EQ_CUT
+            ? band->config.max_cut_db
+            : band->config.max_boost_db;
         if (!config->enabled || !band->config.enabled) continue;
 
         double detector_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
         double filter_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
         const double static_gain_db = band->config.mode == DSP_DYNAMIC_EQ_CUT
-            ? -DSP_DYNAMIC_EQ_MAX_GAIN_DB
-            : DSP_DYNAMIC_EQ_MAX_GAIN_DB;
+            ? -band->prepared_peak_gain_db
+            : band->prepared_peak_gain_db;
         if (!design_detector(sample_rate, &band->config, detector_coefficients) ||
             !design_dynamic_peak(sample_rate, &band->config, static_gain_db, filter_coefficients) ||
             !dsp_biquad_prepare(&band->detector, detector_coefficients) ||
@@ -129,14 +132,17 @@ int dsp_dynamic_eq_prepare_hot_update(
     return 1;
 }
 
-int dsp_dynamic_eq_apply_hot_update(dsp_dynamic_eq *dynamic_eq, const dsp_dynamic_eq_hot_update *update) {
+dsp_dynamic_eq_hot_update_result dsp_dynamic_eq_apply_hot_update(
+    dsp_dynamic_eq *dynamic_eq,
+    const dsp_dynamic_eq_hot_update *update) {
     if (dynamic_eq == NULL || update == NULL || !sample_rate_is_valid(dynamic_eq->sample_rate) ||
         update->sample_rate != dynamic_eq->sample_rate ||
         (update->config.enabled != 0 && update->config.enabled != 1) ||
         update->config.enabled != dynamic_eq->config.enabled) {
-        return 0;
+        return DSP_DYNAMIC_EQ_HOT_UPDATE_REJECTED;
     }
 
+    int exceeds_prepared_peak = 0;
     for (size_t index = 0; index < DSP_DYNAMIC_EQ_MAX_BANDS; index++) {
         const dsp_dynamic_eq_band_config *target = &update->config.bands[index];
         const dsp_dynamic_eq_band_config *current = &dynamic_eq->bands[index].config;
@@ -146,9 +152,17 @@ int dsp_dynamic_eq_apply_hot_update(dsp_dynamic_eq *dynamic_eq, const dsp_dynami
             target->mode != current->mode || target->frequency_hz != current->frequency_hz ||
             target->q != current->q || !isfinite(attack) || attack < 0.0f || attack >= 1.0f ||
             !isfinite(release) || release < 0.0f || release >= 1.0f) {
-            return 0;
+            return DSP_DYNAMIC_EQ_HOT_UPDATE_REJECTED;
+        }
+        const double target_peak_gain_db = target->mode == DSP_DYNAMIC_EQ_CUT
+            ? target->max_cut_db
+            : target->max_boost_db;
+        if (dynamic_eq->config.enabled && current->enabled &&
+            target_peak_gain_db > dynamic_eq->bands[index].prepared_peak_gain_db) {
+            exceeds_prepared_peak = 1;
         }
     }
+    if (exceeds_prepared_peak) return DSP_DYNAMIC_EQ_HOT_UPDATE_DEFERRED;
 
     dynamic_eq->config = update->config;
     for (size_t index = 0; index < DSP_DYNAMIC_EQ_MAX_BANDS; index++) {
@@ -162,7 +176,7 @@ int dsp_dynamic_eq_apply_hot_update(dsp_dynamic_eq *dynamic_eq, const dsp_dynami
         band->attack_coefficient = update->attack_coefficients[index];
         band->release_coefficient = update->release_coefficients[index];
     }
-    return 1;
+    return DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED;
 }
 
 void dsp_dynamic_eq_reset(dsp_dynamic_eq *dynamic_eq) {
@@ -194,7 +208,7 @@ static float target_mix(const dsp_dynamic_eq_band *band) {
         overshoot * (float)(1.0 - 1.0 / band->config.ratio));
     const float sign = band->config.mode == DSP_DYNAMIC_EQ_CUT ? -1.0f : 1.0f;
     const float desired_gain = powf(10.0f, sign * gain_change_db / 20.0f);
-    const float static_gain = powf(10.0f, sign * (float)DSP_DYNAMIC_EQ_MAX_GAIN_DB / 20.0f);
+    const float static_gain = powf(10.0f, sign * (float)band->prepared_peak_gain_db / 20.0f);
     const float denominator = static_gain - 1.0f;
     if (!isfinite(desired_gain) || !isfinite(static_gain) || fabsf(denominator) <= 1e-12f) return 0.0f;
     const float mix = (desired_gain - 1.0f) / denominator;

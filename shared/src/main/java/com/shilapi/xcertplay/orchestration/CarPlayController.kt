@@ -205,7 +205,7 @@ class CarPlayController(
     )
 
     private val appContext = context.applicationContext
-    private val usbManager = context.getSystemService(UsbManager::class.java)
+    private val usbManager = appContext.getSystemService(UsbManager::class.java)
     private val bluetoothAdapter =
         appContext.getSystemService(BluetoothManager::class.java)?.adapter
     private val iphoneHost = IphoneUsbHost(

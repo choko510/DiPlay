@@ -2989,6 +2989,269 @@ static void test_studio_hot_refund_waits_for_stage_gain_release(void) {
     dsp_engine_destroy(engine);
 }
 
+static void test_studio_gain_refund_is_sample_ramped_at_supported_formats(void) {
+    const int sample_rates[] = {44100, 48000};
+    const int channel_counts[] = {1, 2};
+    const dsp_macro_config initial_macro = {1, 4.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config initial_loudness = {1, 3.0, 0.0};
+    const dsp_dynamic_bass_config initial_dynamic_bass = {
+        1, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 100.0,
+    };
+    const dsp_macro_config neutral_macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config neutral_loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config neutral_dynamic_bass = {
+        0, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 100.0,
+    };
+
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        for (size_t channel_index = 0;
+             channel_index < sizeof(channel_counts) / sizeof(channel_counts[0]);
+             channel_index++) {
+            const int channels = channel_counts[channel_index];
+            dsp_graph graph = {0};
+            assert_true(dsp_graph_prepare(
+                    &graph, sample_rate, channels, -12.0, NULL, 0, &bypass_dynamics, &bypass_multiband,
+                    &bypass_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver,
+                    &bypass_harmonic, &initial_macro, &initial_loudness, &initial_dynamic_bass),
+                "studio refund graph prepares for every supported format");
+
+            float warm_input[1024];
+            float warm_output[1024] = {0.0f};
+            uint64_t non_finite_input = 0;
+            uint64_t non_finite_output = 0;
+            size_t absolute_frame = 0;
+            for (size_t block = 0; block < 180; block++) {
+                for (size_t frame = 0; frame < 512; frame++) {
+                    const float sample = (float)(0.001 * sin(2.0 * 3.14159265358979323846 * 40.0 *
+                        (double)(absolute_frame + frame) / (double)sample_rate));
+                    warm_input[frame * (size_t)channels] = sample;
+                    if (channels == 2) warm_input[frame * 2 + 1] = sample;
+                }
+                dsp_graph_process(&graph, warm_input, warm_output, 512, (size_t)channels,
+                    &non_finite_input, &non_finite_output);
+                absolute_frame += 512;
+            }
+            assert_true(graph.dynamic_bass.current_gain > 1.0,
+                "Dynamic Bass has a prior boost before the Studio refund");
+            assert_true(dsp_graph_apply_studio_hot(
+                    &graph, 0.0, 1.0, &neutral_macro, &neutral_loudness, &neutral_dynamic_bass) ==
+                    DSP_GRAPH_HOT_APPLIED,
+                "Studio update queues a headroom refund after lowering module gains");
+            assert_true(graph.studio_gain_refund_pending,
+                "headroom refund waits for prior module gains to settle");
+
+            const float steady_input[2] = {0.125f, 0.125f};
+            float frame_output[2] = {0.0f, 0.0f};
+            dsp_graph_process(&graph, steady_input, frame_output, 1, (size_t)channels,
+                &non_finite_input, &non_finite_output);
+            float previous_left = frame_output[0];
+            float previous_right = frame_output[1];
+            float maximum_sample_delta = 0.0f;
+            int saw_refund_ramp = graph.gain.ramp_remaining > 0;
+            int ramp_pending_completion = 0;
+
+            for (int frame = 0; frame < sample_rate * 3 && dsp_graph_hot_transition_pending(&graph); frame++) {
+                dsp_graph_process(&graph, steady_input, frame_output, 1, (size_t)channels,
+                    &non_finite_input, &non_finite_output);
+                const float left_delta = fabsf(frame_output[0] - previous_left);
+                if (left_delta > maximum_sample_delta) maximum_sample_delta = left_delta;
+                previous_left = frame_output[0];
+                if (channels == 2) {
+                    const float right_delta = fabsf(frame_output[1] - previous_right);
+                    if (right_delta > maximum_sample_delta) maximum_sample_delta = right_delta;
+                    previous_right = frame_output[1];
+                }
+                if (graph.gain.ramp_remaining > 0) {
+                    saw_refund_ramp = 1;
+                    ramp_pending_completion = dsp_graph_hot_transition_pending(&graph);
+                }
+                assert_true(isfinite(frame_output[0]) && (channels == 1 || isfinite(frame_output[1])),
+                    "Studio refund stays finite for mono and stereo");
+            }
+
+            assert_true(saw_refund_ramp, "headroom refund uses a bounded sample ramp");
+            assert_true(ramp_pending_completion,
+                "Studio completion remains pending for the entire refund ramp");
+            assert_true(maximum_sample_delta < 0.005f,
+                "headroom refund has no sample-boundary gain jump");
+            assert_true(!dsp_graph_hot_transition_pending(&graph),
+                "Studio transition completes only after the refund ramp settles");
+            assert_true(graph.gain.ramp_remaining == 0,
+                "headroom refund ramp completes before the graph reports settled");
+            assert_near(graph.gain.linear, 1.0, 1e-6,
+                "headroom refund reaches its latest target gain");
+            assert_true(non_finite_input == 0 && non_finite_output == 0,
+                "Studio refund introduces no non-finite samples");
+            dsp_graph_close(&graph);
+        }
+    }
+}
+
+static void test_studio_gain_refund_ramps_when_modules_are_already_settled(void) {
+    const int sample_rates[] = {44100, 48000};
+    const int channel_counts[] = {1, 2};
+    const dsp_dynamics_config refund_limiter = {
+        0, -20.0, 4.0, 10.0, 100.0, 0.0, 0.0, 1, -1.0, 60.0,
+    };
+    const dsp_macro_config neutral_macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config neutral_loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config neutral_dynamic_bass = {
+        0, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 100.0,
+    };
+
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        for (size_t channel_index = 0;
+             channel_index < sizeof(channel_counts) / sizeof(channel_counts[0]);
+             channel_index++) {
+            const int channels = channel_counts[channel_index];
+            dsp_graph graph = {0};
+            assert_true(dsp_graph_prepare(
+                    &graph, sample_rate, channels, -12.0, NULL, 0, &refund_limiter, &bypass_multiband,
+                    &bypass_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver,
+                    &bypass_harmonic, &neutral_macro, &neutral_loudness, &neutral_dynamic_bass),
+                "settled Studio refund graph prepares for every supported format");
+            const dsp_gain before_invalid_update = graph.gain;
+            assert_true(!dsp_graph_apply_studio_hot(
+                    &graph, 0.0, 0.0, &neutral_macro, &neutral_loudness, &neutral_dynamic_bass),
+                "zero linear gain is rejected instead of entering a refund ramp");
+            assert_true(memcmp(&graph.gain, &before_invalid_update, sizeof(before_invalid_update)) == 0,
+                "zero gain rejection leaves the active gain and ramp state unchanged");
+
+            assert_true(dsp_graph_apply_studio_hot(
+                    &graph, 0.0, 1.0, &neutral_macro, &neutral_loudness, &neutral_dynamic_bass) ==
+                    DSP_GRAPH_HOT_APPLIED,
+                "settled Studio graph accepts a higher preamp target");
+            assert_true(graph.gain.ramp_remaining == (uint32_t)(sample_rate / 50),
+                "immediate headroom refund starts the bounded 20 ms sample ramp");
+            assert_true(!graph.studio_gain_refund_pending && dsp_graph_hot_transition_pending(&graph),
+                "ramp state, rather than a pending-module flag, holds completion open");
+
+            float previous_gain = graph.gain.linear;
+            float maximum_gain_step = 0.0f;
+            float maximum_output_peak = 0.0f;
+            uint32_t random_state = UINT32_C(0x5a17c9e3);
+            int saw_pending_during_ramp = 0;
+            for (int frame = 0; frame < sample_rate / 50; frame++) {
+                random_state = random_state * UINT32_C(1664525) + UINT32_C(1013904223);
+                const float noise = ((float)(random_state >> 8) / 16777215.0f - 0.5f) * 0.02f;
+                float sample = 0.75f * sinf((float)(2.0 * 3.14159265358979323846 * 1000.0 *
+                    (double)frame / (double)sample_rate)) + noise;
+                if (frame == sample_rate / 50 - 10) sample = 0.9f;
+                const float input[2] = {sample, sample};
+                float output[2] = {0.0f, 0.0f};
+                uint64_t non_finite_input = 0;
+                uint64_t non_finite_output = 0;
+                const float expected_gain = graph.gain.linear;
+                dsp_graph_process(&graph, input, output, 1, (size_t)channels,
+                    &non_finite_input, &non_finite_output);
+                const float gain_step = fabsf(graph.gain.linear - previous_gain);
+                if (gain_step > maximum_gain_step) maximum_gain_step = gain_step;
+                const float output_peak = fmaxf(fabsf(output[0]), channels == 2 ? fabsf(output[1]) : 0.0f);
+                if (output_peak > maximum_output_peak) maximum_output_peak = output_peak;
+                assert_true(fabsf(graph.gain.linear - previous_gain) <=
+                        (1.0f - 0.25118864f) / (float)(sample_rate / 50) + 2.0e-5f,
+                    "Studio gain changes by no more than its bounded per-sample ramp step");
+                assert_true(fabsf(output[0]) <= fabsf(sample * expected_gain) + 1e-6f,
+                    "limiter or gain stage does not amplify beyond the current ramp gain");
+                assert_true(graph.gain.linear >= previous_gain && graph.gain.linear <= 1.0f,
+                    "Studio refund gain progresses monotonically without overshoot");
+                previous_gain = graph.gain.linear;
+                if (graph.gain.ramp_remaining > 0) {
+                    saw_pending_during_ramp = saw_pending_during_ramp || dsp_graph_hot_transition_pending(&graph);
+                }
+            }
+
+            assert_true(maximum_gain_step < 0.001f,
+                "already-settled Studio refund has no sample-boundary gain jump");
+            assert_true(saw_pending_during_ramp,
+                "already-settled refund remains pending until its final sample");
+            assert_true(!dsp_graph_hot_transition_pending(&graph),
+                "already-settled Studio refund completes with its ramp");
+            assert_near(graph.gain.linear, 1.0, 0.0,
+                "already-settled Studio refund lands exactly on its target gain");
+            assert_true(graph.dynamics.limiter_gain < 1.0f,
+                "the impulse exercises limiter gain reduction during the refund");
+            assert_true(maximum_output_peak <= powf(10.0f, -1.0f / 20.0f) + 1e-5f,
+                "the limiter keeps output peaks below its sample-peak threshold");
+            dsp_graph_close(&graph);
+        }
+    }
+}
+
+static void test_studio_gain_refund_ack_waits_for_ramp_and_newer_generation(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t sample = 0; sample < 1024; sample++) input[sample] = 0.5f;
+
+    dsp_engine *engine = create_studio_test_engine_with_gain(48000, 2, 512, -12.0,
+        &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "Studio refund ACK graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "Studio refund ACK graph binds MEDIA owner");
+    const dsp_engine_hot_update initial_refund = {
+        .generation_token = 42,
+        .generation = 42,
+        .editor_owner_epoch = 7,
+        .renderer_owner_token = 9,
+        .pcm_format_epoch = 3,
+        .hot_context_token = 1,
+        .media_role = 1,
+        .gain_db = 0.0,
+        .gain_linear = 1.0,
+        .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
+        .macro = {0, 0.0, 0.0, 0.0, 1.0},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    assert_true(dsp_engine_enqueue_hot_update(engine, &initial_refund),
+        "Studio headroom refund enters the bounded HOT mailbox");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 256, 2) == DSP_STATUS_OK,
+        "first partial refund ramp block processes");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0,
+        "refund is not acknowledged before its sample ramp completes");
+
+    dsp_engine_hot_update superseded_refund = initial_refund;
+    superseded_refund.generation_token = 43;
+    superseded_refund.generation = 43;
+    superseded_refund.gain_db = -3.0;
+    superseded_refund.gain_linear = 0.7079457844;
+    assert_true(dsp_engine_enqueue_hot_update(engine, &superseded_refund),
+        "intermediate generation enters the bounded HOT mailbox");
+    dsp_engine_hot_update newer_refund = initial_refund;
+    newer_refund.generation_token = 44;
+    newer_refund.generation = 44;
+    newer_refund.gain_db = -6.0;
+    newer_refund.gain_linear = 0.5011872336;
+    assert_true(dsp_engine_enqueue_hot_update(engine, &newer_refund),
+        "newer generation safely supersedes a refund while its ramp is active");
+    const int completion_blocks[] = {512, 192};
+    for (size_t index = 0; index < sizeof(completion_blocks) / sizeof(completion_blocks[0]); index++) {
+        const int frames = completion_blocks[index];
+        assert_true(dsp_engine_process(engine, input, (size_t)frames * 2, output, (size_t)frames * 2,
+                frames, 2) == DSP_STATUS_OK,
+            "superseded refund ramp block processes");
+        assert_true(dsp_engine_get_hot_ack_token(engine) != 42,
+            "superseded refund generation never receives an ACK");
+    }
+
+    for (int block = 0; block < 8 && dsp_engine_get_hot_ack_token(engine) != 44; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "newer Studio gain target completes its bounded transition");
+        assert_true(dsp_engine_get_hot_ack_token(engine) != 42 && dsp_engine_get_hot_ack_token(engine) != 43,
+            "stale refund generations stay unacknowledged while the latest target applies");
+    }
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 44,
+        "only the latest Studio refund generation is acknowledged");
+    dsp_engine_destroy(engine);
+}
+
 static void test_local_peq_warm_preserves_downstream_state_and_latency(void) {
     enum { BLOCK_FRAMES = 512, WARM_BLOCKS = 8 };
     const dsp_dynamics_config compressor = {
@@ -4296,6 +4559,9 @@ int main(void) {
     test_convolver_sparse_sentinel_taps_reach_their_output_frames();
     test_studio_native_macro_and_loudness_frequency_response();
     test_studio_hot_refund_waits_for_stage_gain_release();
+    test_studio_gain_refund_is_sample_ramped_at_supported_formats();
+    test_studio_gain_refund_ramps_when_modules_are_already_settled();
+    test_studio_gain_refund_ack_waits_for_ramp_and_newer_generation();
     test_studio_neutral_macro_preserves_exact_samples();
     test_studio_hot_command_is_acknowledged_after_its_block();
     test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completion();

@@ -19,6 +19,65 @@ class DspStudioRestoreAcknowledgementTest {
     }
 
     @Test
+    fun ownedRequestWaitsWhenRendererStatusDisappearsOrLosesItsOwner() {
+        val request = DspStudioRestoreRequest(configGeneration = 5, rendererOwnerToken = 9)
+
+        assertEquals(
+            DspStudioRestoreAcknowledgement.WAITING,
+            evaluateStudioRestoreAcknowledgement(request, status = null, committedWorkspaceActive = true),
+        )
+        assertEquals(
+            DspStudioRestoreAcknowledgement.WAITING,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                status(phase = DspRendererApplyPhase.ACTIVE, generation = 5, ownerToken = null),
+                committedWorkspaceActive = true,
+            ),
+        )
+        assertEquals(
+            DspStudioRestoreAcknowledgement.REJECTED,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                status = null,
+                committedWorkspaceActive = true,
+                timedOut = true,
+            ),
+        )
+        assertEquals(
+            DspStudioRestoreAcknowledgement.REJECTED,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                status(phase = DspRendererApplyPhase.ACTIVE, generation = 5, ownerToken = null),
+                committedWorkspaceActive = true,
+                timedOut = true,
+            ),
+        )
+    }
+
+    @Test
+    fun staleRendererOwnerCannotAcknowledgeAnOwnedRestore() {
+        val request = DspStudioRestoreRequest(configGeneration = 5, rendererOwnerToken = 9)
+
+        assertEquals(
+            DspStudioRestoreAcknowledgement.WAITING,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                status(DspRendererApplyPhase.ACTIVE, generation = 5, activeGeneration = 5, ownerToken = 8),
+                committedWorkspaceActive = true,
+            ),
+        )
+        assertEquals(
+            DspStudioRestoreAcknowledgement.REJECTED,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                status(DspRendererApplyPhase.ACTIVE, generation = 5, activeGeneration = 5, ownerToken = 8),
+                committedWorkspaceActive = true,
+                timedOut = true,
+            ),
+        )
+    }
+
+    @Test
     fun pendingOrOlderActiveGenerationDoesNotConfirmCancel() {
         val request = DspStudioRestoreRequest(configGeneration = 5, rendererOwnerToken = 9)
 
@@ -57,6 +116,44 @@ class DspStudioRestoreAcknowledgementTest {
             evaluateStudioRestoreAcknowledgement(
                 request,
                 status(DspRendererApplyPhase.ACTIVE, generation = 5, activeGeneration = 5),
+                committedWorkspaceActive = true,
+            ),
+        )
+    }
+
+    @Test
+    fun replacementRendererMustApplyTheCommittedGenerationBeforeAcknowledging() {
+        val request = DspStudioRestoreRequest(configGeneration = 5, rendererOwnerToken = 9)
+
+        assertEquals(
+            DspStudioRestoreAcknowledgement.WAITING,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                status(DspRendererApplyPhase.REQUESTED, generation = 5, ownerToken = 10),
+                committedWorkspaceActive = true,
+            ),
+        )
+        assertEquals(
+            DspStudioRestoreAcknowledgement.WAITING,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                status(DspRendererApplyPhase.ACTIVE, generation = 5, activeGeneration = 4, ownerToken = 10),
+                committedWorkspaceActive = true,
+            ),
+        )
+        assertEquals(
+            DspStudioRestoreAcknowledgement.APPLIED,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                status(DspRendererApplyPhase.ACTIVE, generation = 5, activeGeneration = 5, ownerToken = 10),
+                committedWorkspaceActive = true,
+            ),
+        )
+        assertEquals(
+            DspStudioRestoreAcknowledgement.REJECTED,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                status(DspRendererApplyPhase.ACTIVE, generation = 6, activeGeneration = 4, ownerToken = 10),
                 committedWorkspaceActive = true,
             ),
         )
@@ -109,10 +206,11 @@ class DspStudioRestoreAcknowledgementTest {
         phase: DspRendererApplyPhase,
         generation: Long,
         activeGeneration: Long? = null,
+        ownerToken: Long? = 9,
     ) = DspRendererApplyStatus(
         generation = generation,
         phase = phase,
         activeGeneration = activeGeneration,
-        rendererOwnerToken = 9,
+        rendererOwnerToken = ownerToken,
     )
 }

@@ -15,8 +15,13 @@ internal fun evaluateStudioRestoreAcknowledgement(
     committedWorkspaceActive: Boolean,
     timedOut: Boolean = false,
 ): DspStudioRestoreAcknowledgement {
-    if (request.rendererOwnerToken == null || status == null || status.rendererOwnerToken == null) {
+    val requestedOwnerToken = request.rendererOwnerToken
+    if (requestedOwnerToken == null) {
         return DspStudioRestoreAcknowledgement.APPLIED
+    }
+    val statusOwnerToken = status?.rendererOwnerToken
+    if (status == null || statusOwnerToken == null || statusOwnerToken < requestedOwnerToken) {
+        return if (timedOut) DspStudioRestoreAcknowledgement.REJECTED else DspStudioRestoreAcknowledgement.WAITING
     }
     if (status.generation >= request.configGeneration &&
         status.phase == DspRendererApplyPhase.ACTIVE &&

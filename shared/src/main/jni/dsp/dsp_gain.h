@@ -6,6 +6,7 @@
 typedef struct {
     float linear;
     double decibels;
+    float ramp_target_linear;
     float ramp_step;
     uint32_t ramp_remaining;
 } dsp_gain;

@@ -268,7 +268,8 @@ int dsp_graph_apply_studio_hot(
         graph->pending_studio_gain_linear = (float)gain_linear;
         graph->studio_gain_refund_pending = 1;
         if (studio_module_gains_are_settled(graph)) {
-            if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db, 0)) return 0;
+            if (!dsp_gain_set_linear_ramped(
+                    &graph->gain, (float)gain_linear, gain_db, (uint32_t)(graph->sample_rate / 50))) return 0;
             graph->studio_gain_refund_pending = 0;
         }
     }
@@ -366,7 +367,8 @@ static void apply_pending_studio_gain_refund(dsp_graph *graph) {
         return;
     }
     if (dsp_gain_set_linear_ramped(
-            &graph->gain, graph->pending_studio_gain_linear, graph->pending_studio_gain_db, 0)) {
+            &graph->gain, graph->pending_studio_gain_linear, graph->pending_studio_gain_db,
+            (uint32_t)(graph->sample_rate / 50))) {
         graph->studio_gain_refund_pending = 0;
     }
 }

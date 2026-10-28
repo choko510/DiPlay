@@ -43,7 +43,6 @@ internal class VideoStats(
     private val pendingFrameArrivalNs = LongArray(FRAME_CORRELATION_CAPACITY)
     private val pendingFrameOccupied = BooleanArray(FRAME_CORRELATION_CAPACITY)
     private val latencySamplesNs = LongArray(LATENCY_SAMPLE_CAPACITY)
-    private val sortedLatencySamplesNs = LongArray(LATENCY_SAMPLE_CAPACITY)
 
     @Synchronized fun onReceived(size: Int) {
         val now = nanoTime()
@@ -135,28 +134,66 @@ internal class VideoStats(
 
     @Synchronized fun isDue(): Boolean = nanoTime() - windowStartNs >= WINDOW_NS
 
-    @Synchronized fun logIfDue(
+    fun logIfDue(
         threadCpuTimeNs: Long = -1L,
         processAllocatedBytes: Long = -1L,
         globalGcCount: Long = -1L,
         processPssKb: Long = -1L,
     ): String? {
-        val now = nanoTime()
-        val elapsedNs = now - windowStartNs
-        if (elapsedNs < WINDOW_NS) return null
-        val seconds = elapsedNs / 1e9
-        if (received == 0 && touchSamples == 0 && queuePolls == 0L && outputDequeueCalls == 0L) {
-            windowStartNs = now
+        val snapshot = synchronized(this) {
+            val now = nanoTime()
+            val elapsedNs = now - windowStartNs
+            if (elapsedNs < WINDOW_NS) return@synchronized null
+            if (received == 0 && touchSamples == 0 && queuePolls == 0L && outputDequeueCalls == 0L) {
+                windowStartNs = now
+                rememberRuntimeCounters(threadCpuTimeNs, processAllocatedBytes, globalGcCount)
+                return@synchronized null
+            }
+            val snapshot = WindowSnapshot(
+                elapsedNs = elapsedNs,
+                lastThreadCpuNs = lastThreadCpuNs,
+                lastProcessAllocBytes = lastProcessAllocBytes,
+                lastGlobalGcCount = lastGlobalGcCount,
+                received = received,
+                surfaceSubmitted = surfaceSubmitted,
+                recoveries = recoveries,
+                bytes = bytes,
+                maxArrivalGapNs = maxArrivalGapNs,
+                touchSamples = touchSamples,
+                touchLatencySumNs = touchLatencySumNs,
+                maxTouchLatencyNs = maxTouchLatencyNs,
+                emptyQueuePolls = emptyQueuePolls,
+                timedQueuePolls = timedQueuePolls,
+                queueWaitNs = queueWaitNs,
+                queuePeakDepth = queuePeakDepth,
+                outputDequeueCalls = outputDequeueCalls,
+                outputDequeueWaitCalls = outputDequeueWaitCalls,
+                outputDequeueWaitNs = outputDequeueWaitNs,
+                pendingOutputPeak = pendingOutputPeak,
+                pendingOutputTimeouts = pendingOutputTimeouts,
+                keyFrameRequestAttempts = keyFrameRequestAttempts,
+                unmatchedSurfaceOutputs = unmatchedSurfaceOutputs,
+                pendingFrameOverwrites = pendingFrameOverwrites,
+                latencySamplesNs = latencySamplesNs.copyOf(latencySampleSize),
+            )
+            resetWindow(now)
             rememberRuntimeCounters(threadCpuTimeNs, processAllocatedBytes, globalGcCount)
-            return null
+            snapshot
         }
+            ?: return null
 
-        val touchAvgMs = if (touchSamples == 0) -1 else touchLatencySumNs / touchSamples / 1_000_000
-        val threadCpuMsPerSecond = rateDelta(threadCpuTimeNs, lastThreadCpuNs, seconds, 1_000_000.0)
-        val allocatedBytesPerSecond = rateDelta(processAllocatedBytes, lastProcessAllocBytes, seconds, 1.0)
-        val gcPerSecond = rateDelta(globalGcCount, lastGlobalGcCount, seconds, 1.0)
+        val seconds = snapshot.elapsedNs / 1e9
+
+        val touchAvgMs = if (snapshot.touchSamples == 0) {
+            -1
+        } else {
+            snapshot.touchLatencySumNs / snapshot.touchSamples / 1_000_000
+        }
+        val threadCpuMsPerSecond = rateDelta(threadCpuTimeNs, snapshot.lastThreadCpuNs, seconds, 1_000_000.0)
+        val allocatedBytesPerSecond = rateDelta(processAllocatedBytes, snapshot.lastProcessAllocBytes, seconds, 1.0)
+        val gcPerSecond = rateDelta(globalGcCount, snapshot.lastGlobalGcCount, seconds, 1.0)
         val globalGcPerMinute = if (gcPerSecond < 0.0) -1.0 else gcPerSecond * 60.0
-        val (p50Ms, p95Ms, p99Ms) = frameLatencyPercentilesMs()
+        val (p50Ms, p95Ms, p99Ms) = frameLatencyPercentilesMs(snapshot.latencySamplesNs)
         val line = (
             "video stats type=$streamType owner=$decoderOwnerId rx=%.1ffps surfaceSubmit=%.1ffps " +
                 "maxGap=%dms kbps=%d recoveries=%d queueEmptyPoll=%.1f/s queueTimedPoll=%.1f/s " +
@@ -168,40 +205,38 @@ internal class VideoStats(
                 "globalGc=%.2f/min pssKb=%d fdCount=NOT_SAMPLED " +
                 "touch2frame avg=%dms max=%dms n=%d touchSendMax=%dms"
             ).format(
-                received / seconds,
-                surfaceSubmitted / seconds,
-                maxArrivalGapNs / 1_000_000,
-                (bytes * 8 / 1000 / seconds).toLong(),
-                recoveries,
-                emptyQueuePolls / seconds,
-                timedQueuePolls / seconds,
-                queueWaitNs / 1e6,
-                queuePeakDepth,
-                outputDequeueCalls / seconds,
-                outputDequeueWaitCalls / seconds,
-                outputDequeueWaitNs / 1e6,
-                pendingOutputPeak,
-                pendingOutputTimeouts,
+                snapshot.received / seconds,
+                snapshot.surfaceSubmitted / seconds,
+                snapshot.maxArrivalGapNs / 1_000_000,
+                (snapshot.bytes * 8 / 1000 / seconds).toLong(),
+                snapshot.recoveries,
+                snapshot.emptyQueuePolls / seconds,
+                snapshot.timedQueuePolls / seconds,
+                snapshot.queueWaitNs / 1e6,
+                snapshot.queuePeakDepth,
+                snapshot.outputDequeueCalls / seconds,
+                snapshot.outputDequeueWaitCalls / seconds,
+                snapshot.outputDequeueWaitNs / 1e6,
+                snapshot.pendingOutputPeak,
+                snapshot.pendingOutputTimeouts,
                 p50Ms,
                 p95Ms,
                 p99Ms,
-                latencySampleSize,
-                keyFrameRequestAttempts,
-                unmatchedSurfaceOutputs,
-                pendingFrameOverwrites,
+                snapshot.latencySamplesNs.size,
+                snapshot.keyFrameRequestAttempts,
+                snapshot.unmatchedSurfaceOutputs,
+                snapshot.pendingFrameOverwrites,
                 threadCpuMsPerSecond,
                 allocatedBytesPerSecond,
                 globalGcPerMinute,
                 processPssKb,
                 touchAvgMs,
-                maxTouchLatencyNs / 1_000_000,
-                touchSamples,
+                snapshot.maxTouchLatencyNs / 1_000_000,
+                snapshot.touchSamples,
                 TouchLatencyProbe.maxSendNs / 1_000_000,
             )
         TouchLatencyProbe.maxSendNs = 0
         log(line)
-        resetWindow(now)
-        rememberRuntimeCounters(threadCpuTimeNs, processAllocatedBytes, globalGcCount)
         return line
     }
 
@@ -211,17 +246,44 @@ internal class VideoStats(
         latencySampleSize = minOf(latencySampleSize + 1, LATENCY_SAMPLE_CAPACITY)
     }
 
-    private fun frameLatencyPercentilesMs(): Triple<Double, Double, Double> {
-        if (latencySampleSize == 0) return Triple(-1.0, -1.0, -1.0)
-        System.arraycopy(latencySamplesNs, 0, sortedLatencySamplesNs, 0, latencySampleSize)
-        Arrays.sort(sortedLatencySamplesNs, 0, latencySampleSize)
-        val last = latencySampleSize - 1
+    private fun frameLatencyPercentilesMs(samplesNs: LongArray): Triple<Double, Double, Double> {
+        if (samplesNs.isEmpty()) return Triple(-1.0, -1.0, -1.0)
+        Arrays.sort(samplesNs)
+        val last = samplesNs.size - 1
         return Triple(
-            sortedLatencySamplesNs[(last * 50) / 100] / 1e6,
-            sortedLatencySamplesNs[(last * 95) / 100] / 1e6,
-            sortedLatencySamplesNs[(last * 99) / 100] / 1e6,
+            samplesNs[(last * 50) / 100] / 1e6,
+            samplesNs[(last * 95) / 100] / 1e6,
+            samplesNs[(last * 99) / 100] / 1e6,
         )
     }
+
+    private data class WindowSnapshot(
+        val elapsedNs: Long,
+        val lastThreadCpuNs: Long,
+        val lastProcessAllocBytes: Long,
+        val lastGlobalGcCount: Long,
+        val received: Int,
+        val surfaceSubmitted: Int,
+        val recoveries: Int,
+        val bytes: Long,
+        val maxArrivalGapNs: Long,
+        val touchSamples: Int,
+        val touchLatencySumNs: Long,
+        val maxTouchLatencyNs: Long,
+        val emptyQueuePolls: Long,
+        val timedQueuePolls: Long,
+        val queueWaitNs: Long,
+        val queuePeakDepth: Int,
+        val outputDequeueCalls: Long,
+        val outputDequeueWaitCalls: Long,
+        val outputDequeueWaitNs: Long,
+        val pendingOutputPeak: Int,
+        val pendingOutputTimeouts: Long,
+        val keyFrameRequestAttempts: Long,
+        val unmatchedSurfaceOutputs: Long,
+        val pendingFrameOverwrites: Long,
+        val latencySamplesNs: LongArray,
+    )
 
     private fun rateDelta(current: Long, previous: Long, seconds: Double, divisor: Double): Double =
         if (current < 0L || previous < 0L || current < previous) -1.0

@@ -4,6 +4,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 class VideoStatsTest {
     @Test
@@ -45,5 +48,42 @@ class VideoStatsTest {
         assertTrue(line.contains("threadAllocBytes=NOT_AVAILABLE"))
         assertTrue(line.contains("globalGc=12.00/min pssKb=100 fdCount=NOT_SAMPLED"))
         assertFalse(line.contains("payload"))
+    }
+
+    @Test
+    fun slowLoggerDoesNotBlockFrameArrival() {
+        val nowNs = AtomicLong()
+        val logEntered = CountDownLatch(1)
+        val releaseLog = CountDownLatch(1)
+        val arrivalCompleted = CountDownLatch(1)
+        val stats = VideoStats(
+            streamType = 110,
+            decoderOwnerId = 7L,
+            nanoTime = nowNs::get,
+            log = {
+                logEntered.countDown()
+                check(releaseLog.await(5, TimeUnit.SECONDS))
+            },
+        )
+        stats.startRuntimeTracking(threadCpuTimeNs = 100L, processAllocatedBytes = 1_000L, globalGcCount = 5L)
+        stats.onReceived(100)
+        nowNs.set(5_000_000_000L)
+        val logger = Thread({ stats.logIfDue() }, "video-stats-test-logger").apply { isDaemon = true }
+        val producer = Thread({
+            stats.onReceived(200)
+            arrivalCompleted.countDown()
+        }, "video-stats-test-producer").apply { isDaemon = true }
+
+        try {
+            logger.start()
+            assertTrue(logEntered.await(5, TimeUnit.SECONDS))
+            producer.start()
+
+            assertTrue("frame arrival waited for diagnostic logging", arrivalCompleted.await(1, TimeUnit.SECONDS))
+        } finally {
+            releaseLog.countDown()
+            logger.join(1_000)
+            producer.join(1_000)
+        }
     }
 }

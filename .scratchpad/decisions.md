@@ -32,6 +32,10 @@ Capture finite-checked PCM before gain or graph stages and pass it separately to
 
 Prepare each enabled Dynamic EQ peak filter with its configured boost/cut cap, matching the existing transfer function exactly. A Native HOT update may lower the active cap while retaining that filter and its detector delay, envelope, and current mix; it schedules target recalculation on the next frame and ramps from the retained mix. A cap above the prepared filter's range returns `DEFERRED` without mutation. This adds only a Native helper; renderer/JNI mailbox wiring must remain a separate integration step.
 
+## Keep Dynamics and Dynamic EQ HOT on the existing fenced mailbox
+
+Use one versioned field mask in the bounded Native HOT mailbox for Studio, Dynamics, and Dynamic EQ payloads. The graph preflights the complete command—including both stateful helpers and current topology—before any stage mutation; a gain-lowering protective ramp completes first, and a gain refund waits for all affected parameter/mix transitions. Compressor/Limiter enable changes, Limiter threshold increases, Dynamic EQ topology changes, and cap increases beyond the prepared filter ceiling remain deferred.
+
 ## Keep EX-08 provenance separate from current decisions
 
 Preserve the upstream catalog original source_review_state as provenance. Treat generated current_review_state and disposition as the present decision layer; NEED_EVIDENCE means a documented requirement remains unresolved, not semantic proof or parity. Report current totals from the generated ledger, never from stale catalog-state counts.

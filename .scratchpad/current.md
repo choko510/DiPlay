@@ -1,5 +1,12 @@
 # Current Work — DiPlay STEP4 / PR #45 (2026-10-27)
 
+## Active batch — 2026-10-28 XCertPlay OPT-00–OPT-08
+
+- Start SHA `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`; target `codex/step4-pr-00-test-baseline`, PR #45 open Draft, base remains `main` at `95ba398f95ee104527812cd2b095977d71c51f98`.
+- Baseline focused tests pass: shared 52/52 and common 22/22 on Windows/JDK 21.0.9/Android SDK 37.1. An API 36 x86_64 emulator is connected; TS10/K706 hardware is not attached.
+- Implement only independently safe optimization phases. Preserve decoder generations, recovery executor, queue bounds, codec fallback, Surface retirement ACKs, old codec release failure handling, LOCAL Split, DSP/audio behavior, and USB transport behavior.
+- Update `docs/step4/XCERTPLAY_3E07_ADAPTATION_REPORT.md` with the 20-file disposition, per-phase evidence, performance data or `NOT_RUN`, remaining hardware gates, and commit SHAs. Keep PR Draft and do not merge.
+
 ## Scope
 
 - Continue in the existing open Draft PR #45 on `codex/step4-pr-00-test-baseline`; keep its fixed base and do not merge or mark release-ready.

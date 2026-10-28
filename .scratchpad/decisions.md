@@ -719,3 +719,15 @@ The decoder-retirement test must keep its stop gate closed until the assertion c
 ## Keep USB auto-launch as a validated entry to the existing Controller
 
 Keep the Apple attach component disabled by default and enable it only with the independent user setting. Require the exact current USB device plus the existing CarPlay USBMUX/NCM configuration before launching; keep permission requests, USB opens, and re-enumeration with `IphoneUsbHost` and `CarPlayController`. For an existing wired owner, ignore outer launch requests; for a wireless-to-wired handoff, revalidate after teardown and retain the host split state. Keep boot recovery user-initiated with a notification when background launch is unavailable.
+
+## Resume verified USB attaches only after the current teardown owner completes
+
+For an existing wired Host, a verified single-use USB attach is a new start-condition event and must call `maybeStartCarPlay()` without bypassing its controller, background-owner, VPN, display, permission, menu, and shutdown guards. If a non-process shutdown is already active, coalesce one wired resume or wireless-to-wired switch callback and run it only after the old controller and sink have closed; process-exit shutdown remains a hard stop.
+
+## Detach DSP ownership before asynchronous native destruction
+
+On a decoder format change, the audio owner first removes the old graph from all processing/fade/pending references, then queues its one-time close on the existing DSP reaper. Keep the new-format initial graph preparation synchronous where the first decoded PCM requires its state. A failed old close stays sticky for that renderer, reports `updatesBlocked`, and can be cleared only by a new renderer publishing its own active graph.
+
+## Bound codec release retries to the owning video worker
+
+Retry a throwing `MediaCodec.release()` only on its decoder worker, at most twice for the same codec owner. Keep the Surface ACK blocked and retain old references after the retry budget is exhausted; report restart-required rather than creating a replacement against uncertain ownership.

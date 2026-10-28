@@ -5389,17 +5389,27 @@ class CarPlayHostActivity : ComponentActivity() {
         val generation = ++restartGeneration
         handshakeResetInProgress = true
         val oldSink = sink
-        oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
+        val teardownToken = CarPlayBackgroundSession.beginTeardown(oldController)
+        try {
+            oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "restart listener detach failed error=${error.javaClass.simpleName}")
+        }
         controller = null
         sink = null
         teardownExecutor.execute {
             if (oldController != null) {
                 SplitPerformanceTracer.increment(SplitPerformanceCounter.CARPLAY_CONTROLLER_CLOSES)
-                oldController.close()
+                requestControllerCloseForShutdown(oldController)
             }
-            oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS)
-            oldSink?.close()
+            val clean = oldController?.let(::awaitControllerClosedForShutdown) ?: true
+            if (!clean || !closeSinkForShutdown(oldSink)) {
+                Log.e(TAG, "Controller restart cancelled because shutdown is still pending")
+                if (shutdownTerminatesProcess.get()) Process.killProcess(Process.myPid())
+                return@execute
+            }
             runOnUiThread {
+                CarPlayBackgroundSession.completeTeardown(teardownToken)
                 SplitPerformanceTracer.endAsync("diplay.split.carplay_teardown", carPlayTeardownTraceCookie)
                 carPlayTeardownTraceCookie = null
                 val latestSize = displayResizeCoordinator.latestDesiredSize(size)
@@ -5520,9 +5530,17 @@ class CarPlayHostActivity : ComponentActivity() {
         videoView?.removeCallbacks(deferYoutubePreparationOneFrame)
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
         restartHandoffRetryScheduled = false
-        val oldController = controller
-        val oldSink = sink
-        val teardownToken = CarPlayBackgroundSession.beginTeardown(oldController)
+        val backgroundSnapshot = CarPlayBackgroundSession.snapshot()
+        val closeBackgroundSession = controller == null && backgroundSnapshot != null &&
+            (terminateProcess || CarPlayBackgroundSession.isOwner(this))
+        val oldController = controller ?: backgroundSnapshot?.controller?.takeIf { closeBackgroundSession }
+        val oldSink = sink ?: backgroundSnapshot?.takeIf { it.controller === oldController }?.sink
+        val clearUnmatchedSession = oldController == null &&
+            (terminateProcess || CarPlayBackgroundSession.isOwner(this))
+        val teardownToken = CarPlayBackgroundSession.beginTeardown(
+            oldController,
+            clearUnmatchedSession = clearUnmatchedSession,
+        )
         try {
             oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
         } catch (error: RuntimeException) {
@@ -6169,10 +6187,15 @@ internal object CarPlayBackgroundSession {
     private var hostLaunchState: CarPlayHostLaunchState? = null
 
     @Synchronized
-    fun beginTeardown(expectedController: CarPlayController?): Long {
+    fun beginTeardown(
+        expectedController: CarPlayController?,
+        clearUnmatchedSession: Boolean = false,
+    ): Long {
         val token = ++nextTeardownToken
         pendingTeardowns += token
-        if (expectedController == null || controller === expectedController) {
+        if (expectedController != null && controller === expectedController ||
+            expectedController == null && clearUnmatchedSession
+        ) {
             clearCurrentSession(keepOwner = false)
         }
         return token

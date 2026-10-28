@@ -38,7 +38,7 @@ class VideoStatsTest {
         assertTrue(line.contains("queueWait=1.00ms queuePeak=4"))
         assertTrue(line.contains("outputWaitCalls=0.2/s outputWait=8.00ms"))
         assertTrue(line.contains("pendingPeak=3 pendingTimeouts=1"))
-        assertTrue(line.contains("frameToSurfaceMs=10.00/10.00/10.00 n=1"))
+        assertTrue(line.contains("receiveToSurfaceSubmitMs=10.00/10.00/10.00 n=1"))
         assertTrue(line.contains("keyframeAttempts=1"))
         assertTrue(line.contains("threadCpu=400.00ms/s"))
         assertTrue(line.contains("processAllocBytes=200/s processAllocObjects=NOT_AVAILABLE"))

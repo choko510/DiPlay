@@ -106,52 +106,78 @@ internal class VideoDecodeQueue(
     fun poll(timeoutMillis: Long): VideoJob? = jobs.poll(timeoutMillis, TimeUnit.MILLISECONDS)
 }
 
-/** A bounded wake-up hint, not exact input/output pairing: codecs may drop or reorder output. */
+/** A bounded wake-up hint, not exact input/output pairing; keep a short drain grace for delayed output. */
 internal class VideoPendingOutputState(
     private val maxPendingOutputs: Int = 64,
     private val waitLimitNs: Long = TimeUnit.MILLISECONDS.toNanos(500),
     private val maxDequeueWaitUs: Long = 8_000L,
+    private val outputDrainGraceNs: Long = TimeUnit.MILLISECONDS.toNanos(50),
 ) {
     var pendingOutputCount: Int = 0
         private set
     var waitTimeoutCount: Long = 0
         private set
     private var lastQueuedNs = 0L
+    private var hasInputActivity = false
+    private var lastInputNs = 0L
+    private var hasOutputActivity = false
+    private var lastOutputNs = 0L
 
     init {
         require(maxPendingOutputs > 0)
         require(waitLimitNs > 0L)
         require(maxDequeueWaitUs > 0L)
+        require(outputDrainGraceNs > 0L)
     }
 
     fun onInputQueued(nowNs: Long) {
         lastQueuedNs = nowNs
+        lastInputNs = nowNs
+        hasInputActivity = true
         if (pendingOutputCount < maxPendingOutputs) pendingOutputCount++
     }
 
-    fun onOutputDequeued() {
-        if (pendingOutputCount == 0) return
-        pendingOutputCount--
-        if (pendingOutputCount == 0) lastQueuedNs = 0L
+    fun onOutputDequeued(nowNs: Long = System.nanoTime()) {
+        lastOutputNs = nowNs
+        hasOutputActivity = true
+        if (pendingOutputCount > 0) {
+            pendingOutputCount--
+            if (pendingOutputCount == 0) lastQueuedNs = 0L
+        }
     }
 
     fun nextDequeueTimeoutUs(nowNs: Long): Long {
-        if (pendingOutputCount == 0) return 0L
-        val elapsedNs = (nowNs - lastQueuedNs).coerceAtLeast(0L)
-        val remainingNs = waitLimitNs - elapsedNs
-        if (remainingNs <= 0L) {
+        if (pendingOutputCount > 0) {
+            val elapsedNs = (nowNs - lastQueuedNs).coerceAtLeast(0L)
+            val remainingNs = waitLimitNs - elapsedNs
+            if (remainingNs > 0L) return boundedTimeoutUs(remainingNs)
             pendingOutputCount = 0
             lastQueuedNs = 0L
             waitTimeoutCount++
-            return 0L
         }
-        val remainingUs = ((remainingNs + 999L) / 1_000L).coerceAtLeast(1L)
-        return minOf(maxDequeueWaitUs, remainingUs)
+
+        val lastActivityNs = when {
+            hasInputActivity && hasOutputActivity -> maxOf(lastInputNs, lastOutputNs)
+            hasInputActivity -> lastInputNs
+            hasOutputActivity -> lastOutputNs
+            else -> return 0L
+        }
+        val graceRemainingNs = outputDrainGraceNs - (nowNs - lastActivityNs).coerceAtLeast(0L)
+        return if (graceRemainingNs > 0L) boundedTimeoutUs(graceRemainingNs) else 0L
     }
 
     fun reset() {
         pendingOutputCount = 0
         lastQueuedNs = 0L
+        hasInputActivity = false
+        lastInputNs = 0L
+        hasOutputActivity = false
+        lastOutputNs = 0L
+    }
+
+    private fun boundedTimeoutUs(remainingNs: Long): Long {
+        val remainingUs = ((remainingNs + 999L) / 1_000L).coerceAtLeast(1L)
+        return minOf(maxDequeueWaitUs, remainingUs)
     }
 }
 

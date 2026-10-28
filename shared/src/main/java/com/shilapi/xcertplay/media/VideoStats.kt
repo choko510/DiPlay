@@ -161,7 +161,7 @@ internal class VideoStats(
             "video stats type=$streamType owner=$decoderOwnerId rx=%.1ffps surfaceSubmit=%.1ffps " +
                 "maxGap=%dms kbps=%d recoveries=%d queueEmptyPoll=%.1f/s queueTimedPoll=%.1f/s " +
                 "queueWait=%.2fms queuePeak=%d outputDequeue=%.1f/s outputWaitCalls=%.1f/s outputWait=%.2fms " +
-                "pendingPeak=%d pendingTimeouts=%d frameToSurfaceMs=%.2f/%.2f/%.2f n=%d " +
+                "pendingPeak=%d pendingTimeouts=%d receiveToSurfaceSubmitMs=%.2f/%.2f/%.2f n=%d " +
                 "keyframeAttempts=%d latencyUnmatched=%d latencyOverwrites=%d " +
                 "threadCpu=%.2fms/s processAllocBytes=%.0f/s processAllocObjects=NOT_AVAILABLE " +
                 "threadAllocBytes=NOT_AVAILABLE " +

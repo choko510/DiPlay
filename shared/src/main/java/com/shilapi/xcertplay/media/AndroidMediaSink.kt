@@ -843,9 +843,7 @@ private class VideoDecoder(
 
     private fun nextJob(): VideoJob? {
         pollQueue(0L)?.let { return it }
-        if (pendingOutputState.pendingOutputCount > 0 &&
-            nextOutputWaitTimeoutUs() > 0L
-        ) {
+        if (nextOutputWaitTimeoutUs() > 0L) {
             return null
         }
         return pollQueue(IDLE_WAIT_MILLIS)
@@ -1260,7 +1258,7 @@ private class VideoDecoder(
                 val renderableFrame = info.size > 0 &&
                     info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0
                 codec.releaseOutputBuffer(index, submitToSurface)
-                pendingOutputState.onOutputDequeued()
+                pendingOutputState.onOutputDequeued(System.nanoTime())
                 stats.onPendingOutputCount(pendingOutputState.pendingOutputCount)
                 if (submitToSurface) {
                     stats.onSubmittedToSurface(

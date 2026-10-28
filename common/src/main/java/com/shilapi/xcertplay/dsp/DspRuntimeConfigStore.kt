@@ -16,9 +16,7 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
     private val current = AtomicReference(DspConfigSnapshot(0L, initialConfig))
     private val studioHotUpdatesAllowed = AtomicBoolean(true)
     private val studioLocalWarmAllowed = AtomicBoolean(false)
-    private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
-    private val applyStatusOwner = AtomicReference<Long?>(null)
-    private val applyStatusLock = Any()
+    private val rendererApplyState = AtomicReference(RendererApplyState(null, null))
     private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
     private val playbackSampleRates = ConcurrentHashMap<Any, PlaybackSampleRate>()
     private val nextPlaybackSampleRateRevision = AtomicLong()
@@ -51,41 +49,38 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
         }
     }
 
-    override fun rendererApplyStatus(): DspRendererApplyStatus? = applyStatus.get()
+    override fun rendererApplyStatus(): DspRendererApplyStatus? = rendererApplyState.get().status
 
     override fun claimRendererApplyStatusOwner(ownerToken: Long) {
         require(ownerToken > 0L)
-        synchronized(applyStatusLock) {
-            if (applyStatusOwner.get()?.let { ownerToken <= it } == true) return
-            applyStatusOwner.set(ownerToken)
+        while (true) {
+            val previousState = rendererApplyState.get()
+            if (previousState.ownerToken?.let { ownerToken <= it } == true) return
             val snapshot = current.get()
-            while (true) {
-                val previous = applyStatus.get()
-                if ((previous?.generation ?: Long.MIN_VALUE) > snapshot.generation) return
-                val activeGeneration = previous?.activeGeneration ?: previous?.generation?.takeIf {
-                    previous.phase == DspRendererApplyPhase.ACTIVE
-                }
-                val requested = DspRendererApplyStatus(
-                    generation = snapshot.generation,
-                    phase = DspRendererApplyPhase.REQUESTED,
-                    activeGeneration = activeGeneration,
-                    rendererOwnerToken = ownerToken,
-                )
-                if (applyStatus.compareAndSet(previous, requested)) return
+            val previousStatus = previousState.status
+            if ((previousStatus?.generation ?: Long.MIN_VALUE) > snapshot.generation) return
+            val activeGeneration = previousStatus?.activeGeneration ?: previousStatus?.generation?.takeIf {
+                previousStatus.phase == DspRendererApplyPhase.ACTIVE
             }
+            val requested = DspRendererApplyStatus(
+                generation = snapshot.generation,
+                phase = DspRendererApplyPhase.REQUESTED,
+                activeGeneration = activeGeneration,
+                rendererOwnerToken = ownerToken,
+            )
+            if (rendererApplyState.compareAndSet(previousState, RendererApplyState(ownerToken, requested))) return
         }
     }
 
     override fun reportRendererApplyStatus(status: DspRendererApplyStatus) {
-        synchronized(applyStatusLock) {
-            if (applyStatusOwner.get() != status.rendererOwnerToken) return
-            while (current.get().generation == status.generation) {
-                val previous = applyStatus.get()
-                if ((previous?.generation ?: Long.MIN_VALUE) > status.generation) return
-                if (previous?.generation == status.generation && !canAdvance(previous.phase, status.phase)) return
-                if (applyStatus.compareAndSet(previous, status)) {
-                    if (current.get().generation == status.generation) return
-                }
+        while (current.get().generation == status.generation) {
+            val previousState = rendererApplyState.get()
+            if (previousState.ownerToken != status.rendererOwnerToken) return
+            val previousStatus = previousState.status
+            if ((previousStatus?.generation ?: Long.MIN_VALUE) > status.generation) return
+            if (previousStatus?.generation == status.generation && !canAdvance(previousStatus.phase, status.phase)) return
+            if (rendererApplyState.compareAndSet(previousState, previousState.copy(status = status))) {
+                if (current.get().generation == status.generation) return
             }
         }
     }
@@ -112,24 +107,30 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
         if (current.get().config.hasSameEffectiveSettings(config)) return
         val next = current.updateAndGet { previous -> DspConfigSnapshot(previous.generation + 1, config) }
         while (true) {
-            val previous = applyStatus.get()
-            if ((previous?.generation ?: Long.MIN_VALUE) > next.generation) break
-            if (previous?.generation == next.generation && previous.phase != DspRendererApplyPhase.REQUESTED) break
-            val lastActiveGeneration = previous?.activeGeneration ?: previous?.generation?.takeIf {
-                previous.phase == DspRendererApplyPhase.ACTIVE
+            val previousState = rendererApplyState.get()
+            val previousStatus = previousState.status
+            if ((previousStatus?.generation ?: Long.MIN_VALUE) > next.generation) break
+            if (previousStatus?.generation == next.generation && previousStatus.phase != DspRendererApplyPhase.REQUESTED) break
+            val lastActiveGeneration = previousStatus?.activeGeneration ?: previousStatus?.generation?.takeIf {
+                previousStatus.phase == DspRendererApplyPhase.ACTIVE
             }
             val requested = DspRendererApplyStatus(
                 generation = next.generation,
                 phase = DspRendererApplyPhase.REQUESTED,
                 activeGeneration = lastActiveGeneration,
-                rendererOwnerToken = applyStatusOwner.get(),
+                rendererOwnerToken = previousState.ownerToken,
             )
-            if (applyStatus.compareAndSet(previous, requested)) break
+            if (rendererApplyState.compareAndSet(previousState, previousState.copy(status = requested))) break
         }
         listeners.forEach { listener -> runCatching { listener(next) } }
     }
 
     private data class PlaybackSampleRate(val revision: Long, val sampleRateHz: Int)
+
+    private data class RendererApplyState(
+        val ownerToken: Long?,
+        val status: DspRendererApplyStatus?,
+    )
 
     private companion object {
         const val MIN_PLAYBACK_SAMPLE_RATE_HZ = 8_000

@@ -4,6 +4,8 @@ import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.Closeable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -146,6 +148,56 @@ class DspRuntimeConfigStoreTest {
         )
 
         store.claimRendererApplyStatusOwner(100L)
+        store.reportRendererApplyStatus(
+            DspRendererApplyStatus(
+                generation = 1L,
+                phase = DspRendererApplyPhase.FAILED,
+                rendererOwnerToken = 100L,
+            ),
+        )
+
+        assertEquals(101L, store.rendererApplyStatus()?.rendererOwnerToken)
+        assertEquals(DspRendererApplyPhase.ACTIVE, store.rendererApplyStatus()?.phase)
+    }
+
+    @Test
+    fun concurrentRendererReplacementRejectsLateStatusFromThePreviousOwner() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.claimRendererApplyStatusOwner(100L)
+        val start = CountDownLatch(1)
+        val oldOwner = Thread {
+            check(start.await(5, TimeUnit.SECONDS))
+            repeat(500) {
+                store.reportRendererApplyStatus(
+                    DspRendererApplyStatus(
+                        generation = 1L,
+                        phase = DspRendererApplyPhase.PREPARED,
+                        rendererOwnerToken = 100L,
+                    ),
+                )
+            }
+        }
+        val newOwner = Thread {
+            check(start.await(5, TimeUnit.SECONDS))
+            store.claimRendererApplyStatusOwner(101L)
+            store.reportRendererApplyStatus(
+                DspRendererApplyStatus(
+                    generation = 1L,
+                    phase = DspRendererApplyPhase.ACTIVE,
+                    activeGeneration = 1L,
+                    rendererOwnerToken = 101L,
+                ),
+            )
+        }
+
+        oldOwner.start()
+        newOwner.start()
+        start.countDown()
+        oldOwner.join(5_000)
+        newOwner.join(5_000)
+        assertFalse(oldOwner.isAlive)
+        assertFalse(newOwner.isAlive)
         store.reportRendererApplyStatus(
             DspRendererApplyStatus(
                 generation = 1L,

@@ -12,15 +12,15 @@
 
 **Remote USB/video source snapshot:** `7aff2f8bc8bff05af3962e6c6887e020ad80be81` (source/test head `3e81cd5d`)
 
-**Subsequent independent-review fixes:** F-01–F-06 are in commits `8b64714d` through `24a6d650`, integrated with the remote USB/video updates. The final codec release metric is `receivedToCodecSurfaceReleaseMs`; local Shared/Common suites pass 689/689 and 241/241. GitHub run #568 below covers the earlier remote head, not these follow-up commits.
+**Subsequent independent-review fixes:** F-01–F-06 are in commits `8b64714d` through `24a6d650`, integrated with the remote USB/video updates. The final codec release metric is `receivedToCodecSurfaceReleaseMs`; local Shared/Common suites pass 689/689 and 241/241. GitHub run [#40679997119](https://github.com/choko510/DiPlay/actions/runs/40679997119) on head `daeba474` passed the full host and API 35 lanes; run #568 below covers the earlier remote head.
 
 PR #45 remains open and Draft. No merge, close, or ready-for-review action was performed. The concurrent remote video/USB commits through `f7aa6705` and original opt-in iPhone USB commit `d140f6e` were preserved. P1 shutdown and deferred-replay paths now have source fixes and regression coverage; Android 10 acceptance and no-attach-event re-enumeration remain open.
 
 | Gate | Result | Evidence / limit |
 |---|---|---|
 | Code | `SOURCE_FIXES_COMPLETE_WITH_DEVICE_LIMITS` | Shutdown timeouts now retain a teardown barrier; internal deferred replay and explicit user retries bypass attach debounce; handoff release is generation/owner guarded. Video output has a 50 ms drain grace after recent codec activity and the latency metric name identifies Surface submission. Device-only USB and actual display-presentation evidence remain open. |
-| Local host checks | `PASS` | Full Shared 683/683 and Common 241/241 suites passed. Mobile/automotive Debug builds and lint passed on the merged source snapshot. |
-| GitHub CI | `PASS_CI` | Run [#568](https://github.com/choko510/DiPlay/actions/runs/40675349338) passed changes/EX-08, host native, ASan/UBSan, full unit/lint/Debug+optimized builds/JNI+R8, `host-baseline`, Draft scope, and API 35 instrumentation on test head `3e81cd5d`; check and instrumentation artifacts `12810711700` and `12811100979` were uploaded. The separate Draft-unit and quick-baseline jobs were skipped because full checks ran. |
+| Local host checks | `PASS` | Full Shared 689/689 and Common 241/241 suites passed after F-01–F-06. Mobile/automotive Debug builds/lint passed on the remote source snapshot; run #40679997119 also passed the current head's full build/lint checks. |
+| GitHub CI | `PASS_CI` | Run [#40679997119](https://github.com/choko510/DiPlay/actions/runs/40679997119) passed changes/EX-08, host native, ASan/UBSan, full unit/lint/Debug+optimized builds/JNI+R8, `host-baseline`, Draft scope, and API 35 instrumentation on head `daeba474`; check and instrumentation artifacts `12811838948` and `12812213115` were uploaded. The separate Draft-unit and quick-baseline jobs were skipped because full checks ran. Earlier run #568 is the remote baseline. |
 | Device acceptance | `BLOCKED_DEVICE` | Only an API 36.1 x86_64 emulator was attached. TS10/K706 and iPhone acceptance remains untested. |
 | Release | `NO_GO_THIS_RUN` | Device, signed update/rollback, and independent review gates remain incomplete. |
 
@@ -130,13 +130,13 @@ The updated [OWNERSHIP_MAP.md](OWNERSHIP_MAP.md) records the USB token/start gua
 
 ## Phase 07 — Verification and evidence
 
-Full run #568 passed changes/EX-08, host native, ASan/UBSan, full unit tests, lint, Debug/optimized builds, JNI/R8, `host-baseline`, Draft scope, and API 35 instrumentation on test head `3e81cd5d`. The separate Draft-unit and quick-baseline jobs were skipped because the full check covered them. The Android instrumentation artifact is separate from the target TS10/K706/Android 10 USB acceptance gate. Previous runs #545/#546 and the earlier XCertPlay integration run #551 remain historical evidence for their own heads.
+Remote baseline run #568 passed changes/EX-08, host native, ASan/UBSan, full unit tests, lint, Debug/optimized builds, JNI/R8, `host-baseline`, Draft scope, and API 35 instrumentation on test head `3e81cd5d`. After F-01–F-06 were added, run [#40679997119](https://github.com/choko510/DiPlay/actions/runs/40679997119) passed those host and API 35 lanes on `daeba474`; artifacts `12811838948` and `12812213115` were uploaded. The Android instrumentation artifact is separate from target TS10/K706/Android 10 USB acceptance. Previous runs #545/#546 and #551 remain historical evidence for their own heads.
 
 Local verification on Windows:
 
-- `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel --stacktrace` — full local suites contain 683 Shared + 241 Common tests, 0 failures/errors/skips. This includes the teardown barrier, deferred replay/manual retry, and video drain-grace regressions.
+- `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel --stacktrace` — full local suites contain 689 Shared + 241 Common tests, 0 failures/errors/skips. This includes the F-01–F-06 regressions and the teardown barrier, deferred replay/manual retry, and video drain-grace regressions.
 - `:mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug` — passed on the current source. No new lint warning was reported in the changed source. GitHub run #568 also passed the optimized builds. Existing NDK 28.2 missing-`source.properties` and dependency strip warnings remain; the local build completed with the configured NDK 27 path.
-- `scripts/run_android_instrumentation.sh` — an earlier local API 36.1 x86_64 run passed 19 Shared Release + 1 Common Debug instrumentation test. Run #568 passed API 35 instrumentation on the current code/test head. Emulator results do not prove USB chooser or vehicle behavior.
+- `scripts/run_android_instrumentation.sh` — an earlier local API 36.1 x86_64 run passed 19 Shared Release + 1 Common Debug instrumentation test. Run #40679997119 passed API 35 instrumentation after F-01–F-06. Emulator results do not prove USB chooser or vehicle behavior.
 - `scripts/test_dsp_native.sh` — passed with MSYS2 GCC. `scripts/test_dsp_native.sh --sanitize` was attempted but could not link because this host's MSYS2 installation lacks `libasan` and `libubsan`.
 - `scripts/check_jni_mapping.py`, `scripts/test_android_ci_classifier.sh`, `scripts/test_android_instrumentation_evidence.sh`, `scripts/test_step4_ex08_delta111.py` (19/19), `scripts/generate_step4_ex08_inventory.py --check` (1,400 unique SHAs), and `scripts/check_public_tree.py` — passed. The Windows checkout uses `core.autocrlf=true`; the byte-frozen EX-08 checks passed after temporary LF normalization of the ledger/manifest/override files, then those files were restored without content changes.
 
@@ -144,6 +144,6 @@ Local verification on Windows:
 
 - `HW-01`–`HW-10`, `HW-12`, and `HW-13` remain `BLOCKED_DEVICE`; no TS10/K706 or supported iPhone was attached. Specifically, Android 10 USB chooser delivery, permission-refusal retry, same-device re-enumeration, DSP Split draft continuity, already-connected reboot, final-frame timing, and visible-display latency are not physically verified.
 - `HW-11` signed update/rollback remains `BLOCKED_ENV`; no release signing credentials or release APK were used.
-- Local API 35 instrumentation is `NOT_RUN` because an API 35 emulator image is unavailable. Hosted API 35 instrumentation passed in run #527.
+- Local API 35 instrumentation is `NOT_RUN` because an API 35 emulator image is unavailable. Hosted API 35 instrumentation passed in runs #568 (remote baseline) and #40679997119 (post-review head).
 - Independent second review remains `NOT_RUN` per prior user direction.
 - Keep G8 / release decision `NO_GO_THIS_RUN`. Do not merge or mark this PR ready for review without the remaining gates.

@@ -4,11 +4,11 @@
 
 **Base:** `95ba398f95ee104527812cd2b095977d71c51f98`
 
-**Latest source snapshot:** `7aff2f8bc8bff05af3962e6c6887e020ad80be81` (Controller teardown and video drain follow-up)
+**Remote USB/video source snapshot:** `7aff2f8bc8bff05af3962e6c6887e020ad80be81` (test head `3e81cd5d`)
 
-**Latest test head:** `3e81cd5d6f250ffc0a4e9189bd83bc718bd40f3`
+**Current post-review code/test head:** `daeba474dbf9fcbb0497c9a5f6a6a466e07f02a6` (F-01–F-06 integrated)
 
-**Latest GitHub Actions:** [run #568](https://github.com/choko510/DiPlay/actions/runs/40675349338) (full host/native/unit/lint/build/JNI/R8 and API 35 instrumentation passed)
+**Latest GitHub Actions:** [run #40679997119](https://github.com/choko510/DiPlay/actions/runs/40679997119) (full host/native/unit/lint/build/JNI/R8 and API 35 instrumentation passed); earlier remote baseline run #568 also passed.
 **Physical target:** no TS10/K706 or supported iPhone attached; all HW rows remain blocked.
 
 `PASS` means the named local test or gate passed at its stated scope. `NOT_RUN` means the specific injection or combination has no dedicated evidence. Emulator results never promote a device row to `PASS`.
@@ -110,15 +110,16 @@ Run [#568](https://github.com/choko510/DiPlay/actions/runs/40675349338) passed a
 | ASan/UBSan | `scripts/test_dsp_native.sh --sanitize`; local linker reports missing `-lasan` and `-lubsan` | BLOCKED_ENV |
 | JNI/R8 mapping | `python -B scripts/check_jni_mapping.py`; mobile and automotive Benchmark mappings | PASS |
 | API 36.1 emulator instrumentation | `scripts/run_android_instrumentation.sh`: Shared Release 19/19 + Common Debug 1/1; instrumentation evidence validator passed | PASS (emulator) |
-| API 35 emulator instrumentation | Current GitHub run #568: API 35 instrumentation passed; artifact 12811100979 was uploaded. Earlier run #527 also passed Shared Release 19/19 + Common Debug 1/1 (artifact 12747252715). | PASS_CI |
-| GitHub host/native/unit/lint/build/JNI/R8 | Current run #568 passed `check`, host native, ASan/UBSan, full units, lint, Debug/optimized builds, and R8/JNI verification. Check artifact 12810711700 was uploaded. Earlier run #527 results are historical to source head `c8a1ab0`. | PASS_CI |
+| API 35 emulator instrumentation | Current run #40679997119 passed API 35 instrumentation; artifact 12812213115 was uploaded. Earlier run #527 passed Shared Release 19/19 + Common Debug 1/1 (artifact 12747252715). | PASS_CI |
+| GitHub host/native/unit/lint/build/JNI/R8 | Run #40679997119 passed `check`, host native, ASan/UBSan, full units, lint, Debug/optimized builds, and R8/JNI verification; check artifact 12811838948 was uploaded. Remote baseline run #568 on `3e81cd5d` is historical. | PASS_CI |
 | CI classifier/evidence validators | `scripts/test_android_ci_classifier.sh`; `scripts/test_android_instrumentation_evidence.sh` via MSYS2 Bash | PASS |
 | EX-08 delta-111 / generated ledger | `scripts/test_step4_ex08_delta111.py` 19/19; `scripts/generate_step4_ex08_inventory.py --check`; 1,400 unique SHAs | PASS after temporary LF normalization for Windows `core.autocrlf=true`; tracked source data restored afterward |
 | Public source tree | `python -B scripts/check_public_tree.py` | PASS |
 | Concurrent branch update `d140f6e` | Opt-in iPhone USB auto-launch policy/settings/coordinator/trampoline and internal-intent fallback | `IphoneUsbAutoLaunchPolicyTest`, `IphoneUsbAutoLaunchSettingsTest`, `IphoneUsbAutoLaunchCoordinatorTest`, `IphoneUsbAutoAttachActivityTest`, `CarPlayHostActionsTest`; Common suite 241/241 on current tree | PASS_LOCAL |
 | GitHub Actions run #527 | [Android checks](https://github.com/choko510/DiPlay/actions/runs/40531665594) on product-source head `c8a1ab0`; `changes`, `check`, `host-baseline`, `android-instrumentation`, and Draft scope succeeded | PASS |
 | Test-only follow-up run #533 | USB background-owner adoption and MAIN/ALT release-failure isolation tests at `344181eb`; Draft unit/quick-baseline passed, with 32 tests and 0 failures/errors/skips in artifact 12789926418. Android instrumentation and host-baseline were skipped because product source did not change. | PASS |
-| Current review follow-up run #568 | Head `3e81cd5d`; `changes`/EX-08, host native, ASan/UBSan, full Gradle unit/lint/build, JNI/R8, and API 35 instrumentation passed. Check/instrumentation artifacts 12810711700 and 12811100979 were uploaded. | PASS_CI |
+| Prior remote USB/video run #568 | Head `3e81cd5d`; `changes`/EX-08, host native, ASan/UBSan, full Gradle unit/lint/build, JNI/R8, and API 35 instrumentation passed. Check/instrumentation artifacts 12810711700 and 12811100979 were uploaded. | PASS_CI |
+| Current post-review run #40679997119 | Head `daeba474`; full host/native/sanitizer/unit/lint/build/JNI/R8 and API 35 instrumentation passed. Check/instrumentation artifacts 12811838948 and 12812213115 were uploaded. | PASS_CI |
 | TS10/K706 + supported iPhone acceptance | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-01–HW-10/HW-12/HW-13 | BLOCKED_DEVICE |
 | Release-signed update and installed rollback | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-11 | BLOCKED_ENV |
 | Independent review | Kept `NOT_RUN` per prior user direction | NOT_RUN |

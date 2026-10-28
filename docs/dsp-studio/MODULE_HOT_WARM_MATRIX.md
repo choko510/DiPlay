@@ -1,6 +1,6 @@
 # DSP field update matrix
 
-This matrix reflects `DspUpdatePlanner` and renderer eligibility at source head `fe083f4f524fa6ee1038860343e4f100aee8dad6`. The Native-only Dynamic EQ helper contract below is present at `09fb5b15456e5a83bd631bc913060be4fb6746ba` and is not wired into the runtime planner/controller/JNI path. `HOT`, `LOCAL_WARM`, `WARM`, and `DEFERRED` describe runtime plans, not UI optimism. Any update that fails the stated conditions must retain the active graph and report its deferred reason.
+This matrix reflects `DspUpdatePlanner` and renderer eligibility at source head `fe083f4f524fa6ee1038860343e4f100aee8dad6`. The Native-only Dynamic EQ helper contract below is present at `86f97bcd8f46b1127f3bd61a39ad2bd49a7bdf67` and is not wired into the runtime planner/controller/JNI path. `HOT`, `LOCAL_WARM`, `WARM`, and `DEFERRED` describe runtime plans, not UI optimism. Any update that fails the stated conditions must retain the active graph and report its deferred reason.
 
 | Runtime field | Plan | Conditions and limits | Direct evidence / remaining gate |
 |---|---|---|---|

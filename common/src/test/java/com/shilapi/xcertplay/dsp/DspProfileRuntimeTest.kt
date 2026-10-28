@@ -750,6 +750,217 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun cancelInvalidatesSaveBeforeItsWorkspaceCommit() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val preferences = context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
+        val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        File(workspaceFile.path + ".bak").delete()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.get(context)
+        val committedProfile = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(committedProfile.id, committedProfile)
+        val candidateProfile = DspProfilePresets.find("vocal")!!
+        val candidate = DspStudioWorkspace(candidateProfile.id, candidateProfile)
+        val saveResult = AtomicReference<DspWorkspaceSaveResult?>()
+        val saveComplete = CountDownLatch(1)
+        val reachedSaveBarrier = CountDownLatch(1)
+        val releaseSave = CountDownLatch(1)
+        val restoreRequest = AtomicReference<DspStudioRestoreRequest?>()
+        val restoreComplete = CountDownLatch(1)
+
+        try {
+            val initialSave = CountDownLatch(1)
+            runtime.saveStudioWorkspaceAsync(committed, enabled = true) { initialSave.countDown() }
+            drainMainLooperUntil(initialSave)
+
+            runtime.afterStudioWorkspaceApplyForTest = {
+                reachedSaveBarrier.countDown()
+                check(releaseSave.await(5, TimeUnit.SECONDS))
+            }
+            runtime.saveStudioWorkspaceAsync(candidate, enabled = true) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            assertTrue(reachedSaveBarrier.await(5, TimeUnit.SECONDS))
+
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(enabled = true) {
+                restoreRequest.set(it)
+                restoreComplete.countDown()
+            }
+            releaseSave.countDown()
+            drainMainLooperUntil(saveComplete)
+            drainMainLooperUntil(restoreComplete)
+
+            assertEquals(DspWorkspaceSaveResult.STALE, saveResult.get())
+            assertTrue(restoreRequest.get() != null)
+            assertTrue(runtime.isCommittedStudioWorkspaceActive())
+            assertEquals(committedProfile, runtime.selectedProfile())
+            assertEquals(committed, DspStudioWorkspaceRepository(context.filesDir).load().let {
+                (it as DspWorkspaceReadResult.Loaded).workspace
+            })
+        } finally {
+            releaseSave.countDown()
+            runtime.afterStudioWorkspaceApplyForTest = null
+            DspProfileRuntime.resetForTesting()
+            preferences.edit().clear().commit()
+            workspaceFile.delete()
+            File(workspaceFile.path + ".bak").delete()
+        }
+    }
+
+    @Test
+    fun cancelDuringWorkspaceCommitDoesNotBlockAndPreventsStaleCommit() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-cancel-before-commit-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_cancel_before_commit_test"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        val workspaceFile = File(filesDirectory, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        File(workspaceFile.path + ".bak").delete()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName) { file, bytes ->
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+        }
+        val committedProfile = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(committedProfile.id, committedProfile)
+        val candidateProfile = DspProfilePresets.find("vocal")!!
+        val candidate = DspStudioWorkspace(candidateProfile.id, candidateProfile)
+        val saveResult = AtomicReference<DspWorkspaceSaveResult?>()
+        val saveComplete = CountDownLatch(1)
+        val reachedCommitBarrier = CountDownLatch(1)
+        val releaseCommit = CountDownLatch(1)
+        val restoreRequest = AtomicReference<DspStudioRestoreRequest?>()
+        val restoreComplete = CountDownLatch(1)
+
+        try {
+            val initialSave = CountDownLatch(1)
+            runtime.saveStudioWorkspaceAsync(committed, enabled = true) { initialSave.countDown() }
+            drainMainLooperUntil(initialSave)
+
+            runtime.beforeStudioWorkspaceCommitForTest = {
+                reachedCommitBarrier.countDown()
+                check(releaseCommit.await(5, TimeUnit.SECONDS))
+            }
+            runtime.saveStudioWorkspaceAsync(candidate, enabled = true) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            assertTrue(reachedCommitBarrier.await(5, TimeUnit.SECONDS))
+
+            val cancelStart = System.nanoTime()
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(enabled = true) {
+                restoreRequest.set(it)
+                restoreComplete.countDown()
+            }
+            val cancelElapsedNanos = System.nanoTime() - cancelStart
+            assertTrue(
+                "Cancel generation request must not wait for the workspace file write",
+                cancelElapsedNanos < TimeUnit.MILLISECONDS.toNanos(500),
+            )
+
+            releaseCommit.countDown()
+            drainMainLooperUntil(saveComplete)
+            drainMainLooperUntil(restoreComplete)
+
+            assertEquals(DspWorkspaceSaveResult.STALE, saveResult.get())
+            assertTrue(restoreRequest.get() != null)
+            assertTrue(runtime.isCommittedStudioWorkspaceActive())
+            assertEquals(committedProfile, runtime.selectedProfile())
+            assertEquals(committed, DspStudioWorkspaceRepository(filesDirectory).load().let {
+                (it as DspWorkspaceReadResult.Loaded).workspace
+            })
+        } finally {
+            releaseCommit.countDown()
+            runtime.beforeStudioWorkspaceCommitForTest = null
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun saveCommitDecisionBeforeCancelPersistsAndBecomesRestoreTarget() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-save-before-cancel-commit-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_save_before_cancel_commit_test"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        val workspaceFile = File(filesDirectory, "dsp/workspace/current.json")
+        preferences.edit().clear().commit()
+        workspaceFile.delete()
+        File(workspaceFile.path + ".bak").delete()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName) { file, bytes ->
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+        }
+        val committedProfile = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(committedProfile.id, committedProfile)
+        val candidateProfile = DspProfilePresets.find("vocal")!!
+        val candidate = DspStudioWorkspace(candidateProfile.id, candidateProfile)
+        val saveResult = AtomicReference<DspWorkspaceSaveResult?>()
+        val saveComplete = CountDownLatch(1)
+        val reachedCommitDecision = CountDownLatch(1)
+        val releaseCommit = CountDownLatch(1)
+        val restoreRequest = AtomicReference<DspStudioRestoreRequest?>()
+        val restoreComplete = CountDownLatch(1)
+
+        try {
+            val initialSave = CountDownLatch(1)
+            runtime.saveStudioWorkspaceAsync(committed, enabled = true) { initialSave.countDown() }
+            drainMainLooperUntil(initialSave)
+
+            runtime.afterStudioWorkspaceCommitDecisionForTest = {
+                reachedCommitDecision.countDown()
+                check(releaseCommit.await(5, TimeUnit.SECONDS))
+            }
+            runtime.saveStudioWorkspaceAsync(candidate, enabled = true) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            assertTrue(reachedCommitDecision.await(5, TimeUnit.SECONDS))
+
+            val cancelStart = System.nanoTime()
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(enabled = true) {
+                restoreRequest.set(it)
+                restoreComplete.countDown()
+            }
+            val cancelElapsedNanos = System.nanoTime() - cancelStart
+            assertTrue(
+                "Cancel generation request must not wait after Save's commit decision",
+                cancelElapsedNanos < TimeUnit.MILLISECONDS.toNanos(500),
+            )
+
+            releaseCommit.countDown()
+            drainMainLooperUntil(saveComplete)
+            drainMainLooperUntil(restoreComplete)
+
+            assertEquals(DspWorkspaceSaveResult.SAVED, saveResult.get())
+            assertTrue(restoreRequest.get() != null)
+            assertTrue(runtime.isCommittedStudioWorkspaceActive())
+            assertEquals(candidateProfile, runtime.selectedProfile())
+            assertEquals(candidate, DspStudioWorkspaceRepository(filesDirectory).load().let {
+                (it as DspWorkspaceReadResult.Loaded).workspace
+            })
+        } finally {
+            releaseCommit.countDown()
+            runtime.afterStudioWorkspaceCommitDecisionForTest = null
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun masterToggleChangesOnlyActiveProfileAndApplyCommitsTheDraft() {
         val context: Application = RuntimeEnvironment.getApplication()
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()

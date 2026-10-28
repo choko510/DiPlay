@@ -806,6 +806,8 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 
 2026-10-28 REM-05 Native helper: Prepare and fully verify Compressor/Limiter coefficients on the control side; the render-side apply checks a sealed payload fingerprint without recomputing pow/exp. Preserve compressor envelope and limiter gain, defer enable/topology changes and Limiter threshold increases, slew Compressor curve/output gain plus makeup within bounded per-frame steps, and end ACK-pending after the configured frame count regardless of program-level variation.
 
+2026-10-28 REM-04 Save/Cancel: Advance request generations atomically without waiting on persistence. Write the workspace to AtomicFile's temporary path, then check the generation immediately before `finishWrite` as the linearization point: an earlier Cancel aborts via `failWrite`; a later Cancel restores the workspace that committed first. Do not hold a monitor across workspace file I/O on the UI path.
+
 2026-10-28 REM-04 JNI follow-up: Run the full Dynamics HOT validator before enqueuing at the JNI boundary. The prepared-only validator is insufficient there because it accepts finite, in-range coefficients without proving they match the config and sample rate.
 
 2026-10-28 REM-04 JNI review follow-up: Validate the raw Dynamics and Dynamic EQ enable fields before constructing typed configs; C floating-to-integer conversion is undefined for NaN and out-of-range values.

@@ -417,6 +417,19 @@ class DspStudioPersistenceTest {
         assertEquals(62, (repo.load() as DspWorkspaceReadResult.Loaded).workspace.macros.bassImpact)
     }
 
+    @Test fun saveThatCommittedBeforeCancelIsTheCancelRestoreTarget() {
+        val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
+        val saved = workspace().copy(macros = workspace().macros.copy(bassImpact = 80))
+        coordinator.edit { saved }
+        val cancel = requireNotNull(coordinator.beginCancel())
+
+        coordinator.commitSaved(saved)
+
+        assertTrue(coordinator.commitCancel(cancel))
+        assertEquals(saved, coordinator.preview)
+        assertFalse(coordinator.isDirty)
+    }
+
     @Test fun oneEditTransactionCreatesOneUndoEntryForManyUpdates() {
         val coordinator = DspStudioSessionCoordinator(workspace(), DspStudioWorkspaceRepository(temporaryFolder.root))
         val transaction = requireNotNull(coordinator.beginEditTransaction())

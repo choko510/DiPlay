@@ -45,11 +45,11 @@ class DspEqEditorGraphTest {
         assertEquals("PEQバンド 1のゲイン", japaneseContext.getString(R.string.dsp_eq_band_gain, 1))
         assertEquals("PEQ band 1 gain", englishContext.getString(R.string.dsp_eq_band_gain, 1))
         assertEquals(
-            "PEQ + Cabin、Macro + Smart Loudness、その合成の静的な線形近似による予測EQ応答グラフ。周波数20 Hzから19800 Hz、サンプルレート48000 Hz、ゲイン-18 dBから+18 dBです。Dynamic Bass、ステレオ幅、M/S、Convolver、Harmonic、Seat処理は含みません。バンドのハンドルをタップまたはドラッグして編集します。",
+            "Preamp + PEQ + Cabin、Macro + Smart Loudness、その合成の静的な線形近似による予測EQ応答グラフ。周波数20 Hzから19800 Hz、サンプルレート48000 Hz、ゲイン-18 dBから+18 dBです。Dynamic Bass、ステレオ幅、M/S、Convolver、Harmonic、Seat処理は含みません。バンドのハンドルをタップまたはドラッグして編集します。",
             japaneseContext.getString(R.string.dsp_eq_graph_description, 19_800, 48_000),
         )
         assertEquals(
-            "Predicted linear-approximation response graph for PEQ + Cabin, Macro + Smart Loudness, and their combined curve. Frequency 20 Hz to 19800 Hz at 48000 Hz sample rate; gain −18 dB to +18 dB. Dynamic Bass, stereo width, Mid/Side, Convolver, Harmonic and Seat processing are not included. Tap or drag a band handle to edit.",
+            "Predicted linear-approximation response graph for Preamp + PEQ + Cabin, Macro + Smart Loudness, and their combined curve. Frequency 20 Hz to 19800 Hz at 48000 Hz sample rate; gain −18 dB to +18 dB. Dynamic Bass, stereo width, Mid/Side, Convolver, Harmonic and Seat processing are not included. Tap or drag a band handle to edit.",
             englishContext.getString(R.string.dsp_eq_graph_description, 19_800, 48_000),
         )
         assertEquals("PEQバンド1を選択", japaneseContext.getString(R.string.dsp_eq_select_band, 1))
@@ -312,9 +312,10 @@ class DspEqEditorGraphTest {
             context.getString(R.string.dsp_eq_graph_description, 20_000, 48_000),
         )
         val plot = graphPlot(graph, context.resources.displayMetrics.density)
+        val startingQ = 4.25
 
         types.forEach { type ->
-            profile.value = profile.value.copy(eqBands = listOf(DspEqBand(type, 1_000.0, gainDb = 3.0)))
+            profile.value = profile.value.copy(eqBands = listOf(DspEqBand(type, 1_000.0, gainDb = 3.0, q = startingQ)))
             composeRule.waitForIdle()
             graph.performTouchInput {
                 down(plot.position(1_000.0, 3.0))
@@ -322,6 +323,7 @@ class DspEqEditorGraphTest {
                 up()
             }
             val actualGain = profile.value.eqBands.single().gainDb
+            assertEquals("$type Q should be invariant", startingQ, profile.value.eqBands.single().q, 0.0)
             if (type in setOf(DspEqType.PEAK, DspEqType.LOW_SHELF, DspEqType.HIGH_SHELF)) {
                 assertEquals("$type gain should be editable", -10.0, actualGain, 0.15)
             } else {

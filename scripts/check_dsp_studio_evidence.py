@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from datetime import datetime
@@ -12,6 +13,7 @@ from pathlib import Path, PurePosixPath
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "docs/dsp-studio/TEST_MATRIX_DETAILED.md"
 LEDGER = ROOT / "docs/dsp-studio/REMAINING_FIX_TRACKER.md"
+ACTIONS_RUN_REGISTRY = ROOT / "docs/dsp-studio/verified_actions_runs.json"
 EXPECTED_COVERAGE = {f"REM-{n:02d}" for n in range(1, 13)} | {
     f"PKG-R{n:02d}" for n in range(13)
 }
@@ -81,7 +83,7 @@ TRACKER_COLUMNS = (
 )
 TRACKER_HEADER = "| " + " | ".join(TRACKER_COLUMNS) + " |"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
-GITHUB_ACTIONS_RUN_RE = re.compile(r"^https://github\.com/choko510/DiPlay/actions/runs/\d+/?$")
+GITHUB_ACTIONS_RUN_RE = re.compile(r"^https://github\.com/choko510/DiPlay/actions/runs/(\d+)/?$")
 MARKDOWN_LINK_RE = re.compile(r"^\[[^\]]+\]\(([^)]+)\)$")
 
 
@@ -165,9 +167,43 @@ def repo_file_exists(path_text: str, *, relative_to: Path) -> bool:
     return resolved.is_file()
 
 
-def valid_artifact(reference: str) -> bool:
-    if GITHUB_ACTIONS_RUN_RE.fullmatch(reference):
-        return True
+def load_actions_run_registry() -> dict[str, dict[str, str]]:
+    try:
+        payload = json.loads(ACTIONS_RUN_REGISTRY.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict) or payload.get("repository") != "choko510/DiPlay":
+        return {}
+    runs = payload.get("runs")
+    if not isinstance(runs, list):
+        return {}
+    verified: dict[str, dict[str, str]] = {}
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        run_id = run.get("id")
+        head_sha = run.get("head_sha")
+        if (
+            isinstance(run_id, int)
+            and not isinstance(run_id, bool)
+            and isinstance(head_sha, str)
+            and SHA_RE.fullmatch(head_sha)
+            and run.get("url") == f"https://github.com/choko510/DiPlay/actions/runs/{run_id}"
+            and run.get("metadata_source") == f"https://api.github.com/repos/choko510/DiPlay/actions/runs/{run_id}"
+            and isinstance(run.get("observed_at"), str)
+            and valid_observed_at(run["observed_at"])
+            and run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+        ):
+            verified[str(run_id)] = {"head_sha": head_sha.lower()}
+    return verified
+
+
+def valid_artifact(reference: str, source_sha: str) -> bool:
+    run_match = GITHUB_ACTIONS_RUN_RE.fullmatch(reference)
+    if run_match:
+        run = load_actions_run_registry().get(run_match.group(1))
+        return bool(run and run["head_sha"] == source_sha.lower())
     return repo_file_exists(reference, relative_to=ROOT)
 
 
@@ -269,8 +305,8 @@ def validate() -> list[str]:
                 errors.append(f"{id_}: PASS must not list an unproven predicate")
             if fields["RemainingRisk"] == "":
                 errors.append(f"{id_}: PASS requires RemainingRisk or an explicit no-risk value")
-            if fields["ArtifactPath/URL"] and not valid_artifact(fields["ArtifactPath/URL"]):
-                errors.append(f"{id_}: PASS artifact must resolve to an existing repo file or direct GitHub Actions run URL")
+            if fields["ArtifactPath/URL"] and not valid_artifact(fields["ArtifactPath/URL"], fields["GitSHA"]):
+                errors.append(f"{id_}: artifact must resolve to a repo file or a registry-verified successful Actions run for GitSHA")
         elif status == "NOT_RUN":
             if not fields["Runbook"] or not fields["Blocking reason"]:
                 errors.append(f"{id_}: NOT_RUN requires runbook and blocking reason")
@@ -278,6 +314,8 @@ def validate() -> list[str]:
                 errors.append(f"{id_}: runbook reference does not resolve to an existing repo file")
             if not fields["RemainingRisk"]:
                 errors.append(f"{id_}: NOT_RUN requires RemainingRisk")
+            if fields["ArtifactPath/URL"] and not valid_artifact(fields["ArtifactPath/URL"], fields["GitSHA"]):
+                errors.append(f"{id_}: artifact must resolve to a repo file or a registry-verified successful Actions run for GitSHA")
         else:
             if not fields["Runbook"]:
                 errors.append(f"{id_}: PARTIAL requires a runbook reference")
@@ -287,6 +325,8 @@ def validate() -> list[str]:
                 errors.append(f"{id_}: PARTIAL requires a description of the unproven acceptance predicate")
             if not fields["RemainingRisk"]:
                 errors.append(f"{id_}: PARTIAL requires RemainingRisk")
+            if fields["ArtifactPath/URL"] and not valid_artifact(fields["ArtifactPath/URL"], fields["GitSHA"]):
+                errors.append(f"{id_}: artifact must resolve to a repo file or a registry-verified successful Actions run for GitSHA")
             missing = [part.strip() for part in fields["Missing evidence"].split(",") if part.strip()]
             for field in missing:
                 if field not in EVIDENCE_FIELDS:

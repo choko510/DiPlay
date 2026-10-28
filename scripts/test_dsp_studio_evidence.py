@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,6 +22,22 @@ class EvidenceLedgerContractTest(unittest.TestCase):
         self.ledger = Path(self.temp.name) / "tracker.md"
         self.ledger.write_text(self.original.read_text(encoding="utf-8"), encoding="utf-8")
         checker.LEDGER = self.ledger
+        self.original_actions_registry = checker.ACTIONS_RUN_REGISTRY
+        self.addCleanup(setattr, checker, "ACTIONS_RUN_REGISTRY", self.original_actions_registry)
+        self.actions_registry = Path(self.temp.name) / "verified_actions_runs.json"
+        self.actions_registry.write_text(json.dumps({
+            "repository": "choko510/DiPlay",
+            "runs": [{
+                "id": 123,
+                "url": "https://github.com/choko510/DiPlay/actions/runs/123",
+                "metadata_source": "https://api.github.com/repos/choko510/DiPlay/actions/runs/123",
+                "status": "completed",
+                "conclusion": "success",
+                "head_sha": "0123456789abcdef0123456789abcdef01234567",
+                "observed_at": "2026-10-28T00:00:00Z",
+            }],
+        }), encoding="utf-8")
+        checker.ACTIONS_RUN_REGISTRY = self.actions_registry
 
     def errors(self) -> list[str]:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -103,7 +120,7 @@ class EvidenceLedgerContractTest(unittest.TestCase):
 
     def test_pass_rejects_nonexistent_artifact(self) -> None:
         self.update_row("PH01-T01", self.complete_pass_values(artifact="docs/dsp-studio/missing-artifact.xml"))
-        self.assertTrue(any("PASS artifact must resolve" in error for error in self.errors()))
+        self.assertTrue(any("artifact must resolve" in error for error in self.errors()))
 
     def test_pass_rejects_missing_fields_list(self) -> None:
         values = self.complete_pass_values()
@@ -115,13 +132,46 @@ class EvidenceLedgerContractTest(unittest.TestCase):
 
     def test_pass_rejects_actions_run_url_for_another_repo(self) -> None:
         self.update_row("PH01-T01", self.complete_pass_values(artifact="https://github.com/acme/repo/actions/runs/123"))
-        self.assertTrue(any("PASS artifact must resolve" in error for error in self.errors()))
+        self.assertTrue(any("artifact must resolve" in error for error in self.errors()))
 
     def test_pass_accepts_actions_run_url_for_this_repo(self) -> None:
         self.update_row("PH01-T01", self.complete_pass_values(artifact="https://github.com/choko510/DiPlay/actions/runs/123"))
+        self.assertEqual([], self.errors())
+
+    def test_actions_run_artifact_rejects_unregistered_run(self) -> None:
+        self.update_row("PH01-T01", self.complete_pass_values(artifact="https://github.com/choko510/DiPlay/actions/runs/999"))
+        self.assertTrue(any("registry-verified successful Actions run" in error for error in self.errors()))
+
+    def test_actions_run_artifact_rejects_sha_mismatch(self) -> None:
+        values = self.complete_pass_values(artifact="https://github.com/choko510/DiPlay/actions/runs/123")
+        values["GitSHA"] = "abcdef0123456789abcdef0123456789abcdef01"
+        self.update_row("PH01-T01", values)
+        self.assertTrue(any("registry-verified successful Actions run" in error for error in self.errors()))
+
+    def test_actions_run_artifact_rejects_incomplete_or_unsuccessful_run(self) -> None:
+        for status, conclusion in (("in_progress", None), ("completed", "failure")):
+            self.actions_registry.write_text(json.dumps({
+                "repository": "choko510/DiPlay",
+                "runs": [{
+                    "id": 123,
+                    "url": "https://github.com/choko510/DiPlay/actions/runs/123",
+                    "metadata_source": "https://api.github.com/repos/choko510/DiPlay/actions/runs/123",
+                    "status": status,
+                    "conclusion": conclusion,
+                    "head_sha": "0123456789abcdef0123456789abcdef01234567",
+                    "observed_at": "2026-10-28T00:00:00Z",
+                }],
+            }), encoding="utf-8")
+            self.update_row("PH01-T01", self.complete_pass_values(artifact="https://github.com/choko510/DiPlay/actions/runs/123"))
+            self.assertTrue(any("registry-verified successful Actions run" in error for error in self.errors()))
+
+    def test_populated_artifacts_are_validated_for_partial_and_not_run(self) -> None:
+        invalid = "https://github.com/choko510/DiPlay/actions/runs/999"
+        self.update_row("PH01-T01", {"ArtifactPath/URL": invalid})
+        self.update_row("PH02-T04", {"ArtifactPath/URL": invalid})
         errors = self.errors()
-        self.assertFalse(any("PASS artifact must resolve" in error for error in errors))
-        self.assertFalse(errors)
+        self.assertTrue(any("PH01-T01: artifact must resolve" in error for error in errors))
+        self.assertTrue(any("PH02-T04: artifact must resolve" in error for error in errors))
 
     def test_partial_rejects_invalid_runbook_reference(self) -> None:
         self.update_row("PH01-T01", {"Runbook": "[missing](missing-runbook.md)"})

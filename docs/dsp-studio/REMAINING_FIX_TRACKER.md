@@ -6,7 +6,7 @@ Counts: **170 acceptance rows** (60 PH-ID + 110 T-ID). Status counts are calcula
 
 ## Evidence ledger
 
-`PASS` requires every test, assertion, command, type, source SHA, CI run, artifact, result, environment, reviewer, and observation-time field. `PARTIAL` lists every missing evidence field and describes the unproven predicate. `NOT_RUN` requires a valid runbook reference and blocking reason. `RemainingRisk` stays explicit for every row.
+`PASS` requires every test, assertion, command, type, source SHA, CI run, artifact, result, environment, reviewer, and observation-time field. `PARTIAL` lists every missing evidence field and describes the unproven predicate. `NOT_RUN` requires a valid runbook reference and blocking reason. `RemainingRisk` stays explicit for every row. Populated artifact paths are checked for every status. Actions run URLs must match a completed-success run and row GitSHA in the offline verified-run registry; add an entry only from the matching GitHub Actions run API record.
 
 | ID | AcceptancePredicate | Status | TestClass.Method | Assertion(s) | ExecutionCommand | TestType | GitSHA | CI_Run | ArtifactPath/URL | Result | Environment(API/ABI/OS/device) | Reviewer | LastObservedAt | RemainingRisk | Runbook | Blocking reason | Missing evidence | Unproven predicate |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
@@ -215,4 +215,4 @@ This table tracks execution ownership, dependencies, paths, implementation commi
 
 ## Running the check
 
-Run `python scripts/check_dsp_studio_evidence.py`. The validator compares IDs and acceptance predicates to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, checks all §12.2 evidence columns, validates artifact and runbook references, and enforces PASS/PARTIAL/NOT_RUN contracts.
+Run `python scripts/check_dsp_studio_evidence.py`. The validator compares IDs and acceptance predicates to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, checks all §12.2 evidence columns, validates artifact and runbook references, and enforces PASS/PARTIAL/NOT_RUN contracts. Local artifact paths must resolve inside this repository. GitHub Actions run URLs must appear in `verified_actions_runs.json` with completed/success status, a valid head SHA equal to the row GitSHA, and matching run/API URLs; absent or malformed registry metadata fails closed without network access.

@@ -10,6 +10,9 @@ import java.net.InetAddress
 import java.math.BigInteger
 import java.util.concurrent.ConcurrentHashMap
 
+private const val AIRPLAY_MAIN_SCREEN_TYPE = 110
+private const val AIRPLAY_ALT_SCREEN_TYPE = 111
+
 /** Rendering seam for the decrypted CarPlay media streams. */
 interface MediaSink {
     fun onVideoCodec(type: Int, codec: VideoCodec) {}
@@ -192,10 +195,25 @@ class CarPlayMediaEngine(
                     session.logDebug("Video: $it")
                 }
             }
+            val setupUuid = stream["uuid"] as? String
             sink.setVideoRecoveryHandler(type) {
-                if (screenStreamOwners[type] == streamKey && streams[streamKey] === screen) {
-                    val sent = session.sendCommand(mapOf("type" to "forceKeyFrame"))
-                    session.logDebug("Video recovery: requested keyframe sent=$sent")
+                when (
+                    val result = requestScreenKeyFrame(
+                        type = type,
+                        setupUuid = setupUuid,
+                        isCurrent = { screenStreamOwners[type] == streamKey && streams[streamKey] === screen },
+                        sendCommand = session::sendCommand,
+                    )
+                ) {
+                    ScreenKeyFrameRequestResult.SENT ->
+                        session.logDebug("Video recovery: requested keyframe type=$type sent=true")
+                    ScreenKeyFrameRequestResult.SEND_FAILED ->
+                        session.logDebug("Video recovery: requested keyframe type=$type sent=false")
+                    ScreenKeyFrameRequestResult.MISSING_DISPLAY_UUID ->
+                        session.logDebug("Video recovery: skipped keyframe request type=$type reason=missing_display_uuid")
+                    ScreenKeyFrameRequestResult.UNSUPPORTED_STREAM_TYPE ->
+                        session.logDebug("Video recovery: skipped keyframe request type=$type reason=unsupported_type")
+                    ScreenKeyFrameRequestResult.STALE_OWNER -> Unit
                 }
             }
             port
@@ -854,8 +872,8 @@ class CarPlayMediaEngine(
 
     private companion object {
         const val TAG = "xcertplay-usb"
-        const val STREAM_TYPE_MAIN_SCREEN = 110
-        const val STREAM_TYPE_ALT_SCREEN = 111
+        const val STREAM_TYPE_MAIN_SCREEN = AIRPLAY_MAIN_SCREEN_TYPE
+        const val STREAM_TYPE_ALT_SCREEN = AIRPLAY_ALT_SCREEN_TYPE
         const val STREAM_TYPE_MAIN_AUDIO = 100
         const val STREAM_TYPE_DATA = 130
         const val DATASTREAM_OUTPUT_KEY = "DataStream-Output-Encryption-Key"
@@ -865,6 +883,43 @@ class CarPlayMediaEngine(
         const val OPUS_48K = 0x40000000L
         const val FEEDBACK_CLOCK_LOG_INTERVAL_NS = 5_000_000_000L
         const val MICROPHONE_RETRY_BACKOFF_NS = 750_000_000L
+    }
+}
+
+internal enum class ScreenKeyFrameRequestResult {
+    SENT,
+    SEND_FAILED,
+    MISSING_DISPLAY_UUID,
+    UNSUPPORTED_STREAM_TYPE,
+    STALE_OWNER,
+}
+
+internal fun screenKeyFrameCommand(type: Int, setupUuid: String?): Map<String, Any?>? = when (type) {
+    AIRPLAY_MAIN_SCREEN_TYPE ->
+        linkedMapOf("type" to "forceKeyFrame", "params" to emptyMap<String, Any?>())
+    AIRPLAY_ALT_SCREEN_TYPE -> setupUuid?.takeIf { it.isNotBlank() }
+        ?.let { linkedMapOf("type" to "forceKeyFrame", "params" to linkedMapOf("uuid" to it)) }
+    else -> null
+}
+
+internal fun requestScreenKeyFrame(
+    type: Int,
+    setupUuid: String?,
+    isCurrent: () -> Boolean,
+    sendCommand: (Map<String, Any?>) -> Boolean,
+): ScreenKeyFrameRequestResult {
+    if (!isCurrent()) return ScreenKeyFrameRequestResult.STALE_OWNER
+    val command = screenKeyFrameCommand(type, setupUuid) ?: return if (
+        type == AIRPLAY_ALT_SCREEN_TYPE
+    ) {
+        ScreenKeyFrameRequestResult.MISSING_DISPLAY_UUID
+    } else {
+        ScreenKeyFrameRequestResult.UNSUPPORTED_STREAM_TYPE
+    }
+    return if (sendCommand(command)) {
+        ScreenKeyFrameRequestResult.SENT
+    } else {
+        ScreenKeyFrameRequestResult.SEND_FAILED
     }
 }
 

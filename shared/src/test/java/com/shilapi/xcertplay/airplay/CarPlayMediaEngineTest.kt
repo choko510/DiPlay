@@ -40,6 +40,111 @@ class CarPlayMediaEngineTest {
     }
 
     @Test
+    fun keyframeRequestsAddressMainAndAlternateScreensSeparately() {
+        val commands = mutableListOf<Map<String, Any?>>()
+        val altUuid = "b7e6c5a0-2222-4000-8000-000000000002"
+
+        assertEquals(
+            ScreenKeyFrameRequestResult.SENT,
+            requestScreenKeyFrame(110, null, { true }) { commands += it; true },
+        )
+        assertEquals(
+            ScreenKeyFrameRequestResult.SENT,
+            requestScreenKeyFrame(111, altUuid, { true }) { commands += it; true },
+        )
+        assertEquals(
+            listOf(
+                linkedMapOf("type" to "forceKeyFrame", "params" to emptyMap<String, Any?>()),
+                linkedMapOf("type" to "forceKeyFrame", "params" to linkedMapOf("uuid" to altUuid)),
+            ),
+            commands,
+        )
+    }
+
+    @Test
+    fun keyframeRequestsRejectMissingAlternateUuidAndUnknownTypes() {
+        val commands = mutableListOf<Map<String, Any?>>()
+        val send: (Map<String, Any?>) -> Boolean = { commands += it; true }
+
+        assertEquals(
+            ScreenKeyFrameRequestResult.MISSING_DISPLAY_UUID,
+            requestScreenKeyFrame(111, null, { true }, send),
+        )
+        assertEquals(
+            ScreenKeyFrameRequestResult.MISSING_DISPLAY_UUID,
+            requestScreenKeyFrame(111, "  ", { true }, send),
+        )
+        assertEquals(
+            ScreenKeyFrameRequestResult.UNSUPPORTED_STREAM_TYPE,
+            requestScreenKeyFrame(112, "unexpected", { true }, send),
+        )
+        assertTrue(commands.isEmpty())
+    }
+
+    @Test
+    fun staleKeyframeOwnerCannotSendAndTransportFailureIsReported() {
+        val commands = mutableListOf<Map<String, Any?>>()
+        val send: (Map<String, Any?>) -> Boolean = { commands += it; false }
+
+        assertEquals(
+            ScreenKeyFrameRequestResult.STALE_OWNER,
+            requestScreenKeyFrame(110, null, { false }, send),
+        )
+        assertTrue(commands.isEmpty())
+        assertEquals(
+            ScreenKeyFrameRequestResult.SEND_FAILED,
+            requestScreenKeyFrame(110, null, { true }, send),
+        )
+        assertEquals(1, commands.size)
+    }
+
+    @Test
+    fun replacedScreenRecoveryHandlerCannotTargetItsNewOwner() {
+        val handlers = ConcurrentHashMap<Int, () -> Unit>()
+        val oldLogs = CopyOnWriteArrayList<String>()
+        val currentLogs = CopyOnWriteArrayList<String>()
+        val sink = object : MediaSink {
+            override fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {
+                handlers[type] = handler
+            }
+        }
+        val engine = CarPlayMediaEngine(sink)
+        val oldSession = audioSession(
+            engine,
+            listener = object : AirPlaySessionListener {
+                override fun onDebugLog(message: String) { oldLogs += message }
+            },
+        )
+        val currentSession = audioSession(
+            engine,
+            listener = object : AirPlaySessionListener {
+                override fun onDebugLog(message: String) { currentLogs += message }
+            },
+        )
+
+        try {
+            assertNotNull(engine.onScreen(oldSession, 110, mapOf("streamConnectionID" to 1L)))
+            val oldHandler = checkNotNull(handlers[110])
+            assertNotNull(engine.onScreen(currentSession, 110, mapOf("streamConnectionID" to 2L)))
+            val currentHandler = checkNotNull(handlers[110])
+
+            oldHandler()
+            currentHandler()
+
+            assertTrue(oldLogs.none { it.startsWith("Video recovery:") })
+            val currentRecoveryLogs = currentLogs.filter { it.startsWith("Video recovery:") }
+            assertEquals(1, currentRecoveryLogs.size)
+            assertTrue(currentRecoveryLogs.single().contains("type=110 sent=false"))
+            assertTrue(currentRecoveryLogs.none { it.contains("b7e6c5a0") })
+        } finally {
+            engine.onSessionClosed(oldSession)
+            engine.onSessionClosed(currentSession)
+            oldSession.close()
+            currentSession.close()
+        }
+    }
+
+    @Test
     fun screenStreamTeardownReportsInactive() {
         val events = mutableListOf<Pair<Int, Boolean>>()
         val sink = object : MediaSink {

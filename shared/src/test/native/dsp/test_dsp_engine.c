@@ -3678,6 +3678,74 @@ static void test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completi
     dsp_engine_destroy(engine);
 }
 
+static void test_preamp_hot_ramp_preserves_active_compressor_and_convolver_state(void) {
+    const dsp_dynamics_config dynamics = {
+        1, -20.0, 4.0, 10.0, 100.0, 6.0, 0.0, 1, -1.0, 60.0,
+    };
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float impulse[512] = {0.0f};
+    impulse[0] = 1.0f;
+    impulse[1] = 1.0f;
+    const dsp_convolver_config convolver = {
+        .enabled = 1,
+        .sample_rate = 48000,
+        .channels = 2,
+        .frames = 256,
+        .sample_count = 512,
+        .wet = 1.0f,
+        .samples = impulse,
+    };
+    dsp_graph graph = {0};
+    assert_true(dsp_graph_prepare(
+            &graph, 48000, 2, 0.0, NULL, 0, &dynamics, &bypass_multiband, &bypass_dynamic_eq,
+            NULL, 0, NULL, 0, &bypass_spatial, &convolver, &bypass_harmonic,
+            &macro, &loudness, &dynamic_bass),
+        "active Compressor and Convolver graph prepares");
+
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) {
+        const float sample = 1.2f * sinf((float)(2.0 * 3.14159265358979323846 * 1000.0 * frame / 48000.0));
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = sample;
+    }
+    uint64_t non_finite_input = 0;
+    uint64_t non_finite_output = 0;
+    dsp_graph_process(&graph, input, output, 511, 2, &non_finite_input, &non_finite_output);
+    assert_true(graph.dynamics.compressor_envelope > 0.0f && graph.dynamics.limiter_gain < 1.0f,
+        "Compressor envelope and Limiter gain are active before the Preamp update");
+    assert_true(graph.convolver.active && graph.convolver.spectrum_write_index > 0,
+        "Convolver history is active before the Preamp update");
+
+    const dsp_dynamics dynamics_before = graph.dynamics;
+    const dsp_convolver convolver_before = graph.convolver;
+    const int latency_before = dsp_convolver_latency_frames(&graph.convolver);
+    assert_true(dsp_graph_apply_preamp_hot(&graph, -6.0, 0.5011872336),
+        "bounded Preamp HOT ramp starts with stateful stages active");
+    assert_true(memcmp(&graph.dynamics, &dynamics_before, sizeof(dynamics_before)) == 0,
+        "Preamp HOT preserves Compressor envelope and Limiter gain state");
+    assert_true(memcmp(&graph.convolver, &convolver_before, sizeof(convolver_before)) == 0,
+        "Preamp HOT preserves Convolver instance and processing history");
+    assert_true(dsp_convolver_latency_frames(&graph.convolver) == latency_before,
+        "Preamp HOT keeps the active Convolver latency unchanged");
+    assert_true(graph.gain.ramp_remaining == 48000 / 50,
+        "Preamp target is applied through the prepared 20 ms sample ramp");
+
+    dsp_graph_process(&graph, input, output, 512, 2, &non_finite_input, &non_finite_output);
+    assert_true(graph.gain.ramp_remaining == 48000 / 50 - 512,
+        "Preamp ramp advances on the current graph without rebuilding stateful stages");
+    assert_true(graph.dynamics.compressor_envelope > 0.0f && graph.convolver.active,
+        "Compressor and Convolver continue processing during the Preamp ramp");
+    assert_true(non_finite_input == 0 && non_finite_output == 0,
+        "state-preserving Preamp ramp produces finite PCM");
+    for (size_t sample = 0; sample < 1024; sample++) {
+        assert_true(isfinite(output[sample]), "state-preserving Preamp ramp output is finite");
+    }
+    dsp_graph_close(&graph);
+}
+
 static void test_preamp_hot_mailbox_coalesces_and_preserves_concurrent_studio_gain_ramps(void) {
     const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
     const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
@@ -4231,6 +4299,7 @@ int main(void) {
     test_studio_neutral_macro_preserves_exact_samples();
     test_studio_hot_command_is_acknowledged_after_its_block();
     test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completion();
+    test_preamp_hot_ramp_preserves_active_compressor_and_convolver_state();
     test_preamp_hot_mailbox_coalesces_and_preserves_concurrent_studio_gain_ramps();
     test_native_hot_and_local_warm_share_one_generation_order();
     test_studio_hot_update_rejects_invalid_module_configs_atomically();

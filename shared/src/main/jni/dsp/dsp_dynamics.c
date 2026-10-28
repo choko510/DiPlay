@@ -150,7 +150,7 @@ int dsp_dynamics_apply_hot_params(
     dynamics->compressor_ratio_step = ratio_step;
     dynamics->compressor_knee_step = knee_step;
     dynamics->compressor_makeup_ramp_remaining = makeup_ramp_frames;
-    dynamics->compressor_gain_slew_active = params->config.compressor_enabled;
+    dynamics->compressor_hot_transition_remaining = params->config.compressor_enabled ? makeup_ramp_frames : 0;
     if (!params->config.compressor_enabled) {
         dynamics->compressor_makeup_linear = params->compressor_makeup_linear;
         dynamics->compressor_makeup_target_linear = params->compressor_makeup_linear;
@@ -158,13 +158,14 @@ int dsp_dynamics_apply_hot_params(
         dynamics->compressor_ratio = (float)params->config.compressor_ratio;
         dynamics->compressor_knee_db = (float)params->config.compressor_knee_db;
         dynamics->compressor_makeup_ramp_remaining = 0;
+        dynamics->compressor_hot_transition_remaining = 0;
     }
     return DSP_DYNAMICS_HOT_APPLIED;
 }
 
 int dsp_dynamics_hot_transition_pending(const dsp_dynamics *dynamics) {
     return dynamics != NULL && (dynamics->compressor_makeup_ramp_remaining > 0 ||
-        dynamics->compressor_gain_slew_active);
+        dynamics->compressor_hot_transition_remaining > 0);
 }
 
 int dsp_dynamics_prepare(dsp_dynamics *dynamics, int sample_rate, const dsp_dynamics_config *config) {
@@ -177,7 +178,6 @@ int dsp_dynamics_prepare(dsp_dynamics *dynamics, int sample_rate, const dsp_dyna
     dynamics->compressor_ratio = (float)config->compressor_ratio;
     dynamics->compressor_knee_db = (float)config->compressor_knee_db;
     dynamics->last_compressor_gain = 1.0f;
-    dynamics->compressor_gain_slew_active = 0;
     dynamics->compressor_attack_coefficient = time_coefficient(sample_rate, config->compressor_attack_ms);
     dynamics->compressor_release_coefficient = time_coefficient(sample_rate, config->compressor_release_ms);
     dynamics->compressor_makeup_linear = (float)pow(10.0, config->compressor_makeup_db / 20.0);
@@ -213,7 +213,7 @@ void dsp_dynamics_reset(dsp_dynamics *dynamics) {
     dynamics->compressor_ratio_step = 0.0f;
     dynamics->compressor_knee_step = 0.0f;
     dynamics->last_compressor_gain = 1.0f;
-    dynamics->compressor_gain_slew_active = 0;
+    dynamics->compressor_hot_transition_remaining = 0;
 }
 
 static float compressor_gain(const dsp_dynamics *dynamics) {
@@ -265,18 +265,19 @@ void dsp_dynamics_process_compressor_frame(dsp_dynamics *dynamics, float *left, 
             (1.0f - coefficient) * detector;
         const float target_gain = compressor_gain(dynamics);
         float gain = target_gain;
-        if (dynamics->compressor_gain_slew_active) {
+        if (dynamics->compressor_hot_transition_remaining > 0) {
             const float gain_difference = target_gain - dynamics->last_compressor_gain;
             const float maximum_step = 0.01f;
             if (gain_difference > maximum_step) {
                 gain = dynamics->last_compressor_gain + maximum_step;
             } else if (gain_difference < -maximum_step) {
                 gain = dynamics->last_compressor_gain - maximum_step;
-            } else {
-                dynamics->compressor_gain_slew_active = dynamics->compressor_makeup_ramp_remaining > 0;
             }
         }
         dynamics->last_compressor_gain = gain;
+        if (dynamics->compressor_hot_transition_remaining > 0) {
+            dynamics->compressor_hot_transition_remaining--;
+        }
         *left *= gain;
         if (channels == 2) *right *= gain;
     }

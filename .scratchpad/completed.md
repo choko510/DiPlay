@@ -300,3 +300,4 @@
 - 2026-10-28: Added the DSP evidence validator to the Android `check` job before Gradle setup, asserted workflow-sensitive classifier routing, and applied current primary/subtask owner assignments. Local checker and fixture suites pass; hosted workflow for this change has not run yet.
 - 2026-10-28: Added a Native-only state-preserving Dynamics HOT parameter helper with control-side coefficient preparation, bounded makeup smoothing, conservative Limiter threshold handling, and targeted state/validation/defer tests. This helper is not wired to the product HOT mailbox/JNI/Kotlin path.
 - 2026-10-28: Addressed PR #72 Native review by slewing Compressor threshold/ratio/knee effect and output gain, exposing pending transition state, and validating coefficient/config consistency off callback before apply.
+- 2026-10-28: Bound PR #72 HOT pending state to the configured transition frame count and added varying-input coverage for completion and per-frame gain slew.

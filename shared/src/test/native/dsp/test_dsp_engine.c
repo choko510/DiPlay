@@ -821,6 +821,31 @@ static void test_dynamics_hot_params_preserve_state_and_validate_atomically(void
         curve_dynamics.compressor_knee_db == (float)curve_target.compressor_knee_db,
         "curve slew converges to the exact requested parameters");
 
+    curve_target.compressor_threshold_db = -12.0;
+    curve_target.compressor_ratio = 20.0;
+    curve_target.compressor_attack_ms = 0.1;
+    curve_target.compressor_release_ms = 0.1;
+    curve_target.compressor_knee_db = 24.0;
+    curve_target.limiter_threshold_db = -3.0;
+    assert_true(dsp_dynamics_prepare_hot_params(48000, &curve_target, &curve_params),
+        "changing-signal slew target prepares");
+    assert_true(dsp_dynamics_apply_hot_params(&curve_dynamics, &curve_params, 64) == DSP_DYNAMICS_HOT_APPLIED,
+        "changing-signal transition starts");
+    previous_gain = 0.0f;
+    largest_gain_step = 0.0f;
+    for (int frame = 0; frame < 64; frame++) {
+        float left = frame % 2 == 0 ? 1.0f : 0.01f;
+        float right = left;
+        const float input_level = left;
+        dsp_dynamics_process_compressor_frame(&curve_dynamics, &left, &right, 1);
+        const float effective_gain = left / input_level;
+        if (frame > 0) largest_gain_step = fmaxf(largest_gain_step, fabsf(effective_gain - previous_gain));
+        previous_gain = effective_gain;
+    }
+    assert_true(largest_gain_step <= 0.01001f, "changing input remains within the per-frame gain slew");
+    assert_true(!dsp_dynamics_hot_transition_pending(&curve_dynamics),
+        "changing input cannot extend pending beyond the configured transition frame count");
+
     dsp_dynamics_hot_params stale_format = {0};
     assert_true(dsp_dynamics_prepare_hot_params(44100, &target, &stale_format),
         "different sample-rate parameters prepare independently");

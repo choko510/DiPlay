@@ -44,7 +44,7 @@ typedef struct {
     float compressor_knee_db;
     float compressor_knee_step;
     float last_compressor_gain;
-    int compressor_gain_slew_active;
+    int compressor_hot_transition_remaining;
     float compressor_envelope;
     float limiter_release_coefficient;
     float limiter_threshold_linear;

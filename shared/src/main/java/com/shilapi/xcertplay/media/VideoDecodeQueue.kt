@@ -100,7 +100,8 @@ internal class VideoDecodeQueue(
 
     internal fun oldestQueuedSurfaceRetirementNs(): Long? = surfaceRetirements.peek()?.createdNs
 
-    internal val queuedJobsForTest: Int get() = jobs.size
+    internal val queuedJobCount: Int get() = jobs.size
+    internal val queuedJobsForTest: Int get() = queuedJobCount
 
     fun poll(timeoutMillis: Long): VideoJob? = jobs.poll(timeoutMillis, TimeUnit.MILLISECONDS)
 }

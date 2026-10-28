@@ -8,6 +8,7 @@ import com.shilapi.xcertplay.airplay.AudioFormat
 import com.shilapi.xcertplay.airplay.AudioOwnerToken
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.VideoCodec
+import com.shilapi.xcertplay.airplay.VideoRecoveryDispatchResult
 import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -135,6 +136,81 @@ class AndroidMediaSinkStateTest {
             assertTrue(altCompleted.await(5, TimeUnit.SECONDS))
         } finally {
             allowMain.countDown()
+            sink.close()
+        }
+    }
+
+    @Test fun recoveryMetricsSeparateMainAltSendResultsAndStaleGenerationDrops() {
+        val sink = AndroidMediaSink()
+        sink.onScreenStreamActive(110, true)
+        sink.onScreenStreamActive(111, true)
+        val mainCallback = CountDownLatch(1)
+        val altCallback = CountDownLatch(1)
+        val requestRecovery = AndroidMediaSink::class.java.getDeclaredMethod(
+            "requestVideoRecovery",
+            Int::class.javaPrimitiveType!!,
+            Long::class.javaPrimitiveType!!,
+        ).apply { isAccessible = true }
+        sink.setVideoRecoveryResultHandler(110) {
+            mainCallback.countDown()
+            VideoRecoveryDispatchResult.SENT
+        }
+        sink.setVideoRecoveryResultHandler(111) {
+            altCallback.countDown()
+            VideoRecoveryDispatchResult.SEND_FAILED
+        }
+
+        try {
+            requestRecovery.invoke(sink, 110, sink.videoStreamGenerationForTest(110))
+            requestRecovery.invoke(sink, 111, sink.videoStreamGenerationForTest(111))
+            assertTrue(mainCallback.await(2, TimeUnit.SECONDS))
+            assertTrue(altCallback.await(2, TimeUnit.SECONDS))
+
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            var main = sink.videoRecoveryMetricsForTest(110)
+            var alt = sink.videoRecoveryMetricsForTest(111)
+            while (System.nanoTime() < deadline &&
+                (main.queued == 0L || main.sent == 0L || alt.queued == 0L || alt.sendFailed == 0L)
+            ) {
+                Thread.yield()
+                main = sink.videoRecoveryMetricsForTest(110)
+                alt = sink.videoRecoveryMetricsForTest(111)
+            }
+
+            assertEquals(1L, main.attempts)
+            assertEquals(1L, main.queued)
+            assertEquals(1L, main.sent)
+            assertEquals(0L, main.sendFailed)
+            assertFalse(main.toDiagnosticString().contains("uuid"))
+            assertEquals(1L, alt.attempts)
+            assertEquals(1L, alt.queued)
+            assertEquals(0L, alt.sent)
+            assertEquals(1L, alt.sendFailed)
+
+            val altSkipped = CountDownLatch(1)
+            sink.setVideoRecoveryResultHandler(111) {
+                altSkipped.countDown()
+                VideoRecoveryDispatchResult.SKIPPED
+            }
+            requestRecovery.invoke(sink, 111, sink.videoStreamGenerationForTest(111))
+            assertTrue(altSkipped.await(2, TimeUnit.SECONDS))
+            val altDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            var updatedAlt = sink.videoRecoveryMetricsForTest(111)
+            while (System.nanoTime() < altDeadline && (updatedAlt.queued < 2L || updatedAlt.skipped == 0L)) {
+                Thread.yield()
+                updatedAlt = sink.videoRecoveryMetricsForTest(111)
+            }
+            assertEquals(2L, updatedAlt.attempts)
+            assertEquals(1L, updatedAlt.skipped)
+
+            val oldGeneration = sink.videoStreamGenerationForTest(110)
+            sink.onScreenStreamActive(110, false)
+            requestRecovery.invoke(sink, 110, oldGeneration)
+            val stale = sink.videoRecoveryMetricsForTest(110)
+            assertEquals(2L, stale.attempts)
+            assertEquals(1L, stale.staleDrops)
+            assertEquals(1L, stale.sent)
+        } finally {
             sink.close()
         }
     }

@@ -13,12 +13,22 @@ import java.util.concurrent.ConcurrentHashMap
 private const val AIRPLAY_MAIN_SCREEN_TYPE = 110
 private const val AIRPLAY_ALT_SCREEN_TYPE = 111
 
+enum class VideoRecoveryDispatchResult {
+    SENT,
+    SEND_FAILED,
+    SKIPPED,
+    STALE_OWNER,
+}
+
 /** Rendering seam for the decrypted CarPlay media streams. */
 interface MediaSink {
     fun onVideoCodec(type: Int, codec: VideoCodec) {}
     fun onVideoConfig(type: Int, codecData: ByteArray) {}
     fun onVideoFrame(type: Int, naluBytes: ByteArray) {}
     fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {}
+    fun setVideoRecoveryResultHandler(type: Int, handler: () -> VideoRecoveryDispatchResult) {
+        setVideoRecoveryHandler(type) { handler() }
+    }
     fun setVideoDiagnosticHandler(type: Int, handler: (String) -> Unit) {}
     fun onScreenStreamActive(type: Int, active: Boolean) {}
     fun claimAudioOwner(token: AudioOwnerToken) {}
@@ -196,7 +206,7 @@ class CarPlayMediaEngine(
                 }
             }
             val setupUuid = stream["uuid"] as? String
-            sink.setVideoRecoveryHandler(type) {
+            sink.setVideoRecoveryResultHandler(type) {
                 when (
                     val result = requestScreenKeyFrame(
                         type = type,
@@ -205,15 +215,25 @@ class CarPlayMediaEngine(
                         sendCommand = session::sendCommand,
                     )
                 ) {
-                    ScreenKeyFrameRequestResult.SENT ->
+                    ScreenKeyFrameRequestResult.SENT -> {
                         session.logDebug("Video recovery: requested keyframe type=$type sent=true")
-                    ScreenKeyFrameRequestResult.SEND_FAILED ->
+                        VideoRecoveryDispatchResult.SENT
+                    }
+                    ScreenKeyFrameRequestResult.SEND_FAILED -> {
                         session.logDebug("Video recovery: requested keyframe type=$type sent=false")
-                    ScreenKeyFrameRequestResult.MISSING_DISPLAY_UUID ->
-                        session.logDebug("Video recovery: skipped keyframe request type=$type reason=missing_display_uuid")
-                    ScreenKeyFrameRequestResult.UNSUPPORTED_STREAM_TYPE ->
+                        VideoRecoveryDispatchResult.SEND_FAILED
+                    }
+                    ScreenKeyFrameRequestResult.MISSING_DISPLAY_UUID -> {
+                        session.logDebug(
+                            "Video recovery: skipped keyframe request type=$type reason=missing_display_uuid",
+                        )
+                        VideoRecoveryDispatchResult.SKIPPED
+                    }
+                    ScreenKeyFrameRequestResult.UNSUPPORTED_STREAM_TYPE -> {
                         session.logDebug("Video recovery: skipped keyframe request type=$type reason=unsupported_type")
-                    ScreenKeyFrameRequestResult.STALE_OWNER -> Unit
+                        VideoRecoveryDispatchResult.SKIPPED
+                    }
+                    ScreenKeyFrameRequestResult.STALE_OWNER -> VideoRecoveryDispatchResult.STALE_OWNER
                 }
             }
             port

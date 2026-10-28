@@ -6,7 +6,7 @@
 - Target PR: https://github.com/choko510/DiPlay/pull/45
 - Target start SHA: `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`
 - Baseline source/test integration SHA: `54b65005ffeffb2cdd802028bceffea28eaa68ee` (included concurrent PR #45 USB handoff work).
-- Remote USB/video source/test updates through `3e81cd5d` and documentation update `29c7b039` are preserved. F-01–F-06 remediation commits end at `24a6d650`; integration tree `46546a54` also includes USB teardown and the 50 ms video drain grace. Formatting and final report commits follow in the local history.
+- Remote USB/video source/test updates through `3e81cd5d` and documentation update `29c7b039` are preserved. F-01–F-06 remediation commits end at `24a6d650`; merge tree `51e70fe9` contains the fixes and the remote USB teardown/50 ms video drain-grace updates. The AirPlay formatting follow-up is `f25152ea`.
 - Target branch/base: `codex/step4-pr-00-test-baseline` / `main` (`95ba398f95ee104527812cd2b095977d71c51f98`)
 - PR status: open, Draft, unmerged
 - Code/test environment: Windows; Android Studio JBR 21.0.9; Android SDK 37.1; connected API 36 x86_64 emulator. No TS10/K706 head unit or iPhone is attached.
@@ -160,3 +160,6 @@ Post-fix local full suites pass: Shared 689/689 and Common 241/241 (930 tests to
 - `46546a54` — Merge the latest remote USB teardown/handoff and video-drain updates; preserve their changes with F-01–F-06.
 - Remote commits retained by `46546a54`: `bff18379`, `7aff2f8b`, `3e81cd5d`.
 - `f25152ea` — Align the nested screen-owner/lifecycle lock block; the `CarPlayMediaEngineTest` class passes 23/23.
+- `29c7b039` — Preserve the concurrent USB/video review evidence update.
+- `aa84e7b6` — Update local review-remediation evidence and Working Memory.
+- `51e70fe9` — Merge the latest remote documentation/evidence update without replacing local F-01–F-06 results.

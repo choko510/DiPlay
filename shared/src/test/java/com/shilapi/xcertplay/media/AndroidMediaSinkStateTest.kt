@@ -360,6 +360,74 @@ class AndroidMediaSinkStateTest {
         }
     }
 
+    @Test fun mainCodecReleaseFailureDoesNotBlockAltSurfaceAcknowledgement() {
+        val mainSurface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val altSurface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val sink = AndroidMediaSink()
+        val mainType = 110
+        val altType = 111
+        val mainReleaseAttempts = AtomicInteger()
+        val altReleaseAttempts = AtomicInteger()
+        val mainDetached = CountDownLatch(1)
+        val altDetached = CountDownLatch(1)
+        val mainRestartRequired = CountDownLatch(1)
+        val mainDiagnostics = CopyOnWriteArrayList<String>()
+        val altDiagnostics = CopyOnWriteArrayList<String>()
+        sink.setSurface(mainType, mainSurface)
+        sink.setSurface(altType, altSurface)
+        sink.setVideoDiagnosticHandler(mainType) {
+            mainDiagnostics += it
+            if (it.contains("state=SESSION_RESTART_REQUIRED")) mainRestartRequired.countDown()
+        }
+        sink.setVideoDiagnosticHandler(altType) { altDiagnostics += it }
+        sink.onScreenStreamActive(mainType, true)
+        sink.onScreenStreamActive(altType, true)
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        val mainDecoder = checkNotNull(decoderFactory.invoke(sink, mainType))
+        val altDecoder = checkNotNull(decoderFactory.invoke(sink, altType))
+        val mainCodec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        val altCodec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        mainDecoder.javaClass.getDeclaredField("decoder").apply { isAccessible = true }.set(mainDecoder, mainCodec)
+        altDecoder.javaClass.getDeclaredField("decoder").apply { isAccessible = true }.set(altDecoder, altCodec)
+        sink.videoCodecReleaseForTest = { codec ->
+            if (codec === mainCodec) {
+                mainReleaseAttempts.incrementAndGet()
+                throw IllegalStateException("injected MAIN release failure")
+            }
+            altReleaseAttempts.incrementAndGet()
+            codec.release()
+        }
+
+        try {
+            sink.clearSurface(mainType, mainSurface) { mainDetached.countDown() }
+            sink.clearSurface(altType, altSurface) { altDetached.countDown() }
+
+            assertTrue(altDetached.await(5, TimeUnit.SECONDS))
+            assertTrue(mainRestartRequired.await(5, TimeUnit.SECONDS))
+            assertFalse(mainDetached.await(100, TimeUnit.MILLISECONDS))
+            assertEquals(2, mainReleaseAttempts.get())
+            assertEquals(1, altReleaseAttempts.get())
+
+            sink.onScreenStreamActive(mainType, false)
+            sink.onScreenStreamActive(altType, false)
+            assertTrue(awaitVideoDecoderStopped(mainDecoder))
+            assertTrue(awaitVideoDecoderStopped(altDecoder))
+            assertFalse(privateField(mainDecoder, "surfaceReleaseSafe") as Boolean)
+            assertTrue(privateField(altDecoder, "surfaceReleaseSafe") as Boolean)
+            assertSame(mainDecoder, field(sink, "retiringVideoDecoders")[mainType])
+            assertNull(field(sink, "retiringVideoDecoders")[altType])
+            assertTrue(mainDiagnostics.any { it.contains("state=SESSION_RESTART_REQUIRED") })
+        } finally {
+            sink.videoCodecReleaseForTest = null
+            sink.close()
+            runCatching { mainSurface.release() }
+            runCatching { altSurface.release() }
+        }
+    }
+
     @Test fun stoppedVideoDecoderReleasesSurfaceConfigAndQueuedFrameReferences() {
         val sink = AndroidMediaSink()
         val type = 110

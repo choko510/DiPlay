@@ -4752,8 +4752,8 @@ class CarPlayHostActivity : ComponentActivity() {
             snapshot.width,
             snapshot.height,
             this,
-            backgroundStopAction(),
             currentHostLaunchState(),
+            backgroundStopAction(),
         )
         if (snapshot.width > 0 && snapshot.height > 0) {
             activeDisplaySize = DisplaySize(snapshot.width, snapshot.height)
@@ -4946,8 +4946,8 @@ class CarPlayHostActivity : ComponentActivity() {
             size.width,
             size.height,
             this,
-            backgroundStopAction(),
             currentHostLaunchState(),
+            backgroundStopAction(),
         )
         localViewportSize?.takeIf { canScaleCarPlayLocally() }?.let(::applyLocalCarPlayBounds)
         try {
@@ -6034,8 +6034,8 @@ internal object CarPlayBackgroundSession {
         width: Int,
         height: Int,
         owner: Any,
-        stop: ((() -> Unit)) -> Unit,
         hostLaunchState: CarPlayHostLaunchState? = null,
+        stop: ((() -> Unit)) -> Unit,
     ) {
         restartHandoff.clear()
         restartSuppressed = false

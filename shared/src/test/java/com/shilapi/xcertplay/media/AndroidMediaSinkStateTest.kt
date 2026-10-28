@@ -9,6 +9,7 @@ import com.shilapi.xcertplay.airplay.AudioOwnerToken
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.VideoCodec
 import java.net.InetAddress
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -262,6 +263,7 @@ class AndroidMediaSinkStateTest {
         val stopEntered = CountDownLatch(1)
         val allowStop = CountDownLatch(1)
         val releaseAttempts = AtomicInteger()
+        val diagnostics = CopyOnWriteArrayList<String>()
         val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
             "videoDecoder",
             Int::class.javaPrimitiveType,
@@ -283,6 +285,7 @@ class AndroidMediaSinkStateTest {
             releaseAttempts.incrementAndGet()
             throw IllegalStateException("injected MediaCodec release failure")
         }
+        sink.setVideoDiagnosticHandler(type) { diagnostics += it }
         sink.onScreenStreamActive(type, true)
         val oldDecoder = checkNotNull(decoderFactory.invoke(sink, type))
 
@@ -300,15 +303,58 @@ class AndroidMediaSinkStateTest {
             assertFalse(privateField(oldDecoder, "surfaceReleaseSafe") as Boolean)
             assertSame(surface, privateField(oldDecoder, "outputSurface"))
             assertSame(oldDecoder, field(sink, "retiringVideoDecoders")[type])
+            assertTrue(diagnostics.any { it.contains("state=SESSION_RESTART_REQUIRED") })
 
             sink.onScreenStreamActive(type, true)
             assertNull(decoderFactory.invoke(sink, type))
             assertSame(oldDecoder, field(sink, "retiringVideoDecoders")[type])
+
+            val retryRelease = oldDecoder.javaClass.getDeclaredMethod("releaseDecoder").apply { isAccessible = true }
+            assertFalse(retryRelease.invoke(oldDecoder) as Boolean)
+            assertEquals(2, releaseAttempts.get())
+            assertFalse(retryRelease.invoke(oldDecoder) as Boolean)
+            assertEquals(2, releaseAttempts.get())
         } finally {
             allowStop.countDown()
             sink.videoCodecReleaseForTest = null
-            val retryRelease = oldDecoder.javaClass.getDeclaredMethod("releaseDecoder").apply { isAccessible = true }
-            assertTrue(retryRelease.invoke(oldDecoder) as Boolean)
+            sink.close()
+            runCatching { surface.release() }
+        }
+    }
+
+    @Test fun transientCodecReleaseFailureRetriesOnItsWorkerAndCompletesSurfaceRetirement() {
+        val surface = ReflectionHelpers.callConstructor(Surface::class.java)
+        val sink = AndroidMediaSink(surface = surface)
+        val type = 110
+        val releaseAttempts = AtomicInteger()
+        val detached = CountDownLatch(1)
+        val diagnostics = CopyOnWriteArrayList<String>()
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        sink.setVideoDiagnosticHandler(type) { diagnostics += it }
+        sink.videoCodecReleaseForTest = { codec ->
+            if (releaseAttempts.incrementAndGet() == 1) {
+                throw IllegalStateException("injected transient release failure")
+            }
+            codec.release()
+        }
+        sink.onScreenStreamActive(type, true)
+        val decoder = checkNotNull(decoderFactory.invoke(sink, type))
+        val codec = MediaCodec.createDecoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        decoder.javaClass.getDeclaredField("decoder").apply { isAccessible = true }.set(decoder, codec)
+
+        try {
+            sink.clearSurface(type, surface) { detached.countDown() }
+
+            assertTrue(detached.await(5, TimeUnit.SECONDS))
+            assertEquals(2, releaseAttempts.get())
+            assertTrue(diagnostics.any { it.contains("state=RETRYING_SAFE_RELEASE") })
+            assertTrue(diagnostics.any { it.contains("state=RECOVERED") })
+            assertFalse(diagnostics.any { it.contains("state=SESSION_RESTART_REQUIRED") })
+        } finally {
+            sink.videoCodecReleaseForTest = null
             sink.close()
             runCatching { surface.release() }
         }

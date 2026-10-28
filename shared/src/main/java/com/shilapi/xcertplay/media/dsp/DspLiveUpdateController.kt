@@ -34,6 +34,7 @@ internal class DspLiveUpdateController(
     private val preparedLatencyFrames: (DspPcmPipeline?) -> Int = { it?.algorithmicLatencyFrames ?: 0 },
     private val onPreparedResult: ((DspPreparedUpdate) -> Boolean)? = null,
     private val onRetirementFailed: (DspPcmPipeline, Throwable) -> Unit = { _, _ -> },
+    private val onRetirementCompleted: (DspPcmPipeline, Long) -> Unit = { _, _ -> },
 ) : Closeable {
     private val controlExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "dsp-live-control").apply { isDaemon = true }
@@ -133,11 +134,16 @@ internal class DspLiveUpdateController(
     fun canAdoptUpdate(): Boolean = !closed.get() && retiredPipelineCount.get() == 0 && failedRetirementCount.get() == 0
 
     fun retire(pipeline: DspPcmPipeline?) {
-        if (pipeline == null || !pipeline.claimRetirement(retiredPipelineCount) { error ->
+        if (pipeline == null) return
+        val claimed = pipeline.claimRetirement(
+            counter = retiredPipelineCount,
+            onCloseFailure = { error ->
                 failedRetirementCount.incrementAndGet()
                 runCatching { onRetirementFailed(pipeline, error) }
-            }
-        ) return
+            },
+            onCloseComplete = { runCatching { onRetirementCompleted(pipeline, pipeline.closeDurationNs) } },
+        )
+        if (!claimed) return
         retiredPipelineCount.incrementAndGet()
         DspPipelineReaper.enqueue(pipeline)
     }

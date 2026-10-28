@@ -30,7 +30,7 @@ Capture finite-checked PCM before gain or graph stages and pass it separately to
 
 ## Preserve the configured Dynamic EQ transfer when adding HOT limits
 
-Prepare each enabled Dynamic EQ peak filter with its configured boost/cut cap, matching the existing transfer function exactly. A Native HOT update may lower the active cap while retaining that filter and its detector delay, envelope, and mix state; a cap above the prepared filter's range returns `DEFERRED` without mutation. This adds only a Native helper; renderer/JNI mailbox wiring must remain a separate integration step.
+Prepare each enabled Dynamic EQ peak filter with its configured boost/cut cap, matching the existing transfer function exactly. A Native HOT update may lower the active cap while retaining that filter and its detector delay, envelope, and current mix; it schedules target recalculation on the next frame and ramps from the retained mix. A cap above the prepared filter's range returns `DEFERRED` without mutation. This adds only a Native helper; renderer/JNI mailbox wiring must remain a separate integration step.
 
 ## Keep EX-08 provenance separate from current decisions
 

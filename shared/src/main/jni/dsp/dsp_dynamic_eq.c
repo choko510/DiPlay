@@ -175,6 +175,8 @@ dsp_dynamic_eq_hot_update_result dsp_dynamic_eq_apply_hot_update(
         band->config.max_cut_db = update->config.bands[index].max_cut_db;
         band->attack_coefficient = update->attack_coefficients[index];
         band->release_coefficient = update->release_coefficients[index];
+        /* Recalculate the mix target next frame without changing the current mix. */
+        band->frames_until_control = 0;
     }
     return DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED;
 }

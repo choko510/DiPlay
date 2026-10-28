@@ -54,8 +54,7 @@ static int same_biquad(const dsp_biquad *left, const dsp_biquad *right) {
 static int same_band_state(const dsp_dynamic_eq_band *left, const dsp_dynamic_eq_band *right) {
     return same_biquad(&left->detector, &right->detector) && same_biquad(&left->filter, &right->filter) &&
         left->envelope == right->envelope && left->current_mix == right->current_mix &&
-        left->target_mix == right->target_mix && left->mix_step == right->mix_step &&
-        left->frames_until_control == right->frames_until_control;
+        left->target_mix == right->target_mix && left->mix_step == right->mix_step;
 }
 
 static void test_hot_update_changes_parameters_and_preserves_all_band_state(void) {
@@ -94,6 +93,8 @@ static void test_hot_update_changes_parameters_and_preserves_all_band_state(void
     for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
         assert_true(same_band_state(&before.bands[band], &eq.bands[band]),
             "detector/filter coefficients and delay, envelope, and current mix remain unchanged");
+        assert_true(eq.bands[band].frames_until_control == 0,
+            "parameter update schedules a fresh mix target on the next processed frame");
         assert_near(eq.bands[band].config.threshold_db, target.bands[band].threshold_db, 0.0,
             "threshold updates");
         assert_near(eq.bands[band].config.ratio, target.bands[band].ratio, 0.0, "ratio updates");
@@ -240,7 +241,12 @@ typedef struct {
     double phase_radians;
 } tone_result;
 
-static tone_result measure_dynamic_eq_tone(dsp_dynamic_eq *eq, int mode, int start_frame, int frame_count) {
+static tone_result measure_dynamic_eq_tone(
+    dsp_dynamic_eq *eq,
+    int mode,
+    double frequency_hz,
+    int start_frame,
+    int frame_count) {
     double input_sine = 0.0;
     double input_cosine = 0.0;
     double output_sine = 0.0;
@@ -248,11 +254,11 @@ static tone_result measure_dynamic_eq_tone(dsp_dynamic_eq *eq, int mode, int sta
     for (int offset = 0; offset < frame_count; offset++) {
         const int frame = start_frame + offset;
         const float input = (mode == DSP_DYNAMIC_EQ_BOOST ? 0.05f : 0.5f) *
-            sinf((float)(2.0 * 3.14159265358979323846 * TEST_FREQUENCY_HZ * frame / TEST_SAMPLE_RATE));
+            sinf((float)(2.0 * 3.14159265358979323846 * frequency_hz * frame / TEST_SAMPLE_RATE));
         float left = input;
         float right = 0.0f;
         dsp_dynamic_eq_process_frame(eq, &left, &right, 1);
-        const double phase = 2.0 * 3.14159265358979323846 * TEST_FREQUENCY_HZ * frame / TEST_SAMPLE_RATE;
+        const double phase = 2.0 * 3.14159265358979323846 * frequency_hz * frame / TEST_SAMPLE_RATE;
         input_sine += (double)input * sin(phase);
         input_cosine += (double)input * cos(phase);
         output_sine += (double)left * sin(phase);
@@ -262,7 +268,7 @@ static tone_result measure_dynamic_eq_tone(dsp_dynamic_eq *eq, int mode, int sta
     const double output_amplitude = 2.0 * hypot(output_sine, output_cosine) / frame_count;
     tone_result result = {
         .gain_db = 20.0 * log10(output_amplitude / input_amplitude),
-        .phase_radians = atan2(-output_cosine, output_sine) - atan2(-input_cosine, input_sine),
+        .phase_radians = atan2(output_cosine, output_sine) - atan2(input_cosine, input_sine),
     };
     return result;
 }
@@ -279,7 +285,7 @@ static void test_gain_caps_track_center_gain_without_changing_phase_or_latency(v
 
         dsp_dynamic_eq eq;
         assert_true(prepare_eq(&eq, &config), "single-band transfer test graph prepares");
-        tone_result result = measure_dynamic_eq_tone(&eq, mode, 0, 24000);
+        tone_result result = measure_dynamic_eq_tone(&eq, mode, TEST_FREQUENCY_HZ, 0, 24000);
         assert_near(result.gain_db, mode == DSP_DYNAMIC_EQ_BOOST ? 12.0 : -12.0, 0.12,
             "prepared cap produces its full-scale center gain");
         assert_near(result.phase_radians, 0.0, 0.01, "prepared cap adds no phase shift at center");
@@ -298,7 +304,7 @@ static void test_gain_caps_track_center_gain_without_changing_phase_or_latency(v
             assert_true(same_biquad(&filter_before, &eq.bands[0].filter),
                 "gain cap update preserves filter coefficients and delay state");
             const int start = 24000 + (int)index * 24000;
-            result = measure_dynamic_eq_tone(&eq, mode, start, 24000);
+            result = measure_dynamic_eq_tone(&eq, mode, TEST_FREQUENCY_HZ, start, 24000);
             assert_near(result.gain_db, mode == DSP_DYNAMIC_EQ_BOOST ? caps[index] : -caps[index], 0.12,
                 "lower HOT cap produces the requested center gain");
             assert_near(result.phase_radians, 0.0, 0.01,
@@ -329,6 +335,57 @@ static void test_unrepresentable_cap_increases_defer_without_mutation(void) {
                 "deferred cap increase leaves the active graph unchanged");
         }
     }
+}
+
+static void test_hot_cap_reduction_uses_prepared_off_center_curve(void) {
+    dsp_dynamic_eq_config config = make_config(DSP_DYNAMIC_EQ_BOOST, 6.0);
+    config.bands[0].frequency_hz = TEST_FREQUENCY_HZ;
+    config.bands[0].threshold_db = -10.0;
+    config.bands[0].ratio = 20.0;
+    config.bands[0].attack_ms = 0.1;
+    config.bands[0].release_ms = 0.1;
+    for (size_t band = 1; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) config.bands[band].enabled = 0;
+    dsp_dynamic_eq eq;
+    assert_true(prepare_eq(&eq, &config), "off-center HOT response graph prepares");
+
+    tone_result before_result = measure_dynamic_eq_tone(&eq, DSP_DYNAMIC_EQ_BOOST, 1500.0, 0, 24000);
+    assert_near(before_result.gain_db, 2.545087702, 0.02,
+        "fresh 6 dB prepared filter matches the legacy off-center golden");
+    assert_near(before_result.phase_radians, -0.334802977, 0.01,
+        "fresh 6 dB prepared filter matches the legacy off-center phase golden");
+
+    dsp_dynamic_eq_band before = eq.bands[0];
+    dsp_dynamic_eq_config target = eq.config;
+    target.bands[0].max_boost_db = 3.0;
+    dsp_dynamic_eq_hot_update update;
+    assert_true(dsp_dynamic_eq_prepare_hot_update(TEST_SAMPLE_RATE, &target, &update),
+        "lower off-center cap prepares");
+    assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update) == DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED,
+        "lower off-center cap applies against the prepared filter");
+    assert_true(same_biquad(&before.detector, &eq.bands[0].detector) &&
+        same_biquad(&before.filter, &eq.bands[0].filter) && before.envelope == eq.bands[0].envelope &&
+        before.current_mix == eq.bands[0].current_mix,
+        "off-center cap reduction preserves detector, filter, envelope, and current mix");
+    assert_true(eq.bands[0].frames_until_control == 0,
+        "cap reduction schedules target recalculation on the next processed frame");
+
+    const float current_mix_before_frame = eq.bands[0].current_mix;
+    float left = 0.05f * sinf((float)(2.0 * 3.14159265358979323846 * 1500.0 * 24000 / TEST_SAMPLE_RATE));
+    float right = 0.0f;
+    dsp_dynamic_eq_process_frame(&eq, &left, &right, 1);
+    const double new_target_mix = (pow(10.0, 3.0 / 20.0) - 1.0) / (pow(10.0, 6.0 / 20.0) - 1.0);
+    assert_near(eq.bands[0].target_mix, new_target_mix, 1.0e-5,
+        "first post-update frame targets the lower cap on the prepared peak curve");
+    assert_true(fabsf(eq.bands[0].current_mix - current_mix_before_frame) < 0.05f,
+        "first post-update frame starts a smooth mix ramp without a jump");
+
+    tone_result after_result = measure_dynamic_eq_tone(&eq, DSP_DYNAMIC_EQ_BOOST, 1500.0, 24001, 24000);
+    assert_near(after_result.gain_db, 1.024448824, 0.03,
+        "HOT 6-to-3 dB reduction keeps the prepared filter's off-center magnitude");
+    assert_true(fabs(after_result.gain_db - 1.266050271) > 0.2,
+        "HOT reduction intentionally differs from a fresh graph prepared at the lower cap");
+    assert_near(after_result.phase_radians, -0.162977397, 0.02,
+        "HOT cap reduction keeps the prepared filter's off-center phase");
 }
 
 static void test_cap_decrease_during_active_mix_ramp_preserves_ramp_and_history(void) {
@@ -368,8 +425,16 @@ static void test_cap_decrease_during_active_mix_ramp_preserves_ramp_and_history(
         "active-ramp cap change preserves detector and filter coefficients and delay state");
     assert_true(eq.bands[0].envelope == before.envelope && eq.bands[0].current_mix == before.current_mix &&
         eq.bands[0].target_mix == before.target_mix && eq.bands[0].mix_step == before.mix_step &&
-        eq.bands[0].frames_until_control == before.frames_until_control,
-        "active-ramp cap change preserves envelope and in-flight mix ramp");
+        eq.bands[0].frames_until_control == 0,
+        "active-ramp cap change preserves envelope/current mix and schedules a new target");
+    float left = 0.05f * sinf((float)(2.0 * 3.14159265358979323846 * TEST_FREQUENCY_HZ * 40 / TEST_SAMPLE_RATE));
+    float right = 0.0f;
+    dsp_dynamic_eq_process_frame(&eq, &left, &right, 1);
+    const double expected_target = (pow(10.0, 3.0 / 20.0) - 1.0) / (pow(10.0, 6.0 / 20.0) - 1.0);
+    assert_near(eq.bands[0].target_mix, expected_target, 1.0e-5,
+        "first frame after an in-flight ramp applies the updated target");
+    assert_true(fabsf(eq.bands[0].current_mix - before.current_mix) < 0.05f,
+        "new target starts smoothly from the preserved current mix");
 }
 
 int main(void) {
@@ -378,6 +443,7 @@ int main(void) {
     test_configured_peak_filters_match_legacy_off_center_golden_response();
     test_gain_caps_track_center_gain_without_changing_phase_or_latency();
     test_unrepresentable_cap_increases_defer_without_mutation();
+    test_hot_cap_reduction_uses_prepared_off_center_curve();
     test_cap_decrease_during_active_mix_ramp_preserves_ramp_and_history();
     if (failures != 0) {
         fprintf(stderr, "%d Dynamic EQ HOT test(s) failed\n", failures);

@@ -74,6 +74,7 @@
 | `:shared:testDebugUnitTest --tests CarPlayMediaEngineTest --tests AndroidMediaSinkStateTest --tests VideoStatsTest --tests VideoDecodeQueueTest` | OPT-08 worktree | Windows, JDK 21.0.9 | `PASS`: 56 tests, 0 failures/errors/skips. Includes per-display recovery outcome counters and deterministic stats percentile formatting. |
 | `:shared:testDebugUnitTest` + `:common:testDebugUnitTest` | Merged integration SHA `54b65005` | Windows, JDK 21.0.9 | `PASS`: shared 682/682; common 236/236; zero failures/errors/skips. |
 | `:shared:connectedDebugAndroidTest` | OPT-08 worktree | `Medium_Phone_API_36.1`, x86_64 emulator | `PASS`: 19 tests, 0 failures/errors/skips. This is the existing DSP instrumentation suite; no live MediaCodec video test exists in the suite. |
+| GitHub Actions run #551 on PR head `000e59e9` | `choko510/DiPlay` PR #45 | hosted Linux + API 35 emulator | `PASS`: classifier, public-tree, EX-08 inventory, host native, ASan/UBSan, full unit/lint/build/JNI/R8, API 35 instrumentation (20/20), host-baseline and Draft scope. The Draft unit lane was skipped because full-host verification ran. Archived artifacts contain 918 unit tests in 162 XML suites and 20 instrumentation tests in 2 XML suites, all with zero failures/errors/skips. |
 | `:shared:assembleDebug`, `:mobile:assembleDebug`, `:automotive:assembleDebug` | OPT-08 worktree | Windows, Android SDK 37.1 | `PASS`: all Debug artifacts built. NDK 28.2 emitted the existing missing `source.properties` and unstripped-library warnings. |
 | `:mobile:assembleBenchmark`, `:automotive:assembleBenchmark`, `scripts/check_jni_mapping.py` | OPT-08 worktree | Windows, Android SDK 37.1 | `PASS`: both Benchmark artifacts built; JNI/R8 mappings verified. |
 | `:mobile:lintDebug`, `:automotive:lintDebug` | OPT-08 worktree | Windows, Android SDK 37.1 | `PASS`. |
@@ -126,3 +127,4 @@
 - `54b65005` — Merge current remote PR #45 work to preserve the concurrent USB handoff/review updates; no main branch update or PR merge.
 - `99b96535` — Initial evidence and Working Memory closeout.
 - `178739b1` — Merge remote PR #45 USB review follow-up documentation without dropping the OPT implementation.
+- `000e59e9` — Report and Working Memory closeout; run #551 passed on this PR head.

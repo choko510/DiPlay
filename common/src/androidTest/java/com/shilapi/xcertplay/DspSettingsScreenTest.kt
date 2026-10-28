@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.res.Configuration
+import android.os.Debug
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
@@ -109,6 +110,10 @@ class DspSettingsScreenTest {
             val expectedGainDb = 3.0
             val tabs = dspStudioTabs()
             val visits = mutableMapOf<DspStudioTab, Int>()
+            val allocatedBytesBefore = requireNotNull(
+                Debug.getRuntimeStats()["art.gc.bytes-allocated"]?.toLongOrNull(),
+            )
+            val switchingStartedAt = System.nanoTime()
             repeat(100) { index ->
                 val tab = tabs[(index + 1) % tabs.size]
                 visits[tab] = (visits[tab] ?: 0) + 1
@@ -170,6 +175,15 @@ class DspSettingsScreenTest {
             assertTrue(studioSession.isDirty)
             composeRule.onNodeWithText("Unsaved DSP Studio draft").assertExists()
             assertEquals(expectedGainDb, runtime.editorSession.draftProfile.eqBands[2].gainDb, 0.05)
+            val switchingElapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - switchingStartedAt)
+            val allocatedBytesAfter = requireNotNull(
+                Debug.getRuntimeStats()["art.gc.bytes-allocated"]?.toLongOrNull(),
+            )
+            val allocatedBytesDelta = allocatedBytesAfter - allocatedBytesBefore
+            println(
+                "DSP_UI_TAB_SWITCH_METRICS switches=100 elapsed_ms=$switchingElapsedMs alloc_bytes_delta=$allocatedBytesDelta",
+            )
+            assertTrue(switchingElapsedMs > 0 && allocatedBytesDelta >= 0L)
         } finally {
             runtime.closeForTesting()
         }

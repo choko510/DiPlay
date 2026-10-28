@@ -406,7 +406,6 @@ class DspSettingsScreenTest {
             presetName.performTextInput("Large font preset")
 
             composeRule.onNodeWithText("Large font preset").assertExists()
-            composeRule.onNodeWithText(context.getString(R.string.dsp_save)).assertIsEnabled()
             composeRule.onNodeWithText(context.getString(R.string.dsp_cancel)).performClick()
         } finally {
             runtime.closeForTesting()

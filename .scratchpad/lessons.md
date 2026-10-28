@@ -637,4 +637,6 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 
 2026-10-28 PH02-T04: Compose tests should use `performImeAction()` only when the TextField exposes a non-default IME action; default single-line fields accept `performTextInput()` but have no IME action semantic. Re-report renderer status with the current config generation after a sequence of draft previews before asserting the displayed status.
 
+2026-10-28 PH02-T04: A full screen may contain a background `Save` action and a dialog `Save` action simultaneously. Prefer asserting the entered text and the scoped dialog state instead of matching an ambiguous label globally.
+
 2026-10-28 T-SAFE-08: When the current signal path has no True Peak or gain-reduction telemetry, disclose that limitation beside the Limiter control rather than implying a measurement or warning exists.

@@ -317,6 +317,7 @@ static void test_unrepresentable_cap_increases_defer_without_mutation(void) {
             dsp_dynamic_eq before = eq;
             dsp_dynamic_eq_config target = eq.config;
             const double higher_cap = initial_caps[index] == 0.0 ? 1.0 : initial_caps[index] + 1.0;
+            target.bands[2].threshold_db -= 1.0;
             if (mode == DSP_DYNAMIC_EQ_BOOST) target.bands[2].max_boost_db = higher_cap;
             else target.bands[2].max_cut_db = higher_cap;
             dsp_dynamic_eq_hot_update update;

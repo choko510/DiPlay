@@ -1,0 +1,14 @@
+{
+  "repository": "choko510/DiPlay",
+  "runs": [
+    {
+      "id": 40497504756,
+      "url": "https://github.com/choko510/DiPlay/actions/runs/40497504756",
+      "metadata_source": "https://api.github.com/repos/choko510/DiPlay/actions/runs/40497504756",
+      "status": "completed",
+      "conclusion": "success",
+      "head_sha": "1e4a8962cedcc90fbf505c5f01346408e2842b77",
+      "observed_at": "2026-10-28T00:00:00Z"
+    }
+  ]
+}

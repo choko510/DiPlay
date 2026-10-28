@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
+from datetime import datetime
 from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX = ROOT / "docs/dsp-studio/TEST_MATRIX_DETAILED.md"
 LEDGER = ROOT / "docs/dsp-studio/REMAINING_FIX_TRACKER.md"
+ACTIONS_RUN_REGISTRY = ROOT / "docs/dsp-studio/verified_actions_runs.json"
 EXPECTED_COVERAGE = {f"REM-{n:02d}" for n in range(1, 13)} | {
     f"PKG-R{n:02d}" for n in range(13)
 }
@@ -54,9 +57,33 @@ WORK_PACKAGE_ROWS = [
     for row in WORK_PACKAGE_ROWS
 ]
 EXPECTED_WORK_PACKAGE_NAMES = {row[0]: row[1] for row in WORK_PACKAGE_ROWS}
-EVIDENCE_FIELDS = ("Method", "Command", "Result", "Source SHA", "Artifact")
+EVIDENCE_FIELDS = (
+    "TestClass.Method",
+    "Assertion(s)",
+    "ExecutionCommand",
+    "TestType",
+    "GitSHA",
+    "CI_Run",
+    "ArtifactPath/URL",
+    "Result",
+    "Environment(API/ABI/OS/device)",
+    "Reviewer",
+    "LastObservedAt",
+)
+TRACKER_COLUMNS = (
+    "ID",
+    "AcceptancePredicate",
+    "Status",
+    *EVIDENCE_FIELDS,
+    "RemainingRisk",
+    "Runbook",
+    "Blocking reason",
+    "Missing evidence",
+    "Unproven predicate",
+)
+TRACKER_HEADER = "| " + " | ".join(TRACKER_COLUMNS) + " |"
 SHA_RE = re.compile(r"^[0-9a-f]{40}$", re.IGNORECASE)
-GITHUB_ACTIONS_RUN_RE = re.compile(r"^https://github\.com/choko510/DiPlay/actions/runs/\d+/?$")
+GITHUB_ACTIONS_RUN_RE = re.compile(r"^https://github\.com/choko510/DiPlay/actions/runs/(\d+)/?$")
 MARKDOWN_LINK_RE = re.compile(r"^\[[^\]]+\]\(([^)]+)\)$")
 
 
@@ -140,9 +167,43 @@ def repo_file_exists(path_text: str, *, relative_to: Path) -> bool:
     return resolved.is_file()
 
 
-def valid_artifact(reference: str) -> bool:
-    if GITHUB_ACTIONS_RUN_RE.fullmatch(reference):
-        return True
+def load_actions_run_registry() -> dict[str, dict[str, str]]:
+    try:
+        payload = json.loads(ACTIONS_RUN_REGISTRY.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict) or payload.get("repository") != "choko510/DiPlay":
+        return {}
+    runs = payload.get("runs")
+    if not isinstance(runs, list):
+        return {}
+    verified: dict[str, dict[str, str]] = {}
+    for run in runs:
+        if not isinstance(run, dict):
+            continue
+        run_id = run.get("id")
+        head_sha = run.get("head_sha")
+        if (
+            isinstance(run_id, int)
+            and not isinstance(run_id, bool)
+            and isinstance(head_sha, str)
+            and SHA_RE.fullmatch(head_sha)
+            and run.get("url") == f"https://github.com/choko510/DiPlay/actions/runs/{run_id}"
+            and run.get("metadata_source") == f"https://api.github.com/repos/choko510/DiPlay/actions/runs/{run_id}"
+            and isinstance(run.get("observed_at"), str)
+            and valid_observed_at(run["observed_at"])
+            and run.get("status") == "completed"
+            and run.get("conclusion") == "success"
+        ):
+            verified[str(run_id)] = {"head_sha": head_sha.lower()}
+    return verified
+
+
+def valid_artifact(reference: str, source_sha: str) -> bool:
+    run_match = GITHUB_ACTIONS_RUN_RE.fullmatch(reference)
+    if run_match:
+        run = load_actions_run_registry().get(run_match.group(1))
+        return bool(run and run["head_sha"] == source_sha.lower())
     return repo_file_exists(reference, relative_to=ROOT)
 
 
@@ -153,6 +214,14 @@ def valid_runbook(reference: str) -> bool:
         return False
     target = target.split("#", 1)[0].split("?", 1)[0]
     return bool(target) and repo_file_exists(target, relative_to=MATRIX.parent)
+
+
+def valid_observed_at(value: str) -> bool:
+    try:
+        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return timestamp.tzinfo is not None
 
 
 def create_tracker() -> None:
@@ -171,27 +240,27 @@ def create_tracker() -> None:
         "This ledger mirrors all acceptance IDs in [TEST_MATRIX_DETAILED.md](TEST_MATRIX_DETAILED.md). It records evidence independently and does not promote historical suite or CI results. No row is `PASS` because this branch has no per-ID evidence bundle tied to its source SHA.", "",
         "Counts: **170 acceptance rows** (60 PH-ID + 110 T-ID). Status counts are calculated by `python scripts/check_dsp_studio_evidence.py`.", "",
         "## Evidence ledger", "",
-        "`PASS` requires a method, exact command, observed result, full 40-character source SHA, and artifact, with no missing fields. `PARTIAL` lists every blank evidence field and describes the acceptance requirement that remains unproven. `NOT_RUN` requires a runbook and a concrete blocker.", "",
-        "| ID | Acceptance case | Status | Method | Command | Result | Source SHA | Artifact | Runbook | Blocking reason | Missing fields | What missing |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "`PASS` requires every test, assertion, command, type, source SHA, CI run, artifact, result, environment, reviewer, and observation-time field. `PARTIAL` lists every missing evidence field and describes the unproven predicate. `NOT_RUN` requires a valid runbook reference and blocking reason. `RemainingRisk` stays explicit for every row.", "",
+        "| " + " | ".join(TRACKER_COLUMNS) + " |",
+        "|" + "|".join("---" for _ in TRACKER_COLUMNS) + "|",
     ]
     for id_, acceptance, status_gap in source_rows:
         status, gap = status_gap.split("\t", 1)
         acceptance = acceptance.replace("|", "\\|")
-        if status == "NOT_RUN":
-            runbook = "[RUNBOOK.md](RUNBOOK.md)"
-            blocker = gap.replace("|", "/") or "Dedicated device or acceptance run has not been executed."
-            missing = "Method, Command, Result, Source SHA, Artifact"
-        else:
-            runbook = "[RUNBOOK.md](RUNBOOK.md)"
-            blocker = gap.replace("|", "/")
-            missing = "Method, Command, Result, Source SHA, Artifact"
-        what_missing = f"Acceptance remains unproven: {gap}".replace("|", "/")
-        lines.append(f"| {id_} | {acceptance} | {status} |  |  |  |  |  | {runbook} | {blocker} | {missing} | {what_missing} |")
+        safe_gap = gap.replace("|", "/")
+        runbook = "[RUNBOOK.md](RUNBOOK.md)"
+        blocker = safe_gap or "Dedicated device or acceptance run has not been executed."
+        missing = ", ".join(EVIDENCE_FIELDS)
+        unproven = f"Not run: {safe_gap}" if status == "NOT_RUN" else f"Not directly demonstrated: {safe_gap}"
+        values = [
+            id_, acceptance, status, *("" for _ in EVIDENCE_FIELDS), safe_gap,
+            runbook, blocker, missing, unproven,
+        ]
+        lines.append("| " + " | ".join(values) + " |")
     lines.extend(["", "## Work package tracker", "", "This table tracks execution ownership, dependencies, paths, implementation commits, tests, risks, review, and QA separately from acceptance evidence. `NOT_STARTED` means no implementation/package definition is recorded, `IN_PROGRESS` means tracked work remains active, and `PARTIAL` means some implementation or verification exists but the package is not closed. Owners show current task assignments: `/root (pending work)` is the primary owner unless an explicit subtask owner is listed. Historical PR author/model attribution is not inferred. `Not recorded` marks unavailable dependencies, commits, commands, results, or reviews.", "", "| Work ID | Work package | Status | Owner | Dependencies | Relevant paths | Implementation commit | Test command | Test result | Unresolved risk | Review state | QA state |", "|---|---|---|---|---|---|---|---|---|---|---|---|"])
     for package in WORK_PACKAGE_ROWS:
         lines.append("| " + " | ".join(package) + " |")
-    lines.extend(["", "## Running the check", "", "Run `python scripts/check_dsp_studio_evidence.py`. The validator compares IDs and acceptance predicates to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, validates artifact and runbook references, enforces status-specific evidence fields, and requires PARTIAL rows to describe the unproven acceptance requirement.", ""])
+    lines.extend(["", "## Running the check", "", "Run `python scripts/check_dsp_studio_evidence.py`. The validator compares IDs and acceptance predicates to the canonical detailed matrix, requires exactly 170 IDs and all 25 REM/PKG coverage IDs, rejects duplicates, checks all §12.2 evidence columns, validates artifact and runbook references, and enforces PASS/PARTIAL/NOT_RUN contracts.", ""])
     LEDGER.write_text("\n".join(lines), encoding="utf-8")
 
 
@@ -204,20 +273,20 @@ def validate() -> list[str]:
     canonical = canonical_acceptance_cases()
     if set(canonical) != ids:
         errors.append("canonical acceptance predicate rows do not match canonical IDs")
-    rows = table_rows(LEDGER, "| ID | Acceptance case | Status | Method | Command | Result | Source SHA | Artifact | Runbook | Blocking reason | Missing fields | What missing |")
+    rows = table_rows(LEDGER, TRACKER_HEADER)
     if not rows:
         return errors + ["tracker evidence table was not found"]
     entries: dict[str, list[str]] = {}
     for row in rows:
-        if len(row) != 12:
-            errors.append(f"tracker row has {len(row)} columns, expected 12: {row[:1]}")
+        if len(row) != len(TRACKER_COLUMNS):
+            errors.append(f"tracker row has {len(row)} columns, expected {len(TRACKER_COLUMNS)}: {row[:1]}")
             continue
         id_, status = row[0], row[2]
         if id_ in entries:
             errors.append(f"duplicate tracker ID {id_}")
         entries[id_] = row
-        fields = dict(zip(("ID", "Acceptance", "Status", *EVIDENCE_FIELDS, "Runbook", "Blocking reason", "Missing fields", "What missing"), row))
-        if id_ in canonical and fields["Acceptance"] != canonical[id_]:
+        fields = dict(zip(TRACKER_COLUMNS, row))
+        if id_ in canonical and fields["AcceptancePredicate"] != canonical[id_]:
             errors.append(f"{id_}: acceptance predicate does not match TEST_MATRIX_DETAILED.md")
         if status not in {"PASS", "PARTIAL", "NOT_RUN"}:
             errors.append(f"{id_}: invalid status {status!r}")
@@ -226,33 +295,47 @@ def validate() -> list[str]:
             for field in EVIDENCE_FIELDS:
                 if not fields[field]:
                     errors.append(f"{id_}: PASS requires {field}")
-            if fields["Source SHA"] and not SHA_RE.fullmatch(fields["Source SHA"]):
-                errors.append(f"{id_}: PASS source SHA must be a full 40-character commit")
-            if fields["Missing fields"]:
-                errors.append(f"{id_}: PASS must not list missing fields")
-            if fields["Artifact"] and not valid_artifact(fields["Artifact"]):
-                errors.append(f"{id_}: PASS artifact must resolve to an existing repo file or direct GitHub Actions run URL")
+            if fields["GitSHA"] and not SHA_RE.fullmatch(fields["GitSHA"]):
+                errors.append(f"{id_}: GitSHA must be a full 40-character commit")
+            if not valid_observed_at(fields["LastObservedAt"]):
+                errors.append(f"{id_}: LastObservedAt must be an ISO-8601 timestamp with timezone")
+            if fields["Missing evidence"]:
+                errors.append(f"{id_}: PASS must not list missing evidence")
+            if fields["Unproven predicate"]:
+                errors.append(f"{id_}: PASS must not list an unproven predicate")
+            if fields["RemainingRisk"] == "":
+                errors.append(f"{id_}: PASS requires RemainingRisk or an explicit no-risk value")
+            if fields["ArtifactPath/URL"] and not valid_artifact(fields["ArtifactPath/URL"], fields["GitSHA"]):
+                errors.append(f"{id_}: artifact must resolve to a repo file or a registry-verified successful Actions run for GitSHA")
         elif status == "NOT_RUN":
             if not fields["Runbook"] or not fields["Blocking reason"]:
                 errors.append(f"{id_}: NOT_RUN requires runbook and blocking reason")
             elif not valid_runbook(fields["Runbook"]):
                 errors.append(f"{id_}: runbook reference does not resolve to an existing repo file")
+            if not fields["RemainingRisk"]:
+                errors.append(f"{id_}: NOT_RUN requires RemainingRisk")
+            if fields["ArtifactPath/URL"] and not valid_artifact(fields["ArtifactPath/URL"], fields["GitSHA"]):
+                errors.append(f"{id_}: artifact must resolve to a repo file or a registry-verified successful Actions run for GitSHA")
         else:
             if not fields["Runbook"]:
                 errors.append(f"{id_}: PARTIAL requires a runbook reference")
             elif not valid_runbook(fields["Runbook"]):
                 errors.append(f"{id_}: runbook reference does not resolve to an existing repo file")
-            if not fields["What missing"]:
-                errors.append(f"{id_}: PARTIAL requires a description of the unproven acceptance requirement")
-            missing = [part.strip() for part in fields["Missing fields"].split(",") if part.strip()]
+            if not fields["Unproven predicate"]:
+                errors.append(f"{id_}: PARTIAL requires a description of the unproven acceptance predicate")
+            if not fields["RemainingRisk"]:
+                errors.append(f"{id_}: PARTIAL requires RemainingRisk")
+            if fields["ArtifactPath/URL"] and not valid_artifact(fields["ArtifactPath/URL"], fields["GitSHA"]):
+                errors.append(f"{id_}: artifact must resolve to a repo file or a registry-verified successful Actions run for GitSHA")
+            missing = [part.strip() for part in fields["Missing evidence"].split(",") if part.strip()]
             for field in missing:
                 if field not in EVIDENCE_FIELDS:
-                    errors.append(f"{id_}: unknown missing field {field!r}")
+                    errors.append(f"{id_}: unknown missing evidence field {field!r}")
                 elif fields[field]:
-                    errors.append(f"{id_}: {field} is populated but listed as missing")
+                    errors.append(f"{id_}: {field} is populated but listed as missing evidence")
             expected_missing = [field for field in EVIDENCE_FIELDS if not fields[field]]
             if missing != expected_missing:
-                errors.append(f"{id_}: Missing fields must exactly list blank evidence fields")
+                errors.append(f"{id_}: Missing evidence must exactly list blank evidence fields")
     expected = ids
     actual = set(entries)
     if actual != expected:

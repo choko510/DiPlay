@@ -154,6 +154,50 @@ internal class VideoPendingOutputState(
     }
 }
 
+internal class VideoSurfaceRecoveryPolicy(
+    val enabled: Boolean = false,
+    private val initialDelayNs: Long = TimeUnit.MILLISECONDS.toNanos(250),
+) {
+    private var surfaceChangedAtNs: Long? = null
+    private var requestSent = false
+
+    init {
+        require(initialDelayNs >= 0L)
+    }
+
+    fun onSurfaceChanged(surfaceAvailable: Boolean, nowNs: Long) {
+        if (!enabled || !surfaceAvailable) {
+            reset()
+            return
+        }
+        surfaceChangedAtNs = nowNs
+        requestSent = false
+    }
+
+    fun shouldRequestKeyFrame(
+        nowNs: Long,
+        streamActive: Boolean,
+        decoderAvailable: Boolean,
+        surfaceAvailable: Boolean,
+        configAvailable: Boolean,
+    ): Boolean {
+        val changedAtNs = surfaceChangedAtNs ?: return false
+        return enabled && !requestSent && streamActive && decoderAvailable && surfaceAvailable &&
+            configAvailable && (nowNs - changedAtNs).coerceAtLeast(0L) >= initialDelayNs
+    }
+
+    fun onKeyFrameRequested() {
+        if (enabled && surfaceChangedAtNs != null) requestSent = true
+    }
+
+    fun onOutputSubmitted() = reset()
+
+    fun reset() {
+        surfaceChangedAtNs = null
+        requestSent = false
+    }
+}
+
 internal fun drainVideoCodecOutput(
     running: () -> Boolean,
     dequeue: (Long) -> Int,

@@ -163,6 +163,7 @@ class AndroidMediaSink(
         ((MicrophoneConfig, () -> Boolean) -> MicrophoneUplinkController)? = null
     internal var beforeVideoDecoderStopForTest: (() -> Unit)? = null
     internal var videoCodecReleaseForTest: ((MediaCodec) -> Unit)? = null
+    internal var surfaceRecoveryEnabledForTest = false
 
     override fun setVideoRecoveryHandler(type: Int, handler: () -> Unit) {
         synchronized(videoDecoderLocks.computeIfAbsent(type) { Any() }) {
@@ -507,6 +508,7 @@ class AndroidMediaSink(
                 },
                 streamType = type,
                 streamGeneration = generation,
+                surfaceRecoveryEnabled = surfaceRecoveryEnabledForTest,
             )
             decoderReference.set(decoder)
             videoDecoders[type] = decoder
@@ -583,6 +585,7 @@ private class VideoDecoder(
     private val onStopped: (Boolean) -> Unit,
     private val streamType: Int,
     private val streamGeneration: Long,
+    surfaceRecoveryEnabled: Boolean,
 ) : Closeable {
     private val queue = VideoDecodeQueue()
     private val pendingOutputState = VideoPendingOutputState()
@@ -608,6 +611,7 @@ private class VideoDecoder(
     private var submittedFrameLogged = false
     private var duplicateConfigLogged = false
     private val referenceChain = VideoReferenceChain()
+    private val surfaceRecoveryPolicy = VideoSurfaceRecoveryPolicy(surfaceRecoveryEnabled)
     private var lastKeyFrameRequestNs = 0L
     private val stats = VideoStats()
     private var lastSurfaceRetirementDiagnosticNs = 0L
@@ -691,7 +695,16 @@ private class VideoDecoder(
                         }
                         is VideoJob.SurfaceChanged -> {
                             pendingSurfaceRetirements += queue.takeSurfaceRetirements()
-                            if (changeSurface(job.surface)) completeRetiredSurfaceChanges()
+                            val previousSurface = outputSurface
+                            if (changeSurface(job.surface)) {
+                                if (previousSurface !== job.surface) {
+                                    surfaceRecoveryPolicy.onSurfaceChanged(
+                                        surfaceAvailable = job.surface != null,
+                                        nowNs = System.nanoTime(),
+                                    )
+                                }
+                                completeRetiredSurfaceChanges()
+                            }
                             reportSurfaceRetirementBacklogIfDue()
                         }
                         is VideoJob.Resync -> recover("video queue overflow")
@@ -705,6 +718,7 @@ private class VideoDecoder(
                         }
                         drainOutput(codec, timeoutUs)
                     }
+                    requestSurfaceRecoveryIfDue()
                     stats.logIfDue()?.let(report)
                     if (referenceChain.needsKeyFrame && lastConfig != null && outputSurface != null) requestKeyFrameIfDue()
                 } catch (error: Exception) {
@@ -1099,6 +1113,20 @@ private class VideoDecoder(
         if (lastKeyFrameRequestNs != 0L && now - lastKeyFrameRequestNs < 1_000_000_000L) return
         lastKeyFrameRequestNs = now
         requestKeyFrame()
+        surfaceRecoveryPolicy.onKeyFrameRequested()
+    }
+
+    private fun requestSurfaceRecoveryIfDue() {
+        if (surfaceRecoveryPolicy.shouldRequestKeyFrame(
+                nowNs = System.nanoTime(),
+                streamActive = running,
+                decoderAvailable = decoder != null,
+                surfaceAvailable = outputSurface != null,
+                configAvailable = lastConfig != null,
+            )
+        ) {
+            requestKeyFrameIfDue()
+        }
     }
 
     private fun drainOutput(codec: MediaCodec, firstTimeoutUs: Long = 0L) {
@@ -1112,6 +1140,11 @@ private class VideoDecoder(
                 codec.releaseOutputBuffer(index, submitToSurface)
                 pendingOutputState.onOutputDequeued()
                 if (submitToSurface) stats.onSubmittedToSurface()
+                if (submitToSurface && info.size > 0 &&
+                    info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0
+                ) {
+                    surfaceRecoveryPolicy.onOutputSubmitted()
+                }
                 if (submitToSurface && !submittedFrameToSurfaceLogged) {
                     submittedFrameToSurfaceLogged = true
                     onFirstFrameSubmittedToSurface()
@@ -1152,6 +1185,7 @@ private class VideoDecoder(
     @Synchronized
     private fun releaseDecoder(): Boolean {
         pendingOutputState.reset()
+        surfaceRecoveryPolicy.reset()
         val previouslyFailed = failedDecoderReleases.toList()
         failedDecoderReleases.clear()
         val codec = decoder

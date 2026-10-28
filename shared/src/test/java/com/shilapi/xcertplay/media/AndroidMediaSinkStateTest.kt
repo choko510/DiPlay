@@ -75,6 +75,30 @@ class AndroidMediaSinkStateTest {
         }
     }
 
+    @Test fun sinkSurfaceRecoveryDefaultsOffAndRequiresExplicitTestOptIn() {
+        val disabledSink = AndroidMediaSink()
+        val enabledSink = AndroidMediaSink().apply { surfaceRecoveryEnabledForTest = true }
+        val decoderFactory = AndroidMediaSink::class.java.getDeclaredMethod(
+            "videoDecoder",
+            Int::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+        disabledSink.onScreenStreamActive(110, true)
+        enabledSink.onScreenStreamActive(110, true)
+
+        try {
+            val disabledDecoder = checkNotNull(decoderFactory.invoke(disabledSink, 110))
+            val enabledDecoder = checkNotNull(decoderFactory.invoke(enabledSink, 110))
+            val disabledPolicy = privateField(disabledDecoder, "surfaceRecoveryPolicy") as VideoSurfaceRecoveryPolicy
+            val enabledPolicy = privateField(enabledDecoder, "surfaceRecoveryPolicy") as VideoSurfaceRecoveryPolicy
+
+            assertFalse(disabledPolicy.enabled)
+            assertTrue(enabledPolicy.enabled)
+        } finally {
+            disabledSink.close()
+            enabledSink.close()
+        }
+    }
+
     @Test fun retiredVideoObserverCannotClaimAReplacementStreamFrame() {
         val generations = VideoStreamGenerations()
         val oldMain = generations.advance(110)

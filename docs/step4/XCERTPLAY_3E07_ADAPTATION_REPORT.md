@@ -45,7 +45,7 @@
 | OPT-02 | Reuse one `MediaCodec.BufferInfo` on the decoder worker | `IMPLEMENTED_AND_TESTED` | `AndroidMediaSinkStateTest` passed 19/19; its regression verifies separate MAIN/ALT decoder-owned instances. This proves ownership and source-level allocation removal, not a codec runtime gain. Revert: OPT-02 commit. |
 | OPT-03 | Reduce idle polling while draining queued codec output with bounded waits | `IMPLEMENTED_AND_TESTED` | Focused queue/sink suites passed 30/30. Simulated output covers final-frame drain, multiple delayed outputs, 8 ms cap, 500 ms expiry, bounded pending count, Surface reset and ACK. Device wake/latency effect remains unmeasured. Revert: OPT-03 commit. |
 | OPT-04 | Send correctly addressed MAIN/ALT keyframe requests | `IMPLEMENTED_AND_TESTED` | `CarPlayMediaEngineTest` passed 22/22; MAIN/ALT payload shape, missing UUID, unknown type, send failure and stale owner are covered. Diagnostics contain no UUID. Device command acceptance remains unverified. Revert: OPT-04 commit. |
-| OPT-05 | Recover a changed Surface only after a bounded no-output condition | `NOT_RUN` | Device-unproven behavior must default off in release. Revert: phase commit. |
+| OPT-05 | Recover a changed Surface only after a bounded no-output condition | `IMPLEMENTED_DEVICE_PENDING` | The policy waits 250 ms, requires a running decoder/config/non-null Surface, stops after a non-config output, and uses the existing 1 s request gate. `VideoDecodeQueueTest` and `AndroidMediaSinkStateTest` passed 32/32; production default is OFF. Target frame continuity/request rate is unverified. Revert: OPT-05 commit. |
 | OPT-06 | Batch Activity log delivery | `NOT_RUN` | Adoption requires real startup/reconnect counters; do not infer from synthetic tests. |
 | OPT-07 | Validate existing NAL conversion and justify non-migration | `IN_PROGRESS` | Existing `MediaCodecSupportTest` baseline passed; final source and output-byte evidence to be recorded. |
 | OPT-08 | Add bounded, payload-free video-path measurements | `NOT_RUN` | Report emulator/device comparisons only when actually measured. |
@@ -68,6 +68,7 @@
 | `:shared:testDebugUnitTest --tests AndroidMediaSinkStateTest` | OPT-02 worktree | Windows, JDK 21.0.9 | `PASS`: 19 tests, 0 failures/errors/skips. MediaCodec output runtime behavior remains subject to emulator/device validation. |
 | `:shared:testDebugUnitTest --tests VideoDecodeQueueTest --tests AndroidMediaSinkStateTest` | OPT-03 worktree | Windows, JDK 21.0.9 | `PASS`: 30 tests, 0 failures/errors/skips. The fake-output drain tests are software timing evidence, not OEM MediaCodec evidence. |
 | `:shared:testDebugUnitTest --tests CarPlayMediaEngineTest` | OPT-04 worktree | Windows, JDK 21.0.9 | `PASS`: 22 tests, 0 failures/errors/skips. No live event-channel/iPhone acknowledgement was exercised. |
+| `:shared:testDebugUnitTest --tests VideoDecodeQueueTest --tests AndroidMediaSinkStateTest` | OPT-05 worktree | Windows, JDK 21.0.9 | `PASS`: 32 tests, 0 failures/errors/skips. Policy tests validate delay/gates and explicit-off default, not actual Surface frame presentation. |
 | API 36 instrumentation / physical acceptance | `c8a1ab0` | emulator attached; no target hardware | `NOT_RUN` at baseline. |
 
 ## Performance before/after

@@ -190,4 +190,27 @@ class VideoDecodeQueueTest {
         assertTrue(outputReadyAtNs.isEmpty())
         assertEquals(0, pending.pendingOutputCount)
     }
+
+    @Test fun surfaceRecoveryRequiresAnEnabledStableSurfaceWithoutSubmittedOutput() {
+        val disabled = VideoSurfaceRecoveryPolicy()
+        disabled.onSurfaceChanged(surfaceAvailable = true, nowNs = 0L)
+        assertFalse(disabled.shouldRequestKeyFrame(300_000_000L, true, true, true, true))
+
+        val enabled = VideoSurfaceRecoveryPolicy(enabled = true)
+        enabled.onSurfaceChanged(surfaceAvailable = true, nowNs = 0L)
+        assertFalse(enabled.shouldRequestKeyFrame(249_999_999L, true, true, true, true))
+        assertFalse(enabled.shouldRequestKeyFrame(250_000_000L, false, true, true, true))
+        assertFalse(enabled.shouldRequestKeyFrame(250_000_000L, true, false, true, true))
+        assertFalse(enabled.shouldRequestKeyFrame(250_000_000L, true, true, false, true))
+        assertFalse(enabled.shouldRequestKeyFrame(250_000_000L, true, true, true, false))
+        assertTrue(enabled.shouldRequestKeyFrame(250_000_000L, true, true, true, true))
+        enabled.onKeyFrameRequested()
+        assertFalse(enabled.shouldRequestKeyFrame(500_000_000L, true, true, true, true))
+
+        enabled.onSurfaceChanged(surfaceAvailable = true, nowNs = 600_000_000L)
+        enabled.onOutputSubmitted()
+        assertFalse(enabled.shouldRequestKeyFrame(1_000_000_000L, true, true, true, true))
+        enabled.onSurfaceChanged(surfaceAvailable = false, nowNs = 2_000_000_000L)
+        assertFalse(enabled.shouldRequestKeyFrame(3_000_000_000L, true, true, true, true))
+    }
 }

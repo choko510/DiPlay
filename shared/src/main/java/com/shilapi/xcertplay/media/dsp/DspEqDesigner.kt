@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.media.dsp
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.log10
 import kotlin.math.max
@@ -256,6 +257,13 @@ internal data class DspPreparedHotUpdate(
     val macroValues: DoubleArray,
     val smartLoudnessValues: DoubleArray,
     val dynamicBassValues: DoubleArray,
+    val sampleRateHz: Int = 48_000,
+    val hotPayloadVersion: Int = 1,
+    val hotFieldMask: Int = HOT_FIELD_STUDIO,
+    val dynamicsValues: DoubleArray = DoubleArray(DYNAMICS_VALUES_COUNT),
+    val dynamicEqValues: DoubleArray = DoubleArray(DYNAMIC_EQ_VALUES_COUNT),
+    val dynamicsCoefficients: DoubleArray = DoubleArray(DYNAMICS_COEFFICIENTS_COUNT),
+    val dynamicEqCoefficients: DoubleArray = DoubleArray(DYNAMIC_EQ_COEFFICIENTS_COUNT),
     val appliedPreampLinear: Double = 10.0.pow(appliedPreampDb / 20.0),
 ) {
     val gainPairIsConsistent: Boolean = run {
@@ -267,6 +275,13 @@ internal data class DspPreparedHotUpdate(
         get() = ((generation and GENERATION_TOKEN_MASK).toInt()).let { if (it == 0) 1 else it }
 
     companion object {
+        const val HOT_FIELD_STUDIO = 1
+        const val HOT_FIELD_DYNAMICS = 2
+        const val HOT_FIELD_DYNAMIC_EQ = 4
+        const val DYNAMICS_VALUES_COUNT = 10
+        const val DYNAMIC_EQ_VALUES_COUNT = 51
+        const val DYNAMICS_COEFFICIENTS_COUNT = 5
+        const val DYNAMIC_EQ_COEFFICIENTS_COUNT = 10
         private const val GENERATION_TOKEN_MASK = 0x7fffffffL
     }
 }
@@ -354,6 +369,7 @@ internal fun DspRuntimeConfig.prepareHotUpdate(
     pcmFormatEpoch: Long,
     hotContextToken: Int,
     mediaRole: Boolean,
+    hotFieldMask: Int = DspPreparedHotUpdate.HOT_FIELD_STUDIO,
 ): DspPreparedHotUpdate {
     require(generation > 0 && editorOwnerEpoch > 0 && rendererOwnerToken > 0 &&
         pcmFormatEpoch > 0 && hotContextToken > 0)
@@ -369,9 +385,30 @@ internal fun DspRuntimeConfig.prepareHotUpdate(
         macroValues = prepared.macroTone,
         smartLoudnessValues = prepared.smartLoudness,
         dynamicBassValues = prepared.dynamicBass,
+        hotFieldMask = hotFieldMask,
+        sampleRateHz = format.sampleRate,
+        hotPayloadVersion = 1,
+        dynamicsValues = prepared.dynamics,
+        dynamicEqValues = prepared.dynamicEq,
+        dynamicsCoefficients = prepared.dynamicsHotCoefficients(format.sampleRate),
+        dynamicEqCoefficients = prepared.dynamicEqHotCoefficients(format.sampleRate),
         appliedPreampLinear = 10.0.pow(prepared.appliedPreampDb / 20.0),
     )
 }
+
+private fun DspPreparedConfig.dynamicsHotCoefficients(sampleRate: Int): DoubleArray = doubleArrayOf(
+    exp(-1.0 / (sampleRate * dynamics[3] * 0.001)),
+    exp(-1.0 / (sampleRate * dynamics[4] * 0.001)),
+    10.0.pow(dynamics[6] / 20.0),
+    exp(-1.0 / (sampleRate * dynamics[9] * 0.001)),
+    10.0.pow(dynamics[8] / 20.0),
+)
+
+private fun DspPreparedConfig.dynamicEqHotCoefficients(sampleRate: Int): DoubleArray =
+    DoubleArray(DspPreparedHotUpdate.DYNAMIC_EQ_COEFFICIENTS_COUNT) { index ->
+        val valueOffset = 1 + (index / 2) * 10 + if (index % 2 == 0) 6 else 7
+        exp(-1.0 / (sampleRate * dynamicEq[valueOffset] * 0.001))
+    }
 
 internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
     advancedMs.validateForSampleRate(format.sampleRate)

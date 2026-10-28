@@ -101,6 +101,8 @@ internal interface DspProcessor : Closeable {
     fun hotUpdateContextToken(): Int = 0
 
     fun hotAcknowledgedToken(): Int = 0
+    fun hotDeferredToken(): Int = 0
+    fun hotDeferredReason(): Int = 0
 
     fun preampHotAcknowledgedToken(): Int = 0
 

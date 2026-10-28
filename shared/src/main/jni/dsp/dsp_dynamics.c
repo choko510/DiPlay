@@ -75,6 +75,22 @@ int dsp_dynamics_hot_params_validate(dsp_dynamics_hot_params *params) {
         !prepared_float_matches(params->compressor_makeup_linear, expected_makeup) ||
         !prepared_float_matches(params->limiter_release_coefficient, expected_limiter_release) ||
         !prepared_float_matches(params->limiter_threshold_linear, expected_limiter_threshold)) return 0;
+    return dsp_dynamics_hot_params_validate_prepared(params);
+}
+
+int dsp_dynamics_hot_params_validate_prepared(dsp_dynamics_hot_params *params) {
+    if (params == NULL || params->version != 1 || params->sample_rate < 8000 ||
+        params->sample_rate > 192000 || !config_is_valid(&params->config) ||
+        !isfinite(params->compressor_attack_coefficient) || params->compressor_attack_coefficient < 0.0f ||
+        params->compressor_attack_coefficient >= 1.0f ||
+        !isfinite(params->compressor_release_coefficient) || params->compressor_release_coefficient < 0.0f ||
+        params->compressor_release_coefficient >= 1.0f ||
+        !isfinite(params->compressor_makeup_linear) || params->compressor_makeup_linear < 0.0630957f ||
+        params->compressor_makeup_linear > 15.848932f ||
+        !isfinite(params->limiter_release_coefficient) || params->limiter_release_coefficient < 0.0f ||
+        params->limiter_release_coefficient >= 1.0f ||
+        !isfinite(params->limiter_threshold_linear) || params->limiter_threshold_linear < 0.2511886f ||
+        params->limiter_threshold_linear > 1.0f) return 0;
     params->validation_token = hot_params_fingerprint(params);
     return 1;
 }
@@ -118,8 +134,8 @@ static int hot_params_are_valid(const dsp_dynamics *dynamics, const dsp_dynamics
         params->limiter_threshold_linear <= 1.0f;
 }
 
-int dsp_dynamics_apply_hot_params(
-    dsp_dynamics *dynamics,
+int dsp_dynamics_can_apply_hot_params(
+    const dsp_dynamics *dynamics,
     const dsp_dynamics_hot_params *params,
     int makeup_ramp_frames) {
     if (dynamics == NULL || params == NULL) return DSP_DYNAMICS_HOT_INVALID;
@@ -129,8 +145,17 @@ int dsp_dynamics_apply_hot_params(
             params->config.limiter_threshold_db > dynamics->config.limiter_threshold_db)) {
         return DSP_DYNAMICS_HOT_DEFERRED;
     }
-    if (!hot_params_are_valid(dynamics, params) || makeup_ramp_frames < 1 ||
-        makeup_ramp_frames > dynamics->sample_rate / 5) return DSP_DYNAMICS_HOT_INVALID;
+    return hot_params_are_valid(dynamics, params) && makeup_ramp_frames >= 1 &&
+        makeup_ramp_frames <= dynamics->sample_rate / 5
+        ? DSP_DYNAMICS_HOT_APPLIED : DSP_DYNAMICS_HOT_INVALID;
+}
+
+int dsp_dynamics_apply_hot_params(
+    dsp_dynamics *dynamics,
+    const dsp_dynamics_hot_params *params,
+    int makeup_ramp_frames) {
+    const int preflight = dsp_dynamics_can_apply_hot_params(dynamics, params, makeup_ramp_frames);
+    if (preflight != DSP_DYNAMICS_HOT_APPLIED) return preflight;
     const float makeup_start = dynamics->compressor_makeup_linear;
     const float makeup_step = (params->compressor_makeup_linear - makeup_start) / (float)makeup_ramp_frames;
     const float threshold_step = ((float)params->config.compressor_threshold_db - dynamics->compressor_threshold_db) /

@@ -60,6 +60,9 @@ typedef enum {
 int dsp_dynamics_prepare(dsp_dynamics *dynamics, int sample_rate, const dsp_dynamics_config *config);
 int dsp_dynamics_prepare_hot_params(int sample_rate, const dsp_dynamics_config *config, dsp_dynamics_hot_params *params);
 int dsp_dynamics_hot_params_validate(dsp_dynamics_hot_params *params);
+int dsp_dynamics_hot_params_validate_prepared(dsp_dynamics_hot_params *params);
+int dsp_dynamics_can_apply_hot_params(const dsp_dynamics *dynamics, const dsp_dynamics_hot_params *params,
+    int makeup_ramp_frames);
 int dsp_dynamics_apply_hot_params(dsp_dynamics *dynamics, const dsp_dynamics_hot_params *params, int makeup_ramp_frames);
 int dsp_dynamics_hot_transition_pending(const dsp_dynamics *dynamics);
 void dsp_dynamics_reset(dsp_dynamics *dynamics);

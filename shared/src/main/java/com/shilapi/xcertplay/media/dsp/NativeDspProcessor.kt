@@ -85,6 +85,8 @@ internal interface NativeDspBindings {
         mediaRole: Boolean,
     ): Boolean = false
     fun hotAckToken(handle: Long): Int = 0
+    fun hotDeferredToken(handle: Long): Int = 0
+    fun hotDeferredReason(handle: Long): Int = 0
     fun preampHotAckToken(handle: Long): Int = 0
     fun localPeqAckToken(handle: Long): Int = 0
     fun localPeqRejectedToken(handle: Long): Int = 0
@@ -182,6 +184,13 @@ internal object NativeDspJni : NativeDspBindings {
         update.macroValues,
         update.smartLoudnessValues,
         update.dynamicBassValues,
+        update.sampleRateHz,
+        update.hotFieldMask,
+        update.hotPayloadVersion,
+        update.dynamicsValues,
+        update.dynamicEqValues,
+        update.dynamicsCoefficients,
+        update.dynamicEqCoefficients,
     )
 
     override fun applyPreampHot(handle: Long, update: DspPreparedPreampHotUpdate): Int = nativeApplyPreampHot(
@@ -235,6 +244,8 @@ internal object NativeDspJni : NativeDspBindings {
     ) == 0
 
     override fun hotAckToken(handle: Long): Int = nativeGetHotAckToken(handle)
+    override fun hotDeferredToken(handle: Long): Int = nativeGetHotDeferredToken(handle)
+    override fun hotDeferredReason(handle: Long): Int = nativeGetHotDeferredReason(handle)
     override fun preampHotAckToken(handle: Long): Int = nativeGetPreampHotAckToken(handle)
 
     override fun localPeqAckToken(handle: Long): Int = nativeGetLocalPeqAckToken(handle)
@@ -303,6 +314,13 @@ internal object NativeDspJni : NativeDspBindings {
         macroValues: DoubleArray,
         smartLoudnessValues: DoubleArray,
         dynamicBassValues: DoubleArray,
+        sampleRateHz: Int,
+        hotFieldMask: Int,
+        hotPayloadVersion: Int,
+        dynamicsValues: DoubleArray,
+        dynamicEqValues: DoubleArray,
+        dynamicsCoefficients: DoubleArray,
+        dynamicEqCoefficients: DoubleArray,
     ): Int
     private external fun nativeApplyPreampHot(
         handle: Long,
@@ -347,6 +365,8 @@ internal object NativeDspJni : NativeDspBindings {
         mediaRole: Boolean,
     ): Int
     private external fun nativeGetHotAckToken(handle: Long): Int
+    private external fun nativeGetHotDeferredToken(handle: Long): Int
+    private external fun nativeGetHotDeferredReason(handle: Long): Int
     private external fun nativeGetPreampHotAckToken(handle: Long): Int
     private external fun nativeGetLocalPeqAckToken(handle: Long): Int
     private external fun nativeCancelLocalPeqUpdate(handle: Long, generationToken: Int): Int
@@ -522,7 +542,18 @@ internal class NativeDspProcessor internal constructor(
 
     override fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean {
         val handle = nativeHandle
-        if (handle <= 0L || update.editorOwnerEpoch != hotEditorOwnerEpoch ||
+        if (handle <= 0L || update.generation <= 0L || update.hotPayloadVersion != 1 ||
+            update.sampleRateHz != format.sampleRate ||
+            update.hotFieldMask <= 0 || (update.hotFieldMask and
+                (DspPreparedHotUpdate.HOT_FIELD_STUDIO or DspPreparedHotUpdate.HOT_FIELD_DYNAMICS or
+                    DspPreparedHotUpdate.HOT_FIELD_DYNAMIC_EQ).inv()) != 0 ||
+            update.dynamicsValues.size != DspPreparedHotUpdate.DYNAMICS_VALUES_COUNT ||
+            update.dynamicEqValues.size != DspPreparedHotUpdate.DYNAMIC_EQ_VALUES_COUNT ||
+            update.dynamicsCoefficients.size != DspPreparedHotUpdate.DYNAMICS_COEFFICIENTS_COUNT ||
+            update.dynamicEqCoefficients.size != DspPreparedHotUpdate.DYNAMIC_EQ_COEFFICIENTS_COUNT ||
+            update.dynamicsValues.any { !it.isFinite() } || update.dynamicEqValues.any { !it.isFinite() } ||
+            update.dynamicsCoefficients.any { !it.isFinite() } || update.dynamicEqCoefficients.any { !it.isFinite() } ||
+            update.editorOwnerEpoch != hotEditorOwnerEpoch ||
             update.rendererOwnerToken != hotRendererOwnerToken || update.pcmFormatEpoch != hotPcmFormatEpoch ||
             update.hotContextToken != hotContextToken || !update.mediaRole
         ) return false
@@ -676,6 +707,20 @@ internal class NativeDspProcessor internal constructor(
         } catch (_: Exception) {
             0
         }
+    }
+
+    override fun hotDeferredToken(): Int = nativeStatusToken(bindings::hotDeferredToken)
+
+    override fun hotDeferredReason(): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try { bindings.hotDeferredReason(handle) } catch (_: Exception) { 0 } catch (_: LinkageError) { 0 }
+    }
+
+    private inline fun nativeStatusToken(read: (Long) -> Int): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try { read(handle) } catch (_: Exception) { 0 } catch (_: LinkageError) { 0 }
     }
 
     override fun preampHotAcknowledgedToken(): Int {

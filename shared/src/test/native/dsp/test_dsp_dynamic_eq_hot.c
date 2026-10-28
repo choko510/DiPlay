@@ -119,6 +119,32 @@ static void test_hot_update_changes_parameters_and_preserves_all_band_state(void
     }
 }
 
+static void test_hot_mix_transition_completes_in_sixteen_frames_with_alternating_levels(void) {
+    dsp_dynamic_eq_config initial = make_config(DSP_DYNAMIC_EQ_CUT, DSP_DYNAMIC_EQ_MAX_GAIN_DB);
+    dsp_dynamic_eq eq;
+    assert_true(prepare_eq(&eq, &initial), "bounded HOT countdown graph prepares");
+    dsp_dynamic_eq_config target = initial;
+    target.bands[0].threshold_db = -18.0;
+    target.bands[0].ratio = 6.0;
+    dsp_dynamic_eq_hot_update update;
+    assert_true(dsp_dynamic_eq_prepare_hot_update(TEST_SAMPLE_RATE, &target, &update),
+        "bounded HOT countdown values prepare");
+    assert_true(dsp_dynamic_eq_apply_hot_update(&eq, &update) == DSP_DYNAMIC_EQ_HOT_UPDATE_APPLIED,
+        "bounded HOT countdown values apply");
+    assert_true(dsp_dynamic_eq_hot_transition_pending(&eq), "mix ramp keeps HOT ACK pending");
+    for (int frame = 0; frame < DSP_DYNAMIC_EQ_CONTROL_FRAMES; frame++) {
+        float left = frame % 2 == 0 ? 0.8f : 0.01f;
+        float right = -left;
+        dsp_dynamic_eq_process_frame(&eq, &left, &right, 2);
+        assert_true(isfinite(left) && isfinite(right), "alternating levels remain finite during HOT mix ramp");
+    }
+    assert_true(eq.config.bands[0].threshold_db == target.bands[0].threshold_db &&
+        eq.bands[0].config.ratio == target.bands[0].ratio,
+        "latest threshold and ratio remain installed after alternating levels");
+    assert_true(!dsp_dynamic_eq_hot_transition_pending(&eq),
+        "HOT countdown completes after sixteen processed frames despite changing detector levels");
+}
+
 static void test_topology_and_invalid_value_rejections_are_atomic(void) {
     dsp_dynamic_eq_config initial = make_config(DSP_DYNAMIC_EQ_BOOST, 3.0);
     const size_t topology_changes[] = {0, 1, 2, 3, 4, 5};
@@ -439,6 +465,7 @@ static void test_cap_decrease_during_active_mix_ramp_preserves_ramp_and_history(
 
 int main(void) {
     test_hot_update_changes_parameters_and_preserves_all_band_state();
+    test_hot_mix_transition_completes_in_sixteen_frames_with_alternating_levels();
     test_topology_and_invalid_value_rejections_are_atomic();
     test_configured_peak_filters_match_legacy_off_center_golden_response();
     test_gain_caps_track_center_gain_without_changing_phase_or_latency();

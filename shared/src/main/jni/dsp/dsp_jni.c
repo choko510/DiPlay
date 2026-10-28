@@ -1,10 +1,15 @@
 #include "dsp_engine.h"
+#include "dsp_graph.h"
 
 #include <jni.h>
 #include <math.h>
 #include <sched.h>
 #include <stdatomic.h>
 #include <stdint.h>
+
+static int hot_value_is_boolean(double value) {
+    return isfinite(value) && (value == 0.0 || value == 1.0);
+}
 
 #define DSP_HANDLE_SLOT_COUNT 64u
 #define DSP_RESERVED_POINTER ((dsp_engine *)(uintptr_t)1)
@@ -518,7 +523,14 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     jboolean gain_pair_validated,
     jdoubleArray macro_values,
     jdoubleArray smart_loudness_values,
-    jdoubleArray dynamic_bass_values) {
+    jdoubleArray dynamic_bass_values,
+    jint sample_rate,
+    jint field_mask,
+    jint hot_version,
+    jdoubleArray dynamics_values,
+    jdoubleArray dynamic_eq_values,
+    jdoubleArray dynamics_coefficients,
+    jdoubleArray dynamic_eq_coefficients) {
     (void)receiver;
     dsp_engine_lease lease = {0};
     if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
@@ -528,16 +540,47 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
         gain_pair_validated != JNI_TRUE || !isfinite(gain_linear) || gain_linear < 1.0e-35 ||
         gain_linear > 15.84893193 ||
         macro_values == NULL || smart_loudness_values == NULL || dynamic_bass_values == NULL ||
+        dynamics_values == NULL || dynamic_eq_values == NULL || dynamics_coefficients == NULL ||
+        dynamic_eq_coefficients == NULL || sample_rate < 8000 || sample_rate > 192000 ||
+        field_mask <= 0 || (field_mask & ~7) != 0 || hot_version != 1 ||
         (*env)->GetArrayLength(env, macro_values) != 5 ||
         (*env)->GetArrayLength(env, smart_loudness_values) != 3 ||
-        (*env)->GetArrayLength(env, dynamic_bass_values) != 9) {
+        (*env)->GetArrayLength(env, dynamic_bass_values) != 9 ||
+        (*env)->GetArrayLength(env, dynamics_values) != 10 ||
+        (*env)->GetArrayLength(env, dynamic_eq_values) != DSP_DYNAMIC_EQ_VALUES_COUNT ||
+        (*env)->GetArrayLength(env, dynamics_coefficients) != 5 ||
+        (*env)->GetArrayLength(env, dynamic_eq_coefficients) != 10) {
         release_engine(&lease);
         return DSP_STATUS_INVALID_ARGUMENT;
     }
     jdouble macro_values_data[5];
     jdouble smart_loudness_values_data[3];
     jdouble dynamic_bass_values_data[9];
+    jdouble dynamics_values_data[10];
+    jdouble dynamic_eq_values_data[DSP_DYNAMIC_EQ_VALUES_COUNT];
+    jdouble dynamics_coefficients_data[5];
+    jdouble dynamic_eq_coefficients_data[10];
     (*env)->GetDoubleArrayRegion(env, macro_values, 0, 5, macro_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamics_values, 0, 10, dynamics_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamic_eq_values, 0, DSP_DYNAMIC_EQ_VALUES_COUNT, dynamic_eq_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamics_coefficients, 0, 5, dynamics_coefficients_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamic_eq_coefficients, 0, 10, dynamic_eq_coefficients_data);
     if ((*env)->ExceptionCheck(env)) {
         release_engine(&lease);
         return DSP_STATUS_INVALID_ARGUMENT;
@@ -551,6 +594,17 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     if ((*env)->ExceptionCheck(env)) {
         release_engine(&lease);
         return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    if (!hot_value_is_boolean(dynamics_values_data[0]) || !hot_value_is_boolean(dynamics_values_data[7]) ||
+        !hot_value_is_boolean(dynamic_eq_values_data[0])) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
+        if (!hot_value_is_boolean(dynamic_eq_values_data[1 + band * 10])) {
+            release_engine(&lease);
+            return DSP_STATUS_INVALID_ARGUMENT;
+        }
     }
     if ((macro_values_data[0] != 0.0 && macro_values_data[0] != 1.0) ||
         !isfinite(macro_values_data[1]) || macro_values_data[1] < -2.0 || macro_values_data[1] > 4.0 ||
@@ -578,6 +632,75 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
         release_engine(&lease);
         return DSP_STATUS_INVALID_ARGUMENT;
     }
+    const dsp_dynamics_config dynamics_config = {
+        .compressor_enabled = (int)dynamics_values_data[0],
+        .compressor_threshold_db = dynamics_values_data[1],
+        .compressor_ratio = dynamics_values_data[2],
+        .compressor_attack_ms = dynamics_values_data[3],
+        .compressor_release_ms = dynamics_values_data[4],
+        .compressor_knee_db = dynamics_values_data[5],
+        .compressor_makeup_db = dynamics_values_data[6],
+        .limiter_enabled = (int)dynamics_values_data[7],
+        .limiter_threshold_db = dynamics_values_data[8],
+        .limiter_release_ms = dynamics_values_data[9],
+    };
+    dsp_dynamics_hot_params dynamics_params = {0};
+    dynamics_params.version = 1;
+    dynamics_params.sample_rate = sample_rate;
+    dynamics_params.config = dynamics_config;
+    dynamics_params.compressor_attack_coefficient = (float)dynamics_coefficients_data[0];
+    dynamics_params.compressor_release_coefficient = (float)dynamics_coefficients_data[1];
+    dynamics_params.compressor_makeup_linear = (float)dynamics_coefficients_data[2];
+    dynamics_params.limiter_release_coefficient = (float)dynamics_coefficients_data[3];
+    dynamics_params.limiter_threshold_linear = (float)dynamics_coefficients_data[4];
+    dsp_dynamic_eq_config dynamic_eq_config = { .enabled = (int)dynamic_eq_values_data[0] };
+    for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
+        const size_t start = 1 + band * 10;
+        if ((dynamic_eq_values_data[start] != 0.0 && dynamic_eq_values_data[start] != 1.0) ||
+            (dynamic_eq_values_data[start + 1] != DSP_DYNAMIC_EQ_CUT &&
+                dynamic_eq_values_data[start + 1] != DSP_DYNAMIC_EQ_BOOST)) {
+            release_engine(&lease);
+            return DSP_STATUS_INVALID_ARGUMENT;
+        }
+        dynamic_eq_config.bands[band] = (dsp_dynamic_eq_band_config) {
+            .enabled = (int)dynamic_eq_values_data[start],
+            .mode = (int)dynamic_eq_values_data[start + 1],
+            .frequency_hz = dynamic_eq_values_data[start + 2],
+            .q = dynamic_eq_values_data[start + 3],
+            .threshold_db = dynamic_eq_values_data[start + 4],
+            .ratio = dynamic_eq_values_data[start + 5],
+            .attack_ms = dynamic_eq_values_data[start + 6],
+            .release_ms = dynamic_eq_values_data[start + 7],
+            .max_boost_db = dynamic_eq_values_data[start + 8],
+            .max_cut_db = dynamic_eq_values_data[start + 9],
+        };
+    }
+    dsp_dynamic_eq_hot_update dynamic_eq_update = {0};
+    float attack_coefficients[DSP_DYNAMIC_EQ_MAX_BANDS];
+    float release_coefficients[DSP_DYNAMIC_EQ_MAX_BANDS];
+    for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
+        attack_coefficients[band] = (float)dynamic_eq_coefficients_data[band * 2];
+        release_coefficients[band] = (float)dynamic_eq_coefficients_data[band * 2 + 1];
+    }
+    int values_are_finite = 1;
+    for (size_t index = 0; index < 10; index++) {
+        if (!isfinite(dynamics_values_data[index])) values_are_finite = 0;
+    }
+    for (size_t index = 0; index < DSP_DYNAMIC_EQ_VALUES_COUNT; index++) {
+        if (!isfinite(dynamic_eq_values_data[index])) values_are_finite = 0;
+    }
+    for (size_t index = 0; index < 5; index++) {
+        if (!isfinite(dynamics_coefficients_data[index])) values_are_finite = 0;
+    }
+    for (size_t index = 0; index < 10; index++) {
+        if (!isfinite(dynamic_eq_coefficients_data[index])) values_are_finite = 0;
+    }
+    if (!values_are_finite || !dsp_dynamics_hot_params_validate(&dynamics_params) ||
+        !dsp_dynamic_eq_prepare_hot_update_with_coefficients(sample_rate, &dynamic_eq_config,
+            attack_coefficients, release_coefficients, &dynamic_eq_update)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
     uint32_t generation_token = (uint32_t)((uint64_t)generation & UINT32_C(0x7fffffff));
     if (generation_token == 0) generation_token = 1;
     const dsp_engine_hot_update update = {
@@ -591,6 +714,9 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
         .gain_db = gain_db,
         .gain_linear = gain_linear,
         .gain_pair_validated = gain_pair_validated == JNI_TRUE ? 1u : 0u,
+        .payload_kind = DSP_ENGINE_HOT_KIND_STUDIO,
+        .field_mask = (uint32_t)field_mask,
+        .hot_version = (uint32_t)hot_version,
         .macro = {
             .enabled = (int)macro_values_data[0],
             .bass_gain_db = macro_values_data[1],
@@ -614,6 +740,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
             .attack_ms = dynamic_bass_values_data[7],
             .release_ms = dynamic_bass_values_data[8],
         },
+        .dynamics = dynamics_params,
+        .dynamic_eq = dynamic_eq_update,
     };
     const int queued = dsp_engine_enqueue_hot_update(lease.engine, &update);
     release_engine(&lease);
@@ -811,6 +939,30 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotAckToken(
     const uint32_t ack_token = dsp_engine_get_hot_ack_token(lease.engine);
     release_engine(&lease);
     return (jint)ack_token;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotDeferredToken(
+    JNIEnv *env, jobject receiver, jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return 0;
+    const uint32_t token = dsp_engine_get_hot_deferred_token(lease.engine);
+    release_engine(&lease);
+    return (jint)token;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotDeferredReason(
+    JNIEnv *env, jobject receiver, jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return 0;
+    const uint32_t reason = dsp_engine_get_hot_deferred_reason(lease.engine);
+    release_engine(&lease);
+    return (jint)reason;
 }
 
 JNIEXPORT jint JNICALL

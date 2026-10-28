@@ -4,11 +4,11 @@
 
 **Base:** `95ba398f95ee104527812cd2b095977d71c51f98`
 
-**Product-source head:** `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`
+**Latest source snapshot:** `d4954869f14b945dba3dfd4732146a34ddc708f6` (USB handoff implementation `5f69b20c`)
 
-**Test-only head:** `344181eb0d2b03da1eb4bbb9abd9dc3a7af07568`
+**Latest test-only head:** `a3c66a68af57b52bcd9302e25839fa795468cbf3`
 
-**GitHub Actions:** [run #527](https://github.com/choko510/DiPlay/actions/runs/40531665594)
+**Latest GitHub Actions:** [run #546](https://github.com/choko510/DiPlay/actions/runs/40629443355) (Draft unit/quick-baseline/scope passed; host-baseline and instrumentation skipped)
 **Physical target:** no TS10/K706 or supported iPhone attached; all HW rows remain blocked.
 
 `PASS` means the named local test or gate passed at its stated scope. `NOT_RUN` means the specific injection or combination has no dedicated evidence. Emulator results never promote a device row to `PASS`.
@@ -18,13 +18,32 @@
 | ID | Input / condition | Expected result | Test / evidence | Status |
 |---|---|---|---|---|
 | USB-01-T01 | Existing wired Host; attach token verified; VPN and startup prerequisites ready | `onNewIntent` evaluates start exactly once | `CarPlayHostActivityReconnectTest.verifiedUsbAttachReevaluatesStartForAnExistingWiredHost`; Common unit suite | PASS |
-| USB-01-T02 | Existing controller present; deliver two verified wired attach actions | Existing controller remains; no second start request | `CarPlayHostActivityReconnectTest.verifiedWiredAttachKeepsAnExistingControllerAndDoesNotStartAnother`; Common unit suite | PASS |
+| USB-01-T02 | Existing controller present; deliver 20 verified wired attach actions | Existing controller remains; no second start request | `CarPlayHostActivityReconnectTest.twentyVerifiedWiredAttachesKeepTheExistingControllerAndDoNotStartAnother`; Common unit suite | PASS |
 | USB-01-T03 | Background controller/sink is owned by another Activity; verified wired attach arrives | Existing controller is adopted; no second start request or stale-owner teardown | `CarPlayHostActivityReconnectTest.verifiedWiredAttachAdoptsTheExistingBackgroundOwner`, plus stale-owner ticket/callback/session-end regressions | PASS |
 | USB-01-T04 | Wireless Host; two verified attaches during teardown | One deferred switch, wireless setting cleared after teardown, one new wired Host action | `CarPlayHostActivityReconnectTest.wirelessUsbAttachDuringShutdownSwitchesToWiredOnlyOnceAfterTeardown`; no physical wireless-session teardown in this test | PASS |
 | USB-01-T05 | External action, consumed token replay, wrong device, absent permission, unavailable device | No internal Host action is authorized | `CarPlayHostActionsTest.externalHostActionStringsAreIgnoredAndInternalTokensAreSingleUse`, `usbAttachTrampolineRequiresTheSameCurrentlyAttachedCh341Device`, `onlyUsbTrampolineIsExported` | PASS |
 | USB-01-T06 | Verified wired attach before VPN readiness; readiness then becomes available | No early start; existing readiness path can start later | `CarPlayHostActivityReconnectTest.verifiedUsbAttachWaitsForVpnReadinessBeforeStarting`; display-size-not-ready is guarded in production but not isolated in this test | PASS |
 | USB-01-T07 | Two verified attaches while a non-process shutdown is running | One completion resumes after controller/sink teardown; no stale old-owner action | `CarPlayHostActivityReconnectTest.wiredUsbAttachDuringShutdownQueuesOneResumeAfterTeardown` and `wirelessUsbAttachDuringShutdownSwitchesToWiredOnlyOnceAfterTeardown` | PASS |
 | USB-01-HW | USB detach/reinsert, stopped-Host attach, tethering ON/OFF | Record Stage3 and session identity on TS10/K706 + iPhone | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-01–HW-03 | BLOCKED_DEVICE |
+
+## USB auto-launch review findings
+
+| ID | Scenario | Local evidence | Status / limit |
+|---|---|---|---|
+| P1-01 / T01 | Background wireless Controller exists when an iPhone attach requests wired CarPlay | Transport-aware adoption policy; `backgroundControllerIsReusableOnlyWhenItsTransportMatchesTheRequestedTransport`; shutdown/handoff regression | PASS_LOCAL; background wireless-to-wired behavior still needs TS10/K706 + iPhone |
+| P1-02 / T02–T03 | USB re-enumerates while Controller shutdown/handoff is active; old callback completes late | Deferred/handoff queues keep the latest identity; handoff generations and owner epochs fence stale completion; shutdown resumes once after teardown | PASS_LOCAL; physical re-enumeration and ownership soak remain untested |
+| P1-03 / P2-06 / T07 | USB identity changes or becomes stale before Host/controller start | Current-device equality is checked at dispatch and Host startup; stale/current identities are covered; new observed attach replaces queued identity | PARTIAL; if no new attach event arrives there is no safe proof that a new identity belongs to the same iPhone, so no timed cross-identity rediscovery is attempted |
+| P2-01 / T04 | Explicit open action arrives while wired Controller already runs | `duplicateSystemAttachDoesNotRaiseTheHostButAnExplicitOpenDoes`; existing Controller is retained | PASS_LOCAL; frontmost behavior on the target launcher remains untested |
+| P2-02 | Another app sends an explicit launch to the exported USB entry | Apple entry has `MANAGE_USB` as caller permission and rejects missing attach action/device; manifest assertions cover the restriction | PARTIAL; Android 10 OEM USB chooser and caller-permission behavior need target-device validation |
+| P2-03 | Device implements USB Host but omits `FEATURE_USB_HOST` | Switch stays enabled; feature declaration only changes the status message | PASS_BY_CODE_INSPECTION; no custom-ROM target attached |
+| P2-04 / T05 | Activity dispatch succeeds but Host rejects/permission is refused; reconnect should retry | Failed dispatch/Host rejection releases its generation; current USB identity is revalidated; debounce expires after 1.5 s | PARTIAL; Android permission-refusal and retry cycle not exercised on hardware; a successful `startActivity()` is not Controller acceptance |
+| P2-05 | A session is transitioning and the USB event arrives | Deferred request queue retains the latest identity and resumes through the normal dispatcher | PASS_LOCAL; transition behavior on device remains unverified |
+| T06 | Setting is switched OFF while USB is attached | Policy and Host checks require the saved enabled preference and enabled component | PASS_LOCAL; active device stop behavior remains a hardware acceptance item |
+| T08 | 20 repeated attach events while a wired Controller is active; 20 identity replacements during handoff | `twentyVerifiedWiredAttachesKeepTheExistingControllerAndDoNotStartAnother`; `handoffQueueUsesTheLatestIdentityAndPreservesTheSplitSnapshot` | PASS_LOCAL for event modeling; not a 20-cycle physical USB soak |
+| T09 | DSP Split wireless-to-wired handoff | Handoff queue preserves the Host layout snapshot; DSP profile draft is held by existing runtime/persistence | PARTIAL; no end-to-end assertion of live DSP editor draft data across the actual transport handoff; verify on target |
+| T10 | iPhone is already connected during Android navigation reboot | Boot path offers a user-initiated notification fallback | NOT_RUN_DEVICE; no target reboot test |
+
+The test fixture timeout that failed in run #541 was changed from a scheduler-sensitive 2 ms timeout to an explicit delayed timeout. Run #545 passed after that correction. Run #546 passed after the 20-event regressions were added; host-baseline and Android instrumentation remain skipped for this Draft update.
 
 ## AUDIO-01A / AUDIO-01B
 
@@ -82,7 +101,7 @@
 | CI classifier/evidence validators | `scripts/test_android_ci_classifier.sh`; `scripts/test_android_instrumentation_evidence.sh` via MSYS2 Bash | PASS |
 | EX-08 delta-111 / generated ledger | `scripts/test_step4_ex08_delta111.py` 19/19; `scripts/generate_step4_ex08_inventory.py --check`; 1,400 unique SHAs | PASS after temporary LF normalization for Windows `core.autocrlf=true`; tracked source data restored afterward |
 | Public source tree | `python -B scripts/check_public_tree.py` | PASS |
-| Concurrent branch update `d140f6e` | Opt-in iPhone USB auto-launch policy/settings/coordinator/trampoline and internal-intent fallback | `IphoneUsbAutoLaunchPolicyTest`, `IphoneUsbAutoLaunchSettingsTest`, `IphoneUsbAutoLaunchCoordinatorTest`, `IphoneUsbAutoAttachActivityTest`, `CarPlayHostActionsTest`; Common 231/231 | PASS |
+| Concurrent branch update `d140f6e` | Opt-in iPhone USB auto-launch policy/settings/coordinator/trampoline and internal-intent fallback | `IphoneUsbAutoLaunchPolicyTest`, `IphoneUsbAutoLaunchSettingsTest`, `IphoneUsbAutoLaunchCoordinatorTest`, `IphoneUsbAutoAttachActivityTest`, `CarPlayHostActionsTest`; Common suite 235/235 on the merged tree, with the two expanded USB classes passing again on latest head | PASS_LOCAL |
 | GitHub Actions run #527 | [Android checks](https://github.com/choko510/DiPlay/actions/runs/40531665594) on product-source head `c8a1ab0`; `changes`, `check`, `host-baseline`, `android-instrumentation`, and Draft scope succeeded | PASS |
 | Test-only follow-up run #533 | USB background-owner adoption and MAIN/ALT release-failure isolation tests at `344181eb`; Draft unit/quick-baseline passed, with 32 tests and 0 failures/errors/skips in artifact 12789926418. Android instrumentation and host-baseline were skipped because product source did not change. | PASS |
 | TS10/K706 + supported iPhone acceptance | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-01–HW-10/HW-12/HW-13 | BLOCKED_DEVICE |

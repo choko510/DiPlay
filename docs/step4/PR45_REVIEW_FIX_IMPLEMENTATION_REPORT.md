@@ -10,17 +10,17 @@
 
 **Start HEAD:** `a99066f6133c2fe6f5258a2515a89986b75e042e`
 
-**Latest product-source HEAD:** `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`
+**Latest source snapshot:** `d4954869f14b945dba3dfd4732146a34ddc708f6` (includes USB handoff implementation `5f69b20c`)
 
-**Latest test-only HEAD:** `344181eb0d2b03da1eb4bbb9abd9dc3a7af07568`
+**Latest test-only HEAD:** `a3c66a68af57b52bcd9302e25839fa795468cbf3`
 
-PR #45 remains open and Draft. No merge, close, or ready-for-review action was performed. The concurrent PR-branch commit `d140f6e` (opt-in iPhone USB auto-launch) arrived during this work and was preserved in merge commit `184c02a`; its code and tests pass with this batch.
+PR #45 remains open and Draft. No merge, close, or ready-for-review action was performed. The concurrent PR-branch commit `d140f6e` (opt-in iPhone USB auto-launch) arrived during this work and was preserved. P1-01/P1-02 now have source fixes and regression coverage; physical Android 10 acceptance and the no-attach-event re-enumeration case remain open.
 
 | Gate | Result | Evidence / limit |
 |---|---|---|
-| Code | `CODE_COMPLETE` for the software review-fix scope | USB reconnect, DSP retirement, and decoder release changes below have regression coverage. The explicitly listed device-only rows remain open. |
-| Local host checks | `PASS` | Shared 664/664 and Common 231/231 unit tests; mobile/automotive Debug lint, Debug builds, and Benchmark builds passed. The product-source gate passed at `184c02a`; the added test-only commits passed the complete local module suites. |
-| GitHub CI | `CI_VERIFIED` | Run [#527](https://github.com/choko510/DiPlay/actions/runs/40531665594) passed `check`, host-baseline, API 35 instrumentation, and Draft scope on product-source head `c8a1ab0`. Test-only run [#533](https://github.com/choko510/DiPlay/actions/runs/40626478577) passed its Draft unit/quick-baseline lane at test head `344181eb`. |
+| Code | `SOURCE_FIXES_COMPLETE_WITH_DEVICE_LIMITS` | P1-01/P1-02 and P2-01/P2-03/P2-05 have code fixes. P1-03/P2-06 retain exact current-device validation; same-device timed rediscovery cannot be proven if Android supplies no new attach event. P2-02/P2-04 and T05/T09/T10 still have platform or lifecycle evidence gaps. |
+| Local host checks | `PASS` | Full Shared 664/664 and Common 235/235 suites passed on the merged tree; after the timeout-fixture fix, full Shared passed again and both expanded Common USB classes passed. Mobile/automotive Debug lint, Debug builds, Benchmark builds, and merged manifests passed on that source snapshot. |
+| GitHub CI | `CI_VERIFIED_DRAFT_LANE` | Run [#545](https://github.com/choko510/DiPlay/actions/runs/40628808576) passed the corrected Shared test fixture on `1290fb8`. Run [#546](https://github.com/choko510/DiPlay/actions/runs/40629443355) passed `changes`, Draft unit/quick-baseline, and Draft scope on `a3c66a68`; host-baseline and Android instrumentation were skipped. Earlier full run [#527](https://github.com/choko510/DiPlay/actions/runs/40531665594) passed source snapshot `c8a1ab0`, before the handoff follow-up. |
 | Device acceptance | `BLOCKED_DEVICE` | Only an API 36.1 x86_64 emulator was attached. TS10/K706 and iPhone acceptance remains untested. |
 | Release | `NO_GO_THIS_RUN` | Device, signed update/rollback, and independent review gates remain incomplete. |
 
@@ -35,6 +35,9 @@ PR #45 remains open and Draft. No merge, close, or ready-for-review action was p
 | `184c02a` | Merge the concurrent PR-branch update without rewriting either history. |
 | `c8a1ab0` | Cover active-controller and shutdown-time USB attach deduplication. |
 | `344181eb` | Add attach adoption of a background-owned session and MAIN/ALT release-failure isolation tests. |
+| `5f69b20` | Keep the newest validated USB request through Controller handoff and reject cross-transport session adoption. |
+| `1290fb8` | Replace a scheduler-sensitive 2 ms USB timeout test with a delayed deterministic fixture. |
+| `a3c66a6` | Exercise 20 repeated wired attaches and 20 handoff identity replacements. |
 
 The implementation report and test matrix are committed after the source/test head; their documentation commit ID is recorded in the final response and the PR branch history.
 
@@ -42,7 +45,7 @@ The implementation report and test matrix are committed after the source/test he
 
 - The initial GitHub PR snapshot matched start HEAD `a99066f`, base `main@95ba398`, and the local PR branch. At that point the latest run was #505: static checks passed while host-baseline and API 35 instrumentation were skipped.
 - During implementation, GitHub advanced the same PR branch to `d140f6e`. The branch was fetched and merged without rebasing or force-pushing; the new opt-in iPhone USB auto-launch behavior was preserved.
-- The current product-source head is `c8a1ab0`; test-only head `344181eb` adds USB owner-adoption and MAIN/ALT release-failure assertions. The PR is still Draft. No upstream-ledger row or disposition was changed.
+- USB handoff source snapshot `d4954869` includes `5f69b20`; the latest test-only head is `a3c66a68`. These supersede the older current-head summary below; the PR is still Draft. No upstream-ledger row or disposition was changed.
 
 ## Phase 01 — USB-01 wired attach recovery
 
@@ -52,7 +55,17 @@ The implementation report and test matrix are committed after the source/test he
 
 `CarPlayUsbAttachActivity` CH341/current-device/permission validation, exported trampoline policy, internal token consumption, NCM setup, and wired startup protocol were not changed. Logs contain event/result and generation fields only; no serial, MAC, or payload data is added.
 
-**Tests:** `verifiedUsbAttachReevaluatesStartForAnExistingWiredHost`, `verifiedUsbAttachWaitsForVpnReadinessBeforeStarting`, `verifiedWiredAttachKeepsAnExistingControllerAndDoesNotStartAnother`, `wiredUsbAttachDuringShutdownQueuesOneResumeAfterTeardown`, `wirelessUsbAttachDuringShutdownSwitchesToWiredOnlyOnceAfterTeardown`, plus existing token, spoofing, CH341, permission, stale owner, and reconnect-gate tests. The first wired regression failed against the pre-fix branch, then passed after the fix. A USB attach specifically paired with a different live background-session owner has no new end-to-end test; the production `adoptBackgroundSession()`/owner-epoch guards remain in place and existing stale-owner callbacks pass.
+**Tests:** `verifiedUsbAttachReevaluatesStartForAnExistingWiredHost`, `verifiedUsbAttachWaitsForVpnReadinessBeforeStarting`, `twentyVerifiedWiredAttachesKeepTheExistingControllerAndDoNotStartAnother`, `wiredUsbAttachDuringShutdownQueuesOneResumeAfterTeardown`, and `wirelessUsbAttachDuringShutdownSwitchesToWiredOnlyOnceAfterTeardown`, plus existing token, spoofing, CH341, permission, stale owner, and reconnect-gate tests. The first wired regression failed against the pre-fix branch, then passed after the fix. A USB attach specifically paired with a different live background-session owner has no new end-to-end test; the production `adoptBackgroundSession()`/owner-epoch guards remain in place and existing stale-owner callbacks pass.
+
+## Phase 01B — iPhone USB auto-launch handoff review
+
+`adoptBackgroundSession()` now compares the existing Controller transport with the Host's requested transport before adopting it. A mismatch enters the existing stop/handoff path; the new wired Controller is not started until the previous owner has closed. During the transition, `IphoneUsbAutoLaunchRequestQueue` keeps only the latest validated attach identity and preserves the Host layout snapshot. Owner epochs and handoff generations reject stale completion callbacks. Deferred requests are revalidated against the current USB inventory before dispatch.
+
+An existing wired Controller remains the owner for duplicate attach events. Settings/foreground open actions bring that wired Host forward; a system attach does not steal focus. USB Host feature declaration affects the status message but does not disable the switch. The exported iPhone entry requires the system `MANAGE_USB` caller permission and still validates the attach action and current device.
+
+USB identities remain exact (`deviceId` and `deviceName` included). A newly observed attach can replace a stale request; the implementation does not guess that a different identity is the same phone when no new attach notification arrives. Timed same-device rediscovery is not inferred because multiple attached Apple devices with the same descriptors cannot be safely distinguished through that heuristic. Android 10 OEM chooser delivery and no-event re-enumeration remain device gates.
+
+**Tests:** `backgroundControllerIsReusableOnlyWhenItsTransportMatchesTheRequestedTransport`, `wirelessUsbAttachDuringShutdownSwitchesToWiredOnlyOnceAfterTeardown`, `deferredQueueKeepsOnlyTheLatestCurrentUsbIdentity`, `handoffQueueUsesTheLatestIdentityAndPreservesTheSplitSnapshot`, `twentyVerifiedWiredAttachesKeepTheExistingControllerAndDoNotStartAnother`, `duplicateSystemAttachDoesNotRaiseTheHostButAnExplicitOpenDoes`, `failedDispatchCanReleaseItsOwnGenerationForRetry`, stale/current identity policy tests, and manifest/explicit-intent validation tests. The 20-event checks model event sequences, not 20 physical USB re-enumerations.
 
 ## Phases 02–03 — AUDIO-01 transition measurement and safe retirement
 
@@ -86,19 +99,19 @@ The updated [OWNERSHIP_MAP.md](OWNERSHIP_MAP.md) records the USB token/start gua
 
 ## Phase 07 — Verification and evidence
 
-GitHub run #527 passed `changes`, `check`, `host-baseline`, `android-instrumentation`, and Draft scope on product-source head `c8a1ab0`. The `check` job passed host native DSP, ASan/UBSan, unit tests, lint, Debug/Benchmark builds, JNI/R8 checks, and test-report upload. The Android instrumentation job ran on API 35. The separate `quick-baseline` and nested draft-unit/JNI-build steps were skipped because the full check/host-baseline covered those tasks. Test-only head `344181eb` passed follow-up Draft unit/quick-baseline run #533 with 32 tests, 0 failures/errors/skips; host-baseline and instrumentation were skipped because product code did not change. Docs-only run #530 passed static checks on its documentation head.
+Run #527 passed `changes`, `check`, `host-baseline`, API 35 instrumentation, and Draft scope on earlier source head `c8a1ab0`; it does not include handoff fix `5f69b20`. Run #541 exposed a scheduling race in the Shared USB read-timeout fixture. Commit `1290fb8` made its delay deterministic, and run #545 passed `changes`, Draft unit/quick-baseline, and Draft scope. Run #546 passed `changes`, Draft unit/quick-baseline, and Draft scope for the 20-event follow-up tests; host-baseline and Android instrumentation were skipped on both Draft test runs. Docs-only run #530 is historical evidence for its own documentation head.
 
 Local verification on Windows:
 
-- `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel --build-cache --stacktrace` — 664 shared + 231 common local tests, 0 failures/errors/skips after the owner-adoption and MAIN/ALT isolation tests were added. GitHub artifact 12747761188 from source head `c8a1ab0` was opened: 161 JUnit XML files contain 893 tests with 0 failures/errors/skips. Test-only run #533 artifact 12789926418 contains 32 tests with 0 failures/errors/skips for the added test classes.
+- `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel --build-cache --stacktrace` — full local suites contain 664 Shared + 235 Common tests, 0 failures/errors/skips. The full Shared suite passed again after replacing the timing-sensitive timeout fixture; the two expanded Common USB classes passed after the 20-event additions.
 - `:mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark` — passed. No new lint warning was reported in the changed source. Existing NDK 28.2 missing-`source.properties` and dependency strip warnings remain; the build completed with the configured NDK 27 path.
-- `scripts/run_android_instrumentation.sh` — 19 Shared Release instrumentation tests and 1 Common Debug instrumentation test passed on API 36.1 x86_64. GitHub run #527 passed the same 19 + 1 split on API 35. Its instrumentation artifact 12747252715 was opened: 2 XML files contain 20 tests with 0 failures/errors/skips. These remain emulator results, not physical-device acceptance.
+- `scripts/run_android_instrumentation.sh` — an earlier local API 36.1 x86_64 run passed 19 Shared Release + 1 Common Debug instrumentation test. Run #527 passed the same 19 + 1 split on API 35, before source snapshot `d4954869`; run #545/#546 skipped instrumentation under Draft classification. Emulator results do not prove USB chooser or vehicle behavior.
 - `scripts/test_dsp_native.sh` — passed with MSYS2 GCC. `scripts/test_dsp_native.sh --sanitize` was attempted but could not link because this host's MSYS2 installation lacks `libasan` and `libubsan`.
 - `scripts/check_jni_mapping.py`, `scripts/test_android_ci_classifier.sh`, `scripts/test_android_instrumentation_evidence.sh`, `scripts/test_step4_ex08_delta111.py` (19/19), `scripts/generate_step4_ex08_inventory.py --check` (1,400 unique SHAs), and `scripts/check_public_tree.py` — passed. The Windows checkout uses `core.autocrlf=true`; the byte-frozen EX-08 checks passed after temporary LF normalization of the ledger/manifest/override files, then those files were restored without content changes.
 
 ## Remaining gates
 
-- `HW-01`–`HW-10`, `HW-12`, and `HW-13` remain `BLOCKED_DEVICE`; no TS10/K706 or supported iPhone was attached. The API 36.1 emulator does not substitute for USB, Surface, audio-acoustic, or soak acceptance.
+- `HW-01`–`HW-10`, `HW-12`, and `HW-13` remain `BLOCKED_DEVICE`; no TS10/K706 or supported iPhone was attached. Specifically, Android 10 USB chooser delivery, permission-refusal retry, same-device re-enumeration, DSP Split draft continuity, and the already-connected reboot path are not physically verified.
 - `HW-11` signed update/rollback remains `BLOCKED_ENV`; no release signing credentials or release APK were used.
 - Local API 35 instrumentation is `NOT_RUN` because an API 35 emulator image is unavailable. Hosted API 35 instrumentation passed in run #527.
 - Independent second review remains `NOT_RUN` per prior user direction.

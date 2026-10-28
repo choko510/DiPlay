@@ -134,6 +134,12 @@ internal enum class HostDisplaySizeCause {
     SURFACE_LIFECYCLE_CHANGED,
 }
 
+internal enum class CarPlayHostShutdownResult {
+    CLOSED,
+    TIMED_OUT,
+    FAILED,
+}
+
 internal enum class CarPlayHostLayoutCommand {
     ENTER_YOUTUBE_SPLIT,
     ENTER_DSP_SPLIT,
@@ -576,9 +582,10 @@ class CarPlayHostActivity : ComponentActivity() {
     private val wiredUsbResumeAfterShutdownRequested = AtomicBoolean(false)
     private val shutdownTerminatesProcess = AtomicBoolean(false)
     private val shutdownCompletionLock = Any()
-    private val shutdownCompletionCallbacks = mutableListOf<() -> Unit>()
+    private val shutdownCompletionCallbacks = mutableListOf<(CarPlayHostShutdownResult) -> Unit>()
     private var shutdownCompleted = false
     internal var startCarPlayForTest: ((DisplaySize) -> Unit)? = null
+    internal var awaitControllerClosedForTest: ((CarPlayController, Long) -> Boolean)? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val teardownExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val airPlayCommandExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -1195,7 +1202,8 @@ class CarPlayHostActivity : ComponentActivity() {
                 }
                 if (wirelessEnabled) {
                     if (!wirelessUsbSwitchRequested.compareAndSet(false, true)) return
-                    enqueueShutdownCompletion {
+                    enqueueShutdownCompletion { result ->
+                        if (result != CarPlayHostShutdownResult.CLOSED) return@enqueueShutdownCompletion
                         AirPlayPersistence.saveWirelessEnabled(this, false)
                         startActivity(
                             CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
@@ -1204,7 +1212,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     }
                 } else {
                     if (!wiredUsbResumeAfterShutdownRequested.compareAndSet(false, true)) return
-                    enqueueShutdownCompletion {
+                    enqueueShutdownCompletion { result ->
+                        if (result != CarPlayHostShutdownResult.CLOSED) return@enqueueShutdownCompletion
                         startActivity(
                             CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
                         )
@@ -1224,7 +1233,8 @@ class CarPlayHostActivity : ComponentActivity() {
                     Log.i(TAG, "USB_ATTACH wireless switch already requested")
                     return
                 }
-                shutdown(false, "switching to USB") {
+                shutdown(false, "switching to USB") { result ->
+                    if (result != CarPlayHostShutdownResult.CLOSED) return@shutdown
                     AirPlayPersistence.saveWirelessEnabled(this, false)
                     startActivity(
                         CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
@@ -1272,13 +1282,25 @@ class CarPlayHostActivity : ComponentActivity() {
         val transition = ++autoUsbSwitchGeneration
         val handoffGeneration = IphoneUsbAutoLaunchDispatcher.beginHandoff(identity, hostLaunchState)
         var expectedOwnerEpoch = -1L
-        shutdown(false, "switching to wired USB CarPlay") {
-            if (transition != autoUsbSwitchGeneration) return@shutdown
+        shutdown(false, "switching to wired USB CarPlay") { shutdownResult ->
+            if (shutdownResult != CarPlayHostShutdownResult.CLOSED) return@shutdown
+            if (shutdownTerminatesProcess.get()) {
+                IphoneUsbAutoLaunchDispatcher.completeHandoff(handoffGeneration)
+                return@shutdown
+            }
+            if (transition != autoUsbSwitchGeneration ||
+                CarPlayBackgroundSession.ownerEpoch() != expectedOwnerEpoch || isDestroyed
+            ) {
+                IphoneUsbAutoLaunchDispatcher.failHandoff(handoffGeneration)
+                return@shutdown
+            }
             val latestRequest = IphoneUsbAutoLaunchDispatcher.completeHandoff(handoffGeneration)
-            if (shutdownTerminatesProcess.get() ||
-                CarPlayBackgroundSession.ownerEpoch() != expectedOwnerEpoch
-            ) return@shutdown
-            val latestIdentity = latestRequest?.identity ?: identity
+                ?: DeferredIphoneUsbAutoLaunch(
+                    identity,
+                    IphoneUsbAutoLaunchSource.ATTACH,
+                    hostLaunchState,
+                )
+            val latestIdentity = latestRequest.identity
             if (IphoneUsbAutoLaunchSettings.currentCandidate(this, latestIdentity) == null) {
                 IphoneUsbAutoLaunchDispatcher.failLaunch(latestIdentity)
                 AirPlayPersistence.saveWirelessEnabled(this, true)
@@ -1302,7 +1324,7 @@ class CarPlayHostActivity : ComponentActivity() {
                         this,
                         CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
                         latestIdentity,
-                        latestRequest?.hostLaunchState ?: hostLaunchState,
+                        latestRequest.hostLaunchState ?: hostLaunchState,
                     ),
                 )
             } catch (error: RuntimeException) {
@@ -1311,6 +1333,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=launch_failed " +
                         "error=${error.javaClass.simpleName}",
                 )
+                IphoneUsbAutoLaunchDispatcher.failLaunch(latestIdentity)
                 IphoneUsbAutoLaunchNotification.show(this)
             }
         }
@@ -4863,6 +4886,7 @@ class CarPlayHostActivity : ComponentActivity() {
     )
 
     private fun startCarPlay(size: DisplaySize) {
+        if (CarPlayBackgroundSession.hasPendingTeardown()) return
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || isFinishing || isDestroyed || menuOpen || handshakeResetInProgress || controller != null) return
         cancelPendingReconnectAfterLoss()
@@ -4973,7 +4997,9 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun backgroundStopAction(): ((() -> Unit) -> Unit) = { completion ->
         runOnUiThread {
-            shutdown(terminateProcess = false, reason = "DiPlay disconnect", completion = completion)
+            shutdown(terminateProcess = false, reason = "DiPlay disconnect") { result ->
+                if (result == CarPlayHostShutdownResult.CLOSED) completion()
+            }
             finish()
         }
     }
@@ -5243,6 +5269,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun maybeStartCarPlay() {
         if (shuttingDown.get() || isFinishing || isDestroyed) return
         if (backgroundTransportHandoffPending) return
+        if (CarPlayBackgroundSession.hasPendingTeardown()) return
         if (CarPlayBackgroundSession.isRestartSuppressed()) return
         if (CarPlayBackgroundSession.hasPendingRestart()) {
             if (restartHandoffToken != null) return
@@ -5362,17 +5389,27 @@ class CarPlayHostActivity : ComponentActivity() {
         val generation = ++restartGeneration
         handshakeResetInProgress = true
         val oldSink = sink
-        oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
+        val teardownToken = CarPlayBackgroundSession.beginTeardown(oldController)
+        try {
+            oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "restart listener detach failed error=${error.javaClass.simpleName}")
+        }
         controller = null
         sink = null
         teardownExecutor.execute {
             if (oldController != null) {
                 SplitPerformanceTracer.increment(SplitPerformanceCounter.CARPLAY_CONTROLLER_CLOSES)
-                oldController.close()
+                requestControllerCloseForShutdown(oldController)
             }
-            oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS)
-            oldSink?.close()
+            val clean = oldController?.let(::awaitControllerClosedForShutdown) ?: true
+            if (!clean || !closeSinkForShutdown(oldSink)) {
+                Log.e(TAG, "Controller restart cancelled because shutdown is still pending")
+                if (shutdownTerminatesProcess.get()) Process.killProcess(Process.myPid())
+                return@execute
+            }
             runOnUiThread {
+                CarPlayBackgroundSession.completeTeardown(teardownToken)
                 SplitPerformanceTracer.endAsync("diplay.split.carplay_teardown", carPlayTeardownTraceCookie)
                 carPlayTeardownTraceCookie = null
                 val latestSize = displayResizeCoordinator.latestDesiredSize(size)
@@ -5470,7 +5507,11 @@ class CarPlayHostActivity : ComponentActivity() {
         shutdown(terminateProcess = true, reason = "settings exit application")
     }
 
-    private fun shutdown(terminateProcess: Boolean, reason: String, completion: () -> Unit = {}) {
+    private fun shutdown(
+        terminateProcess: Boolean,
+        reason: String,
+        completion: (CarPlayHostShutdownResult) -> Unit = {},
+    ) {
         if (terminateProcess) shutdownTerminatesProcess.set(true)
         enqueueShutdownCompletion(completion)
         if (!shuttingDown.compareAndSet(false, true)) return
@@ -5489,29 +5530,58 @@ class CarPlayHostActivity : ComponentActivity() {
         videoView?.removeCallbacks(deferYoutubePreparationOneFrame)
         videoView?.removeCallbacks(prepareYoutubeAfterLayout)
         restartHandoffRetryScheduled = false
-        val oldController = controller
-        val oldSink = sink
-        oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
-        CarPlayBackgroundSession.clear(oldController)
+        val backgroundSnapshot = CarPlayBackgroundSession.snapshot()
+        val closeBackgroundSession = controller == null && backgroundSnapshot != null &&
+            (terminateProcess || CarPlayBackgroundSession.isOwner(this))
+        val oldController = controller ?: backgroundSnapshot?.controller?.takeIf { closeBackgroundSession }
+        val oldSink = sink ?: backgroundSnapshot?.takeIf { it.controller === oldController }?.sink
+        val clearUnmatchedSession = oldController == null &&
+            (terminateProcess || CarPlayBackgroundSession.isOwner(this))
+        val teardownToken = CarPlayBackgroundSession.beginTeardown(
+            oldController,
+            clearUnmatchedSession = clearUnmatchedSession,
+        )
+        try {
+            oldSink?.setVideoFrameSubmittedToSurfaceListener(null)
+        } catch (error: RuntimeException) {
+            Log.e(TAG, "shutdown listener detach failed error=${error.javaClass.simpleName}")
+            notifyShutdownCallbacks(CarPlayHostShutdownResult.FAILED)
+        }
         controller = null
         sink = null
         Log.i(TAG, "shutdown reason=$reason terminateProcess=$terminateProcess")
         teardownExecutor.execute {
             if (oldController != null) {
                 SplitPerformanceTracer.increment(SplitPerformanceCounter.CARPLAY_CONTROLLER_CLOSES)
-                oldController.close()
+                requestControllerCloseForShutdown(oldController)
             }
-            val clean = oldController?.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS) ?: true
-            oldSink?.close()
+            val clean = oldController?.let(::awaitControllerClosedForShutdown) ?: true
+            if (!clean) {
+                Log.e(TAG, "Controller teardown still pending during process shutdown")
+                runCatching { oldSink?.close() }
+                runCatching { applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java)) }
+                runCatching { applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java)) }
+                teardownExecutor.shutdown()
+                Process.killProcess(Process.myPid())
+                return@execute
+            }
+            if (!closeSinkForShutdown(oldSink)) {
+                runCatching { applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java)) }
+                runCatching { applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java)) }
+                teardownExecutor.shutdown()
+                Process.killProcess(Process.myPid())
+                return@execute
+            }
             airPlayCommandExecutor.shutdown()
             if (shutdownTerminatesProcess.get()) {
-                applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java))
+                runCatching { applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java)) }
             }
-            Log.i(TAG, "shutdown complete clean=$clean")
-            applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java))
+            Log.i(TAG, "shutdown complete result=closed")
+            runCatching { applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java)) }
             teardownExecutor.shutdown()
             mainHandler.post {
-                completeShutdownCallbacks()
+                CarPlayBackgroundSession.completeTeardown(teardownToken)
+                completeShutdownCallbacks(CarPlayHostShutdownResult.CLOSED)
                 if (!shutdownTerminatesProcess.get()) {
                     IphoneUsbAutoLaunchDispatcher.resumeDeferred(this)
                 }
@@ -5520,7 +5590,81 @@ class CarPlayHostActivity : ComponentActivity() {
         }
     }
 
-    private fun enqueueShutdownCompletion(completion: () -> Unit) {
+    private fun awaitControllerClosedForShutdown(controller: CarPlayController): Boolean {
+        var notified = false
+        while (!shutdownTerminatesProcess.get()) {
+            val closed = try {
+                awaitControllerClosedForTest?.invoke(controller, CONTROLLER_CLOSE_TIMEOUT_MILLIS)
+                    ?: controller.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS)
+            } catch (error: RuntimeException) {
+                if (!notified) {
+                    Log.e(TAG, "Controller close wait failed; retaining teardown barrier " +
+                        "error=${error.javaClass.simpleName}")
+                    notifyShutdownCallbacks(CarPlayHostShutdownResult.FAILED)
+                    notified = true
+                }
+                false
+            }
+            if (closed) return true
+            if (!notified) {
+                Log.e(TAG, "Controller close timed out; retaining teardown barrier and retrying")
+                notifyShutdownCallbacks(CarPlayHostShutdownResult.TIMED_OUT)
+                notified = true
+            }
+            if (Thread.interrupted()) {
+                Log.w(TAG, "Controller close wait interrupted; continuing fail-closed teardown")
+            }
+            pauseShutdownRetry()
+        }
+        return false
+    }
+
+    private fun requestControllerCloseForShutdown(controller: CarPlayController) {
+        var notified = false
+        while (!shutdownTerminatesProcess.get()) {
+            try {
+                controller.close()
+                return
+            } catch (error: RuntimeException) {
+                if (!notified) {
+                    Log.e(TAG, "Controller close failed; blocking next start error=${error.javaClass.simpleName}")
+                    notifyShutdownCallbacks(CarPlayHostShutdownResult.FAILED)
+                    notified = true
+                }
+                if (controller.isClosed()) return
+                pauseShutdownRetry()
+            }
+        }
+    }
+
+    private fun pauseShutdownRetry() {
+        try {
+            Thread.sleep(SHUTDOWN_RETRY_DELAY_MILLIS)
+        } catch (_: InterruptedException) {
+            Thread.interrupted()
+        }
+    }
+
+    private fun closeSinkForShutdown(oldSink: AndroidMediaSink?): Boolean {
+        var notified = false
+        while (!shutdownTerminatesProcess.get()) {
+            try {
+                oldSink?.close()
+                return true
+            } catch (error: RuntimeException) {
+                if (!notified) {
+                    Log.e(TAG, "Media sink close failed; blocking next start " +
+                        "error=${error.javaClass.simpleName}")
+                    notifyShutdownCallbacks(CarPlayHostShutdownResult.FAILED)
+                    notified = true
+                }
+                pauseShutdownRetry()
+            }
+        }
+        return false
+    }
+
+    private fun enqueueShutdownCompletion(completion: (CarPlayHostShutdownResult) -> Unit) {
         val runImmediately = synchronized(shutdownCompletionLock) {
             if (shutdownCompleted) true else {
                 shutdownCompletionCallbacks += completion
@@ -5529,24 +5673,34 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         if (runImmediately) {
             if (Looper.myLooper() == Looper.getMainLooper()) {
-                runShutdownCompletion(completion)
+                runShutdownCompletion(completion, CarPlayHostShutdownResult.CLOSED)
             } else {
-                mainHandler.post { runShutdownCompletion(completion) }
+                mainHandler.post { runShutdownCompletion(completion, CarPlayHostShutdownResult.CLOSED) }
             }
         }
     }
 
-    private fun completeShutdownCallbacks() {
-        val callbacks = synchronized(shutdownCompletionLock) {
-            shutdownCompleted = true
-            shutdownCompletionCallbacks.toList().also { shutdownCompletionCallbacks.clear() }
+    private fun notifyShutdownCallbacks(result: CarPlayHostShutdownResult) {
+        if (result == CarPlayHostShutdownResult.CLOSED) {
+            val callbacks = synchronized(shutdownCompletionLock) {
+                shutdownCompleted = true
+                shutdownCompletionCallbacks.toList().also { shutdownCompletionCallbacks.clear() }
+            }
+            callbacks.forEach { runShutdownCompletion(it, result) }
+            return
         }
-        callbacks.forEach(::runShutdownCompletion)
+        val callbacks = synchronized(shutdownCompletionLock) { shutdownCompletionCallbacks.toList() }
+        callbacks.forEach { callback -> mainHandler.post { runShutdownCompletion(callback, result) } }
     }
 
-    private fun runShutdownCompletion(completion: () -> Unit) {
+    private fun completeShutdownCallbacks(result: CarPlayHostShutdownResult) = notifyShutdownCallbacks(result)
+
+    private fun runShutdownCompletion(
+        completion: (CarPlayHostShutdownResult) -> Unit,
+        result: CarPlayHostShutdownResult,
+    ) {
         try {
-            completion()
+            completion(result)
         } catch (error: RuntimeException) {
             Log.e(TAG, "shutdown completion failed error=${error.javaClass.simpleName}")
         }
@@ -5919,6 +6073,7 @@ class CarPlayHostActivity : ComponentActivity() {
         const val RECONNECT_DELAY_MILLIS = 2_000L
         const val IAP_TUNNEL_RECONNECT_DELAY_MILLIS = 15_000L
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
+        const val SHUTDOWN_RETRY_DELAY_MILLIS = 250L
         const val AUDIO_CAPTURE_MARKER = "audio-capture.enabled"
         const val AUDIO_CAPTURE_DIRECTORY = "audio-captures"
         const val PROTOCOL_TRACE_PREFIX = "TRACE_EVENT "
@@ -5955,13 +6110,18 @@ internal object CarPlayBackgroundSession {
     private var stopAction: (((() -> Unit)) -> Unit)? = null
     private var stopActionOwner: Any? = null
     private var stopping = false
+    private var stopWaitingForTeardown = false
     private var owner: Any? = null
     private var ownershipEpoch = 0L
     private var restartSuppressed = false
     private val restartHandoff = CarPlayRestartHandoff()
+    private var nextTeardownToken = 0L
+    private val pendingTeardowns = mutableSetOf<Long>()
     @Synchronized fun isOwner(candidate: Any): Boolean = owner === candidate
     @Synchronized fun ownerEpoch(): Long = ownershipEpoch
-    @Synchronized fun hasSession(): Boolean = stopAction != null || stopping || restartHandoff.hasPending()
+    @Synchronized fun hasPendingTeardown(): Boolean = pendingTeardowns.isNotEmpty()
+    @Synchronized fun hasSession(): Boolean =
+        stopAction != null || stopping || restartHandoff.hasPending() || pendingTeardowns.isNotEmpty()
     @Synchronized fun isRestartSuppressed(): Boolean = restartSuppressed
 
     @Synchronized
@@ -5986,6 +6146,11 @@ internal object CarPlayBackgroundSession {
             if (action != null) {
                 stopping = true
                 stopWaiters.add(completion)
+            } else if (pendingTeardowns.isNotEmpty()) {
+                stopping = true
+                stopWaitingForTeardown = true
+                stopWaiters.add(completion)
+                return
             } else if (restartHandoff.hasPending()) {
                 restartHandoff.clear()
                 restartSuppressed = true
@@ -6000,6 +6165,7 @@ internal object CarPlayBackgroundSession {
         action.invoke {
             val callbacks = synchronized(this) {
                 stopping = false
+                stopWaitingForTeardown = false
                 stopWaiters.toList().also { stopWaiters.clear() }
             }
             callbacks.forEach { it() }
@@ -6019,6 +6185,35 @@ internal object CarPlayBackgroundSession {
     private var width = 0
     private var height = 0
     private var hostLaunchState: CarPlayHostLaunchState? = null
+
+    @Synchronized
+    fun beginTeardown(
+        expectedController: CarPlayController?,
+        clearUnmatchedSession: Boolean = false,
+    ): Long {
+        val token = ++nextTeardownToken
+        pendingTeardowns += token
+        if (expectedController != null && controller === expectedController ||
+            expectedController == null && clearUnmatchedSession
+        ) {
+            clearCurrentSession(keepOwner = false)
+        }
+        return token
+    }
+
+    fun completeTeardown(token: Long) {
+        val callbacks = synchronized(this) {
+            pendingTeardowns.remove(token)
+            if (pendingTeardowns.isEmpty() && stopWaitingForTeardown) {
+                stopping = false
+                stopWaitingForTeardown = false
+                stopWaiters.toList().also { stopWaiters.clear() }
+            } else {
+                emptyList()
+            }
+        }
+        callbacks.forEach { it() }
+    }
 
     @Synchronized
     fun snapshot(): Snapshot? {
@@ -6109,6 +6304,11 @@ internal object CarPlayBackgroundSession {
     @Synchronized
     fun clear(expected: CarPlayController? = null, keepOwner: Boolean = false) {
         if (expected != null && controller !== expected) return
+        if (expected == null) pendingTeardowns.clear()
+        clearCurrentSession(keepOwner)
+    }
+
+    private fun clearCurrentSession(keepOwner: Boolean) {
         controller = null
         sink = null
         if (!keepOwner) {

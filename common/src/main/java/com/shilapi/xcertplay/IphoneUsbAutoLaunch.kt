@@ -111,6 +111,7 @@ internal class IphoneUsbAutoLaunchCoordinator(
         session: IphoneUsbSessionSnapshot,
         nowMillis: Long,
         previousIdentityStillAttached: Boolean = false,
+        allowRetryInsideDuplicateWindow: Boolean = false,
     ): IphoneUsbAutoLaunchDecision {
         if (session == IphoneUsbSessionSnapshot.WIRED) {
             return IphoneUsbAutoLaunchDecision.KeepCurrentWiredSession
@@ -119,7 +120,7 @@ internal class IphoneUsbAutoLaunchCoordinator(
             return IphoneUsbAutoLaunchDecision.DeferToCurrentSession
         }
         val elapsed = nowMillis - lastLaunchAtMillis
-        if (elapsed in 0..duplicateWindowMillis &&
+        if (!allowRetryInsideDuplicateWindow && elapsed in 0..duplicateWindowMillis &&
             (identity == lastIdentity || previousIdentityStillAttached)
         ) {
             lastLaunchAtMillis = nowMillis
@@ -269,6 +270,11 @@ internal enum class IphoneUsbAutoLaunchSource(val label: String) {
 internal fun shouldBringWiredHostToFront(source: IphoneUsbAutoLaunchSource): Boolean =
     source != IphoneUsbAutoLaunchSource.ATTACH
 
+internal fun shouldBypassUsbAttachDebounce(
+    source: IphoneUsbAutoLaunchSource,
+    deferredReplay: Boolean,
+): Boolean = deferredReplay || source != IphoneUsbAutoLaunchSource.ATTACH
+
 internal data class DeferredIphoneUsbAutoLaunch(
     val identity: UsbAttachDeviceIdentity,
     val source: IphoneUsbAutoLaunchSource,
@@ -319,6 +325,15 @@ internal class IphoneUsbAutoLaunchRequestQueue {
         handoffActive = false
         return latestHandoff.also { latestHandoff = null }
     }
+
+    @Synchronized
+    fun failHandoff(expectedGeneration: Long): DeferredIphoneUsbAutoLaunch? {
+        if (!handoffActive || expectedGeneration != handoffGeneration) return null
+        handoffActive = false
+        val pending = latestHandoff.also { latestHandoff = null }
+        if (pending != null) latestDeferred = pending
+        return pending
+    }
 }
 
 internal object IphoneUsbAutoLaunchDispatcher {
@@ -349,6 +364,9 @@ internal object IphoneUsbAutoLaunchDispatcher {
     fun completeHandoff(expectedGeneration: Long? = null): DeferredIphoneUsbAutoLaunch? =
         requests.completeHandoff(expectedGeneration)
 
+    fun failHandoff(expectedGeneration: Long): DeferredIphoneUsbAutoLaunch? =
+        requests.failHandoff(expectedGeneration)
+
     fun failLaunch(identity: UsbAttachDeviceIdentity) = coordinator.cancelCurrent(identity)
 
     fun deferTransition(identity: UsbAttachDeviceIdentity, source: IphoneUsbAutoLaunchSource) {
@@ -358,13 +376,14 @@ internal object IphoneUsbAutoLaunchDispatcher {
     fun resumeDeferred(context: Context) {
         if (requests.isHandoffActive()) return
         val pending = requests.takeDeferred() ?: return
-        dispatch(context, pending.identity, pending.source)
+        dispatch(context, pending.identity, pending.source, deferredReplay = true)
     }
 
     fun dispatch(
         context: Context,
         identity: UsbAttachDeviceIdentity,
         source: IphoneUsbAutoLaunchSource,
+        deferredReplay: Boolean = false,
     ): Boolean {
         val manager = context.getSystemService(Context.USB_SERVICE) as? UsbManager
         val candidates = manager?.let(IphoneUsbAutoLaunchSettings::attachedDevices)
@@ -401,6 +420,7 @@ internal object IphoneUsbAutoLaunchDispatcher {
                 session,
                 SystemClock.elapsedRealtime(),
                 previousIdentityStillAttached,
+                allowRetryInsideDuplicateWindow = shouldBypassUsbAttachDebounce(source, deferredReplay),
             )
         ) {
             IphoneUsbAutoLaunchDecision.KeepCurrentWiredSession -> {

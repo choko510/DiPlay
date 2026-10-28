@@ -15,12 +15,16 @@ import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
 import com.shilapi.xcertplay.orchestration.CarPlayTransport
 import com.shilapi.xcertplay.orchestration.MfiTarget
+import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
 import com.shilapi.xcertplay.youtube.DisplaySize
 import java.lang.reflect.Field
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -36,6 +40,75 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class CarPlayHostActivityReconnectTest {
+    @Test
+    fun shutdownTimeoutKeepsTheTeardownBarrierUntilTheControllerCloses() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val controller = allocateControllerPlaceholder()
+        val sink = AndroidMediaSink()
+        val attempts = AtomicInteger()
+        val firstWait = CountDownLatch(1)
+        val closeConfirmed = CountDownLatch(1)
+        val allowClose = CountDownLatch(1)
+        val callbackResults = CopyOnWriteArrayList<CarPlayHostShutdownResult>()
+        val startRequests = mutableListOf<DisplaySize>()
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, true)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "activeDisplaySize").set(activity, DisplaySize(800, 480))
+            activity.startCarPlayForTest = startRequests::add
+            field(activity, "controller").set(activity, controller)
+            field(activity, "sink").set(activity, sink)
+            CarPlayBackgroundSession.store(controller, sink, 800, 480, activity) { done -> done() }
+            activity.awaitControllerClosedForTest = { _, _ ->
+                if (attempts.incrementAndGet() == 1) {
+                    firstWait.countDown()
+                    false
+                } else {
+                    closeConfirmed.countDown()
+                    allowClose.await(2, TimeUnit.SECONDS)
+                    true
+                }
+            }
+            dispatchShutdown(activity) { result ->
+                callbackResults += result
+            }
+
+            assertTrue(firstWait.await(2, TimeUnit.SECONDS))
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(CarPlayBackgroundSession.hasSession())
+            assertFalse(callbackResults.contains(CarPlayHostShutdownResult.CLOSED))
+            activity.javaClass.getDeclaredMethod("maybeStartCarPlay").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+            assertTrue(startRequests.isEmpty())
+            assertTrue(closeConfirmed.await(2, TimeUnit.SECONDS))
+            allowClose.countDown()
+            val completionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (CarPlayBackgroundSession.hasSession() && System.nanoTime() < completionDeadline) {
+                shadowOf(Looper.getMainLooper()).idle()
+                if (CarPlayBackgroundSession.hasSession()) Thread.sleep(10)
+            }
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertFalse(CarPlayBackgroundSession.hasSession())
+            assertTrue(callbackResults.contains(CarPlayHostShutdownResult.TIMED_OUT))
+            assertTrue(callbackResults.contains(CarPlayHostShutdownResult.CLOSED))
+        } finally {
+            allowClose.countDown()
+            activity.awaitControllerClosedForTest = null
+            activity.startCarPlayForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
     @Test
     fun verifiedUsbAttachReevaluatesStartForAnExistingWiredHost() {
         CarPlayBackgroundSession.clear()
@@ -213,9 +286,12 @@ class CarPlayHostActivityReconnectTest {
             assertEquals(1, pending.size)
             assertNull(shadowOf(activity.application).nextStartedActivity)
 
-            activity.javaClass.getDeclaredMethod("completeShutdownCallbacks").apply {
+            activity.javaClass.getDeclaredMethod(
+                "completeShutdownCallbacks",
+                CarPlayHostShutdownResult::class.java,
+            ).apply {
                 isAccessible = true
-                invoke(activity)
+                invoke(activity, CarPlayHostShutdownResult.CLOSED)
             }
             val resumedHost = shadowOf(activity.application).nextStartedActivity
             assertNotNull(resumedHost)
@@ -248,9 +324,12 @@ class CarPlayHostActivityReconnectTest {
 
             assertTrue(AirPlayPersistence.loadWirelessEnabled(activity))
             assertEquals(1, (field(activity, "shutdownCompletionCallbacks").get(activity) as List<*>).size)
-            activity.javaClass.getDeclaredMethod("completeShutdownCallbacks").apply {
+            activity.javaClass.getDeclaredMethod(
+                "completeShutdownCallbacks",
+                CarPlayHostShutdownResult::class.java,
+            ).apply {
                 isAccessible = true
-                invoke(activity)
+                invoke(activity, CarPlayHostShutdownResult.CLOSED)
             }
 
             assertFalse(AirPlayPersistence.loadWirelessEnabled(activity))
@@ -578,6 +657,16 @@ class CarPlayHostActivityReconnectTest {
         activity.javaClass.getDeclaredMethod("onNewIntent", Intent::class.java).apply {
             isAccessible = true
             invoke(activity, intent)
+        }
+    }
+
+    private fun dispatchShutdown(
+        activity: CarPlayHostActivity,
+        completion: (CarPlayHostShutdownResult) -> Unit,
+    ) {
+        activity.javaClass.declaredMethods.single { it.name == "shutdown" && it.parameterCount == 3 }.apply {
+            isAccessible = true
+            invoke(activity, false, "test shutdown timeout", completion)
         }
     }
 

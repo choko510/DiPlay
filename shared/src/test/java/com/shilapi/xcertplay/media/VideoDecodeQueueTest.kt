@@ -233,6 +233,20 @@ class VideoDecodeQueueTest {
         assertEquals(0, pending.pendingOutputCount)
     }
 
+    @Test fun recentInputAndOutputKeepTheZeroCountDrainGraceShort() {
+        val pending = VideoPendingOutputState(
+            maxDequeueWaitUs = 8_000L,
+            outputDrainGraceNs = 50_000_000L,
+        )
+        pending.onInputQueued(10L)
+        pending.onOutputDequeued(renderableFrame = true, nowNs = 20L)
+
+        assertEquals(0, pending.pendingOutputCount)
+        assertEquals(8_000L, pending.nextDequeueTimeoutUs(1_000_020L))
+        assertEquals(5_000L, pending.nextDequeueTimeoutUs(45_000_020L))
+        assertEquals(0L, pending.nextDequeueTimeoutUs(50_000_020L))
+    }
+
     @Test fun idleDrainKeepsCheckingForMultipleDelayedOutputs() {
         val pending = VideoPendingOutputState()
         pending.onInputQueued(0L)

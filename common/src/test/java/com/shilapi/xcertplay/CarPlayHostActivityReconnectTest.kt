@@ -110,6 +110,46 @@ class CarPlayHostActivityReconnectTest {
     }
 
     @Test
+    fun verifiedWiredAttachAdoptsTheExistingBackgroundOwner() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val startRequests = mutableListOf<DisplaySize>()
+        val existingController = allocateControllerPlaceholder().apply {
+            field(this, "lifecycleLock").set(this, Any())
+            field(this, "mainHandler").set(this, Handler(Looper.getMainLooper()))
+        }
+        val existingSink = com.shilapi.xcertplay.media.AndroidMediaSink()
+        val previousOwner = Any()
+
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, true)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "menuOpen").setBoolean(activity, false)
+            activity.startCarPlayForTest = { size -> startRequests.add(size) }
+            CarPlayBackgroundSession.store(existingController, existingSink, 800, 480, previousOwner) { done -> done() }
+
+            dispatchOnNewIntent(
+                activity,
+                CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.USB_DEVICE_ATTACHED),
+            )
+
+            assertTrue(startRequests.isEmpty())
+            assertTrue(field(activity, "controller").get(activity) === existingController)
+            assertTrue(CarPlayBackgroundSession.isOwner(activity))
+        } finally {
+            activity.startCarPlayForTest = null
+            CarPlayBackgroundSession.clear()
+            existingSink.close()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
     fun verifiedUsbAttachWaitsForVpnReadinessBeforeStarting() {
         val bootstrapReady = field(DiPlayBootstrap, "ready")
         val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)

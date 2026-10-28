@@ -31,11 +31,12 @@ internal class DspProfileRuntime private constructor(
     context: Context,
     filesDirectory: File = context.applicationContext.filesDir,
     preferencesName: String = PREFERENCES_NAME,
+    workspaceWriterForTesting: ((File, ByteArray) -> Unit)? = null,
 ) {
     private val applicationContext = context.applicationContext
     private val preferences = applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
     private val repository = DspProfileRepository(filesDirectory)
-    private val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+    private val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory, workspaceWriterForTesting)
     private val modulePresetRepository = DspModulePresetRepository(filesDirectory)
     private val impulseRepository = DspImpulseResponseRepository(filesDirectory)
     private val studioFeatureFlags = AtomicReference(DspStudioFeatureFlags.load(preferences))
@@ -56,6 +57,7 @@ internal class DspProfileRuntime private constructor(
     internal var afterStudioFeatureFlagRuntimeApplyForTest: (() -> Unit)? = null
     internal var afterStudioWorkspaceApplyForTest: (() -> Unit)? = null
     internal var beforeStudioWorkspaceCommitForTest: (() -> Unit)? = null
+    internal var afterStudioWorkspaceCommitDecisionForTest: (() -> Unit)? = null
     internal var beforeStudioWorkspaceRestoreForTest: (() -> Boolean)? = null
     internal var persistStudioFeatureFlagsForTest: (() -> Boolean)? = null
     private val activeStudioWorkspace: AtomicReference<DspStudioWorkspace>
@@ -321,7 +323,9 @@ internal class DspProfileRuntime private constructor(
                     } else {
                         val saveResult = workspaceRepository.save(candidate, beforeCommit = {
                             beforeStudioWorkspaceCommitForTest?.invoke()
-                            generation == studioApplyGeneration.get()
+                            val shouldCommit = generation == studioApplyGeneration.get()
+                            if (shouldCommit) afterStudioWorkspaceCommitDecisionForTest?.invoke()
+                            shouldCommit
                         })
                         if (saveResult == DspWorkspaceSaveResult.SAVED) {
                             committedStudioWorkspace.set(candidate)
@@ -619,7 +623,8 @@ internal class DspProfileRuntime private constructor(
             context: Context,
             filesDirectory: File,
             preferencesName: String,
-        ): DspProfileRuntime = DspProfileRuntime(context, filesDirectory, preferencesName)
+            workspaceWriter: ((File, ByteArray) -> Unit)? = null,
+        ): DspProfileRuntime = DspProfileRuntime(context, filesDirectory, preferencesName, workspaceWriter)
 
         internal fun peekInstance(): DspProfileRuntime? = instance
 

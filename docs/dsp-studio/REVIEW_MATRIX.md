@@ -4,7 +4,7 @@ Review status is based on the task-supplied [PR #52 remediation specification](R
 
 ## Final-source review follow-up — 2026-10-28
 
-Current product source head: `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`; evidence-test source head: `685d4e02`. Four read-only reviewers re-audited the Native signal path, Kotlin/JNI ownership and Save/Cancel races, UI/storage behavior, and the 170-ID evidence ledger. No open source-correctable P0 or P1 finding remains. Hosted run [#407005](https://github.com/choko510/DiPlay/actions/runs/40700507509) passed at documentation head `9e4dd30281142fc5b2f1eb1162e7382bc2ab3b25`, containing the same product source tree; the subsequent test-fixture registry addition requires a confirming run at the final PR head.
+Current product source head: `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`; evidence-test source head: `685d4e02577fc74f23af1d7b1b5c3ceb23fd6d47`. Four read-only reviewers re-audited the Native signal path, Kotlin/JNI ownership and Save/Cancel races, UI/storage behavior, and the 170-ID evidence ledger. No open source-correctable P0 or P1 finding remains. Hosted run [#40704199235](https://github.com/choko510/DiPlay/actions/runs/40704199235) passed all required host and API 35 lanes at exact PR head `d0abecc59f835d07bfdb3e20a43ef9f2f3e6d881`; `quick-baseline` and Release verification were skipped for `workflow_dispatch`.
 
 | Review area | Finding and action | Retest/evidence | Remaining risk |
 |---|---|---|---|
@@ -15,7 +15,7 @@ Current product source head: `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`; evidenc
 
 The six remaining `NOT_RUN` rows are PH02-T05, T-PERF-09/10/11, and T-UI-10/11. They require the TS10/K706 + iPhone session, real Split/Surface/touch continuity, route-volume calibration, device performance/soak, or physical A/V evidence. Emulator and Robolectric results are mapped as `PARTIAL` and do not close those checks.
 
-The project-wide disposition is `SOFTWARE_GATES_GREEN_AT_9E4DD302 / HARDWARE_PASS=false / USER_APPROVAL_PENDING / MERGE_READY=false`. Keep PR #52 open and unmerged; PR #45 and `main` remain untouched.
+The final source and hosted CI are green at PR head `d0abecc5`, with no source P0/P1 finding. `SOURCE_READY=false` because G4 still has 162 PARTIAL acceptance rows; `HARDWARE_PASS=false` and `USER_APPROVAL_PENDING`. Keep PR #52 open and unmerged; PR #45 and `main` remain untouched.
 
 The package/finding tables below are the 2026-10-27 review snapshot at the earlier `fe083f4f` integration source. Current package ownership, evidence counts and follow-up findings are recorded above and in [REMAINING_FIX_TRACKER.md](REMAINING_FIX_TRACKER.md).
 

@@ -2,6 +2,11 @@
 
 > Append-only history, grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
+## 2026-10-28
+
+- REM-01 control-side gain follow-up: Studio HOT now carries the prepared dB/linear pair through JNI and uses linear gain on immediate and deferred render paths; focused Shared tests, Native tests, three ABI JNI builds, and Android-test Kotlin compilation passed. ASan/UBSan could not link with the available MinGW compiler, and platform instrumentation remains unrun here.
+- Hardened PR #68 REM-01: Preamp and Studio HOT now share the existing bounded queue and HOT/LOCAL_WARM generation fence; compatible Studio HOT preserves the ramp, incompatible gain waits for ramp completion, and dB/linear pairs are checked before PCM processing. Native and ASan/UBSan emulator suites, focused Shared tests, API 36.1 JNI instrumentation 15/15, three Release ABIs, both Benchmark APKs, and JNI mapping passed. Windows Robolectric Common still has the known AtomicFile-backed module-preset deletion assertion failure; target audio and p99 remain NOT_RUN.
+
 ## 2026-10-27
 
 - REM-05 gives each DSP Studio tab an independent saveable vertical scroll position and retains EQ band selection across tab switches; the 100-transition Compose regression compiles, while API 36.1 interaction evidence is blocked by Espresso initialization before test actions.
@@ -283,6 +288,7 @@
 - 2026-10-26: B06 added capture-loop proof that repeated zero AudioRecord reads send no packet and positive reads resume transmission, plus initial DSP-OFF PCM16 exactness across 44.1/48 kHz mono/stereo. Test commit `686516f5a3fbd220822c89e394c5c12222a24eb8`; full shared suite passed 646/646. Product behavior was already correct; physical audio validation remains `NOT_RUN`.
 - 2026-10-26: B07 recorded SHA-specific decisions for the fixed 111-commit overlay and classified all 51 merges. No new adaptation met the evidence bar; 37 reviewed rows remain evidence-gated. EX-08 regression tests passed 19/19 and the 1,289-row legacy prefix remains byte-identical.
 - 2026-10-26: B08 added observation-only, attempt-relative Stage3 timing with bounded in-memory reporting and a reproducible host per-thread CPU/allocation comparison. Transmission behavior is unchanged; target-device causal timing remains blocked.
+- 2026-10-27: Added a dedicated versioned, owner/format-fenced Preamp HOT lane with a 20 ms sample ramp, 6 dB Auto Headroom reserve, last-good rebind behavior, and final-ramp ACK; native emulator, focused JVM, JNI instrumentation, NDK ABI builds, and R8 JNI mapping checks passed. Vehicle audio and p99 remain NOT_RUN.
 - 2026-10-27: Added the PR #52 REM-07 evidence tracker and validator for all 170 PH/T acceptance IDs plus 25 REM/PKG coverage IDs. No unverified row was promoted; checker and four status-contract fixtures pass.
 - 2026-10-27: Hardened REM-07 validation to compare acceptance predicates, require valid repository-local runbooks, and resolve PASS artifacts to repository files or direct GitHub Actions run URLs. Nine validator fixtures pass; ledger remains 0 PASS / 152 PARTIAL / 18 NOT_RUN.
 - 2026-10-27: Restricted accepted GitHub Actions artifact URLs to `github.com/choko510/DiPlay/actions/runs/<id>` and added fixtures for other-repository rejection and this-repository acceptance.

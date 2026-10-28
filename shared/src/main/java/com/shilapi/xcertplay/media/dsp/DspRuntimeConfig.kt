@@ -64,6 +64,10 @@ class DspRuntimeConfig(
         }
     }
 
+    internal fun canApplyPreampHotUpdateTo(other: DspRuntimeConfig): Boolean =
+        enabled && other.enabled && other.autoHeadroomEnabled && other.gainDb <= -6.0 &&
+            DspUpdatePlanner.diff(this, other) == setOf(DspRuntimeField.PREAMP)
+
     init {
         require(gainDb.isFinite() && gainDb in MIN_GAIN_DB..MAX_GAIN_DB)
         require(this.peqBands.size <= DspEqDesigner.MAX_BANDS)

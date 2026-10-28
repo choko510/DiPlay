@@ -21,6 +21,9 @@
 #define DSP_PEQ_WARM_HISTORY_CAPACITY 32768u
 #define DSP_PEQ_WARM_AUDIO_CATCH_UP_MAX 512u
 
+#define DSP_GRAPH_HOT_APPLIED 1
+#define DSP_GRAPH_HOT_DEFERRED 2
+
 typedef struct {
     _Atomic unsigned long long sequence;
     _Atomic unsigned long long packed_samples;
@@ -34,6 +37,7 @@ typedef struct {
 } dsp_peq_input_history;
 
 typedef struct {
+    int sample_rate;
     dsp_gain gain;
     dsp_biquad peq[DSP_GRAPH_EQ_FILTER_CAPACITY];
     size_t peq_count;
@@ -57,6 +61,7 @@ typedef struct {
     dsp_smart_loudness smart_loudness;
     dsp_dynamic_bass dynamic_bass;
     double pending_studio_gain_db;
+    float pending_studio_gain_linear;
     int studio_gain_refund_pending;
     dsp_meter input_meter;
     dsp_meter output_meter;
@@ -85,9 +90,11 @@ int dsp_graph_prepare(
 int dsp_graph_apply_studio_hot(
     dsp_graph *graph,
     double gain_db,
+    double gain_linear,
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);
+int dsp_graph_apply_preamp_hot(dsp_graph *graph, double gain_db, double gain_linear);
 int dsp_graph_prepare_local_peq(
     const dsp_graph *graph,
     const double *peq_coefficients,

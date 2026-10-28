@@ -55,6 +55,7 @@ import com.shilapi.xcertplay.media.dsp.failureFallbackPreampDb
 import com.shilapi.xcertplay.media.dsp.createNativePipeline
 import com.shilapi.xcertplay.media.dsp.prepare
 import com.shilapi.xcertplay.media.dsp.prepareHotUpdate
+import com.shilapi.xcertplay.media.dsp.preparePreampHotUpdate
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
@@ -2422,6 +2423,7 @@ internal class AudioRenderer(
                         runCatching { afterDspUpdateOwnerCheckForTest?.invoke() }
                         if (update.generation == requestedDspGeneration) livePreparationPending = false
                         if (update.config.enabled && update.pipeline == null && update.hotUpdate == null &&
+                            update.preampHotUpdate == null &&
                             update.localPeqWarmUpdate == null
                         ) {
                             failedStatus = DspRendererApplyStatus(
@@ -2433,12 +2435,14 @@ internal class AudioRenderer(
                             val warning = convolverApplyWarning(update.format, update.config)
                             val prepared = PreparedRendererDspUpdate(
                                 update = update,
-                                graphConfig = if (update.hotUpdate != null || update.localPeqWarmUpdate != null) {
+                                graphConfig = if (update.hotUpdate != null || update.preampHotUpdate != null ||
+                                    update.localPeqWarmUpdate != null) {
                                     configuredDspGraph(update.format, update.config)
                                 } else {
                                     effectiveDspGraphConfig(update.format, update.config, update.pipeline)
                                 },
                                 latencyPreservingBypass = if (update.hotUpdate == null &&
+                                    update.preampHotUpdate == null &&
                                     update.localPeqWarmUpdate == null
                                 ) {
                                     prepareLatencyPreservingBypass(update)
@@ -2551,6 +2555,33 @@ internal class AudioRenderer(
                 } else {
                     null
                 }
+            },
+            preampHotUpdatePreparer = { candidateFormat, snapshot ->
+                val current = activeDspConfig
+                if (hotBoundPipeline === dspPipeline && candidateFormat == format &&
+                    dspPipeline?.format == candidateFormat && dspConfigProvider.studioHotUpdatesEnabled() &&
+                    current.canApplyPreampHotUpdateTo(snapshot.config) &&
+                    DspUpdatePlanner.classify(
+                        current = current,
+                        target = snapshot.config,
+                        hasActivePipeline = true,
+                        trackGenerationCommitted = trackGenerationContentCommitted,
+                        currentLatencyFrames = liveUpdateLatencyFrames.get(),
+                        targetLatencyFrames = liveUpdateLatencyFrames.get(),
+                        requiresStateContinuity = false,
+                        mediaRole = classification.dspRole == DspStreamRole.MEDIA,
+                    ) == DspUpdatePlan.HOT
+                ) {
+                    snapshot.config.preparePreampHotUpdate(
+                        candidateFormat,
+                        snapshot.generation,
+                        editorOwnerEpoch = controllerEpoch,
+                        rendererOwnerToken = rendererOwnerToken,
+                        pcmFormatEpoch = pcmFormatEpoch,
+                        hotContextToken = hotBoundContextToken,
+                        mediaRole = classification.dspRole == DspStreamRole.MEDIA,
+                    )
+                } else null
             },
             localPeqWarmPreparer = { candidateFormat, snapshot ->
                 val current = activeDspConfig
@@ -2789,12 +2820,23 @@ internal class AudioRenderer(
             return
         }
         val hotUpdate = update.hotUpdate
+        val preampHotUpdate = update.preampHotUpdate
         val localPeqWarmUpdate = update.localPeqWarmUpdate
         if (hotUpdate != null && (rendererReleased || hotUpdate.generation != update.generation ||
                 hotUpdate.editorOwnerEpoch != liveUpdateControllerEpoch.get() ||
                 hotUpdate.rendererOwnerToken != rendererOwnerToken ||
                 hotUpdate.pcmFormatEpoch != pcmFormatEpoch || hotUpdate.hotContextToken != hotBoundContextToken ||
                 !hotUpdate.mediaRole ||
+                classification.dspRole != DspStreamRole.MEDIA)
+        ) {
+            if (pendingDspUpdate.compareAndSet(prepared, null)) controller.retire(update.pipeline)
+            return
+        }
+        if (preampHotUpdate != null && (rendererReleased || preampHotUpdate.generation != update.generation ||
+                preampHotUpdate.editorOwnerEpoch != liveUpdateControllerEpoch.get() ||
+                preampHotUpdate.rendererOwnerToken != rendererOwnerToken ||
+                preampHotUpdate.pcmFormatEpoch != pcmFormatEpoch ||
+                preampHotUpdate.hotContextToken != hotBoundContextToken || !preampHotUpdate.mediaRole ||
                 classification.dspRole != DspStreamRole.MEDIA)
         ) {
             if (pendingDspUpdate.compareAndSet(prepared, null)) controller.retire(update.pipeline)
@@ -2817,7 +2859,7 @@ internal class AudioRenderer(
             return
         }
         if (trackGenerationContentCommitted && deferredDspGeneration == update.generation &&
-            update.hotUpdate == null && update.localPeqWarmUpdate == null
+            update.hotUpdate == null && update.preampHotUpdate == null && update.localPeqWarmUpdate == null
         ) return
         if (hotUpdate != null) {
             val pipeline = dspPipeline
@@ -2848,6 +2890,31 @@ internal class AudioRenderer(
                 return
             }
             pendingHotApply.set(PendingRendererHotApply(prepared, pipeline, hotUpdate.hotContextToken))
+            discardStalePendingHotApply()
+            return
+        }
+        if (preampHotUpdate != null) {
+            val pipeline = dspPipeline
+            if (rendererReleased || hotBoundPipeline !== pipeline || pipeline == null ||
+                pipeline.format != update.format || pendingHotApply.get() != null
+            ) return
+            if (!dspConfigProvider.studioHotUpdatesEnabled()) {
+                deferredDspGeneration = update.generation
+                reportDspApplyStatus(prepared.deferredStatus.copy(reason = "Native HOT updates are disabled"))
+                return
+            }
+            if (!pendingDspUpdate.compareAndSet(prepared, null)) return
+            if (!pipeline.enqueuePreampHotUpdate(preampHotUpdate)) {
+                pendingDspUpdate.compareAndSet(null, prepared)
+                deferredDspGeneration = update.generation
+                reportDspApplyStatus(
+                    prepared.deferredStatus.copy(
+                        reason = "native DSP processor rejected the preamp HOT update; retrying on the next PCM block while keeping the active pipeline",
+                    ),
+                )
+                return
+            }
+            pendingHotApply.set(PendingRendererHotApply(prepared, pipeline, preampHotUpdate.hotContextToken))
             discardStalePendingHotApply()
             return
         }
@@ -3271,6 +3338,7 @@ internal class AudioRenderer(
         val prepared = pending.prepared
         val update = prepared.update
         val hotUpdate = update.hotUpdate
+        val preampHotUpdate = update.preampHotUpdate
         val localPeqWarmUpdate = update.localPeqWarmUpdate
         if (pipeline !== pending.pipeline || pipeline !== dspPipeline) return
         if (localPeqWarmUpdate != null && pipeline.hasRejected(localPeqWarmUpdate)) {
@@ -3286,6 +3354,7 @@ internal class AudioRenderer(
             return
         }
         val acknowledged = hotUpdate?.let(pipeline::hasAcknowledged)
+            ?: preampHotUpdate?.let(pipeline::hasAcknowledged)
             ?: localPeqWarmUpdate?.let(pipeline::hasAcknowledged)
             ?: false
         if (!acknowledged) return
@@ -3353,11 +3422,17 @@ internal class AudioRenderer(
         val pending = pendingHotApply.get() ?: return
         val update = pending.prepared.update
         val hotUpdate = pending.prepared.update.hotUpdate
+        val preampHotUpdate = update.preampHotUpdate
         val localPeqWarmUpdate = update.localPeqWarmUpdate
         val contextIsCurrent = if (hotUpdate != null) {
             hotUpdate.editorOwnerEpoch == liveUpdateControllerEpoch.get() &&
                 hotUpdate.rendererOwnerToken == rendererOwnerToken && hotUpdate.pcmFormatEpoch == pcmFormatEpoch &&
                 hotUpdate.hotContextToken == hotBoundContextToken
+        } else if (preampHotUpdate != null) {
+            preampHotUpdate.editorOwnerEpoch == liveUpdateControllerEpoch.get() &&
+                preampHotUpdate.rendererOwnerToken == rendererOwnerToken &&
+                preampHotUpdate.pcmFormatEpoch == pcmFormatEpoch &&
+                preampHotUpdate.hotContextToken == hotBoundContextToken
         } else if (localPeqWarmUpdate != null) {
             localPeqWarmUpdate.editorOwnerEpoch == liveUpdateControllerEpoch.get() &&
                 localPeqWarmUpdate.rendererOwnerToken == rendererOwnerToken &&
@@ -3374,7 +3449,7 @@ internal class AudioRenderer(
         val inFlight = !rendererReleased && contextIsCurrent && pending.pipeline === dspPipeline &&
             pending.pipeline === hotBoundPipeline && pending.hotContextToken == hotBoundContextToken &&
             pending.hotContextToken == pending.pipeline.hotUpdateContextToken() &&
-            (hotUpdate != null || localPeqWarmUpdate != null)
+            (hotUpdate != null || preampHotUpdate != null || localPeqWarmUpdate != null)
         if ((current && update.generation == latestGeneration) || inFlight ||
             !pendingHotApply.compareAndSet(pending, null)
         ) return

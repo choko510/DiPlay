@@ -41,6 +41,7 @@ typedef struct {
 } dsp_engine_diagnostics;
 
 typedef struct {
+    uint32_t preamp_version;
     uint32_t generation_token;
     uint64_t generation;
     uint64_t editor_owner_epoch;
@@ -49,10 +50,30 @@ typedef struct {
     uint32_t hot_context_token;
     int media_role;
     double gain_db;
+    double gain_linear;
+    uint32_t gain_pair_validated;
+    uint32_t payload_kind;
     dsp_macro_config macro;
     dsp_smart_loudness_config smart_loudness;
     dsp_dynamic_bass_config dynamic_bass;
 } dsp_engine_hot_update;
+
+#define DSP_ENGINE_HOT_KIND_STUDIO 0u
+#define DSP_ENGINE_HOT_KIND_PREAMP 1u
+
+typedef struct {
+    uint32_t version;
+    uint32_t generation_token;
+    uint64_t generation;
+    uint64_t editor_owner_epoch;
+    uint64_t renderer_owner_token;
+    uint64_t pcm_format_epoch;
+    uint32_t hot_context_token;
+    int media_role;
+    double gain_db;
+    double gain_linear;
+    uint32_t gain_pair_validated;
+} dsp_engine_preamp_update;
 
 typedef struct {
     uint32_t generation_token;
@@ -106,6 +127,7 @@ dsp_engine *dsp_engine_create_with_studio(
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);
 int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_update *update);
+int dsp_engine_enqueue_preamp_update(dsp_engine *engine, const dsp_engine_preamp_update *update);
 int dsp_engine_prepare_local_peq_update(
     dsp_engine *engine,
     const double *peq_coefficients,
@@ -126,6 +148,7 @@ int dsp_engine_bind_hot_update_context(
     uint32_t hot_context_token,
     int media_role);
 uint32_t dsp_engine_get_hot_ack_token(const dsp_engine *engine);
+uint32_t dsp_engine_get_preamp_ack_token(const dsp_engine *engine);
 uint32_t dsp_engine_get_local_peq_ack_token(const dsp_engine *engine);
 uint32_t dsp_engine_get_local_peq_rejected_token(const dsp_engine *engine);
 dsp_status dsp_engine_process(

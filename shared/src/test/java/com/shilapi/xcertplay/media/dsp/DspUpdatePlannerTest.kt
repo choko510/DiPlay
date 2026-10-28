@@ -37,16 +37,29 @@ class DspUpdatePlannerTest {
     }
 
     @Test
-    fun preampChangesAreNotHotUntilTheNativeGainPathHasASampleRamp() {
+    fun preampOnlyChangesUseBoundedHotRampAndKeepUnsafeTargetsDeferred() {
         val current = DspRuntimeConfig(enabled = true, gainDb = 0.0)
-        val target = DspRuntimeConfig(enabled = true, gainDb = -3.0)
+        val safeTarget = DspRuntimeConfig(enabled = true, gainDb = -8.0)
+        val unsafeTarget = DspRuntimeConfig(enabled = true, gainDb = -3.0)
 
-        assertEquals(setOf(DspRuntimeField.PREAMP), DspUpdatePlanner.diff(current, target))
+        assertEquals(setOf(DspRuntimeField.PREAMP), DspUpdatePlanner.diff(current, safeTarget))
+        assertEquals(
+            DspUpdatePlan.HOT,
+            DspUpdatePlanner.classify(current, safeTarget, true, true, 0, 0, true),
+        )
+        assertTrue(current.canApplyPreampHotUpdateTo(safeTarget))
+        assertEquals(setOf(DspRuntimeField.PREAMP), DspUpdatePlanner.diff(current, unsafeTarget))
         assertEquals(
             DspUpdatePlan.DEFERRED,
-            DspUpdatePlanner.classify(current, target, true, true, 0, 0, true),
+            DspUpdatePlanner.classify(current, unsafeTarget, true, true, 0, 0, true),
         )
-        assertFalse(current.canApplyStudioHotUpdateTo(target))
+        assertFalse(current.canApplyPreampHotUpdateTo(unsafeTarget))
+        assertFalse(current.canApplyStudioHotUpdateTo(safeTarget))
+        val manualHeadroomTarget = DspRuntimeConfig(enabled = true, gainDb = -12.0, autoHeadroomEnabled = false)
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, manualHeadroomTarget, true, true, 0, 0, true),
+        )
     }
 
     @Test
@@ -230,7 +243,7 @@ class DspUpdatePlannerTest {
         assertEquals(
             DspUpdateDecision(
                 DspUpdatePlan.DEFERRED,
-                "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
+                "preamp HOT requires Auto Headroom and at least 6 dB of reserve",
             ),
             DspUpdatePlanner.decide(current, preampEdit, true, true, 0, 0, false),
         )

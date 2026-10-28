@@ -11,11 +11,13 @@ JNI_CLASSES = {
     "com.shilapi.xcertplay.media.dsp.NativeDspJni": {
         "nativeCreate",
         "nativeApplyHotConfig",
+        "nativeApplyPreampHot",
         "nativeBindHotUpdateContext",
         "nativePrepareLocalPeqUpdate",
         "nativeEnqueueLocalPeqUpdate",
         "nativeCancelLocalPeqUpdate",
         "nativeGetHotAckToken",
+        "nativeGetPreampHotAckToken",
         "nativeGetLocalPeqAckToken",
         "nativeGetLocalPeqRejectedToken",
         "nativeProcess",

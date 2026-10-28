@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.log10
@@ -255,13 +256,73 @@ internal data class DspPreparedHotUpdate(
     val macroValues: DoubleArray,
     val smartLoudnessValues: DoubleArray,
     val dynamicBassValues: DoubleArray,
+    val appliedPreampLinear: Double = 10.0.pow(appliedPreampDb / 20.0),
 ) {
+    val gainPairIsConsistent: Boolean = run {
+        val expectedLinear = 10.0.pow(appliedPreampDb / 20.0)
+        abs(appliedPreampLinear - expectedLinear) <= max(1.0e-12, expectedLinear * 1.0e-6)
+    }
+
     val generationToken: Int
         get() = ((generation and GENERATION_TOKEN_MASK).toInt()).let { if (it == 0) 1 else it }
 
     companion object {
         private const val GENERATION_TOKEN_MASK = 0x7fffffffL
     }
+}
+
+internal data class DspPreparedPreampHotUpdate(
+    val version: Int = 1,
+    val generation: Long,
+    val editorOwnerEpoch: Long,
+    val rendererOwnerToken: Long,
+    val pcmFormatEpoch: Long,
+    val hotContextToken: Int,
+    val mediaRole: Boolean,
+    val appliedPreampDb: Double,
+    val appliedPreampLinear: Double,
+) {
+    val gainPairIsConsistent: Boolean = run {
+        val expectedLinear = 10.0.pow(appliedPreampDb / 20.0)
+        abs(appliedPreampLinear - expectedLinear) <= max(1.0e-12, expectedLinear * 1.0e-6)
+    }
+
+    val generationToken: Int
+        get() = ((generation and GENERATION_TOKEN_MASK).toInt()).let { if (it == 0) 1 else it }
+
+    init {
+        require(version == 1 && generation > 0 && editorOwnerEpoch > 0 && rendererOwnerToken > 0 &&
+            pcmFormatEpoch > 0 && hotContextToken > 0 && mediaRole && appliedPreampDb.isFinite() &&
+            appliedPreampDb in -120.0..-6.0 && appliedPreampLinear.isFinite() &&
+            appliedPreampLinear in 1.0e-6..0.50118724)
+    }
+
+    companion object {
+        private const val GENERATION_TOKEN_MASK = 0x7fffffffL
+    }
+}
+
+internal fun DspRuntimeConfig.preparePreampHotUpdate(
+    format: DspAudioFormat,
+    generation: Long,
+    editorOwnerEpoch: Long,
+    rendererOwnerToken: Long,
+    pcmFormatEpoch: Long,
+    hotContextToken: Int,
+    mediaRole: Boolean,
+): DspPreparedPreampHotUpdate? {
+    val appliedPreampDb = prepare(format).appliedPreampDb
+    if (!mediaRole || appliedPreampDb > -6.0) return null
+    return DspPreparedPreampHotUpdate(
+        generation = generation,
+        editorOwnerEpoch = editorOwnerEpoch,
+        rendererOwnerToken = rendererOwnerToken,
+        pcmFormatEpoch = pcmFormatEpoch,
+        hotContextToken = hotContextToken,
+        mediaRole = mediaRole,
+        appliedPreampDb = appliedPreampDb,
+        appliedPreampLinear = 10.0.pow(appliedPreampDb / 20.0),
+    )
 }
 
 internal data class DspPreparedLocalPeqWarmUpdate(
@@ -308,6 +369,7 @@ internal fun DspRuntimeConfig.prepareHotUpdate(
         macroValues = prepared.macroTone,
         smartLoudnessValues = prepared.smartLoudness,
         dynamicBassValues = prepared.dynamicBass,
+        appliedPreampLinear = 10.0.pow(prepared.appliedPreampDb / 20.0),
     )
 }
 

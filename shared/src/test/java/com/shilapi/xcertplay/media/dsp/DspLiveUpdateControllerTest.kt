@@ -383,6 +383,47 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
+    fun rapidPreampChangesPrepareOnlyTheLatestVersionedHotTarget() {
+        val provider = MutableConfigProvider()
+        val firstPreparationStarted = CountDownLatch(1)
+        val releaseFirstPreparation = CountDownLatch(1)
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = { prepared.offer(it) },
+            preampHotUpdatePreparer = { format, snapshot ->
+                if (snapshot.generation == 1L) {
+                    firstPreparationStarted.countDown()
+                    check(releaseFirstPreparation.await(5, TimeUnit.SECONDS))
+                }
+                snapshot.config.preparePreampHotUpdate(format, snapshot.generation, 4, 9, 3, 1, mediaRole = true)
+            },
+        )
+
+        try {
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = -8.0))
+            assertTrue(firstPreparationStarted.await(5, TimeUnit.SECONDS))
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = -12.0))
+            releaseFirstPreparation.countDown()
+
+            val latest = prepared.poll(5, TimeUnit.SECONDS)
+            assertNotNull(latest)
+            assertEquals(2L, latest?.generation)
+            assertEquals(-12.0, latest?.preampHotUpdate?.appliedPreampDb ?: 0.0, 0.02)
+            assertEquals(2, latest?.preampHotUpdate?.generationToken)
+            assertNull(latest?.pipeline)
+            assertNull(prepared.poll(100, TimeUnit.MILLISECONDS))
+        } finally {
+            releaseFirstPreparation.countDown()
+            controller.close()
+        }
+    }
+
+    @Test
     fun lateOlderNotificationCannotRegressPreparingOrPreparedGeneration() {
         val provider = MutableConfigProvider()
         val generationTwoStarted = CountDownLatch(1)

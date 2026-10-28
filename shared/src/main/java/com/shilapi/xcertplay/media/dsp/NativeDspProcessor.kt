@@ -66,6 +66,7 @@ internal interface NativeDspBindings {
     ): Int
     fun reset(handle: Long): Int
     fun applyHotConfig(handle: Long, update: DspPreparedHotUpdate): Int = -1
+    fun applyPreampHot(handle: Long, update: DspPreparedPreampHotUpdate): Int = -1
     fun prepareLocalPeqUpdate(
         handle: Long,
         coefficients: DoubleArray,
@@ -84,6 +85,7 @@ internal interface NativeDspBindings {
         mediaRole: Boolean,
     ): Boolean = false
     fun hotAckToken(handle: Long): Int = 0
+    fun preampHotAckToken(handle: Long): Int = 0
     fun localPeqAckToken(handle: Long): Int = 0
     fun localPeqRejectedToken(handle: Long): Int = 0
     fun latencyFrames(handle: Long): Int
@@ -175,9 +177,17 @@ internal object NativeDspJni : NativeDspBindings {
         update.hotContextToken,
         update.mediaRole,
         update.appliedPreampDb,
+        update.appliedPreampLinear,
+        update.gainPairIsConsistent,
         update.macroValues,
         update.smartLoudnessValues,
         update.dynamicBassValues,
+    )
+
+    override fun applyPreampHot(handle: Long, update: DspPreparedPreampHotUpdate): Int = nativeApplyPreampHot(
+        handle, update.version, update.generation, update.editorOwnerEpoch, update.rendererOwnerToken,
+        update.pcmFormatEpoch, update.hotContextToken, update.mediaRole,
+        update.appliedPreampDb, update.appliedPreampLinear, update.gainPairIsConsistent,
     )
 
     override fun prepareLocalPeqUpdate(
@@ -225,6 +235,7 @@ internal object NativeDspJni : NativeDspBindings {
     ) == 0
 
     override fun hotAckToken(handle: Long): Int = nativeGetHotAckToken(handle)
+    override fun preampHotAckToken(handle: Long): Int = nativeGetPreampHotAckToken(handle)
 
     override fun localPeqAckToken(handle: Long): Int = nativeGetLocalPeqAckToken(handle)
 
@@ -287,9 +298,24 @@ internal object NativeDspJni : NativeDspBindings {
         hotContextToken: Int,
         mediaRole: Boolean,
         gainDb: Double,
+        gainLinear: Double,
+        gainPairValidated: Boolean,
         macroValues: DoubleArray,
         smartLoudnessValues: DoubleArray,
         dynamicBassValues: DoubleArray,
+    ): Int
+    private external fun nativeApplyPreampHot(
+        handle: Long,
+        version: Int,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+        gainDb: Double,
+        gainLinear: Double,
+        gainPairValidated: Boolean,
     ): Int
     private external fun nativePrepareLocalPeqUpdate(
         handle: Long,
@@ -321,6 +347,7 @@ internal object NativeDspJni : NativeDspBindings {
         mediaRole: Boolean,
     ): Int
     private external fun nativeGetHotAckToken(handle: Long): Int
+    private external fun nativeGetPreampHotAckToken(handle: Long): Int
     private external fun nativeGetLocalPeqAckToken(handle: Long): Int
     private external fun nativeCancelLocalPeqUpdate(handle: Long, generationToken: Int): Int
     private external fun nativeGetLocalPeqRejectedToken(handle: Long): Int
@@ -512,6 +539,25 @@ internal class NativeDspProcessor internal constructor(
         return status == NATIVE_OK
     }
 
+    override fun enqueuePreampHotUpdate(update: DspPreparedPreampHotUpdate): Boolean {
+        val handle = nativeHandle
+        if (handle <= 0L || !update.gainPairIsConsistent || update.editorOwnerEpoch != hotEditorOwnerEpoch ||
+            update.rendererOwnerToken != hotRendererOwnerToken || update.pcmFormatEpoch != hotPcmFormatEpoch ||
+            update.hotContextToken != hotContextToken || !update.mediaRole
+        ) return false
+        val status = try {
+            bindings.applyPreampHot(handle, update)
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        } catch (_: Exception) {
+            -1
+        }
+        if (status != NATIVE_OK && status != NATIVE_QUEUE_FULL) localNativeErrors++
+        return status == NATIVE_OK
+    }
+
     override fun prepareLocalPeqWarmUpdate(
         coefficients: DoubleArray,
         generation: Long,
@@ -623,6 +669,20 @@ internal class NativeDspProcessor internal constructor(
         if (handle <= 0L) return 0
         return try {
             bindings.hotAckToken(handle)
+        } catch (_: SecurityException) {
+            0
+        } catch (_: LinkageError) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    override fun preampHotAcknowledgedToken(): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try {
+            bindings.preampHotAckToken(handle)
         } catch (_: SecurityException) {
             0
         } catch (_: LinkageError) {

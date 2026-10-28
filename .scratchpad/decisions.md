@@ -764,6 +764,11 @@ Compare a single module by overlaying its frozen A/B fields onto the current dra
 Represent Static Bass as one internal graph filter after the combined 15-slot PEQ/Cabin capacity, then prepare and warm the EQ candidate from the existing bounded pre-EQ history. This preserves the public band limit and stage latency while allowing only PEQ and Static Bass to use opt-in LOCAL_WARM; Cabin Correction and IR remain deferred. Allocate renderer-status owner tokens process-wide because the runtime status store can outlive a sink, and make render-thread retry requests signal the control worker rather than wait on the config-listener lock.
 
 Smart Loudness headroom must bound the transient response of `sample - lowpass(sample)`, not only its steady-state sine gain; use the residual filter's impulse-gain bound before calculating preamp reduction.
+# Preamp HOT uses its own fenced command path
+
+Keep the versioned preamp-only payload kind separate from the existing Macro/Loudness/Dynamic Bass payload while reusing the same bounded Native HOT mailbox and generation fence. Require Auto Headroom, at least 6 dB of applied preamp reserve, and a current MEDIA owner/format tuple; ramp native linear gain over 20 ms and ACK only after the ramp finishes. On rebind, cancel an active ramp at its last-good value.
+
+2026-10-28 REM-01 follow-up: Prepare the linear gain for Studio HOT alongside the dB value and carry both through JNI. Use the linear value for immediate gain changes and deferred headroom refunds so PCM processing does not call `pow`; preserve the existing safe gain deferral while a Preamp ramp is active.
 
 2026-10-27 REM-07: Do not inherit PASS from historical test-matrix rows into the per-ID evidence ledger. A row can be PASS only when method, exact command, result, full source SHA, and artifact are attached to that row; until then retain PARTIAL or NOT_RUN.
 

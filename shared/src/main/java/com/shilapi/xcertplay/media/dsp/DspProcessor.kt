@@ -68,6 +68,8 @@ internal interface DspProcessor : Closeable {
 
     fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = false
 
+    fun enqueuePreampHotUpdate(update: DspPreparedPreampHotUpdate): Boolean = false
+
     fun prepareLocalPeqWarmUpdate(
         coefficients: DoubleArray,
         generation: Long,
@@ -99,6 +101,8 @@ internal interface DspProcessor : Closeable {
     fun hotUpdateContextToken(): Int = 0
 
     fun hotAcknowledgedToken(): Int = 0
+
+    fun preampHotAcknowledgedToken(): Int = 0
 
     fun diagnostics(): DspDiagnosticsSnapshot
 }

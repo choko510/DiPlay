@@ -116,11 +116,19 @@ internal object DspUpdatePlanner {
                 "Cabin Correction local warm-up is not implemented; keeping the active pipeline until the next AudioTrack generation",
             )
         }
-        if (trackGenerationCommitted && changed == setOf(DspRuntimeField.PREAMP)) {
+        if (trackGenerationCommitted && changed == setOf(DspRuntimeField.PREAMP) &&
+            (!target.autoHeadroomEnabled || target.gainDb > -6.0)
+        ) {
             return DspUpdateDecision(
                 DspUpdatePlan.DEFERRED,
-                "preamp sample ramp is unavailable; keeping the active pipeline until the next AudioTrack generation",
+                "preamp HOT requires Auto Headroom and at least 6 dB of reserve",
             )
+        }
+        if (trackGenerationCommitted && hasActivePipeline && current.enabled && target.enabled &&
+            changed == setOf(DspRuntimeField.PREAMP)
+        ) {
+            return if (studioHotUpdatesEnabled) DspUpdateDecision(DspUpdatePlan.HOT)
+            else DspUpdateDecision(DspUpdatePlan.DEFERRED, "Native HOT updates are disabled")
         }
 
         if (changed.all(::isHotField) && !studioHotUpdatesEnabled) {
@@ -166,6 +174,7 @@ internal object DspUpdatePlanner {
     )
 
     private fun isContinuityIndependentHotField(field: DspRuntimeField): Boolean = field in setOf(
+        DspRuntimeField.PREAMP,
         DspRuntimeField.MACRO_TONE,
         DspRuntimeField.SMART_LOUDNESS,
         DspRuntimeField.DYNAMIC_BASS,

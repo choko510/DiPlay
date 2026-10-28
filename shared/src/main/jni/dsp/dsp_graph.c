@@ -159,6 +159,7 @@ int dsp_graph_prepare(
         (peq_count > 0 && peq_coefficients == NULL) || !dsp_gain_set_db(&graph->gain, gain_db)) {
         return 0;
     }
+    graph->sample_rate = sample_rate;
     graph->peq_history.entries = (dsp_peq_history_entry *)calloc(
         DSP_PEQ_WARM_HISTORY_CAPACITY,
         sizeof(*graph->peq_history.entries));
@@ -240,28 +241,44 @@ static int studio_module_gains_are_settled(const dsp_graph *graph) {
 int dsp_graph_apply_studio_hot(
     dsp_graph *graph,
     double gain_db,
+    double gain_linear,
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config) {
-    if (graph == NULL || !dsp_graph_studio_hot_config_is_valid(
+    if (graph == NULL || !isfinite(gain_linear) || gain_linear <= 0.0 ||
+        !dsp_graph_studio_hot_config_is_valid(
             gain_db, macro_config, smart_loudness_config, dynamic_bass_config)) return 0;
+    const int gain_ramp_active = graph->gain.ramp_remaining > 0;
+    if (gain_ramp_active && gain_db != graph->gain.decibels) return DSP_GRAPH_HOT_DEFERRED;
     const double current_gain_db = graph->gain.decibels;
     if (!dsp_macro_apply_hot(&graph->macro, macro_config) ||
         !dsp_smart_loudness_apply_hot(&graph->smart_loudness, smart_loudness_config) ||
         !dsp_dynamic_bass_apply_hot(&graph->dynamic_bass, dynamic_bass_config)) {
         return 0;
     }
-    if (gain_db <= current_gain_db) {
-        if (!dsp_gain_set_db(&graph->gain, gain_db)) return 0;
+    if (gain_ramp_active) {
+        graph->studio_gain_refund_pending = 0;
+    } else if (gain_db <= current_gain_db) {
+        if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db, 0)) return 0;
         graph->studio_gain_refund_pending = 0;
     } else {
         graph->pending_studio_gain_db = gain_db;
+        graph->pending_studio_gain_linear = (float)gain_linear;
         graph->studio_gain_refund_pending = 1;
         if (studio_module_gains_are_settled(graph)) {
-            if (!dsp_gain_set_db(&graph->gain, gain_db)) return 0;
+            if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db, 0)) return 0;
             graph->studio_gain_refund_pending = 0;
         }
     }
+    return DSP_GRAPH_HOT_APPLIED;
+}
+
+int dsp_graph_apply_preamp_hot(dsp_graph *graph, double gain_db, double gain_linear) {
+    if (graph == NULL || !isfinite(gain_db) || gain_db < -120.0 || gain_db > -6.0 ||
+        !isfinite(gain_linear) || gain_linear < 1.0e-6 || gain_linear > 0.50118724) return 0;
+    const uint32_t ramp_samples = (uint32_t)(graph->sample_rate / 50);
+    if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db, ramp_samples)) return 0;
+    graph->studio_gain_refund_pending = 0;
     return 1;
 }
 
@@ -269,7 +286,8 @@ static void apply_pending_studio_gain_refund(dsp_graph *graph) {
     if (!graph->studio_gain_refund_pending || !studio_module_gains_are_settled(graph)) {
         return;
     }
-    if (dsp_gain_set_db(&graph->gain, graph->pending_studio_gain_db)) {
+    if (dsp_gain_set_linear_ramped(
+            &graph->gain, graph->pending_studio_gain_linear, graph->pending_studio_gain_db, 0)) {
         graph->studio_gain_refund_pending = 0;
     }
 }
@@ -582,6 +600,7 @@ void dsp_graph_process(
             output[offset + 1] = output_right;
         }
         dsp_meter_add_frame(&graph->output_meter, output_left, output_right);
+        dsp_gain_advance(&graph->gain);
     }
     for (size_t index = 0; index < graph->peq_count; index++) {
         dsp_biquad_flush_denormals(&graph->peq[index]);

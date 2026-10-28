@@ -51,6 +51,7 @@ typedef struct {
     int media_role;
     double gain_db;
     double gain_linear;
+    uint32_t gain_pair_validated;
     uint32_t payload_kind;
     dsp_macro_config macro;
     dsp_smart_loudness_config smart_loudness;
@@ -71,6 +72,7 @@ typedef struct {
     int media_role;
     double gain_db;
     double gain_linear;
+    uint32_t gain_pair_validated;
 } dsp_engine_preamp_update;
 
 typedef struct {

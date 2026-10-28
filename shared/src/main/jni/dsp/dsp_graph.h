@@ -61,6 +61,7 @@ typedef struct {
     dsp_smart_loudness smart_loudness;
     dsp_dynamic_bass dynamic_bass;
     double pending_studio_gain_db;
+    float pending_studio_gain_linear;
     int studio_gain_refund_pending;
     dsp_meter input_meter;
     dsp_meter output_meter;
@@ -89,6 +90,7 @@ int dsp_graph_prepare(
 int dsp_graph_apply_studio_hot(
     dsp_graph *graph,
     double gain_db,
+    double gain_linear,
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);

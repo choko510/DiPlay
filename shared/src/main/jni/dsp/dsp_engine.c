@@ -236,7 +236,10 @@ int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_updat
         update->pcm_format_epoch != atomic_load_explicit(&engine->hot_pcm_format_epoch, memory_order_acquire) ||
         update->generation <= atomic_load_explicit(&engine->hot_last_generation, memory_order_acquire)) return 0;
     if (update->payload_kind == DSP_ENGINE_HOT_KIND_PREAMP) {
-        if (update->preamp_version != 1 || !dsp_gain_db_linear_pair_is_valid(update->gain_db, update->gain_linear)) {
+        if (update->preamp_version != 1 || update->gain_pair_validated != 1 ||
+            !isfinite(update->gain_db) || update->gain_db < -120.0 || update->gain_db > -6.0 ||
+            !isfinite(update->gain_linear) || update->gain_linear < 1.0e-6 ||
+            update->gain_linear > 0.50118724) {
             return 0;
         }
     } else if (update->payload_kind != DSP_ENGINE_HOT_KIND_STUDIO ||
@@ -244,7 +247,9 @@ int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_updat
             update->gain_db,
             &update->macro,
             &update->smart_loudness,
-            &update->dynamic_bass)) return 0;
+            &update->dynamic_bass) || update->gain_pair_validated != 1 ||
+        !isfinite(update->gain_linear) || update->gain_linear < 1.0e-35 ||
+        update->gain_linear > 15.84893193) return 0;
     const uint32_t write_index = atomic_load_explicit(&engine->hot_write_index, memory_order_relaxed);
     const uint32_t read_index = atomic_load_explicit(&engine->hot_read_index, memory_order_acquire);
     if ((uint32_t)(write_index - read_index) >= DSP_HOT_UPDATE_QUEUE_CAPACITY) return 0;
@@ -276,6 +281,7 @@ int dsp_engine_enqueue_preamp_update(dsp_engine *engine, const dsp_engine_preamp
         .media_role = update->media_role,
         .gain_db = update->gain_db,
         .gain_linear = update->gain_linear,
+        .gain_pair_validated = update->gain_pair_validated,
         .payload_kind = DSP_ENGINE_HOT_KIND_PREAMP,
     };
     return dsp_engine_enqueue_hot_update(engine, &hot_update);
@@ -636,6 +642,7 @@ dsp_status dsp_engine_process(
         const int studio_hot_result = dsp_graph_apply_studio_hot(
                 &engine->graph,
                 update->gain_db,
+                update->gain_linear,
                 &update->macro,
                 &update->smart_loudness,
                 &update->dynamic_bass);

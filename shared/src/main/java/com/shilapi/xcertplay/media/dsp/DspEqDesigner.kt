@@ -256,7 +256,13 @@ internal data class DspPreparedHotUpdate(
     val macroValues: DoubleArray,
     val smartLoudnessValues: DoubleArray,
     val dynamicBassValues: DoubleArray,
+    val appliedPreampLinear: Double = 10.0.pow(appliedPreampDb / 20.0),
 ) {
+    val gainPairIsConsistent: Boolean = run {
+        val expectedLinear = 10.0.pow(appliedPreampDb / 20.0)
+        abs(appliedPreampLinear - expectedLinear) <= max(1.0e-12, expectedLinear * 1.0e-6)
+    }
+
     val generationToken: Int
         get() = ((generation and GENERATION_TOKEN_MASK).toInt()).let { if (it == 0) 1 else it }
 
@@ -363,6 +369,7 @@ internal fun DspRuntimeConfig.prepareHotUpdate(
         macroValues = prepared.macroTone,
         smartLoudnessValues = prepared.smartLoudness,
         dynamicBassValues = prepared.dynamicBass,
+        appliedPreampLinear = 10.0.pow(prepared.appliedPreampDb / 20.0),
     )
 }
 

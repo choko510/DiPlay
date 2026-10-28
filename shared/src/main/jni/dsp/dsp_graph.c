@@ -241,10 +241,12 @@ static int studio_module_gains_are_settled(const dsp_graph *graph) {
 int dsp_graph_apply_studio_hot(
     dsp_graph *graph,
     double gain_db,
+    double gain_linear,
     const dsp_macro_config *macro_config,
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config) {
-    if (graph == NULL || !dsp_graph_studio_hot_config_is_valid(
+    if (graph == NULL || !isfinite(gain_linear) || gain_linear <= 0.0 ||
+        !dsp_graph_studio_hot_config_is_valid(
             gain_db, macro_config, smart_loudness_config, dynamic_bass_config)) return 0;
     const int gain_ramp_active = graph->gain.ramp_remaining > 0;
     if (gain_ramp_active && gain_db != graph->gain.decibels) return DSP_GRAPH_HOT_DEFERRED;
@@ -257,13 +259,14 @@ int dsp_graph_apply_studio_hot(
     if (gain_ramp_active) {
         graph->studio_gain_refund_pending = 0;
     } else if (gain_db <= current_gain_db) {
-        if (!dsp_gain_set_db(&graph->gain, gain_db)) return 0;
+        if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db, 0)) return 0;
         graph->studio_gain_refund_pending = 0;
     } else {
         graph->pending_studio_gain_db = gain_db;
+        graph->pending_studio_gain_linear = (float)gain_linear;
         graph->studio_gain_refund_pending = 1;
         if (studio_module_gains_are_settled(graph)) {
-            if (!dsp_gain_set_db(&graph->gain, gain_db)) return 0;
+            if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db, 0)) return 0;
             graph->studio_gain_refund_pending = 0;
         }
     }
@@ -283,7 +286,8 @@ static void apply_pending_studio_gain_refund(dsp_graph *graph) {
     if (!graph->studio_gain_refund_pending || !studio_module_gains_are_settled(graph)) {
         return;
     }
-    if (dsp_gain_set_db(&graph->gain, graph->pending_studio_gain_db)) {
+    if (dsp_gain_set_linear_ramped(
+            &graph->gain, graph->pending_studio_gain_linear, graph->pending_studio_gain_db, 0)) {
         graph->studio_gain_refund_pending = 0;
     }
 }

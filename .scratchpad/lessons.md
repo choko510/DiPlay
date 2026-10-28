@@ -596,6 +596,8 @@ Treat performance instrumentation as a distribution gate: retain both passing an
 2026-10-27: AtomicFile safety checks must include both the primary file and `.bak`, reject dangling and live symlinks without following them, and preserve a future-schema backup before starting a new write. Capturing rollback state before mutating the active workspace prevents failed persistence from restoring the failed candidate.
 For native audio-control ramps, prepare and validate the dB/linear pair off the render callback, then pass a tagged command through the existing bounded HOT mailbox. Advance one ramp step per PCM frame, not per channel sample, so stereo channels stay matched. ACK only after the full ramp, preserve compatible Studio HOT, defer an incompatible Studio gain while the ramp runs, and fence HOT/LOCAL_WARM with one generation order.
 
+2026-10-28: The Studio HOT gain-refund path is also render-thread work. Carry its prepared linear target into the graph and retain it while refunding headroom; calling the dB setter there reintroduces `pow` despite the separate Preamp ramp being precomputed.
+
 2026-10-27: Evidence ledgers should validate both directions of ID coverage against the canonical catalog, and status rules should be machine-checked. Historical suite summaries are not per-ID evidence unless each row links its exact method, command, result, source SHA, and artifact.
 
 2026-10-27: Evidence validation should resolve local artifact and runbook links within the repository boundary and compare acceptance wording with the canonical predicate, so plausible-looking but stale links or rewritten criteria cannot pass by ID alone.

@@ -177,6 +177,8 @@ internal object NativeDspJni : NativeDspBindings {
         update.hotContextToken,
         update.mediaRole,
         update.appliedPreampDb,
+        update.appliedPreampLinear,
+        update.gainPairIsConsistent,
         update.macroValues,
         update.smartLoudnessValues,
         update.dynamicBassValues,
@@ -185,7 +187,7 @@ internal object NativeDspJni : NativeDspBindings {
     override fun applyPreampHot(handle: Long, update: DspPreparedPreampHotUpdate): Int = nativeApplyPreampHot(
         handle, update.version, update.generation, update.editorOwnerEpoch, update.rendererOwnerToken,
         update.pcmFormatEpoch, update.hotContextToken, update.mediaRole,
-        update.appliedPreampDb, update.appliedPreampLinear,
+        update.appliedPreampDb, update.appliedPreampLinear, update.gainPairIsConsistent,
     )
 
     override fun prepareLocalPeqUpdate(
@@ -296,6 +298,8 @@ internal object NativeDspJni : NativeDspBindings {
         hotContextToken: Int,
         mediaRole: Boolean,
         gainDb: Double,
+        gainLinear: Double,
+        gainPairValidated: Boolean,
         macroValues: DoubleArray,
         smartLoudnessValues: DoubleArray,
         dynamicBassValues: DoubleArray,
@@ -311,6 +315,7 @@ internal object NativeDspJni : NativeDspBindings {
         mediaRole: Boolean,
         gainDb: Double,
         gainLinear: Double,
+        gainPairValidated: Boolean,
     ): Int
     private external fun nativePrepareLocalPeqUpdate(
         handle: Long,

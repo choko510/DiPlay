@@ -3,14 +3,6 @@
 #include <math.h>
 #include <stddef.h>
 
-int dsp_gain_db_linear_pair_is_valid(double decibels, double linear) {
-    if (!isfinite(decibels) || decibels < -120.0 || decibels > -6.0 ||
-        !isfinite(linear) || linear < 1.0e-6 || linear > 0.50118724) return 0;
-    const double expected = pow(10.0, decibels / 20.0);
-    const double tolerance = fmax(1.0e-12, expected * 1.0e-6);
-    return isfinite(expected) && fabs(linear - expected) <= tolerance;
-}
-
 int dsp_gain_set_db(dsp_gain *gain, double decibels) {
     if (gain == NULL || !isfinite(decibels) || decibels < -700.0 || decibels > 24.0) {
         return 0;

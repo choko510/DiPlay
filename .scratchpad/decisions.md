@@ -768,6 +768,8 @@ Smart Loudness headroom must bound the transient response of `sample - lowpass(s
 
 Keep the versioned preamp-only payload kind separate from the existing Macro/Loudness/Dynamic Bass payload while reusing the same bounded Native HOT mailbox and generation fence. Require Auto Headroom, at least 6 dB of applied preamp reserve, and a current MEDIA owner/format tuple; ramp native linear gain over 20 ms and ACK only after the ramp finishes. On rebind, cancel an active ramp at its last-good value.
 
+2026-10-28 REM-01 follow-up: Prepare the linear gain for Studio HOT alongside the dB value and carry both through JNI. Use the linear value for immediate gain changes and deferred headroom refunds so PCM processing does not call `pow`; preserve the existing safe gain deferral while a Preamp ramp is active.
+
 2026-10-27 REM-07: Do not inherit PASS from historical test-matrix rows into the per-ID evidence ledger. A row can be PASS only when method, exact command, result, full source SHA, and artifact are attached to that row; until then retain PARTIAL or NOT_RUN.
 
 2026-10-27 REM-07 validator: Resolve artifact paths within the repository and permit only direct GitHub Actions run URLs as remote artifacts. Resolve runbooks relative to the tracker directory, reject paths outside the repository, and compare each acceptance predicate against the canonical matrix text.

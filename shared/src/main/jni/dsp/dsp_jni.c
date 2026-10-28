@@ -1,5 +1,4 @@
 #include "dsp_engine.h"
-#include "dsp_gain.h"
 
 #include <jni.h>
 #include <math.h>
@@ -515,6 +514,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     jint hot_context_token,
     jboolean media_role,
     jdouble gain_db,
+    jdouble gain_linear,
+    jboolean gain_pair_validated,
     jdoubleArray macro_values,
     jdoubleArray smart_loudness_values,
     jdoubleArray dynamic_bass_values) {
@@ -524,6 +525,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     if (generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 || pcm_format_epoch <= 0 ||
         hot_context_token <= 0 ||
         media_role != JNI_TRUE || !isfinite(gain_db) || gain_db < -700.0 || gain_db > 24.0 ||
+        gain_pair_validated != JNI_TRUE || !isfinite(gain_linear) || gain_linear < 1.0e-35 ||
+        gain_linear > 15.84893193 ||
         macro_values == NULL || smart_loudness_values == NULL || dynamic_bass_values == NULL ||
         (*env)->GetArrayLength(env, macro_values) != 5 ||
         (*env)->GetArrayLength(env, smart_loudness_values) != 3 ||
@@ -586,6 +589,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
         .hot_context_token = hot_context_token > 0 ? (uint32_t)hot_context_token : 0,
         .media_role = media_role == JNI_TRUE ? 1 : 0,
         .gain_db = gain_db,
+        .gain_linear = gain_linear,
+        .gain_pair_validated = gain_pair_validated == JNI_TRUE ? 1u : 0u,
         .macro = {
             .enabled = (int)macro_values_data[0],
             .bass_gain_db = macro_values_data[1],
@@ -619,12 +624,14 @@ JNIEXPORT jint JNICALL
 Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyPreampHot(
     JNIEnv *env, jobject receiver, jlong handle, jint version, jlong generation,
     jlong editor_owner_epoch, jlong renderer_owner_token, jlong pcm_format_epoch,
-    jint hot_context_token, jboolean media_role, jdouble gain_db, jdouble gain_linear) {
+    jint hot_context_token, jboolean media_role, jdouble gain_db, jdouble gain_linear,
+    jboolean gain_pair_validated) {
     (void)env;
     (void)receiver;
     if (version != 1 || generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 ||
         pcm_format_epoch <= 0 || hot_context_token <= 0 || media_role != JNI_TRUE ||
-        !dsp_gain_db_linear_pair_is_valid(gain_db, gain_linear)) {
+        gain_pair_validated != JNI_TRUE || !isfinite(gain_db) || gain_db < -120.0 || gain_db > -6.0 ||
+        !isfinite(gain_linear) || gain_linear < 1.0e-6 || gain_linear > 0.50118724) {
         return DSP_STATUS_INVALID_ARGUMENT;
     }
     uint32_t generation_token = (uint32_t)((uint64_t)generation & UINT32_C(0x7fffffff));
@@ -640,6 +647,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyPreampHot(
         .media_role = 1,
         .gain_db = gain_db,
         .gain_linear = gain_linear,
+        .gain_pair_validated = gain_pair_validated == JNI_TRUE ? 1u : 0u,
     };
     dsp_engine_lease lease = {0};
     if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;

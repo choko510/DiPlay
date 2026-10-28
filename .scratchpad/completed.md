@@ -4,6 +4,7 @@
 
 ## 2026-10-28
 
+- REM-01 control-side gain follow-up: Studio HOT now carries the prepared dB/linear pair through JNI and uses linear gain on immediate and deferred render paths; focused Shared tests, Native tests, three ABI JNI builds, and Android-test Kotlin compilation passed. ASan/UBSan could not link with the available MinGW compiler, and platform instrumentation remains unrun here.
 - Hardened PR #68 REM-01: Preamp and Studio HOT now share the existing bounded queue and HOT/LOCAL_WARM generation fence; compatible Studio HOT preserves the ramp, incompatible gain waits for ramp completion, and dB/linear pairs are checked before PCM processing. Native and ASan/UBSan emulator suites, focused Shared tests, API 36.1 JNI instrumentation 15/15, three Release ABIs, both Benchmark APKs, and JNI mapping passed. Windows Robolectric Common still has the known AtomicFile-backed module-preset deletion assertion failure; target audio and p99 remain NOT_RUN.
 
 ## 2026-10-27

@@ -2544,6 +2544,8 @@ static void test_studio_hot_refund_waits_for_stage_gain_release(void) {
         .hot_context_token = 1,
         .media_role = 1,
         .gain_db = 0.0,
+        .gain_linear = 1.0,
+        .gain_pair_validated = 1,
         .macro = {0, 0.0, 0.0, 0.0, 1.0},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 1.0, 3.0, 120.0, -90.0, -50.0, -40.0, 40.0, 1000.0},
@@ -3114,6 +3116,8 @@ static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
         .hot_context_token = 1,
         .media_role = 1,
         .gain_db = 0.0,
+        .gain_linear = 1.0,
+        .gain_pair_validated = 1,
         .macro = {1, 0.0, 0.0, 0.0, 1.25},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
@@ -3181,6 +3185,7 @@ static void test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completi
         .renderer_owner_token = 9, .pcm_format_epoch = 3, .hot_context_token = 1,
         .media_role = 1, .gain_db = -6.0,
         .gain_linear = 0.5011872336,
+        .gain_pair_validated = 1,
     };
     assert_true(!dsp_engine_enqueue_preamp_update(engine, &update), "unbound preamp owner is rejected");
     assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
@@ -3205,6 +3210,7 @@ static void test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completi
     assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "preamp target without 6 dB reserve is rejected");
     invalid = update;
     invalid.gain_db = -120.0;
+    invalid.gain_pair_validated = 0;
     assert_true(!dsp_engine_enqueue_preamp_update(engine, &invalid), "mismatched dB/linear preamp pair is rejected");
     assert_true(dsp_engine_enqueue_preamp_update(engine, &update), "valid versioned preamp update is queued");
     assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
@@ -3270,12 +3276,13 @@ static void test_preamp_hot_mailbox_coalesces_and_preserves_concurrent_studio_ga
     const dsp_engine_preamp_update preamp = {
         .version = 1, .generation_token = 42, .generation = 42, .editor_owner_epoch = 7,
         .renderer_owner_token = 9, .pcm_format_epoch = 3, .hot_context_token = 1,
-        .media_role = 1, .gain_db = -6.0, .gain_linear = 0.5011872336,
+        .media_role = 1, .gain_db = -6.0, .gain_linear = 0.5011872336, .gain_pair_validated = 1,
     };
     const dsp_engine_hot_update studio = {
         .generation_token = 43, .generation = 43, .editor_owner_epoch = 7,
         .renderer_owner_token = 9, .pcm_format_epoch = 3, .hot_context_token = 1,
         .media_role = 1, .gain_db = -6.0,
+        .gain_linear = 0.5011872336, .gain_pair_validated = 1,
         .macro = {1, 0.0, 0.0, 0.0, 1.25},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
@@ -3328,6 +3335,7 @@ static void test_preamp_hot_mailbox_coalesces_and_preserves_concurrent_studio_ga
     incompatible_studio.generation = 43;
     incompatible_studio.generation_token = 43;
     incompatible_studio.gain_db = -12.0;
+    incompatible_studio.gain_linear = 0.2511886432;
     assert_true(dsp_engine_enqueue_preamp_update(engine, &preamp), "Preamp target queues before incompatible Studio HOT");
     assert_true(dsp_engine_enqueue_hot_update(engine, &incompatible_studio),
         "incompatible Studio HOT remains queued for safe deferral");
@@ -3361,7 +3369,7 @@ static void test_native_hot_and_local_warm_share_one_generation_order(void) {
     dsp_engine_preamp_update newer_preamp = {
         .version = 1, .generation_token = 51, .generation = 51, .editor_owner_epoch = 7,
         .renderer_owner_token = 9, .pcm_format_epoch = 3, .hot_context_token = 1,
-        .media_role = 1, .gain_db = -6.0, .gain_linear = 0.5011872336,
+        .media_role = 1, .gain_db = -6.0, .gain_linear = 0.5011872336, .gain_pair_validated = 1,
     };
     assert_true(dsp_engine_enqueue_local_peq_update(engine, &older_local) == DSP_STATUS_OK,
         "older LOCAL_WARM enters its bounded queue first");
@@ -3406,6 +3414,8 @@ static void test_studio_hot_update_rejects_invalid_module_configs_atomically(voi
         .hot_context_token = 1,
         .media_role = 1,
         .gain_db = 6.0,
+        .gain_linear = 1.995262315,
+        .gain_pair_validated = 1,
         .macro = {1, 0.0, 0.0, 0.0, 1.0},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
@@ -3425,7 +3435,7 @@ static void test_studio_hot_update_rejects_invalid_module_configs_atomically(voi
     dsp_graph graph = {0};
     dsp_macro_config invalid_macro = macro;
     invalid_macro.air_gain_db = 3.0;
-    assert_true(!dsp_graph_apply_studio_hot(&graph, 6.0, &invalid_macro, &loudness, &dynamic_bass),
+    assert_true(!dsp_graph_apply_studio_hot(&graph, 6.0, 1.995262315, &invalid_macro, &loudness, &dynamic_bass),
         "graph rejects invalid module config before applying hot changes");
     assert_near(graph.gain.decibels, 0.0, 0.0, "invalid module config does not partially change preamp");
 }
@@ -3449,6 +3459,8 @@ static void test_studio_hot_update_validates_ack_generation_token(void) {
         .hot_context_token = 1,
         .media_role = 1,
         .gain_db = 0.0,
+        .gain_linear = 1.0,
+        .gain_pair_validated = 1,
         .macro = {1, 0.0, 0.0, 0.0, 1.0},
         .smart_loudness = {0, 0.0, 0.0},
         .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},

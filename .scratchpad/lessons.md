@@ -626,3 +626,5 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 2026-10-28 REM-04 JNI: Validate boolean doubles before any cast to `int`; comparison/finite checks after conversion cannot make NaN or out-of-range floating conversion defined. Exercise malformed flags in instrumentation and process a block before checking that rejection had no effect.
 
 2026-10-28 T-LOUD: Separate the resolver's calibration rules from the renderer's latency behavior. A trusted Auto volume change should update only Smart Loudness through HOT; simulated OEM knob movement without an Android stream-index change stays untrusted and must not apply compensation.
+
+2026-10-28 T-SAFE-07: A synthetic Native full-chain sample-peak test can verify finite output and limiter sample ceiling over several input levels; it does not establish true-peak, THD, or listening quality, which remain separate evidence.

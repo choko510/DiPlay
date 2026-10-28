@@ -1549,6 +1549,98 @@ static dsp_harmonic_config make_harmonic_config(void) {
     return config;
 }
 
+static void test_safety_peak_levels_remain_finite_with_enabled_stages(void) {
+    const int sample_rate = 48000;
+    const size_t frames = 512;
+    const double peak_levels[] = {0.001, 0.05, 0.45, 0.9};
+    const float impulse[] = {1.0f};
+    double peq_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    double bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    double mono_bass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
+    design_test_peak_coefficients(sample_rate, 1000.0, 3.0, 1.0, peq_coefficients);
+    design_test_peak_coefficients(sample_rate, 80.0, 3.0, 0.7, bass_coefficients);
+    design_test_peak_coefficients(sample_rate, 120.0, 2.0, 0.7, mono_bass_coefficients);
+
+    dsp_dynamics_config dynamics = bypass_dynamics;
+    dynamics.compressor_enabled = 1;
+    dynamics.compressor_threshold_db = -24.0;
+    dynamics.compressor_ratio = 3.0;
+    dynamics.compressor_attack_ms = 10.0;
+    dynamics.compressor_release_ms = 100.0;
+    dynamics.compressor_knee_db = 6.0;
+    dynamics.compressor_makeup_db = 1.0;
+    dynamics.limiter_enabled = 1;
+    dynamics.limiter_threshold_db = -1.0;
+    dynamics.limiter_release_ms = 60.0;
+
+    dsp_multiband_config multiband = bypass_multiband;
+    multiband.enabled = 1;
+    for (size_t band = 0; band < DSP_MULTIBAND_COUNT; band++) {
+        multiband.bands[band] = (dsp_multiband_compressor_config) {
+            1, -28.0, 2.0, 10.0, 100.0, 6.0, 0.5,
+        };
+    }
+
+    dsp_dynamic_eq_config dynamic_eq = bypass_dynamic_eq;
+    dynamic_eq.enabled = 1;
+    dynamic_eq.bands[0].enabled = 1;
+    dynamic_eq.bands[0].mode = DSP_DYNAMIC_EQ_CUT;
+    dynamic_eq.bands[0].frequency_hz = 120.0;
+    dynamic_eq.bands[0].q = 1.0;
+    dynamic_eq.bands[0].threshold_db = -24.0;
+    dynamic_eq.bands[0].ratio = 2.0;
+    dynamic_eq.bands[0].attack_ms = 10.0;
+    dynamic_eq.bands[0].release_ms = 100.0;
+    dynamic_eq.bands[0].max_boost_db = 6.0;
+    dynamic_eq.bands[0].max_cut_db = 6.0;
+
+    dsp_spatial_config spatial = make_advanced_ms_config();
+    spatial.width = 1.2;
+    spatial.mono_bass_enabled = 1;
+    spatial.seat_enabled = 1;
+    spatial.seat_near_speaker = DSP_SPATIAL_NEAR_CENTER;
+    spatial.seat_left_trim_db = -1.0;
+    spatial.seat_right_trim_db = -1.0;
+    const dsp_convolver_config convolver = {
+        1, sample_rate, 1, 1, 1, 0.25f, impulse,
+    };
+    const dsp_harmonic_config harmonic = make_harmonic_config();
+    const dsp_macro_config macro = {1, 2.0, 1.0, 1.0, 1.1};
+    const dsp_smart_loudness_config loudness = {1, 2.0, 1.0};
+    const dsp_dynamic_bass_config dynamic_bass = {
+        1, 1.0, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0,
+    };
+    dsp_engine *engine = dsp_engine_create_with_studio(
+        sample_rate, 2, (int)frames, -6.0, peq_coefficients, 1, &dynamics, &multiband,
+        &dynamic_eq, bass_coefficients, 1, mono_bass_coefficients, 1, &spatial, &convolver,
+        &harmonic, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "combined safety peak graph creates");
+
+    float input[1024] = {0.0f};
+    float output[1024] = {0.0f};
+    const double limiter_ceiling = pow(10.0, dynamics.limiter_threshold_db / 20.0);
+    for (size_t level_index = 0; level_index < sizeof(peak_levels) / sizeof(peak_levels[0]); level_index++) {
+        assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "safety peak graph resets between input levels");
+        double maximum_output = 0.0;
+        for (size_t frame = 0; frame < frames; frame++) {
+            const float sample = (float)(peak_levels[level_index] *
+                sin(2.0 * 3.14159265358979323846 * 997.0 * (double)frame / (double)sample_rate));
+            input[frame * 2] = sample;
+            input[frame * 2 + 1] = -sample;
+        }
+        assert_true(dsp_engine_process(engine, input, frames * 2, output, frames * 2,
+            (int)frames, 2) == DSP_STATUS_OK, "combined safety peak block processes");
+        for (size_t sample = 0; sample < frames * 2; sample++) {
+            assert_true(isfinite(output[sample]), "combined safety output remains finite");
+            const double absolute_output = fabs((double)output[sample]);
+            if (absolute_output > maximum_output) maximum_output = absolute_output;
+        }
+        assert_true(maximum_output <= limiter_ceiling + 1e-4,
+            "combined processing stays below the sample limiter ceiling");
+    }
+    dsp_engine_destroy(engine);
+}
+
 static void test_harmonic_engine_latency_oversampling_modes_and_alias_rejection(void) {
     const float identity_input[] = {0.25f, -0.5f, 0.75f, -1.0f};
     float identity_output[4] = {0};
@@ -4113,6 +4205,7 @@ int main(void) {
     test_dynamics_hot_params_preserve_state_and_validate_atomically();
     test_combined_dynamics_dynamic_eq_hot_preflights_before_any_mutation();
     test_stereo_limiter_caps_sample_peaks_and_preserves_image();
+    test_safety_peak_levels_remain_finite_with_enabled_stages();
     test_spatial_width_and_mono_input_behavior();
     test_spatial_seat_alignment_and_latency();
     test_spatial_bass_shelf_and_mono_bass_frequency_response();

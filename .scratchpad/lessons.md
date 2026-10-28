@@ -1,5 +1,9 @@
 # Lessons
 
+## Measure decoder submit latency without per-frame allocations
+
+Correlate the MediaCodec output PTS with the original frame receive timestamp using bounded primitive arrays. This measures queue-to-Surface-submit latency, not actual display presentation. Use a bounded percentile window and keep thread/process allocation and PSS scopes explicit; emulator and synthetic output do not establish head-unit behavior.
+
 ## Topic guide
 
 These cumulative lessons include general rules followed by individual incident findings. Check applicability to the current code.

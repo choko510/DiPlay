@@ -1,5 +1,8 @@
 package com.shilapi.xcertplay
 
+import android.content.Context
+import android.content.ContextWrapper
+import android.hardware.usb.UsbManager
 import android.os.Handler
 import android.os.Looper
 import com.shilapi.xcertplay.airplay.AirPlayConfig
@@ -26,6 +29,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -37,6 +41,28 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class CarPlayControllerWatchdogTest {
+    @Test
+    fun controllerResolvesUsbManagerFromApplicationContext() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val applicationContext = activity.applicationContext
+        val context = object : ContextWrapper(activity) {
+            override fun getApplicationContext(): Context = applicationContext
+
+            override fun getSystemService(name: String): Any? =
+                if (name == Context.USB_SERVICE) null else super.getSystemService(name)
+        }
+        val controller = createController(context, CopyOnWriteArrayList())
+
+        try {
+            val expected = applicationContext.getSystemService(UsbManager::class.java)
+            val actual = field(controller, "usbManager").get(controller)
+            assertSame(expected, actual)
+        } finally {
+            controller.close()
+            assertTrue(controller.awaitClosed(2_000))
+        }
+    }
+
     @Test
     fun softAndHardWiredTimeoutsRunAtTheirVirtualDeadlines() {
         val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
@@ -231,10 +257,10 @@ class CarPlayControllerWatchdogTest {
     }
 
     private fun createController(
-        activity: CarPlayHostActivity,
+        context: Context,
         events: MutableList<ConnectionTraceEvent>,
     ): CarPlayController = CarPlayController(
-        context = activity,
+        context = context,
         config = CarPlayRuntimeConfig(
             mfiTarget = MfiTarget.LOCAL,
             transport = CarPlayTransport.WIRED,

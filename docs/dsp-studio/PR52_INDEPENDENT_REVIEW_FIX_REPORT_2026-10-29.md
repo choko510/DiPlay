@@ -24,6 +24,7 @@
 - 統合後の `:shared:testDebugUnitTest` 734/734、`:common:testDebugUnitTest` 357/357、failure/error/skip 0。
 - `:mobile:lintDebug`、`:automotive:lintDebug`、両アプリのDebug/Benchmark assemble成功。JNI/R8 mapping check成功。
 - ローカル `scripts/test_dsp_native.sh --sanitize` はMSYS2 GCCに `libasan`／`libubsan` がなくリンク不可。Hosted run [#581](https://github.com/choko510/DiPlay/actions/runs/40719476119) は先行head `a0cb2d56` で成功し、run [#583](https://github.com/choko510/DiPlay/actions/runs/40722523549) は `f5673dd7` でNative/ASan/UBSan、Shared/Common、Lint/Build/JNI/R8、API 35 instrumentationとhost-baselineが成功した。さらに統合head `419fa45e` のrun [#584](https://github.com/choko510/DiPlay/actions/runs/40723483149) は `changes`、Native/ASan+UBSan、Shared/Common、Lint、Debug/Benchmark build、JNI/R8、API 35 instrumentation、`host-baseline`、`Release verification`がすべてsuccess。初回attemptはcancelされたため、cancelled jobsのみ再実行して完了した。Artifacts: [run #584 check](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12833231327), [run #584 instrumentation](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12832178183)。`quick-baseline`はfull checkで代替されたためskipで、pass扱いしていない。
+- PR branch docs tip `51d2caa7` はdocs/scratchpad-onlyで、run [#586](https://github.com/choko510/DiPlay/actions/runs/40729323851) のchanges/check/Release verificationもsuccess。Android instrumentation、Native、build等のruntime jobsはdocs-only分類でskipされており、source/test検証にはrun #584を用いる。
 
 ## 未検証の受入項目
 

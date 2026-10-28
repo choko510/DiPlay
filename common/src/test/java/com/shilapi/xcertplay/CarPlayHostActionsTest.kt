@@ -188,7 +188,7 @@ class CarPlayHostActionsTest {
     }
 
     @Test
-    fun onlyUsbTrampolineIsExported() {
+    fun usbEntryPointsAreExportedWithDifferentTrustPolicies() {
         val application = RuntimeEnvironment.getApplication()
         val packageManager = application.packageManager
         val host = packageManager.getActivityInfo(
@@ -209,7 +209,7 @@ class CarPlayHostActionsTest {
         assertEquals("android.permission.MANAGE_USB", usbTrampoline.permission)
         assertTrue(iphoneUsbEntry.exported)
         assertFalse(iphoneUsbEntry.enabled)
-        assertEquals(null, iphoneUsbEntry.permission)
+        assertEquals("android.permission.MANAGE_USB", iphoneUsbEntry.permission)
         assertTrue(
             iphoneUsbEntry.metaData?.getInt(UsbManager.ACTION_USB_DEVICE_ATTACHED, 0) != 0,
         )

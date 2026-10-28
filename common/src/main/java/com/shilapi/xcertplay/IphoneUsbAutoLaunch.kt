@@ -86,6 +86,11 @@ internal enum class IphoneUsbSessionSnapshot {
     TRANSITIONING,
 }
 
+internal object CarPlaySessionTransportPolicy {
+    fun shouldAdoptBackgroundSession(existingWired: Boolean, requestedWired: Boolean): Boolean =
+        existingWired == requestedWired
+}
+
 internal sealed interface IphoneUsbAutoLaunchDecision {
     data class Launch(val generation: Long) : IphoneUsbAutoLaunchDecision
     data object KeepCurrentWiredSession : IphoneUsbAutoLaunchDecision
@@ -132,6 +137,14 @@ internal class IphoneUsbAutoLaunchCoordinator(
     @Synchronized
     fun cancelDispatch(identity: UsbAttachDeviceIdentity, expectedGeneration: Long) {
         if (identity == lastIdentity && expectedGeneration == generation) {
+            lastIdentity = null
+            lastLaunchAtMillis = Long.MIN_VALUE
+        }
+    }
+
+    @Synchronized
+    fun cancelCurrent(identity: UsbAttachDeviceIdentity) {
+        if (identity == lastIdentity) {
             lastIdentity = null
             lastLaunchAtMillis = Long.MIN_VALUE
         }
@@ -253,9 +266,100 @@ internal enum class IphoneUsbAutoLaunchSource(val label: String) {
     SETTINGS("settings"),
 }
 
+internal fun shouldBringWiredHostToFront(source: IphoneUsbAutoLaunchSource): Boolean =
+    source != IphoneUsbAutoLaunchSource.ATTACH
+
+internal data class DeferredIphoneUsbAutoLaunch(
+    val identity: UsbAttachDeviceIdentity,
+    val source: IphoneUsbAutoLaunchSource,
+    val hostLaunchState: CarPlayHostLaunchState? = null,
+)
+
+internal class IphoneUsbAutoLaunchRequestQueue {
+    private var latestDeferred: DeferredIphoneUsbAutoLaunch? = null
+    private var handoffActive = false
+    private var latestHandoff: DeferredIphoneUsbAutoLaunch? = null
+    private var handoffGeneration = 0L
+
+    @Synchronized
+    fun defer(request: DeferredIphoneUsbAutoLaunch) {
+        latestDeferred = request
+    }
+
+    @Synchronized
+    fun takeDeferred(): DeferredIphoneUsbAutoLaunch? = latestDeferred.also { latestDeferred = null }
+
+    @Synchronized
+    fun beginHandoff(request: DeferredIphoneUsbAutoLaunch): Long {
+        if (handoffActive) {
+            replaceDuringHandoff(request)
+        } else {
+            latestDeferred = null
+            handoffActive = true
+            handoffGeneration += 1
+            latestHandoff = request
+        }
+        return handoffGeneration
+    }
+
+    @Synchronized
+    fun replaceDuringHandoff(request: DeferredIphoneUsbAutoLaunch): Boolean {
+        if (!handoffActive) return false
+        val priorState = latestHandoff?.hostLaunchState
+        latestHandoff = request.copy(hostLaunchState = request.hostLaunchState ?: priorState)
+        return true
+    }
+
+    @Synchronized
+    fun isHandoffActive(): Boolean = handoffActive
+
+    @Synchronized
+    fun completeHandoff(expectedGeneration: Long? = null): DeferredIphoneUsbAutoLaunch? {
+        if (!handoffActive || (expectedGeneration != null && expectedGeneration != handoffGeneration)) return null
+        handoffActive = false
+        return latestHandoff.also { latestHandoff = null }
+    }
+}
+
 internal object IphoneUsbAutoLaunchDispatcher {
     private const val TAG = "xcertplay-usb-auto"
     private val coordinator = IphoneUsbAutoLaunchCoordinator()
+    private val requests = IphoneUsbAutoLaunchRequestQueue()
+
+    fun beginHandoff(identity: UsbAttachDeviceIdentity, hostLaunchState: CarPlayHostLaunchState?): Long =
+        requests.beginHandoff(
+            DeferredIphoneUsbAutoLaunch(
+                identity,
+                IphoneUsbAutoLaunchSource.ATTACH,
+                hostLaunchState,
+            ),
+        )
+
+    fun replaceHandoffRequest(
+        identity: UsbAttachDeviceIdentity,
+        hostLaunchState: CarPlayHostLaunchState? = null,
+    ): Boolean = requests.replaceDuringHandoff(
+        DeferredIphoneUsbAutoLaunch(
+            identity,
+            IphoneUsbAutoLaunchSource.ATTACH,
+            hostLaunchState,
+        ),
+    )
+
+    fun completeHandoff(expectedGeneration: Long? = null): DeferredIphoneUsbAutoLaunch? =
+        requests.completeHandoff(expectedGeneration)
+
+    fun failLaunch(identity: UsbAttachDeviceIdentity) = coordinator.cancelCurrent(identity)
+
+    fun deferTransition(identity: UsbAttachDeviceIdentity, source: IphoneUsbAutoLaunchSource) {
+        requests.defer(DeferredIphoneUsbAutoLaunch(identity, source))
+    }
+
+    fun resumeDeferred(context: Context) {
+        if (requests.isHandoffActive()) return
+        val pending = requests.takeDeferred() ?: return
+        dispatch(context, pending.identity, pending.source)
+    }
 
     fun dispatch(
         context: Context,
@@ -275,6 +379,10 @@ internal object IphoneUsbAutoLaunchDispatcher {
         if (validation !is IphoneUsbAutoAttachValidation.Accepted) {
             Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=${validation.rejectionLabel()}")
             return false
+        }
+        if (requests.replaceDuringHandoff(DeferredIphoneUsbAutoLaunch(identity, source))) {
+            Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=queued_during_handoff")
+            return true
         }
 
         val sessionSnapshot = CarPlayBackgroundSession.snapshot()
@@ -297,9 +405,11 @@ internal object IphoneUsbAutoLaunchDispatcher {
         ) {
             IphoneUsbAutoLaunchDecision.KeepCurrentWiredSession -> {
                 Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=keep_wired")
+                if (shouldBringWiredHostToFront(source)) return bringExistingWiredHostToFront(context)
                 true
             }
             IphoneUsbAutoLaunchDecision.DeferToCurrentSession -> {
+                deferTransition(identity, source)
                 Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=defer_to_controller")
                 true
             }
@@ -341,6 +451,21 @@ internal object IphoneUsbAutoLaunchDispatcher {
                     false
                 }
             }
+        }
+    }
+
+    private fun bringExistingWiredHostToFront(context: Context): Boolean {
+        try {
+            val intent = CarPlayHostActions.createInternalIntent(context, CarPlayHostActions.OPEN_CARPLAY)
+                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            return true
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "event=APPLE_USB_AUTO_ATTACH source=foreground result=host_focus_failed " +
+                "error=${error.javaClass.simpleName}")
+            IphoneUsbAutoLaunchNotification.show(context)
+            return false
         }
     }
 

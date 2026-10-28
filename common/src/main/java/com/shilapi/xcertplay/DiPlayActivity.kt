@@ -346,7 +346,7 @@ class DiPlayActivity : ComponentActivity() {
             Switch(this).apply {
                 contentDescription = getString(R.string.ui_iphone_usb_autolaunch_title)
                 isChecked = enabled
-                isEnabled = usbHostSupported
+                isEnabled = true
                 minHeight = dp(56)
                 buttonTintList = ColorStateList.valueOf(ACCENT)
                 setOnCheckedChangeListener { control, checked ->
@@ -388,7 +388,7 @@ class DiPlayActivity : ComponentActivity() {
                                 IphoneUsbAutoLaunchSource.SETTINGS,
                             )
                         ) {
-                            toast(getString(R.string.ui_iphone_usb_autolaunch_not_found))
+                            toast(getString(R.string.ui_iphone_usb_autolaunch_open_failed))
                         }
                     },
                     matchButton(8, 60),

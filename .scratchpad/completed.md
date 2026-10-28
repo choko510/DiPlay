@@ -1,10 +1,11 @@
 # Completed — dated history
 
-> 221 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
+> 222 recorded entries, preserved verbatim and grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
 ## 2026-10-28
 
 - Added opt-in iPhone USB auto-launch to PR #45 with a default-off setting, Apple CarPlay descriptor/current-device validation, existing Controller USB permission ownership, idempotent attach dispatch, boot notification fallback, and physical test instructions. Local Shared/Common suites passed 884/884; mobile/automotive Debug builds, lint, and merged manifests passed. API 29 physical USB acceptance is `NOT_RUN_HARDWARE`.
+- Followed up review findings by refusing cross-transport background-session adoption, retaining the latest USB identity through shutdown/handoff, resuming deferred attach requests, bringing an existing wired Host forward for user actions, gating the exported Apple entry with `MANAGE_USB`, and keeping USB Host feature declarations advisory. Full Shared/Common suites pass 659/229; both app Debug builds/lints and merged Manifests pass. Physical acceptance remains `NOT_RUN_HARDWARE`; follow-up CI is pending.
 
 ## 2026-10-27
 

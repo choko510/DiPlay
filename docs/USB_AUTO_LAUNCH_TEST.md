@@ -25,7 +25,7 @@ Use a physical Android USB Host head unit and iPhone. Emulator results and manua
 6. **Boot scan:** restart the head unit with the iPhone connected. If Android blocks background Activity launch, verify that the DiPlay notification opens the connected iPhone when tapped. Do not treat force-stop recovery as a supported case.
 7. **Split state:** repeat a USB attach while editing DSP Split or using YouTube Split. Confirm the layout and current editing state survive the wired handoff.
 
-An explicit `adb shell am start ...IphoneUsbAutoAttachActivity` is useful only for debugging the Activity. It does not prove that a physical USB attach launches the entry. Respect Android's chooser, permission, background-start, and OEM restrictions; do not bypass them with privileged permissions or automation.
+An explicit `adb shell am start ...IphoneUsbAutoAttachActivity` is useful only for debugging the Activity. It does not prove that a physical USB attach launches the entry. The entry requires Android's system `MANAGE_USB` permission as a caller restriction; the app does not request or grant that privileged permission to itself. Respect Android's chooser, USB permission, background-start, and OEM restrictions.
 
 ## Result record
 

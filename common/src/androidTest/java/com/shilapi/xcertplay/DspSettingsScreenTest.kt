@@ -370,7 +370,7 @@ class DspSettingsScreenTest {
     }
 
     @Test
-    fun largeFontPresetDialogAcceptsImeTextEntry() {
+    fun largeFontPresetDialogAcceptsImeTextInput() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val filesDirectory = File(context.cacheDir, "dsp-large-font-ime-test").apply {
             deleteRecursively()
@@ -404,7 +404,6 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithText(presetNameLabel).assertIsDisplayed()
             val presetName = composeRule.onNode(hasSetTextAction())
             presetName.performTextInput("Large font preset")
-            presetName.performImeAction()
 
             composeRule.onNodeWithText("Large font preset").assertExists()
             composeRule.onNodeWithText(context.getString(R.string.dsp_save)).assertIsEnabled()
@@ -489,6 +488,15 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithContentDescription("Studio, selected").assertExists()
             composeRule.onNodeWithContentDescription("Level match").assertIsNotEnabled()
             composeRule.onNodeWithText(context.getString(R.string.dsp_renderer_apply_waiting)).assertExists()
+            composeRule.waitForIdle()
+            configStore.reportRendererApplyStatus(
+                DspRendererApplyStatus(
+                    generation = runtime.configProvider.versionedSnapshot().generation,
+                    phase = DspRendererApplyPhase.DEFERRED,
+                    activeGeneration = 0L,
+                    reason = deferredReason,
+                ),
+            )
             composeRule.waitUntil(timeoutMillis = 5_000) {
                 composeRule.onAllNodesWithText(deferredReason, substring = true).fetchSemanticsNodes().isNotEmpty()
             }

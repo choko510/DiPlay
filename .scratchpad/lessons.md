@@ -635,4 +635,6 @@ For native audio-control ramps, prepare and validate the dB/linear pair off the 
 
 2026-10-28 PH02-T07: Record UI-switch elapsed time and allocation deltas alongside the 100-transition assertions. Emulator numbers support software regressions but are not physical CarPlay performance evidence.
 
+2026-10-28 PH02-T04: Compose tests should use `performImeAction()` only when the TextField exposes a non-default IME action; default single-line fields accept `performTextInput()` but have no IME action semantic. Re-report renderer status with the current config generation after a sequence of draft previews before asserting the displayed status.
+
 2026-10-28 T-SAFE-08: When the current signal path has no True Peak or gain-reduction telemetry, disclose that limitation beside the Limiter control rather than implying a measurement or warning exists.

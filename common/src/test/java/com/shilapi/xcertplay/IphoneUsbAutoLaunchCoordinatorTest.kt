@@ -123,17 +123,22 @@ class IphoneUsbAutoLaunchCoordinatorTest {
             DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH, layoutState),
         )
 
-        assertTrue(
-            queue.replaceDuringHandoff(
-                DeferredIphoneUsbAutoLaunch(
-                    identity.copy(deviceId = 33, deviceName = "latest-test-device"),
-                    IphoneUsbAutoLaunchSource.ATTACH,
+        repeat(20) { index ->
+            assertTrue(
+                queue.replaceDuringHandoff(
+                    DeferredIphoneUsbAutoLaunch(
+                        identity.copy(
+                            deviceId = 33 + index,
+                            deviceName = "reenumerated-test-device-$index",
+                        ),
+                        IphoneUsbAutoLaunchSource.ATTACH,
+                    ),
                 ),
-            ),
-        )
+            )
+        }
         assertEquals(
             DeferredIphoneUsbAutoLaunch(
-                identity.copy(deviceId = 33, deviceName = "latest-test-device"),
+                identity.copy(deviceId = 52, deviceName = "reenumerated-test-device-19"),
                 IphoneUsbAutoLaunchSource.ATTACH,
                 layoutState,
             ),

@@ -78,7 +78,7 @@ class CarPlayHostActivityReconnectTest {
     }
 
     @Test
-    fun verifiedWiredAttachKeepsAnExistingControllerAndDoesNotStartAnother() {
+    fun twentyVerifiedWiredAttachesKeepTheExistingControllerAndDoNotStartAnother() {
         CarPlayBackgroundSession.clear()
         val bootstrapReady = field(DiPlayBootstrap, "ready")
         val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
@@ -96,7 +96,7 @@ class CarPlayHostActivityReconnectTest {
             field(activity, "controller").set(activity, existingController)
             activity.startCarPlayForTest = { size -> startRequests.add(size) }
 
-            repeat(2) {
+            repeat(20) {
                 dispatchOnNewIntent(
                     activity,
                     CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.USB_DEVICE_ATTACHED),

@@ -74,6 +74,7 @@
     <string name="dsp_threshold">Threshold</string>
     <string name="dsp_compressor_threshold">コンプレッサーしきい値</string>
     <string name="dsp_limiter_threshold">リミッターしきい値</string>
+    <string name="dsp_limiter_measurement_note">このリミッターはサンプルピークを制限します。True Peakおよび連続ゲインリダクションは測定していません。</string>
     <string name="dsp_ratio">Ratio</string>
     <string name="dsp_attack">Attack</string>
     <string name="dsp_release">Release</string>

@@ -74,6 +74,7 @@
     <string name="dsp_threshold">Threshold</string>
     <string name="dsp_compressor_threshold">Compressor threshold</string>
     <string name="dsp_limiter_threshold">Limiter threshold</string>
+    <string name="dsp_limiter_measurement_note">This limiter caps sample peaks. True Peak and continuous gain-reduction measurements are unavailable.</string>
     <string name="dsp_ratio">Ratio</string>
     <string name="dsp_attack">Attack</string>
     <string name="dsp_release">Release</string>

@@ -464,6 +464,9 @@ class DspSettingsScreenTest {
             composeRule.onNodeWithText(context.getString(R.string.dsp_stereo_width)).assertExists()
             composeRule.onNodeWithContentDescription("Dynamics").performScrollTo().performClick()
             composeRule.onNodeWithContentDescription("Dynamics, selected").assertExists()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_limiter_measurement_note))
+                .performScrollTo()
+                .assertIsDisplayed()
             composeRule.onNodeWithText("Dynamic Bass").assertExists()
             val thresholdBeforeDrag = studioSession.preview.baseProfileSnapshot.compressor.thresholdDb
             val thresholdAfterDrag = if (thresholdBeforeDrag < -20.0) -10.0f else -50.0f

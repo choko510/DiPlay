@@ -816,4 +816,6 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 
 2026-10-28 REM-03: Treat symmetric Seat trim and Legacy Width as same-latency whole-pipeline WARM only when no stateful stage requires continuity. Defer asymmetric Seat trims, Seat delay/polarity/near-speaker/enable changes, Legacy Width while Advanced M/S is active, and width/trim changes while stateful graphs are active; do not report them as Native HOT.
 
+2026-10-28 T-SAFE-08: Display Limiter threshold as a sample-peak ceiling and explicitly state that True Peak and continuous gain-reduction measurements are unavailable until those measurements are implemented; never label sample peak as True Peak.
+
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

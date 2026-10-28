@@ -1762,6 +1762,7 @@ internal fun DspSettingsScreen(
                         checked = profile.limiter.enabled,
                         onCheckedChange = { profile = profile.copy(limiter = profile.limiter.copy(enabled = it)) },
                     )
+                    Text(stringResource(R.string.dsp_limiter_measurement_note), style = MaterialTheme.typography.bodySmall)
                     DspValueSlider(stringResource(R.string.dsp_limiter_threshold), profile.limiter.thresholdDb, -12.0..0.0, "dB") {
                         profile = profile.copy(limiter = profile.limiter.copy(thresholdDb = it))
                     }

@@ -595,7 +595,7 @@ Treat performance instrumentation as a distribution gate: retain both passing an
 
 2026-10-27: AtomicFile safety checks must include both the primary file and `.bak`, reject dangling and live symlinks without following them, and preserve a future-schema backup before starting a new write. Capturing rollback state before mutating the active workspace prevents failed persistence from restoring the failed candidate.
 
-2026-10-28 REM-05 Native helper: Test HOT state preservation before processing the next frame, then separately exercise the makeup ramp and lowered Limiter ceiling. Comparing the whole state struct before/after invalid and deferred commands detects partial commits.
+2026-10-28 REM-05 Native helper: Test HOT state preservation before processing the next frame, then separately exercise Compressor curve slew, makeup ramp, and lowered Limiter ceiling. Comparing the whole state struct before/after invalid and deferred commands detects partial commits; ACK callers can use the transition-pending accessor.
 For native audio-control ramps, prepare and validate the dB/linear pair off the render callback, then pass a tagged command through the existing bounded HOT mailbox. Advance one ramp step per PCM frame, not per channel sample, so stereo channels stay matched. ACK only after the full ramp, preserve compatible Studio HOT, defer an incompatible Studio gain while the ramp runs, and fence HOT/LOCAL_WARM with one generation order.
 
 2026-10-28: The Studio HOT gain-refund path is also render-thread work. Carry its prepared linear target into the graph and retain it while refunding headroom; calling the dB setter there reintroduces `pow` despite the separate Preamp ramp being precomputed.

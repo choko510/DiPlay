@@ -788,6 +788,6 @@ Keep the versioned preamp-only payload kind separate from the existing Macro/Lou
 
 2026-10-28 REM-07: Keep each §12.2 evidence dimension in its own column. PARTIAL's `Missing evidence` enumerates exactly blank evidence fields while `Unproven predicate` identifies the acceptance criterion still open; a PARTIAL row may have all execution metadata populated if the acceptance remains incomplete.
 
-2026-10-28 REM-05 Native helper: Prepare Compressor/Limiter HOT coefficients on the control side, validate the whole payload before mutation, and preserve compressor envelope and limiter gain. Defer enable/topology changes and any Limiter threshold increase; linearly smooth makeup over a bounded sample-frame duration.
+2026-10-28 REM-05 Native helper: Prepare and fully verify Compressor/Limiter coefficients on the control side; the render-side apply checks a sealed payload fingerprint without recomputing pow/exp. Preserve compressor envelope and limiter gain, defer enable/topology changes and Limiter threshold increases, and slew Compressor curve/output gain plus makeup within bounded per-frame steps.
 
 REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.

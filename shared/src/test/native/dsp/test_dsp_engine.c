@@ -742,6 +742,7 @@ static void test_dynamics_hot_params_preserve_state_and_validate_atomically(void
         previous_makeup = dynamics.compressor_makeup_linear;
     }
     assert_near(dynamics.compressor_makeup_linear, target_makeup, 0.0, "makeup ramp reaches exact target");
+    assert_true(!dsp_dynamics_hot_transition_pending(&dynamics), "makeup transition clears pending state");
 
     const float lowered_threshold = dynamics.limiter_threshold_linear;
     float peak_left = 1.0f;
@@ -757,6 +758,68 @@ static void test_dynamics_hot_params_preserve_state_and_validate_atomically(void
         "NaN prepared coefficient is rejected");
     assert_true(memcmp(&dynamics, &before_invalid, sizeof(dynamics)) == 0,
         "invalid HOT payload has no partial state mutation");
+
+    dsp_dynamics_hot_params inconsistent = params;
+    inconsistent.compressor_makeup_linear = 15.848932f;
+    assert_true(!dsp_dynamics_hot_params_validate(&inconsistent),
+        "control-side validation rejects a finite but inconsistent makeup coefficient");
+    before_invalid = dynamics;
+    assert_true(dsp_dynamics_apply_hot_params(&dynamics, &inconsistent, 100) == DSP_DYNAMICS_HOT_INVALID,
+        "render-side apply rejects a modified prepared payload without recomputing coefficients");
+    assert_true(memcmp(&dynamics, &before_invalid, sizeof(dynamics)) == 0,
+        "inconsistent finite payload has no partial state mutation");
+    inconsistent = params;
+    inconsistent.compressor_attack_coefficient *= 0.5f;
+    assert_true(!dsp_dynamics_hot_params_validate(&inconsistent),
+        "control-side validation rejects a finite but incorrect attack coefficient");
+    before_invalid = dynamics;
+    assert_true(dsp_dynamics_apply_hot_params(&dynamics, &inconsistent, 100) == DSP_DYNAMICS_HOT_INVALID,
+        "incorrect finite coefficient cannot enter the active stage");
+    assert_true(memcmp(&dynamics, &before_invalid, sizeof(dynamics)) == 0,
+        "incorrect finite coefficient leaves active state unchanged");
+
+    dsp_dynamics curve_dynamics = {0};
+    dsp_dynamics_config curve_initial = initial;
+    curve_initial.compressor_threshold_db = -24.0;
+    curve_initial.compressor_ratio = 20.0;
+    curve_initial.compressor_knee_db = 0.0;
+    curve_initial.compressor_release_ms = 2000.0;
+    assert_true(dsp_dynamics_prepare(&curve_dynamics, 48000, &curve_initial),
+        "high-envelope curve-slew baseline prepares");
+    curve_dynamics.compressor_envelope = 0.9f;
+    curve_dynamics.limiter_gain = 0.37f;
+    dsp_dynamics_config curve_target = curve_initial;
+    curve_target.compressor_threshold_db = -6.0;
+    curve_target.compressor_ratio = 1.0;
+    curve_target.compressor_knee_db = 12.0;
+    curve_target.limiter_threshold_db = -2.0;
+    dsp_dynamics_hot_params curve_params = {0};
+    assert_true(dsp_dynamics_prepare_hot_params(48000, &curve_target, &curve_params),
+        "high-envelope curve-slew target prepares");
+    const float saved_envelope = curve_dynamics.compressor_envelope;
+    const float saved_limiter_gain = curve_dynamics.limiter_gain;
+    assert_true(dsp_dynamics_apply_hot_params(&curve_dynamics, &curve_params, 200) == DSP_DYNAMICS_HOT_APPLIED,
+        "large ratio and threshold change starts a bounded curve slew");
+    assert_true(curve_dynamics.compressor_envelope == saved_envelope &&
+        curve_dynamics.limiter_gain == saved_limiter_gain, "curve slew preserves detector and limiter state");
+    assert_true(dsp_dynamics_hot_transition_pending(&curve_dynamics), "curve slew exposes pending state for ACK gating");
+    float previous_gain = 0.0f;
+    float largest_gain_step = 0.0f;
+    for (int frame = 0; frame < 3000; frame++) {
+        float left = 0.01f;
+        float right = left;
+        dsp_dynamics_process_compressor_frame(&curve_dynamics, &left, &right, 1);
+        const float effective_gain = left / 0.01f;
+        if (frame > 0) largest_gain_step = fmaxf(largest_gain_step, fabsf(effective_gain - previous_gain));
+        previous_gain = effective_gain;
+        if (!dsp_dynamics_hot_transition_pending(&curve_dynamics)) break;
+    }
+    assert_true(largest_gain_step < 0.03f, "ratio/threshold/knee slew bounds per-frame compressor gain steps");
+    assert_true(!dsp_dynamics_hot_transition_pending(&curve_dynamics), "curve slew clears pending state at completion");
+    assert_true(curve_dynamics.compressor_threshold_db == (float)curve_target.compressor_threshold_db &&
+        curve_dynamics.compressor_ratio == (float)curve_target.compressor_ratio &&
+        curve_dynamics.compressor_knee_db == (float)curve_target.compressor_knee_db,
+        "curve slew converges to the exact requested parameters");
 
     dsp_dynamics_hot_params stale_format = {0};
     assert_true(dsp_dynamics_prepare_hot_params(44100, &target, &stale_format),

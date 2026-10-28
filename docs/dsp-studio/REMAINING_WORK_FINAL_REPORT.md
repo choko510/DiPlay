@@ -4,7 +4,7 @@
 
 - Repository: [choko510/DiPlay](https://github.com/choko510/DiPlay).
 - PR: [#52](https://github.com/choko510/DiPlay/pull/52), branch `codex/dsp-studio-final`, base `codex/step4-pr-00-test-baseline` at `a99066f6133c2fe6f5258a2515a89986b75e042e`.
-- Current product/source head: `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`. Final documentation commit and hosted verification are pending.
+- Current product source: `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`; the evidence-test registry fixture was extended in `685d4e02`. Final documentation commit and hosted verification are pending.
 - PR #52 is open and unmerged. PR #45 and `main` were not modified. Do not merge before hardware acceptance and the user's approval.
 - Previously integrated feature child PRs remain in `SUBAGENT_PR_LEDGER.md`; the final follow-up changes were implemented directly by Codex after the user's instruction. Read-only review contexts did not write code.
 - Notable integrated PRs for this remaining-work scope: [#68 Preamp HOT](https://github.com/choko510/DiPlay/pull/68), [#76 evidence map](https://github.com/choko510/DiPlay/pull/76), [#77 Dynamics/Dynamic EQ HOT](https://github.com/choko510/DiPlay/pull/77), and [#78 Save/Cancel race](https://github.com/choko510/DiPlay/pull/78). All target the PR #52 branch and are integrated there.
@@ -12,15 +12,15 @@
 ## Final disposition
 
 ```text
-SOURCE_READY=FALSE
-FULL_CI_GREEN=FALSE_PENDING_FINAL_SOURCE_RUN
+SOURCE_READY=FALSE_PENDING_FINAL_HEAD_CONFIRMATION
+FULL_CI_GREEN=FALSE_PENDING_FINAL_HEAD_CONFIRMATION
 HARDWARE_PASS=FALSE
 USER_APPROVAL=NOT_GIVEN
 MERGE_READY=FALSE
 OPEN_P0_P1=0
 ```
 
-The local source checks and independent re-reviews are green. The final full hosted run must cover source head `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145` and the completed evidence documentation. No TS10/K706 or supported iPhone was connected, so physical acceptance remains `NOT_RUN` and PR #52 is not merge-ready.
+The product source tree at `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145` has a successful full hosted run (#407005) on documentation head `9e4dd302`; the subsequent registry-fixture commit `685d4e02` and final run-result docs are locally validated and need one final hosted confirmation at the final PR head. No TS10/K706 or supported iPhone was connected, so physical acceptance remains `NOT_RUN` and PR #52 is not merge-ready.
 
 ## REM-01..12 status
 
@@ -66,7 +66,7 @@ The checker rejects ID drift, duplicate IDs, matrix/tracker status drift, incomp
 
 ## Verification
 
-### Current source `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`
+### Current product/test source `685d4e02` (product source tree `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`)
 
 | Command/check | Result |
 |---|---|
@@ -83,7 +83,7 @@ Run [#575](https://github.com/choko510/DiPlay/actions/runs/40686737568) passed a
 
 An interim dispatch, [run #406973](https://github.com/choko510/DiPlay/actions/runs/40697339783), used source `fbfc3b6e` before the corrected matrix/tracker docs were pushed. Its `changes` and API 35 `android-instrumentation` jobs passed; instrumentation artifact [12820865994](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12820865994) is tied to the exact source SHA. The `check` job failed at the new evidence status-parity validator because that checkout still had the previous docs snapshot (PH01-T03/T04, PH05-T01 and PH07-T07 status drift); it stopped before Native/unit/build/lint/JNI steps. This failed overall run is not counted as full CI evidence.
 
-**Final hosted source run:** `PENDING` for `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`.
+**Latest complete hosted workflow:** [#407005](https://github.com/choko510/DiPlay/actions/runs/40700507509) passed on documentation head `9e4dd30281142fc5b2f1eb1162e7382bc2ab3b25` with product source tree `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`. Jobs `changes`, `check`, `android-instrumentation`, and `host-baseline` succeeded. API 35 passed Shared Release 23/23 and Common Debug 29/29. Artifacts: [check](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12820449113) and [instrumentation](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12821204007). `quick-baseline` and Release verification were skipped for `workflow_dispatch`. Evidence-test registry commit `685d4e02` and final report updates are pending current-head confirmation.
 
 ## Independent review findings
 

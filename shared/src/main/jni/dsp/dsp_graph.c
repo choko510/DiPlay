@@ -363,7 +363,8 @@ int dsp_graph_apply_preamp_hot(dsp_graph *graph, double gain_db, double gain_lin
 }
 
 static void apply_pending_studio_gain_refund(dsp_graph *graph) {
-    if (!graph->studio_gain_refund_pending || !studio_module_gains_are_settled(graph)) {
+    if (!graph->studio_gain_refund_pending || graph->gain.ramp_remaining > 0 ||
+        !studio_module_gains_are_settled(graph)) {
         return;
     }
     if (dsp_gain_set_linear_ramped(

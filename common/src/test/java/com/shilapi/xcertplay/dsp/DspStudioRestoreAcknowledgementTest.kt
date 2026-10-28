@@ -100,6 +100,34 @@ class DspStudioRestoreAcknowledgementTest {
     }
 
     @Test
+    fun staleOwnerFailureCannotResolveTheCurrentOwnersRestoreRequest() {
+        val request = DspStudioRestoreRequest(configGeneration = 5, rendererOwnerToken = 9)
+        val staleOwnerFailure = status(
+            DspRendererApplyPhase.FAILED,
+            generation = 5,
+            ownerToken = 8,
+        )
+
+        assertEquals(
+            DspStudioRestoreAcknowledgement.WAITING,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                staleOwnerFailure,
+                committedWorkspaceActive = true,
+            ),
+        )
+        assertEquals(
+            DspStudioRestoreAcknowledgement.REJECTED,
+            evaluateStudioRestoreAcknowledgement(
+                request,
+                staleOwnerFailure,
+                committedWorkspaceActive = true,
+                timedOut = true,
+            ),
+        )
+    }
+
+    @Test
     fun onlyTheRequestedGenerationWithCommittedWorkspaceAcknowledgesAudioRestore() {
         val request = DspStudioRestoreRequest(configGeneration = 5, rendererOwnerToken = 9)
 

@@ -7,8 +7,10 @@ typedef struct {
     float linear;
     double decibels;
     float ramp_target_linear;
-    float ramp_step;
+    double ramp_step;
     uint32_t ramp_remaining;
+    /* Avoid cumulative float rounding across multi-frame ramps. */
+    double ramp_linear_accumulator;
 } dsp_gain;
 
 int dsp_gain_set_db(dsp_gain *gain, double decibels);

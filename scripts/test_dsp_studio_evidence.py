@@ -29,6 +29,15 @@ class EvidenceLedgerContractTest(unittest.TestCase):
             "repository": "choko510/DiPlay",
             "runs": [
                 {
+                    "id": 40686737568,
+                    "url": "https://github.com/choko510/DiPlay/actions/runs/40686737568",
+                    "metadata_source": "https://api.github.com/repos/choko510/DiPlay/actions/runs/40686737568",
+                    "status": "completed",
+                    "conclusion": "success",
+                    "head_sha": "7aa7ba41a1c4f3b97c44d0f305a72276219e7847",
+                    "observed_at": "2026-10-28T12:26:43Z",
+                },
+                {
                     "id": 40670466020,
                     "url": "https://github.com/choko510/DiPlay/actions/runs/40670466020",
                     "metadata_source": "https://api.github.com/repos/choko510/DiPlay/actions/runs/40670466020",
@@ -117,6 +126,10 @@ class EvidenceLedgerContractTest(unittest.TestCase):
     def test_current_ledger_is_consistent(self) -> None:
         self.assertEqual([], self.errors())
 
+    def test_tracker_status_must_match_canonical_matrix(self) -> None:
+        self.update_row("PH02-T02", {"Status": "PARTIAL"})
+        self.assertTrue(any("does not match TEST_MATRIX_DETAILED.md status 'PASS'" in error for error in self.errors()))
+
     def test_partial_requires_explicit_missing_fields(self) -> None:
         self.update_row("PH01-T09", {"Missing evidence": ""})
         self.assertTrue(any("Missing evidence must exactly list blank evidence fields" in error for error in self.errors()))
@@ -125,7 +138,7 @@ class EvidenceLedgerContractTest(unittest.TestCase):
         text = self.ledger.read_text(encoding="utf-8")
         lines = text.splitlines()
         for index, line in enumerate(lines):
-            if line.startswith("| PH02-T04 |"):
+            if line.startswith("| PH02-T05 |"):
                 cells = checker.split_table_cells(line)
                 header = checker.split_table_cells(next(item for item in lines if item.strip() == checker.TRACKER_HEADER))
                 cells[header.index("Runbook")] = " "
@@ -173,7 +186,7 @@ class EvidenceLedgerContractTest(unittest.TestCase):
         self.assertTrue(any("artifact must resolve" in error for error in self.errors()))
 
     def test_pass_accepts_actions_run_url_for_this_repo(self) -> None:
-        self.update_row("PH01-T09", self.complete_pass_values(artifact="https://github.com/choko510/DiPlay/actions/runs/123"))
+        self.update_row("PH02-T02", self.complete_pass_values(artifact="https://github.com/choko510/DiPlay/actions/runs/123"))
         self.assertEqual([], self.errors())
 
     def test_actions_run_artifact_rejects_unregistered_run(self) -> None:

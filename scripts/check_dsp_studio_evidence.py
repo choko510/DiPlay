@@ -154,6 +154,11 @@ def canonical_acceptance_cases() -> dict[str, str]:
     return {row[0]: row[1] for row in rows if len(row) == 5}
 
 
+def canonical_acceptance_statuses() -> dict[str, str]:
+    rows = table_rows(MATRIX, "| ID | Acceptance case | Relevant evidence | Status | Remaining evidence / gap |")
+    return {row[0]: row[3] for row in rows if len(row) == 5}
+
+
 def repo_file_exists(path_text: str, *, relative_to: Path) -> bool:
     path = PurePosixPath(path_text)
     if path.is_absolute() or ".." in path.parts or ":" in path_text:
@@ -273,6 +278,7 @@ def validate() -> list[str]:
     canonical = canonical_acceptance_cases()
     if set(canonical) != ids:
         errors.append("canonical acceptance predicate rows do not match canonical IDs")
+    canonical_statuses = canonical_acceptance_statuses()
     rows = table_rows(LEDGER, TRACKER_HEADER)
     if not rows:
         return errors + ["tracker evidence table was not found"]
@@ -288,6 +294,10 @@ def validate() -> list[str]:
         fields = dict(zip(TRACKER_COLUMNS, row))
         if id_ in canonical and fields["AcceptancePredicate"] != canonical[id_]:
             errors.append(f"{id_}: acceptance predicate does not match TEST_MATRIX_DETAILED.md")
+        if id_ in canonical_statuses and status != canonical_statuses[id_]:
+            errors.append(
+                f"{id_}: tracker status {status!r} does not match TEST_MATRIX_DETAILED.md status {canonical_statuses[id_]!r}"
+            )
         if status not in {"PASS", "PARTIAL", "NOT_RUN"}:
             errors.append(f"{id_}: invalid status {status!r}")
             continue

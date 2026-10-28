@@ -1,6 +1,6 @@
 # PR #52 独立コード再監査 指摘対応報告
 
-対象PRは [#52](https://github.com/choko510/DiPlay/pull/52)、指摘対象のHEADは `f40d51ea82f6129c1455f1ae533de526633025f8`。F-01/F-02修正は `a0cb2d560dfd409bd9500b1d5d39371a0c1b12a4` と `f5673dd7a9d7d488c63d2a620227527e4c4978ae` に記録し、統合後のsource/test HEADは `419fa45e5dc15fa5a135f0693ffa13bab59f2056`。
+対象PRは [#52](https://github.com/choko510/DiPlay/pull/52)、指摘対象のHEADは `f40d51ea82f6129c1455f1ae533de526633025f8`。F-01/F-02修正は `a0cb2d560dfd409bd9500b1d5d39371a0c1b12a4` と、同じ指摘をさらに補強した `f5673dd7a9d7d488c63d2a620227527e4c4978ae` に記録した。
 
 ## F-01 — Studioゲイン返金のサンプル不連続
 
@@ -23,10 +23,11 @@
 - 修正後の `scripts/test_dsp_native.sh` 成功。Native DSPとDynamic EQ HOT両suiteがpass。
 - 統合後の `:shared:testDebugUnitTest` 734/734、`:common:testDebugUnitTest` 357/357、failure/error/skip 0。
 - `:mobile:lintDebug`、`:automotive:lintDebug`、両アプリのDebug/Benchmark assemble成功。JNI/R8 mapping check成功。
-- ローカル `scripts/test_dsp_native.sh --sanitize` はMSYS2 GCCに `libasan`／`libubsan` がなくリンク不可。Hosted Actions run [#584](https://github.com/choko510/DiPlay/actions/runs/40723483149) は統合source/test HEAD `419fa45e` で `changes`、Native/ASan+UBSan、Shared/Common、Lint、Debug/Benchmark build、JNI/R8、API 35 instrumentation、`host-baseline`、`Release verification`がすべてsuccess。初回attemptはAPI 35 Common instrumentation中にcancelされたため、失敗／cancelled jobだけを再実行して成功させた。`quick-baseline`はfull checkで代替されたためskipで、pass扱いしていない。
+- ローカル `scripts/test_dsp_native.sh --sanitize` はMSYS2 GCCに `libasan`／`libubsan` がなくリンク不可。Hosted run [#581](https://github.com/choko510/DiPlay/actions/runs/40719476119) は先行head `a0cb2d56` で成功し、run [#583](https://github.com/choko510/DiPlay/actions/runs/40722523549) は `f5673dd7` でNative/ASan/UBSan、Shared/Common、Lint/Build/JNI/R8、API 35 instrumentationとhost-baselineが成功した。さらに統合head `419fa45e` のrun [#584](https://github.com/choko510/DiPlay/actions/runs/40723483149) は `changes`、Native/ASan+UBSan、Shared/Common、Lint、Debug/Benchmark build、JNI/R8、API 35 instrumentation、`host-baseline`、`Release verification`がすべてsuccess。初回attemptはcancelされたため、cancelled jobsのみ再実行して完了した。Artifacts: [run #584 check](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12833231327), [run #584 instrumentation](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12832178183)。`quick-baseline`はfull checkで代替されたためskipで、pass扱いしていない。
 
 ## 未検証の受入項目
 
+- F-01/F-02の回帰テストとCIはpassした。F-01/F-02を対象にした独立post-fix reviewは未実施。
 - この修正で170行の受入台帳のstatusは変更していない。現行集計はPASS 2 / PARTIAL 162 / NOT_RUN 6のまま。
 - API 35 emulator instrumentationはrun #584でpassした。TS10/K706＋iPhoneの音声・USB・Surface・Touch、route volume、A/V、CPU/RSS、20回再接続、soakは未検証。Emulatorの結果を実機検査の代替とはしない。
 - PR #52はOpenのまま。マージは行っていない。

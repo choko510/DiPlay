@@ -1,5 +1,10 @@
 # Lessons
 
+- Do not infer audio restore success from a missing renderer status. Capture the owner when the Cancel restore starts; if that owned status disappears, wait for a current/replacement owner to confirm the committed generation or fail on timeout.
+- For a multi-sample gain ramp, keep a double-precision accumulator and snap to the validated target on the final frame. Repeated float additions can leave a long ramp slightly short of its target and make the completion boundary larger than the preceding sample steps.
+
+- A no-progress deadline test should advance an injected monotonic clock rather than depend on short real-time sleeps. Under the parallel suite, a 35 ms deadline test reached 53 ms before the next 100-byte chunk; the virtual clock keeps the “progress resets the deadline” assertion deterministic without changing production timing.
+
 - REM-10 evidence audit: assert that execution commands are copy-paste runnable; put task expansion in result/notes, and keep unrelated acceptance predicates open when a mapped test checks only neighboring state or resources.
 
 - A test that constructs a new runtime in the same JVM can verify persistence restoration and preview discard, but it does not prove Android process-death or Activity lifecycle behavior. Keep those acceptance rows partial until an OS-level test exists.

@@ -1,5 +1,17 @@
 # Decisions
 
+## Ramp Studio headroom refunds only after module gains settle
+
+Keep the protective headroom reduction immediate, but treat a later gain refund as a 20 ms sample ramp. Wait until Macro, Smart Loudness, Dynamic Bass, Compressor, and Dynamic EQ transitions are settled before starting the refund. The graph's HOT-completion predicate includes both a queued refund and its active gain ramp, so no generation is ACTIVE before the final sample.
+
+## Cancel restore requires owner and generation evidence
+
+Treat `rendererOwnerToken == null` as proof that no renderer owned the request at its start. If an owned request later loses status or owner identity, wait for a valid report and reject on timeout; do not mark the draft Saved. A newer owner can satisfy the request only after it reports the committed generation ACTIVE and the runtime confirms the committed workspace.
+
+## Sync the stacked PR base without moving the parent PR ref
+
+For the PR #52 completion pass, merge the current `codex/step4-pr-00-test-baseline` tip into `codex/dsp-studio-final` so GitHub evaluates #52 against its current stacked base. Resolve the DSP overlap by retaining PR #52's PCM-format epoch/HOT preparers and PR #45's retirement failure fence/timing callbacks. Push only the PR #52 branch; keep PR #45 and `main` unchanged.
+
 ## Keep per-ID evidence claims at the assertion boundary
 
 For REM-10 rows, name only assertions the mapped method executes. A test that resolves a selected-state resource string does not prove selected `StateDescription` semantics; stored undo/redo snapshot references do not prove redo interaction; and tab scroll restoration does not prove a Macro control is reachable. Keep these subpredicates explicitly open and keep PARTIAL status.

@@ -1,6 +1,6 @@
 # DSP field update matrix
 
-This matrix reflects `DspUpdatePlanner`, renderer eligibility, and Native HOT integration at source head `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`. Native Preamp, Dynamics and Dynamic EQ parameter helpers share the existing bounded HOT mailbox; no parallel queue is used. `HOT`, `LOCAL_WARM`, `WARM`, and `DEFERRED` describe runtime plans, not UI optimism. Any update that fails the stated conditions must retain the active graph and report its deferred reason.
+This matrix reflects `DspUpdatePlanner`, renderer eligibility, and Native HOT integration at source head `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`; the final code/test head `f5673dd7a9d7d488c63d2a620227527e4c4978ae` passed the full hosted verification. Native Preamp, Dynamics and Dynamic EQ parameter helpers share the existing bounded HOT mailbox; no parallel queue is used. `HOT`, `LOCAL_WARM`, `WARM`, and `DEFERRED` describe runtime plans, not UI optimism. Any update that fails the stated conditions must retain the active graph and report its deferred reason.
 
 | Runtime field | Plan | Conditions and limits | Direct evidence / remaining gate |
 |---|---|---|---|
@@ -28,4 +28,4 @@ This matrix reflects `DspUpdatePlanner`, renderer eligibility, and Native HOT in
 - Track latency mismatch, PCM format change, renderer-owner change, stale generation, or invalid Native payload rejects the candidate.
 - The Local Warm rollout flag defaults off. With it off, committed-track PEQ/Bass changes defer with a reason.
 - Audio callbacks do not allocate or wait for preparation. Preparation, history catch-up, and resource retirement use control/reaper paths; the callback applies only bounded work.
-- At source head `fbfc3b6e02c8590d80352d88b5c3c7e9edfe0145`, Native regular tests passed with a new Preamp HOT state-preservation case for active Compressor/Limiter/Convolver; Shared/Common passed 704/704 and 319/319 locally. MSYS2 ASan/UBSan could not link because `libasan`/`libubsan` are absent; hosted ASan/UBSan and API 35 results for the final source SHA are pending. Hosted run #575 passed the parent source SHA `7aa7ba41`; physical audio, A/V, p99, and acoustic claims remain `NOT_RUN`.
+- At final code/test head `f5673dd7a9d7d488c63d2a620227527e4c4978ae`, Native regular tests passed with Preamp state preservation and sample-ramped Studio refund cases; Shared/Common passed 734/734 and 357/357 locally. MSYS2 ASan/UBSan could not link because `libasan`/`libubsan` are absent; hosted run #583 passed ASan/UBSan and API 35 instrumentation. Physical audio, A/V, p99, and acoustic claims remain `NOT_RUN`.

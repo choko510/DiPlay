@@ -10,15 +10,17 @@
 
 **Start HEAD:** `a99066f6133c2fe6f5258a2515a89986b75e042e`
 
-**Latest source/test HEAD:** `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`
+**Latest product-source HEAD:** `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`
+
+**Latest test-only HEAD:** `344181eb0d2b03da1eb4bbb9abd9dc3a7af07568`
 
 PR #45 remains open and Draft. No merge, close, or ready-for-review action was performed. The concurrent PR-branch commit `d140f6e` (opt-in iPhone USB auto-launch) arrived during this work and was preserved in merge commit `184c02a`; its code and tests pass with this batch.
 
 | Gate | Result | Evidence / limit |
 |---|---|---|
 | Code | `CODE_COMPLETE` for the software review-fix scope | USB reconnect, DSP retirement, and decoder release changes below have regression coverage. The explicitly listed device-only rows remain open. |
-| Local host checks | `PASS` | Shared 663/663 and Common 230/230 unit tests; mobile/automotive Debug lint, Debug builds, and Benchmark builds passed. The final combined host gate passed at `184c02a`; the additional test-only commit `c8a1ab0` passed the full Common suite. |
-| GitHub CI | `CI_VERIFIED` | Current head run [#527](https://github.com/choko510/DiPlay/actions/runs/40531665594) passed `check`, host-baseline, API 35 instrumentation, and Draft scope. `quick-baseline` was skipped because full host-baseline ran. JUnit artifacts are listed below. |
+| Local host checks | `PASS` | Shared 664/664 and Common 231/231 unit tests; mobile/automotive Debug lint, Debug builds, and Benchmark builds passed. The product-source gate passed at `184c02a`; the added test-only commits passed the complete local module suites. |
+| GitHub CI | `CI_VERIFIED` | Run [#527](https://github.com/choko510/DiPlay/actions/runs/40531665594) passed `check`, host-baseline, API 35 instrumentation, and Draft scope on product-source head `c8a1ab0`. Test-only run [#533](https://github.com/choko510/DiPlay/actions/runs/40626478577) passed its Draft unit/quick-baseline lane at test head `344181eb`. |
 | Device acceptance | `BLOCKED_DEVICE` | Only an API 36.1 x86_64 emulator was attached. TS10/K706 and iPhone acceptance remains untested. |
 | Release | `NO_GO_THIS_RUN` | Device, signed update/rollback, and independent review gates remain incomplete. |
 
@@ -32,6 +34,7 @@ PR #45 remains open and Draft. No merge, close, or ready-for-review action was p
 | `d140f6e` | Concurrent PR-branch update adding opt-in iPhone USB auto-launch; preserved unchanged. |
 | `184c02a` | Merge the concurrent PR-branch update without rewriting either history. |
 | `c8a1ab0` | Cover active-controller and shutdown-time USB attach deduplication. |
+| `344181eb` | Add attach adoption of a background-owned session and MAIN/ALT release-failure isolation tests. |
 
 The implementation report and test matrix are committed after the source/test head; their documentation commit ID is recorded in the final response and the PR branch history.
 
@@ -39,7 +42,7 @@ The implementation report and test matrix are committed after the source/test he
 
 - The initial GitHub PR snapshot matched start HEAD `a99066f`, base `main@95ba398`, and the local PR branch. At that point the latest run was #505: static checks passed while host-baseline and API 35 instrumentation were skipped.
 - During implementation, GitHub advanced the same PR branch to `d140f6e`. The branch was fetched and merged without rebasing or force-pushing; the new opt-in iPhone USB auto-launch behavior was preserved.
-- The current source/test head is `c8a1ab0`. The PR is still Draft. No upstream-ledger row or disposition was changed.
+- The current product-source head is `c8a1ab0`; test-only head `344181eb` adds USB owner-adoption and MAIN/ALT release-failure assertions. The PR is still Draft. No upstream-ledger row or disposition was changed.
 
 ## Phase 01 — USB-01 wired attach recovery
 
@@ -67,7 +70,7 @@ If native close fails, the owning renderer becomes permanently update-blocked. I
 
 Release retries run only on the existing video worker, at most twice per codec with a 25 ms delay. A successful retry completes the existing Surface ACK. After persistent failure, the decoder and Surface owner remain retained, `surfaceReleaseSafe` stays false, replacement is denied, and the diagnostic requests an app restart. The eight-generation Surface retirement backpressure and existing MAIN/ALT owner checks are unchanged.
 
-**Tests:** `transientCodecReleaseFailureRetriesOnItsWorkerAndCompletesSurfaceRetirement` and `codecReleaseFailureRetainsItsSurfaceAndBlocksDecoderReplacement`, plus existing surface-gate and stale stream-callback suites. Persistent failure does not release a Surface or admit a replacement decoder.
+**Tests:** `transientCodecReleaseFailureRetriesOnItsWorkerAndCompletesSurfaceRetirement`, `codecReleaseFailureRetainsItsSurfaceAndBlocksDecoderReplacement`, and `mainCodecReleaseFailureDoesNotBlockAltSurfaceAcknowledgement`, plus existing surface-gate and stale stream-callback suites. Persistent failure does not release a Surface or admit a replacement decoder; an ALT ACK still completes while MAIN remains blocked.
 
 ## Phase 05 — DSP-01 failed retirement
 
@@ -83,11 +86,11 @@ The updated [OWNERSHIP_MAP.md](OWNERSHIP_MAP.md) records the USB token/start gua
 
 ## Phase 07 — Verification and evidence
 
-The current-head GitHub workflow-sensitive run is #527. `changes`, `check`, `host-baseline`, `android-instrumentation`, and Draft scope all passed. The `check` job passed host native DSP, ASan/UBSan, unit tests, lint, Debug/Benchmark builds, JNI/R8 checks, and test-report upload. The Android instrumentation job ran on API 35. The separate `quick-baseline` and nested draft-unit/JNI-build steps were skipped because the full check/host-baseline covered those tasks.
+GitHub run #527 passed `changes`, `check`, `host-baseline`, `android-instrumentation`, and Draft scope on product-source head `c8a1ab0`. The `check` job passed host native DSP, ASan/UBSan, unit tests, lint, Debug/Benchmark builds, JNI/R8 checks, and test-report upload. The Android instrumentation job ran on API 35. The separate `quick-baseline` and nested draft-unit/JNI-build steps were skipped because the full check/host-baseline covered those tasks. Test-only head `344181eb` passed follow-up Draft unit/quick-baseline run #533 with 32 tests, 0 failures/errors/skips; host-baseline and instrumentation were skipped because product code did not change. Docs-only run #530 passed static checks on its documentation head.
 
 Local verification on Windows:
 
-- `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel --build-cache --stacktrace` — 663 shared + 230 common local tests, 0 failures/errors/skips after the final USB regression test was added. Current-head GitHub artifact 12747761188 was opened: 161 JUnit XML files contain 893 tests with 0 failures/errors/skips.
+- `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel --build-cache --stacktrace` — 664 shared + 231 common local tests, 0 failures/errors/skips after the owner-adoption and MAIN/ALT isolation tests were added. GitHub artifact 12747761188 from source head `c8a1ab0` was opened: 161 JUnit XML files contain 893 tests with 0 failures/errors/skips. Test-only run #533 artifact 12789926418 contains 32 tests with 0 failures/errors/skips for the added test classes.
 - `:mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark` — passed. No new lint warning was reported in the changed source. Existing NDK 28.2 missing-`source.properties` and dependency strip warnings remain; the build completed with the configured NDK 27 path.
 - `scripts/run_android_instrumentation.sh` — 19 Shared Release instrumentation tests and 1 Common Debug instrumentation test passed on API 36.1 x86_64. GitHub run #527 passed the same 19 + 1 split on API 35. Its instrumentation artifact 12747252715 was opened: 2 XML files contain 20 tests with 0 failures/errors/skips. These remain emulator results, not physical-device acceptance.
 - `scripts/test_dsp_native.sh` — passed with MSYS2 GCC. `scripts/test_dsp_native.sh --sanitize` was attempted but could not link because this host's MSYS2 installation lacks `libasan` and `libubsan`.

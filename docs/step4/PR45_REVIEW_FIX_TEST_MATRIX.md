@@ -4,7 +4,9 @@
 
 **Base:** `95ba398f95ee104527812cd2b095977d71c51f98`
 
-**Source/test head:** `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`
+**Product-source head:** `c8a1ab0bd9126b7bc6f11e28e2fa6fa2b8cea78c`
+
+**Test-only head:** `344181eb0d2b03da1eb4bbb9abd9dc3a7af07568`
 
 **GitHub Actions:** [run #527](https://github.com/choko510/DiPlay/actions/runs/40531665594)
 **Physical target:** no TS10/K706 or supported iPhone attached; all HW rows remain blocked.
@@ -17,7 +19,7 @@
 |---|---|---|---|---|
 | USB-01-T01 | Existing wired Host; attach token verified; VPN and startup prerequisites ready | `onNewIntent` evaluates start exactly once | `CarPlayHostActivityReconnectTest.verifiedUsbAttachReevaluatesStartForAnExistingWiredHost`; Common unit suite | PASS |
 | USB-01-T02 | Existing controller present; deliver two verified wired attach actions | Existing controller remains; no second start request | `CarPlayHostActivityReconnectTest.verifiedWiredAttachKeepsAnExistingControllerAndDoesNotStartAnother`; Common unit suite | PASS |
-| USB-01-T03 | Different Activity/session owner and stale callback interleavings | Current owner remains authoritative; stale callbacks cannot stop it | `CarPlayHostActivityReconnectTest.staleOwnerEpochTicketIsRejectedByTheActivityDelayRunnable`, `queuedOldOwnerTransportCallbackCannotChangeTheNewHostStage`, `staleOldSessionEndCannotClearOrReconnectTheNewActiveSession`; attach-specific owner transfer is not separately injected | NOT_RUN |
+| USB-01-T03 | Background controller/sink is owned by another Activity; verified wired attach arrives | Existing controller is adopted; no second start request or stale-owner teardown | `CarPlayHostActivityReconnectTest.verifiedWiredAttachAdoptsTheExistingBackgroundOwner`, plus stale-owner ticket/callback/session-end regressions | PASS |
 | USB-01-T04 | Wireless Host; two verified attaches during teardown | One deferred switch, wireless setting cleared after teardown, one new wired Host action | `CarPlayHostActivityReconnectTest.wirelessUsbAttachDuringShutdownSwitchesToWiredOnlyOnceAfterTeardown`; no physical wireless-session teardown in this test | PASS |
 | USB-01-T05 | External action, consumed token replay, wrong device, absent permission, unavailable device | No internal Host action is authorized | `CarPlayHostActionsTest.externalHostActionStringsAreIgnoredAndInternalTokensAreSingleUse`, `usbAttachTrampolineRequiresTheSameCurrentlyAttachedCh341Device`, `onlyUsbTrampolineIsExported` | PASS |
 | USB-01-T06 | Verified wired attach before VPN readiness; readiness then becomes available | No early start; existing readiness path can start later | `CarPlayHostActivityReconnectTest.verifiedUsbAttachWaitsForVpnReadinessBeforeStarting`; display-size-not-ready is guarded in production but not isolated in this test | PASS |
@@ -44,7 +46,7 @@
 | VIDEO-01-T01 | Codec release succeeds and the old Surface has ACKed detach | Old surface retirement completes once; next decoder is allowed | `AndroidMediaSinkStateTest.stoppedVideoDecoderReleasesSurfaceConfigAndQueuedFrameReferences`, `SurfaceRetirementGateTest.textureReleaseWaitsForEverySurfaceOwnerAndReturnsTheBatchOnlyOnce` | PASS |
 | VIDEO-01-T02 | First release throws; same decoder worker retries successfully | ACK completes after retry; state reports `RECOVERED` | `AndroidMediaSinkStateTest.transientCodecReleaseFailureRetriesOnItsWorkerAndCompletesSurfaceRetirement` | PASS |
 | VIDEO-01-T03 | All bounded release attempts throw | Old decoder/Surface stay retained; replacement is refused; `SESSION_RESTART_REQUIRED` is reported | `AndroidMediaSinkStateTest.codecReleaseFailureRetainsItsSurfaceAndBlocksDecoderReplacement` | PASS |
-| VIDEO-01-T04 | MAIN/ALT release failures with reordered ACKs | One stream's failure does not release or stop the other | MAIN/ALT recovery request and concurrent close tests pass; simultaneous release-failure/ACK-order injection was not added | NOT_RUN |
+| VIDEO-01-T04 | MAIN release fails persistently while ALT release succeeds; detach ACKs race | ALT ACK completes; MAIN ACK stays pending and its Surface owner remains retained | `AndroidMediaSinkStateTest.mainCodecReleaseFailureDoesNotBlockAltSurfaceAcknowledgement` | PASS |
 | VIDEO-01-T05 | Deferred SurfaceTexture and same-texture replacement | Destroyed/stale texture is not reattached; release waits for every owner ACK | `SurfaceRetirementGateTest.sameTextureSurfaceReplacementWaitsForAckWithoutReleasingTheLiveTexture`, `duplicateDestructionDoesNotScheduleAnotherRetirement` | PASS |
 | VIDEO-01-T06 | Old screen/session callback after replacement | Callback cannot target the new stream/session | `CarPlayMediaEngineTest.replacedScreenStreamCannotDeliverStaleCallbacksOrCloseTheSession`, `oldSessionScreenCallbacksAndTeardownCannotReachTheCurrentSessionSink` | PASS |
 | VIDEO-01-T07 | Recovery queue saturation and Surface generation churn | Recovery queue and retained generation count stay bounded | `AndroidMediaSinkStateTest.videoRecoveryQueueHasAFixedCapacityWhenWorkersAreBlocked`, `SurfaceRetirementGateTest.surfaceGenerationChurnBoundsRetirementsAndKeepsOnlyTheLatestDeferredGeneration`; long memory/FD soak is tracked in HW-10 | PASS |
@@ -69,7 +71,7 @@
 | Full/Split viewport, touch, session and Surface identity | `CarPlayHostActivityLocalScaleTest.fullAndSplitViewportCyclesKeepTheRemoteControllerSessionAndSurface`, touch-cancel tests, `CarPlayMediaEngineTest` stale-session tests | PASS (Robolectric) |
 | 30–60 minute memory/FD/native allocation soak | Target vehicle and iPhone under sustained CarPlay/DSP load | BLOCKED_DEVICE |
 | Android API 26 runtime | Current app minimum SDK is 28; no API 26 runtime lane exists in this checkout | NOT_RUN |
-| Full shared/common JVM unit suites | `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel`: 663 shared + 230 common, 0 failed/errors/skipped | PASS |
+| Full shared/common JVM unit suites | `:shared:testDebugUnitTest :common:testDebugUnitTest --parallel`: 664 shared + 231 common, 0 failed/errors/skipped at test-only head `344181eb` | PASS |
 | Mobile/automotive lint and build | `:mobile:lintDebug :automotive:lintDebug :mobile:assembleDebug :automotive:assembleDebug :mobile:assembleBenchmark :automotive:assembleBenchmark` | PASS |
 | Native DSP C tests | `scripts/test_dsp_native.sh` using MSYS2 GCC | PASS |
 | ASan/UBSan | `scripts/test_dsp_native.sh --sanitize`; local linker reports missing `-lasan` and `-lubsan` | BLOCKED_ENV |
@@ -80,8 +82,9 @@
 | CI classifier/evidence validators | `scripts/test_android_ci_classifier.sh`; `scripts/test_android_instrumentation_evidence.sh` via MSYS2 Bash | PASS |
 | EX-08 delta-111 / generated ledger | `scripts/test_step4_ex08_delta111.py` 19/19; `scripts/generate_step4_ex08_inventory.py --check`; 1,400 unique SHAs | PASS after temporary LF normalization for Windows `core.autocrlf=true`; tracked source data restored afterward |
 | Public source tree | `python -B scripts/check_public_tree.py` | PASS |
-| Concurrent branch update `d140f6e` | Opt-in iPhone USB auto-launch policy/settings/coordinator/trampoline and internal-intent fallback | `IphoneUsbAutoLaunchPolicyTest`, `IphoneUsbAutoLaunchSettingsTest`, `IphoneUsbAutoLaunchCoordinatorTest`, `IphoneUsbAutoAttachActivityTest`, `CarPlayHostActionsTest`; Common 230/230 | PASS |
-| GitHub Actions run #527 | [Android checks](https://github.com/choko510/DiPlay/actions/runs/40531665594) on source/test head `c8a1ab0`; `changes`, `check`, `host-baseline`, `android-instrumentation`, and Draft scope succeeded | PASS |
+| Concurrent branch update `d140f6e` | Opt-in iPhone USB auto-launch policy/settings/coordinator/trampoline and internal-intent fallback | `IphoneUsbAutoLaunchPolicyTest`, `IphoneUsbAutoLaunchSettingsTest`, `IphoneUsbAutoLaunchCoordinatorTest`, `IphoneUsbAutoAttachActivityTest`, `CarPlayHostActionsTest`; Common 231/231 | PASS |
+| GitHub Actions run #527 | [Android checks](https://github.com/choko510/DiPlay/actions/runs/40531665594) on product-source head `c8a1ab0`; `changes`, `check`, `host-baseline`, `android-instrumentation`, and Draft scope succeeded | PASS |
+| Test-only follow-up run #533 | USB background-owner adoption and MAIN/ALT release-failure isolation tests at `344181eb`; Draft unit/quick-baseline passed, with 32 tests and 0 failures/errors/skips in artifact 12789926418. Android instrumentation and host-baseline were skipped because product source did not change. | PASS |
 | TS10/K706 + supported iPhone acceptance | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-01–HW-10/HW-12/HW-13 | BLOCKED_DEVICE |
 | Release-signed update and installed rollback | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-11 | BLOCKED_ENV |
 | Independent review | Kept `NOT_RUN` per prior user direction | NOT_RUN |

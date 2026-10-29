@@ -940,12 +940,84 @@ class AndroidMediaSinkStateTest {
         sink.microphoneUplinkFactoryForTest = { _, _ -> uplink }
         sink.claimAudioOwner(token)
 
-        assertTrue(sink.onMicrophoneStarted(token, microphoneConfig()))
-        assertFalse(sink.closeAndAwaitResources(timeoutMillis = 50))
-        assertTrue(uplink.closed)
+        try {
+            assertTrue(sink.onMicrophoneStarted(token, microphoneConfig()))
+            sink.onMicrophoneStopped(token)
+            assertFalse(sink.closeAndAwaitResources(timeoutMillis = 0))
+            assertTrue(uplink.closed)
 
-        uplink.stopped = true
-        assertTrue(sink.closeAndAwaitResources(timeoutMillis = 500))
+            uplink.stopped = true
+            assertTrue(sink.closeAndAwaitResources(timeoutMillis = 500))
+        } finally {
+            uplink.stopped = true
+            sink.close()
+        }
+    }
+
+    @Test fun sinkTeardownTracksAudioRendererAfterNormalStreamStop() {
+        val sink = AndroidMediaSink()
+        val token = AudioOwnerToken(100, 1)
+        val entered = CountDownLatch(1)
+        val releaseWorker = CountDownLatch(1)
+        sink.audioRendererThreadFactoryForTest = { _, name ->
+            Thread({
+                entered.countDown()
+                while (releaseWorker.count > 0L) {
+                    try {
+                        releaseWorker.await()
+                    } catch (_: InterruptedException) {
+                        // Keep the fixture blocked until its explicit release.
+                    }
+                }
+            }, name)
+        }
+        sink.claimAudioOwner(token)
+
+        try {
+            sink.onAudioStarted(token, AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 100, "media"), 0)
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            sink.onAudioStopped(token)
+
+            assertFalse(sink.closeAndAwaitResources(timeoutMillis = 0))
+            releaseWorker.countDown()
+            assertTrue(sink.closeAndAwaitResources(timeoutMillis = 1_000))
+        } finally {
+            releaseWorker.countDown()
+            sink.close()
+        }
+    }
+
+    @Test fun formatReplacementRetainsThePreviousAudioRendererUntilItStops() {
+        val sink = AndroidMediaSink()
+        val token = AudioOwnerToken(100, 1)
+        val entered = CountDownLatch(2)
+        val releaseWorkers = CountDownLatch(1)
+        sink.audioRendererThreadFactoryForTest = { _, name ->
+            Thread({
+                entered.countDown()
+                while (releaseWorkers.count > 0L) {
+                    try {
+                        releaseWorkers.await()
+                    } catch (_: InterruptedException) {
+                        // Keep the fixture blocked until its explicit release.
+                    }
+                }
+            }, name)
+        }
+        sink.claimAudioOwner(token)
+
+        try {
+            sink.onAudioStarted(token, AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 100, "media"), 0)
+            sink.onAudioStarted(token, AudioFormat(AudioCodecKind.LPCM, 44_100, 2, 100, "media"), 0)
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+
+            assertFalse(sink.closeAndAwaitResources(timeoutMillis = 0))
+            releaseWorkers.countDown()
+            assertTrue(sink.closeAndAwaitResources(timeoutMillis = 1_000))
+        } finally {
+            releaseWorkers.countDown()
+            sink.close()
+        }
     }
 
     private fun microphoneConfig() = MicrophoneConfig(

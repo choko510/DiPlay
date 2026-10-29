@@ -93,6 +93,60 @@ class CarPlayHostActivityReconnectTest {
     }
 
     @Test
+    fun retainedTeardownRecoveryClearsTheBarrierAfterResourcesBecomeAvailable() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val controller = allocateControllerPlaceholder()
+        val sink = AndroidMediaSink()
+        field(controller, "closed").setBoolean(controller, true)
+        val attempts = AtomicInteger()
+        val callbackResults = CopyOnWriteArrayList<CarPlayHostShutdownResult>()
+        val completed = CountDownLatch(1)
+        try {
+            field(activity, "controller").set(activity, controller)
+            field(activity, "sink").set(activity, sink)
+            CarPlayBackgroundSession.store(controller, sink, 800, 480, activity) { done -> done() }
+            activity.awaitControllerClosedForTest = { _, _ -> attempts.incrementAndGet() > 3 }
+            dispatchShutdown(activity) { result ->
+                callbackResults += result
+                if (result == CarPlayHostShutdownResult.CLOSED) completed.countDown()
+            }
+
+            val recoveryDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!CarPlayBackgroundSession.hasPendingTeardownRecovery() && System.nanoTime() < recoveryDeadline) {
+                Thread.sleep(5)
+            }
+            assertTrue(CarPlayBackgroundSession.hasPendingTeardown())
+            assertTrue(CarPlayBackgroundSession.hasPendingTeardownRecovery())
+
+            activity.javaClass.getDeclaredMethod("retryPendingTeardownRecovery").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+            val completionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (completed.count > 0L && System.nanoTime() < completionDeadline) {
+                shadowOf(Looper.getMainLooper()).idle()
+                Thread.sleep(5)
+            }
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertEquals(0L, completed.count)
+            assertEquals(4, attempts.get())
+            assertFalse(CarPlayBackgroundSession.hasPendingTeardown())
+            assertFalse(CarPlayBackgroundSession.hasPendingTeardownRecovery())
+            assertTrue(callbackResults.contains(CarPlayHostShutdownResult.TIMED_OUT))
+            assertTrue(callbackResults.contains(CarPlayHostShutdownResult.CLOSED))
+        } finally {
+            activity.awaitControllerClosedForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
     fun shutdownTimeoutKeepsTheTeardownBarrierUntilTheControllerCloses() {
         CarPlayBackgroundSession.clear()
         val bootstrapReady = field(DiPlayBootstrap, "ready")

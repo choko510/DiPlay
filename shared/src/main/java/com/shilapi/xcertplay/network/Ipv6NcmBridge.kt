@@ -18,6 +18,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.LockSupport
 
 /**
@@ -53,10 +54,10 @@ class Ipv6NcmBridge(
     private var peerMac: ByteArray? = null
     private val running = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
-    private var ncmClosed = false
-    private var tunClosed = false
-    private var ncmToTunThread: Thread? = null
-    private var tunToNcmThread: Thread? = null
+    @Volatile private var ncmClosed = false
+    @Volatile private var tunClosed = false
+    @Volatile private var ncmToTunThread: Thread? = null
+    @Volatile private var tunToNcmThread: Thread? = null
 
     @Synchronized
     fun start() {
@@ -99,12 +100,21 @@ class Ipv6NcmBridge(
                 if (closeFailure == null) closeFailure = error else closeFailure.addSuppressed(error)
             }
         }
-        ncmToTunThread?.let(::join)
-        tunToNcmThread?.let(::join)
-        ncmToTunThread = null
-        tunToNcmThread = null
+        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(CLOSE_JOIN_TIMEOUT_MILLIS)
+        val incomingStopped = join(ncmToTunThread, remainingMillis(deadlineNs))
+        val outgoingStopped = join(tunToNcmThread, remainingMillis(deadlineNs))
+        if (!incomingStopped) ncmToTunThread?.interrupt()
+        if (!outgoingStopped) tunToNcmThread?.interrupt()
         peerMac = null
         closeFailure?.let { throw it }
+    }
+
+    fun awaitStopped(timeoutMillis: Long): Boolean {
+        if (!closed.get() || !ncmClosed || !tunClosed) return false
+        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis.coerceAtLeast(0L))
+        val incomingStopped = join(ncmToTunThread, remainingMillis(deadlineNs))
+        val outgoingStopped = join(tunToNcmThread, remainingMillis(deadlineNs))
+        return incomingStopped && outgoingStopped && ncmClosed && tunClosed
     }
 
     internal val isClosedForTest: Boolean
@@ -112,6 +122,13 @@ class Ipv6NcmBridge(
 
     internal val isRunningForTest: Boolean
         get() = running.get()
+
+    val isFullyClosed: Boolean
+        get() = isStoppedForTest
+
+    internal val isStoppedForTest: Boolean
+        get() = closed.get() && ncmClosed && tunClosed &&
+            ncmToTunThread?.isAlive != true && tunToNcmThread?.isAlive != true
 
     private fun runNcmToTun() {
         val output = tunOutputStreamForTest ?: FileOutputStream(tun.fileDescriptor)
@@ -265,14 +282,22 @@ class Ipv6NcmBridge(
         }
     }
 
-    private fun join(thread: Thread) {
-        if (thread === Thread.currentThread()) return
+    private fun join(thread: Thread?, timeoutMillis: Long): Boolean {
+        if (thread == null) return true
+        if (thread === Thread.currentThread()) return false
+        if (!thread.isAlive || timeoutMillis <= 0L) return !thread.isAlive
         try {
-            thread.join(JOIN_TIMEOUT_MILLIS)
+            thread.join(timeoutMillis)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
+            return false
         }
-        if (thread.isAlive) thread.interrupt()
+        return !thread.isAlive
+    }
+
+    private fun remainingMillis(deadlineNs: Long): Long {
+        val remainingNs = deadlineNs - System.nanoTime()
+        return if (remainingNs <= 0L) 0L else (remainingNs - 1L) / NANOS_PER_MILLISECOND + 1L
     }
 
     private fun recordPacketClassification(classification: WiredPacketClassification) {
@@ -290,6 +315,6 @@ class Ipv6NcmBridge(
         const val TUN_READ_BYTES = 4_096
         const val ZERO_READ_BACKOFF_NANOS = 1_000_000L
         const val NANOS_PER_MILLISECOND = 1_000_000L
-        const val JOIN_TIMEOUT_MILLIS = 2_000L
+        const val CLOSE_JOIN_TIMEOUT_MILLIS = 2_000L
     }
 }

@@ -3,6 +3,7 @@ package com.shilapi.xcertplay.transport
 import android.hardware.usb.UsbDeviceConnection
 import android.hardware.usb.UsbEndpoint
 import android.os.ParcelFileDescriptor
+import com.shilapi.xcertplay.network.CarPlayVpnService
 import com.shilapi.xcertplay.network.Ipv6NcmBridge
 import com.shilapi.xcertplay.step4.UsbRequestWaitFixture
 import java.io.ByteArrayOutputStream
@@ -17,6 +18,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.util.ReflectionHelpers
@@ -47,6 +49,98 @@ class Ipv6NcmBridgeWiredPathDiagnosticsTest {
         assertFalse(bridge.isRunningForTest)
         assertEquals(1, tunCloseCount)
         assertTrue(ReflectionHelpers.getField<Boolean>(ncm, "closed"))
+    }
+
+    @Test
+    fun closeRetainsWorkerReferencesUntilBothWorkersActuallyExit() {
+        val (ncm, _) = newBridge(newDiagnostics())
+        val tunFd = ParcelFileDescriptor.createPipe().also { it[1].close() }[0]
+        val releaseWorkers = java.util.concurrent.CountDownLatch(1)
+        val entered = java.util.concurrent.CountDownLatch(2)
+        fun blockedWorker(name: String) = Thread({
+            entered.countDown()
+            while (releaseWorkers.count > 0L) {
+                try {
+                    releaseWorkers.await()
+                } catch (_: InterruptedException) {
+                    // Keep the fixture alive until its explicit release.
+                }
+            }
+        }, name).apply { isDaemon = true }
+        val inputWorker = blockedWorker("ncm-input-fixture")
+        val outputWorker = blockedWorker("ncm-output-fixture")
+        val bridge = Ipv6NcmBridge(ncm, tunFd, HOST_MAC, onError = {}).apply {
+            closeTunForTest = { tunFd.close() }
+        }
+        ReflectionHelpers.setField(bridge, "ncmToTunThread", inputWorker)
+        ReflectionHelpers.setField(bridge, "tunToNcmThread", outputWorker)
+        inputWorker.start()
+        outputWorker.start()
+
+        try {
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            bridge.close()
+
+            assertFalse(bridge.awaitStopped(0L))
+            assertTrue(ReflectionHelpers.getField<Thread>(bridge, "ncmToTunThread") === inputWorker)
+            assertTrue(ReflectionHelpers.getField<Thread>(bridge, "tunToNcmThread") === outputWorker)
+            releaseWorkers.countDown()
+            assertTrue(bridge.awaitStopped(1_000L))
+            assertTrue(bridge.isFullyClosed)
+        } finally {
+            releaseWorkers.countDown()
+            inputWorker.join(1_000L)
+            outputWorker.join(1_000L)
+            bridge.close()
+        }
+    }
+
+    @Test
+    fun vpnServiceRetainsBridgeAndDescriptorUntilWorkersExit() {
+        val (ncm, _) = newBridge(newDiagnostics())
+        val tunFd = ParcelFileDescriptor.createPipe().also { it[1].close() }[0]
+        val releaseWorker = java.util.concurrent.CountDownLatch(1)
+        val entered = java.util.concurrent.CountDownLatch(2)
+        fun blockedWorker(name: String) = Thread({
+            entered.countDown()
+            while (releaseWorker.count > 0L) {
+                try {
+                    releaseWorker.await()
+                } catch (_: InterruptedException) {
+                    // Keep the fixture blocked until its explicit release.
+                }
+            }
+        }, name).apply { isDaemon = true }
+        val incoming = blockedWorker("vpn-ncm-input-fixture")
+        val outgoing = blockedWorker("vpn-ncm-output-fixture")
+        val bridge = Ipv6NcmBridge(ncm, tunFd, HOST_MAC, onError = {}).apply {
+            closeTunForTest = { tunFd.close() }
+        }
+        ReflectionHelpers.setField(bridge, "ncmToTunThread", incoming)
+        ReflectionHelpers.setField(bridge, "tunToNcmThread", outgoing)
+        incoming.start()
+        outgoing.start()
+        val service = Robolectric.buildService(CarPlayVpnService::class.java).create().get()
+        ReflectionHelpers.setField(service, "bridge", bridge)
+        ReflectionHelpers.setField(service, "tun", tunFd)
+        ReflectionHelpers.getField<java.util.concurrent.atomic.AtomicBoolean>(service, "active").set(true)
+
+        try {
+            assertTrue(entered.await(1, TimeUnit.SECONDS))
+            assertFalse(service.detachAndAwait(0L))
+            assertTrue(ReflectionHelpers.getField<Ipv6NcmBridge>(service, "bridge") === bridge)
+            assertTrue(ReflectionHelpers.getField<ParcelFileDescriptor>(service, "tun") === tunFd)
+
+            releaseWorker.countDown()
+            assertTrue(service.detachAndAwait(1_000L))
+            assertEquals(null, ReflectionHelpers.getField<Any?>(service, "bridge"))
+            assertEquals(null, ReflectionHelpers.getField<Any?>(service, "tun"))
+        } finally {
+            releaseWorker.countDown()
+            incoming.join(1_000L)
+            outgoing.join(1_000L)
+            service.onDestroy()
+        }
     }
 
     @Test

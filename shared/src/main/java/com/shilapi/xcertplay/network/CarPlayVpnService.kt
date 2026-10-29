@@ -151,6 +151,9 @@ class CarPlayVpnService : VpnService() {
             Log.i(TAG, "replacing stale NCM/VPN attachment")
             releaseLocked()
         }
+        if ((bridge != null || tun != null) && !detachAndAwait(0L)) {
+            return AttachResult.Failed("Previous NCM/VPN bridge teardown is still pending")
+        }
         active.set(true)
         val generation = ++attachGeneration
         wiredPathDiagnostics?.recordAttachGeneration(generation.toLong())
@@ -231,6 +234,9 @@ class CarPlayVpnService : VpnService() {
             Log.i(TAG, "replacing stale local-only Wi-Fi attachment")
             releaseLocked()
         }
+        if ((bridge != null || tun != null) && !detachAndAwait(0L)) {
+            return AttachResult.Failed("Previous NCM/VPN bridge teardown is still pending")
+        }
         active.set(true)
         val generation = ++attachGeneration
         return try {
@@ -260,6 +266,21 @@ class CarPlayVpnService : VpnService() {
     @Synchronized
     fun detach() {
         releaseLocked()
+    }
+
+    @Synchronized
+    fun detachAndAwait(timeoutMillis: Long): Boolean {
+        require(timeoutMillis >= 0L) { "timeoutMillis must not be negative" }
+        releaseLocked()
+        val currentBridge = bridge
+        if (currentBridge != null) {
+            if (!currentBridge.awaitStopped(timeoutMillis)) return false
+            if (bridge === currentBridge) {
+                bridge = null
+                tun = null
+            }
+        }
+        return !active.get() && attachment == null && bridge == null && tun == null
     }
 
     fun isAttached(): Boolean = active.get() && attachment != null
@@ -480,16 +501,24 @@ class CarPlayVpnService : VpnService() {
         }
         serverSocket = null
         closeSessionsLocked()
-        bridge?.let { activeBridge ->
+        val activeBridge = bridge
+        activeBridge?.let {
             runCatching { activeBridge.close() }
                 .onFailure { Log.w(TAG, "NCM/VPN bridge teardown failed", it) }
         }
-        bridge = null
-        tun?.let { activeTun ->
-            runCatching { activeTun.close() }
-                .onFailure { Log.w(TAG, "VPN descriptor teardown failed", it) }
+        if (activeBridge?.isFullyClosed == true) {
+            if (bridge === activeBridge) bridge = null
+            tun = null
+        } else if (activeBridge == null) {
+            tun?.let { activeTun ->
+                try {
+                    activeTun.close()
+                    tun = null
+                } catch (error: Exception) {
+                    Log.w(TAG, "VPN descriptor teardown failed", error)
+                }
+            }
         }
-        tun = null
     }
 
     companion object {

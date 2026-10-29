@@ -83,6 +83,8 @@ class AudioRendererLifecycleTest {
             assertTrue(workerEntered.await(1, TimeUnit.SECONDS))
             lifecycle.close(worker)
 
+            assertFalse(lifecycle.awaitStopped(worker, 0L))
+            assertFalse(lifecycle.awaitStopped(worker, -1L))
             assertFalse(lifecycle.awaitStopped(worker, 10))
             releaseWorker.countDown()
             assertTrue(lifecycle.awaitStopped(worker, 1_000))

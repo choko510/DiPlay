@@ -67,10 +67,12 @@ internal class AudioRendererLifecycle(
     fun awaitStopped(worker: Thread, timeoutMillis: Long): Boolean {
         if (worker === Thread.currentThread()) return false
         if (worker.state == Thread.State.NEW) return true
+        if (timeoutMillis <= 0L) return !worker.isAlive
         try {
-            worker.join(timeoutMillis.coerceAtLeast(0L))
+            worker.join(timeoutMillis)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
+            return false
         }
         return !worker.isAlive
     }

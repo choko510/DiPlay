@@ -266,6 +266,9 @@ class CarPlayController(
     private val wirelessConnectionProof = WirelessConnectionProof<AirPlaySession>()
     private val wirelessTeardownDispatcher = WirelessTeardownDispatcher()
     private val wiredStartupWatchdog = WiredStartupWatchdog()
+    private val pendingVpnTeardown = AtomicReference<CarPlayVpnService?>()
+    private val teardownOtherResourcesComplete = AtomicBoolean(false)
+    private val teardownCompletionLock = Any()
     private val wiredStartupStartedAtNanos = AtomicLong(0L)
     private val wiredDataPathGeneration = WiredDataPathGeneration()
     private val wiredStartupAttempt = AtomicInteger(0)
@@ -483,7 +486,8 @@ class CarPlayController(
                     } catch (_: InterruptedException) {
                         Thread.currentThread().interrupt()
                     }
-                    teardownComplete.countDown()
+                    teardownOtherResourcesComplete.set(true)
+                    completeTeardownIfReady()
                 }
             },
             "xcertplay-controller-teardown",
@@ -501,6 +505,29 @@ class CarPlayController(
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             false
+        }
+    }
+
+    fun retryPendingTeardown(timeoutMillis: Long): Boolean {
+        val service = pendingVpnTeardown.get() ?: return teardownComplete.count == 0L
+        val detached = try {
+            service.detachAndAwait(timeoutMillis)
+        } catch (error: RuntimeException) {
+            debugLog("pending VPN/NCM teardown retry failed", error)
+            false
+        }
+        if (detached) {
+            pendingVpnTeardown.compareAndSet(service, null)
+            completeTeardownIfReady()
+        }
+        return detached && (!closed || teardownComplete.count == 0L)
+    }
+
+    private fun completeTeardownIfReady() {
+        synchronized(teardownCompletionLock) {
+            if (teardownOtherResourcesComplete.get() && pendingVpnTeardown.get() == null) {
+                teardownComplete.countDown()
+            }
         }
     }
 
@@ -1677,6 +1704,10 @@ class CarPlayController(
     }
 
     private fun startIphone() {
+        if (pendingVpnTeardown.get() != null && !retryPendingTeardown(WIRED_TEARDOWN_RETRY_MILLIS)) {
+            onStatus(CarPlayStatus.Failed("Previous NCM/VPN bridge teardown is still pending"))
+            return
+        }
         wiredRetryScheduleGeneration.incrementAndGet()
         wiredDataPathGeneration.invalidate()
         wiredRecoveryPending.set(false)
@@ -2574,7 +2605,11 @@ class CarPlayController(
         }
         try {
             tunnelExecutor.execute {
-                teardownWiredTransport()
+                if (!teardownWiredTransport()) {
+                    wiredReconnectRequested.set(false)
+                    onStatus(CarPlayStatus.Failed("Previous NCM/VPN bridge teardown is still pending"))
+                    return@execute
+                }
                 if (closed) {
                     wiredReconnectRequested.set(false)
                     return@execute
@@ -2598,9 +2633,9 @@ class CarPlayController(
     private fun teardownWiredTransport(
         service: CarPlayVpnService? = vpnService,
         expectedAttempt: Int? = null,
-    ) {
-        if (config.transport != CarPlayTransport.WIRED) return
-        synchronized(wiredResourceCloseLock) closeLock@{
+    ): Boolean {
+        if (config.transport != CarPlayTransport.WIRED) return true
+        return synchronized(wiredResourceCloseLock) closeLock@{
             val resources = synchronized(wiredTeardownLock) stateLock@{
                 val attempt = activeWiredStartupAttempt.get()
                 if (expectedAttempt != null && attempt != expectedAttempt) return@stateLock null
@@ -2614,15 +2649,29 @@ class CarPlayController(
                     mux = null
                     wiredUsbSession = null
                 }
-            } ?: return@closeLock
+            } ?: return@closeLock true
             resources.csm?.let { activeCsm -> closeBestEffort("wired CSM") { activeCsm.close() } }
             resources.mux?.let { activeMux -> closeBestEffort("wired USBMUX") { activeMux.close() } }
             resources.usbSession?.let { activeUsbSession ->
                 closeBestEffort("wired USB session") { activeUsbSession.close() }
             }
-            resources.vpnService?.let { activeService ->
-                closeBestEffort("wired VPN/NCM") { activeService.detach() }
+            val activeService = resources.vpnService ?: pendingVpnTeardown.get()
+            val detached = if (activeService == null) {
+                true
+            } else {
+                try {
+                    activeService.detachAndAwait(WIRED_SERVICE_TEARDOWN_TIMEOUT_MILLIS)
+                } catch (error: RuntimeException) {
+                    debugLog("wired VPN/NCM teardown failed", error)
+                    false
+                }
             }
+            if (activeService != null) {
+                if (detached) pendingVpnTeardown.compareAndSet(activeService, null)
+                else pendingVpnTeardown.set(activeService)
+            }
+            if (detached) completeTeardownIfReady()
+            detached
         }
     }
 
@@ -3535,6 +3584,8 @@ class CarPlayController(
         private const val RFCOMM_CONNECT_TIMEOUT_MILLIS = 15_000L
         private const val MAXIMUM_REENUMERATION_ATTEMPTS = 2
         private const val EXECUTOR_CLOSE_TIMEOUT_MILLIS = 2_000L
+        private const val WIRED_SERVICE_TEARDOWN_TIMEOUT_MILLIS = 2_000L
+        private const val WIRED_TEARDOWN_RETRY_MILLIS = 1_000L
         private const val ADAPTER_ADDRESS_PLACEHOLDER = "02:00:00:00:00:00"
         private val BLUETOOTH_ADDRESS = Regex("^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
     }

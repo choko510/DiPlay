@@ -1360,6 +1360,10 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         wirelessPermissionsReady = !wirelessEnabled || hasRequiredWirelessPermissions()
         showMissingWirelessPermission()
+        if (CarPlayBackgroundSession.hasPendingTeardown()) {
+            showPendingTeardownRetry()
+            retryPendingTeardownRecovery()
+        }
         maybeStartCarPlay()
         applyFullscreenMode()
         reconcileImeResizeState()
@@ -4888,7 +4892,10 @@ class CarPlayHostActivity : ComponentActivity() {
     )
 
     private fun startCarPlay(size: DisplaySize) {
-        if (CarPlayBackgroundSession.hasPendingTeardown()) return
+        if (CarPlayBackgroundSession.hasPendingTeardown()) {
+            showPendingTeardownRetry()
+            return
+        }
         if (CarPlayBackgroundSession.hasSession() && !CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || isFinishing || isDestroyed || menuOpen || handshakeResetInProgress || controller != null) return
         cancelPendingReconnectAfterLoss()
@@ -5272,7 +5279,10 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun maybeStartCarPlay() {
         if (shuttingDown.get() || isFinishing || isDestroyed) return
         if (backgroundTransportHandoffPending) return
-        if (CarPlayBackgroundSession.hasPendingTeardown()) return
+        if (CarPlayBackgroundSession.hasPendingTeardown()) {
+            showPendingTeardownRetry()
+            return
+        }
         if (CarPlayBackgroundSession.isRestartSuppressed()) return
         if (CarPlayBackgroundSession.hasPendingRestart()) {
             if (restartHandoffToken != null) return
@@ -5408,6 +5418,15 @@ class CarPlayHostActivity : ComponentActivity() {
             val clean = oldController?.let(::awaitControllerClosedForShutdown) ?: true
             if (!clean || !closeSinkForShutdown(oldSink)) {
                 Log.e(TAG, "Controller restart cancelled because shutdown is still pending")
+                CarPlayBackgroundSession.retainTeardownRecovery(
+                    CarPlayBackgroundSession.TeardownRecovery(
+                        token = teardownToken,
+                        controller = oldController,
+                        sink = oldSink,
+                        restartToken = restartToken,
+                        restartSize = size,
+                    ),
+                )
                 reportTeardownBlocked("CarPlay restart is blocked until the previous Controller and media resources stop")
                 if (shutdownTerminatesProcess.get()) Process.killProcess(Process.myPid())
                 return@execute
@@ -5568,6 +5587,14 @@ class CarPlayHostActivity : ComponentActivity() {
                     teardownExecutor.shutdown()
                     Process.killProcess(Process.myPid())
                 } else {
+                    CarPlayBackgroundSession.retainTeardownRecovery(
+                        CarPlayBackgroundSession.TeardownRecovery(
+                            token = teardownToken,
+                            controller = oldController,
+                            sink = oldSink,
+                            shutdown = true,
+                        ),
+                    )
                     reportTeardownBlocked("Controller teardown is still pending; the existing session barrier remains active")
                 }
                 return@execute
@@ -5579,6 +5606,14 @@ class CarPlayHostActivity : ComponentActivity() {
                     teardownExecutor.shutdown()
                     Process.killProcess(Process.myPid())
                 } else {
+                    CarPlayBackgroundSession.retainTeardownRecovery(
+                        CarPlayBackgroundSession.TeardownRecovery(
+                            token = teardownToken,
+                            controller = oldController,
+                            sink = oldSink,
+                            shutdown = true,
+                        ),
+                    )
                     reportTeardownBlocked("Media resources are still stopping; the existing session barrier remains active")
                 }
                 return@execute
@@ -5605,8 +5640,7 @@ class CarPlayHostActivity : ComponentActivity() {
         var notified = false
         repeat(MAX_TEARDOWN_ATTEMPTS) { attempt ->
             val closed = try {
-                awaitControllerClosedForTest?.invoke(controller, CONTROLLER_CLOSE_TIMEOUT_MILLIS)
-                    ?: controller.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS)
+                awaitControllerClosedOnce(controller, CONTROLLER_CLOSE_TIMEOUT_MILLIS)
             } catch (error: RuntimeException) {
                 if (!notified) {
                     Log.e(TAG, "Controller close wait failed; retaining teardown barrier " +
@@ -5630,6 +5664,9 @@ class CarPlayHostActivity : ComponentActivity() {
         Log.e(TAG, "Controller teardown did not finish after $MAX_TEARDOWN_ATTEMPTS attempts")
         return false
     }
+
+    private fun awaitControllerClosedOnce(controller: CarPlayController, timeoutMillis: Long): Boolean =
+        awaitControllerClosedForTest?.invoke(controller, timeoutMillis) ?: controller.awaitClosed(timeoutMillis)
 
     private fun requestControllerCloseForShutdown(controller: CarPlayController) {
         var notified = false
@@ -5685,8 +5722,92 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun reportTeardownBlocked(message: String) {
         mainHandler.post {
             if (isDestroyed) return@post
-            appendLog(message)
-            setConnectionStage(message)
+            val retryMessage = "$message. Tap this status to retry teardown."
+            appendLog(retryMessage)
+            setConnectionStage(retryMessage)
+            setTeardownRetryClickListener()
+        }
+    }
+
+    private fun showPendingTeardownRetry() {
+        if (stageStatusView?.text?.contains("Tap this status to retry teardown.") == true) return
+        setConnectionStage("Previous CarPlay teardown is pending. Tap this status to retry teardown.")
+        setTeardownRetryClickListener()
+    }
+
+    private fun setTeardownRetryClickListener() {
+        stageStatusView?.apply {
+            isClickable = true
+            setOnClickListener { retryPendingTeardownRecovery() }
+        }
+    }
+
+    private fun retryPendingTeardownRecovery() {
+        val recovery = CarPlayBackgroundSession.claimPendingTeardownRecovery() ?: return
+        try {
+            teardownExecutor.execute {
+                val controllerClean = recovery.controller?.let { oldController ->
+                    if (awaitControllerClosedOnce(oldController, 0L)) {
+                        true
+                    } else {
+                        requestControllerCloseForShutdown(oldController)
+                        oldController.retryPendingTeardown(CONTROLLER_CLOSE_TIMEOUT_MILLIS)
+                        awaitControllerClosedOnce(oldController, 0L) || awaitControllerClosedForShutdown(oldController)
+                    }
+                } ?: true
+                val sinkClean = controllerClean && closeSinkForShutdown(recovery.sink)
+                if (!controllerClean || !sinkClean) {
+                    CarPlayBackgroundSession.releaseTeardownRecovery(recovery.token)
+                    reportTeardownBlocked("Previous CarPlay resources are still stopping")
+                    return@execute
+                }
+                if (recovery.shutdown) {
+                    runCatching { applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java)) }
+                    runCatching { applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java)) }
+                    airPlayCommandExecutor.shutdown()
+                    teardownExecutor.shutdown()
+                }
+                mainHandler.post {
+                    val completed = CarPlayBackgroundSession.completeTeardownRecovery(recovery.token) ?: return@post
+                    stageStatusView?.apply {
+                        isClickable = false
+                        setOnClickListener(null)
+                    }
+                    if (completed.shutdown) {
+                        completeShutdownCallbacks(CarPlayHostShutdownResult.CLOSED)
+                        if (shutdownTerminatesProcess.get()) {
+                            Process.killProcess(Process.myPid())
+                        } else {
+                            IphoneUsbAutoLaunchDispatcher.resumeDeferred(applicationContext)
+                        }
+                    } else if (completed.restartToken != null) {
+                        onRestartTeardownRecovered(completed)
+                    } else {
+                        maybeStartCarPlay()
+                    }
+                }
+            }
+        } catch (_: RuntimeException) {
+            CarPlayBackgroundSession.releaseTeardownRecovery(recovery.token)
+            reportTeardownBlocked("Teardown retry could not be scheduled")
+        }
+    }
+
+    private fun onRestartTeardownRecovered(recovery: CarPlayBackgroundSession.TeardownRecovery) {
+        val restartToken = recovery.restartToken ?: return
+        if (restartHandoffToken != restartToken || shuttingDown.get() || isFinishing || isDestroyed) {
+            maybeStartCarPlay()
+            return
+        }
+        val fallback = recovery.restartSize ?: activeDisplaySize ?: return
+        SplitPerformanceTracer.endAsync("diplay.split.carplay_teardown", carPlayTeardownTraceCookie)
+        carPlayTeardownTraceCookie = null
+        val latestSize = displayResizeCoordinator.latestDesiredSize(fallback)
+        restartFallbackSize = latestSize
+        restartReadyToStart = true
+        if (pendingDisplaySize == null) {
+            mainHandler.removeCallbacks(finishRestartAfterResize)
+            mainHandler.postDelayed(finishRestartAfterResize, DISPLAY_CHANGE_DEBOUNCE_MILLIS)
         }
     }
 
@@ -6133,6 +6254,15 @@ internal fun mainScreenStreamIsActive(activeScreenStreamTypes: Set<Int>, mainScr
 
 /** Process-local hand-off for keeping the CarPlay session alive while no Activity is visible. */
 internal object CarPlayBackgroundSession {
+    data class TeardownRecovery(
+        val token: Long,
+        val controller: CarPlayController?,
+        val sink: AndroidMediaSink?,
+        val restartToken: Long? = null,
+        val restartSize: DisplaySize? = null,
+        val shutdown: Boolean = false,
+    )
+
     @Volatile var active = false
     private var stopAction: (((() -> Unit)) -> Unit)? = null
     private var stopActionOwner: Any? = null
@@ -6144,6 +6274,8 @@ internal object CarPlayBackgroundSession {
     private val restartHandoff = CarPlayRestartHandoff()
     private var nextTeardownToken = 0L
     private val pendingTeardowns = mutableSetOf<Long>()
+    private val teardownRecoveries = linkedMapOf<Long, TeardownRecovery>()
+    private val activeTeardownRecoveries = mutableSetOf<Long>()
     @Synchronized fun isOwner(candidate: Any): Boolean = owner === candidate
     @Synchronized fun ownerEpoch(): Long = ownershipEpoch
     @Synchronized fun hasPendingTeardown(): Boolean = pendingTeardowns.isNotEmpty()
@@ -6243,6 +6375,37 @@ internal object CarPlayBackgroundSession {
     }
 
     @Synchronized
+    fun retainTeardownRecovery(recovery: TeardownRecovery) {
+        if (recovery.token in pendingTeardowns) teardownRecoveries[recovery.token] = recovery
+    }
+
+    @Synchronized
+    fun hasPendingTeardownRecovery(): Boolean = teardownRecoveries.isNotEmpty()
+
+    @Synchronized
+    fun claimPendingTeardownRecovery(): TeardownRecovery? =
+        teardownRecoveries.values.firstOrNull { it.token !in activeTeardownRecoveries }?.also {
+            activeTeardownRecoveries += it.token
+        }
+
+    @Synchronized
+    fun releaseTeardownRecovery(token: Long) {
+        activeTeardownRecoveries.remove(token)
+    }
+
+    fun completeTeardownRecovery(token: Long): TeardownRecovery? {
+        val recovery = synchronized(this) {
+            activeTeardownRecoveries.remove(token)
+            teardownRecoveries.remove(token)
+        } ?: return null
+        recovery.restartToken?.let { restartToken ->
+            recovery.restartSize?.let { size -> completePendingRestartTeardown(restartToken, size) }
+        }
+        completeTeardown(token)
+        return recovery
+    }
+
+    @Synchronized
     fun snapshot(): Snapshot? {
         val currentController = controller ?: return null
         val currentSink = sink ?: return null
@@ -6331,7 +6494,11 @@ internal object CarPlayBackgroundSession {
     @Synchronized
     fun clear(expected: CarPlayController? = null, keepOwner: Boolean = false) {
         if (expected != null && controller !== expected) return
-        if (expected == null) pendingTeardowns.clear()
+        if (expected == null) {
+            pendingTeardowns.clear()
+            teardownRecoveries.clear()
+            activeTeardownRecoveries.clear()
+        }
         clearCurrentSession(keepOwner)
     }
 

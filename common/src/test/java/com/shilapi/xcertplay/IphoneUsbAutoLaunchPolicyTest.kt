@@ -67,6 +67,40 @@ class IphoneUsbAutoLaunchPolicyTest {
     }
 
     @Test
+    fun attachEntryDefersOnlyTransientInventoryFailureForAnAppleDevice() {
+        assertEquals(
+            IphoneUsbAutoAttachEntryDecision.Retry(iphone),
+            evaluateIphoneUsbAutoAttachEntry(
+                action = UsbManager.ACTION_USB_DEVICE_ATTACHED,
+                enabled = true,
+                eventDevice = iphone,
+                inventoryAvailable = false,
+                attachedDevices = emptyList(),
+            ),
+        )
+        assertEquals(
+            IphoneUsbAutoAttachEntryDecision.Reject(IphoneUsbAutoAttachRejection.STALE_DEVICE),
+            evaluateIphoneUsbAutoAttachEntry(
+                action = UsbManager.ACTION_USB_DEVICE_ATTACHED,
+                enabled = true,
+                eventDevice = iphone,
+                inventoryAvailable = true,
+                attachedDevices = emptyList(),
+            ),
+        )
+        assertEquals(
+            IphoneUsbAutoAttachEntryDecision.Reject(IphoneUsbAutoAttachRejection.NOT_APPLE),
+            evaluateIphoneUsbAutoAttachEntry(
+                action = UsbManager.ACTION_USB_DEVICE_ATTACHED,
+                enabled = true,
+                eventDevice = iphone.copy(vendorId = 0x1a86),
+                inventoryAvailable = false,
+                attachedDevices = emptyList(),
+            ),
+        )
+    }
+
+    @Test
     fun rejectsAppleVendorMatchesWithoutCarPlayConfigurationAndNonAppleDevices() {
         assertRejected(
             IphoneUsbAutoLaunchPolicy.evaluate(

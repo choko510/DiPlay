@@ -68,6 +68,7 @@ import java.util.concurrent.TimeUnit
 private const val VIDEO_RECOVERY_WORKER_COUNT = 2
 private const val VIDEO_RECOVERY_QUEUE_CAPACITY = 16
 private const val DEFAULT_CLOSE_WAIT_MILLIS = 750L
+private const val NANOS_PER_MILLISECOND = 1_000_000L
 
 internal fun interface AudioTrackWriteAdapterForTest {
     fun write(data: ByteArray, offset: Int, length: Int, writeMode: Int): Int
@@ -364,8 +365,10 @@ class AndroidMediaSink(
                 try {
                     if (existing.renderer.start()) return
                 } catch (error: Exception) {
-                    audioRenderers.remove(token.type, existing)
-                    retired.add(existing.renderer)
+                    if (audioRenderers.remove(token.type, existing)) {
+                        retainRetiringAudioRenderer(existing.renderer)
+                        retired.add(existing.renderer)
+                    }
                     Log.w(
                         "xcertplay-usb",
                         "Audio renderer restart failed type=${token.type} error=${error.javaClass.simpleName}",
@@ -377,12 +380,17 @@ class AndroidMediaSink(
             val renderer = createAudioRenderer(format)
             val entry = AudioRendererEntry(token, renderer)
             val previous = audioRenderers.put(token.type, entry)
+            previous?.let {
+                retainRetiringAudioRenderer(it.renderer)
+                retired.add(it.renderer)
+            }
             try {
                 check(renderer.start()) { "audio renderer closed before worker start" }
             } catch (error: Exception) {
-                audioRenderers.remove(token.type, entry)
+                if (audioRenderers.remove(token.type, entry)) {
+                    retainRetiringAudioRenderer(renderer)
+                }
                 retired.add(renderer)
-                previous?.let { retired.add(it.renderer) }
                 Log.w(
                     "xcertplay-usb",
                     "Audio renderer start failed type=${token.type} error=${error.javaClass.simpleName}",
@@ -391,12 +399,13 @@ class AndroidMediaSink(
                 return@synchronized
             }
             if (activeAudioOwners[token.type] != token) {
-                audioRenderers.remove(token.type, entry)
+                if (audioRenderers.remove(token.type, entry)) {
+                    retainRetiringAudioRenderer(renderer)
+                }
                 retired.add(renderer)
             }
-            previous?.let { retired.add(it.renderer) }
         }
-        retired.forEach(AudioRenderer::close)
+        retired.distinct().forEach(::closeRetiringAudioRenderer)
         startFailure?.let { throw it }
     }
 
@@ -418,14 +427,20 @@ class AndroidMediaSink(
         var microphone: MicrophoneUplinkController? = null
         synchronized(lock) {
             audioRenderers[token.type]?.takeIf { it.token == token }?.let { entry ->
-                if (audioRenderers.remove(token.type, entry)) renderer = entry.renderer
+                if (audioRenderers.remove(token.type, entry)) {
+                    retainRetiringAudioRenderer(entry.renderer)
+                    renderer = entry.renderer
+                }
             }
             microphoneUplinks[token.type]?.takeIf { it.token == token }?.let { entry ->
-                if (microphoneUplinks.remove(token.type, entry)) microphone = entry.uplink
+                if (microphoneUplinks.remove(token.type, entry)) {
+                    retainRetiringMicrophone(entry.uplink)
+                    microphone = entry.uplink
+                }
             }
         }
-        renderer?.close()
-        microphone?.close()
+        renderer?.let(::closeRetiringAudioRenderer)
+        microphone?.let(::closeRetiringMicrophone)
     }
 
     override fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean {
@@ -438,7 +453,10 @@ class AndroidMediaSink(
             val current = microphoneUplinks[token.type]
             if (current?.token == token) {
                 if (current.uplink.isActive) return true
-                if (microphoneUplinks.remove(token.type, current)) retired.add(current.uplink)
+                if (microphoneUplinks.remove(token.type, current)) {
+                    retainRetiringMicrophone(current.uplink)
+                    retired.add(current.uplink)
+                }
             }
             val isCurrentOwner = {
                 !closed.get() && activeAudioOwners[token.type] == token
@@ -446,12 +464,17 @@ class AndroidMediaSink(
             val uplink = microphoneUplinkFactoryForTest?.invoke(config, isCurrentOwner)
                 ?: MicrophoneUplink(config, isCurrentOwner)
             entry = MicrophoneEntry(token, uplink)
-            microphoneUplinks.put(token.type, entry)?.let { retired.add(it.uplink) }
+            microphoneUplinks.put(token.type, entry)?.let {
+                retainRetiringMicrophone(it.uplink)
+                retired.add(it.uplink)
+            }
         }
-        retired.forEach(MicrophoneUplinkController::close)
+        retired.distinct().forEach(::closeRetiringMicrophone)
         if (!entry.uplink.start()) {
-            synchronized(lock) { microphoneUplinks.remove(token.type, entry) }
-            entry.uplink.close()
+            synchronized(lock) {
+                if (microphoneUplinks.remove(token.type, entry)) retainRetiringMicrophone(entry.uplink)
+            }
+            closeRetiringMicrophone(entry.uplink)
             return false
         }
         val activated = synchronized(lock) {
@@ -459,11 +482,11 @@ class AndroidMediaSink(
                 entry.uplink.activate()
                 true
             } else {
-                microphoneUplinks.remove(token.type, entry)
+                if (microphoneUplinks.remove(token.type, entry)) retainRetiringMicrophone(entry.uplink)
                 false
             }
         }
-        if (!activated) entry.uplink.close()
+        if (!activated) closeRetiringMicrophone(entry.uplink)
         return activated
     }
 
@@ -473,14 +496,41 @@ class AndroidMediaSink(
         return entry.token == token && entry.uplink.isActive
     }
 
+    override fun isMicrophoneFailed(token: AudioOwnerToken): Boolean {
+        if (activeAudioOwners[token.type] != token) return false
+        val entry = microphoneUplinks[token.type] ?: return false
+        return entry.token == token && entry.uplink.hasFailed
+    }
+
     override fun onMicrophoneStopped(token: AudioOwnerToken) {
         val lock = audioTypeLock(token.type)
         val microphone = synchronized(lock) {
             microphoneUplinks[token.type]?.takeIf { it.token == token }?.let { entry ->
-                if (microphoneUplinks.remove(token.type, entry)) entry.uplink else null
+                if (microphoneUplinks.remove(token.type, entry)) {
+                    retainRetiringMicrophone(entry.uplink)
+                    entry.uplink
+                } else null
             }
         }
-        microphone?.close()
+        microphone?.let(::closeRetiringMicrophone)
+    }
+
+    private fun retainRetiringAudioRenderer(renderer: AudioRenderer) {
+        retiringAudioRenderers.add(renderer)
+    }
+
+    private fun retainRetiringMicrophone(microphone: MicrophoneUplinkController) {
+        retiringMicrophones.add(microphone)
+    }
+
+    private fun closeRetiringAudioRenderer(renderer: AudioRenderer) {
+        runCatching { renderer.close() }
+        if (renderer.awaitStopped(0L)) retiringAudioRenderers.remove(renderer)
+    }
+
+    private fun closeRetiringMicrophone(microphone: MicrophoneUplinkController) {
+        runCatching { microphone.close() }
+        if (microphone.awaitStopped(0L)) retiringMicrophones.remove(microphone)
     }
 
     fun close() {
@@ -552,12 +602,14 @@ class AndroidMediaSink(
             }
         }
         (videoDecoders.values + retiringVideoDecoders.values).distinct().forEach { decoder -> runCatching { decoder.close() } }
-        retiringAudioRenderers.toList().forEach { renderer -> runCatching { renderer.close() } }
-        retiringMicrophones.toList().forEach { microphone -> runCatching { microphone.close() } }
+        retiringAudioRenderers.toList().forEach(::closeRetiringAudioRenderer)
+        retiringMicrophones.toList().forEach(::closeRetiringMicrophone)
     }
 
-    private fun remainingMillis(deadlineNs: Long): Long =
-        TimeUnit.NANOSECONDS.toMillis((deadlineNs - System.nanoTime()).coerceAtLeast(0L))
+    private fun remainingMillis(deadlineNs: Long): Long {
+        val remainingNs = deadlineNs - System.nanoTime()
+        return if (remainingNs <= 0L) 0L else (remainingNs - 1L) / NANOS_PER_MILLISECOND + 1L
+    }
 
     private fun videoDecoder(type: Int): VideoDecoder? = videoDecoder(type, restorePendingConfig = true)
 

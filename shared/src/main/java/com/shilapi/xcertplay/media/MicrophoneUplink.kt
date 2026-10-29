@@ -24,6 +24,8 @@ internal interface MicrophoneUplinkController : Closeable {
 
     fun activate()
 
+    fun requestClose() = close()
+
     fun awaitStopped(timeoutMillis: Long): Boolean = true
 }
 
@@ -276,28 +278,9 @@ internal class MicrophoneUplink(
     }
 
     override fun close() {
-        val worker = synchronized(this) {
-            activation.countDown()
-            closed.set(true)
-            running.set(false)
-            val currentWorker = thread
-            if (currentWorker == null) {
-                release()
-            } else {
-                try {
-                    recorder?.stop()
-                } catch (_: Exception) {
-                    // Best effort; the capture worker releases its resources when it exits.
-                }
-                try {
-                    socket?.close()
-                } catch (_: Exception) {
-                    // Best effort.
-                }
-            }
-            currentWorker
-        }
-        if (worker !== null && worker !== Thread.currentThread()) {
+        requestClose()
+        val worker = thread
+        if (worker != null && worker !== Thread.currentThread()) {
             try {
                 worker.join(CLOSE_JOIN_MILLIS)
             } catch (_: InterruptedException) {
@@ -305,6 +288,29 @@ internal class MicrophoneUplink(
             }
             if (worker.isAlive) worker.interrupt()
             if (!worker.isAlive) release()
+        }
+    }
+
+    @Synchronized
+    override fun requestClose() {
+        activation.countDown()
+        closed.set(true)
+        running.set(false)
+        val currentWorker = thread
+        if (currentWorker == null) {
+            release()
+        } else {
+            try {
+                recorder?.stop()
+            } catch (_: Exception) {
+                // Best effort; the capture worker releases its resources when it exits.
+            }
+            try {
+                socket?.close()
+            } catch (_: Exception) {
+                // Best effort.
+            }
+            currentWorker.interrupt()
         }
     }
 

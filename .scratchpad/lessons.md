@@ -591,7 +591,3 @@ For async editor imports, compare the operation's captured draft revision before
 Treat `Thread.join(0)` as an infinite wait. Deadline APIs must return immediately for zero/negative budgets and round any positive remainder up so sub-millisecond time never becomes an unbounded join.
 
 Move workers into retirement tracking under the same owner lock that removes them from the active map. Keep teardown state process-local and make retries explicit after the short attempt budget; status and re-entry must not bypass the barrier.
-
-Treat `Thread.join(0)` as an infinite wait. Deadline APIs must return immediately for zero/negative budgets and round any positive remainder up so sub-millisecond time never becomes an unbounded join.
-
-Move workers into retirement tracking under the same owner lock that removes them from the active map. Keep teardown state process-local and make retries explicit after the short attempt budget; status and re-entry must not bypass the barrier.

@@ -46,18 +46,19 @@ internal class AudioRendererLifecycle(
         return started
     }
 
-    fun close(worker: Thread, beforeInterrupt: () -> Unit = {}) {
-        val shouldJoin = synchronized(lock) {
-            if (state == State.CLOSED) {
-                false
-            } else {
-                state = State.CLOSED
-                beforeInterrupt()
-                worker.interrupt()
-                worker.state != Thread.State.NEW
-            }
+    fun requestClose(worker: Thread, beforeInterrupt: () -> Unit = {}): Boolean = synchronized(lock) {
+        if (state == State.CLOSED) {
+            false
+        } else {
+            state = State.CLOSED
+            beforeInterrupt()
+            worker.interrupt()
+            worker.state != Thread.State.NEW
         }
-        if (shouldJoin) joinWorker(worker)
+    }
+
+    fun close(worker: Thread, beforeInterrupt: () -> Unit = {}) {
+        if (requestClose(worker, beforeInterrupt)) joinWorker(worker)
     }
 
     fun stopped() {

@@ -13,6 +13,7 @@ import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.*
@@ -987,6 +988,57 @@ class AndroidMediaSinkStateTest {
         }
     }
 
+    @Test fun expiredSinkDeadlineDoesNotBecomeAnInfiniteAudioOrMicJoin() {
+        val sink = AndroidMediaSink()
+        val videoStopEntered = CountDownLatch(1)
+        val releaseVideo = CountDownLatch(1)
+        val audioEntered = CountDownLatch(1)
+        val releaseAudio = CountDownLatch(1)
+        val type = 110
+        val token = AudioOwnerToken(100, 1)
+        val microphone = DelayedMicrophoneUplink()
+        sink.beforeVideoDecoderStopForTest = {
+            videoStopEntered.countDown()
+            awaitWithoutInterrupt(releaseVideo)
+        }
+        sink.audioRendererThreadFactoryForTest = { _, name ->
+            Thread({
+                audioEntered.countDown()
+                awaitWithoutInterrupt(releaseAudio)
+            }, name)
+        }
+        sink.microphoneUplinkFactoryForTest = { _, _ -> microphone }
+        sink.onScreenStreamActive(type, true)
+        sink.onVideoCodec(type, VideoCodec.H264)
+        sink.onVideoConfig(type, byteArrayOf(1))
+        sink.claimAudioOwner(token)
+        sink.onAudioStarted(token, AudioFormat(AudioCodecKind.LPCM, 48_000, 2, 100, "media"), 0)
+        assertTrue(audioEntered.await(1, TimeUnit.SECONDS))
+        assertTrue(sink.onMicrophoneStarted(token, microphoneConfig()))
+        val completed = CountDownLatch(1)
+        val stoppedSafely = AtomicBoolean(true)
+
+        try {
+            Thread({
+                stoppedSafely.set(sink.closeAndAwaitResources(timeoutMillis = 50))
+                completed.countDown()
+            }, "sink-zero-remaining-await-test").apply { isDaemon = true; start() }
+
+            assertTrue(completed.await(1, TimeUnit.SECONDS))
+            assertFalse(stoppedSafely.get())
+            assertTrue(videoStopEntered.await(1, TimeUnit.SECONDS))
+            releaseVideo.countDown()
+            releaseAudio.countDown()
+            microphone.stopped = true
+            assertTrue(sink.closeAndAwaitResources(timeoutMillis = 2_000))
+        } finally {
+            releaseVideo.countDown()
+            releaseAudio.countDown()
+            microphone.stopped = true
+            sink.close()
+        }
+    }
+
     @Test fun formatReplacementRetainsThePreviousAudioRendererUntilItStops() {
         val sink = AndroidMediaSink()
         val token = AudioOwnerToken(100, 1)
@@ -1075,6 +1127,18 @@ class AndroidMediaSinkStateTest {
         }
 
         override fun awaitStopped(timeoutMillis: Long): Boolean = stopped
+    }
+
+    private fun awaitWithoutInterrupt(latch: CountDownLatch) {
+        var interrupted = false
+        while (latch.count > 0L) {
+            try {
+                latch.await()
+            } catch (_: InterruptedException) {
+                interrupted = true
+            }
+        }
+        if (interrupted) Thread.currentThread().interrupt()
     }
 
     private fun rendererToken(sink: AndroidMediaSink, type: Int): AudioOwnerToken? {

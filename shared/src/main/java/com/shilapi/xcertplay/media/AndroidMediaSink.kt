@@ -534,13 +534,12 @@ class AndroidMediaSink(
     }
 
     fun close() {
-        requestClose()
         closeAndAwaitResources(DEFAULT_CLOSE_WAIT_MILLIS)
     }
 
     fun closeAndAwaitResources(timeoutMillis: Long): Boolean {
-        requestClose()
         val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis.coerceAtLeast(0L))
+        requestClose()
         var resourcesStopped = true
         val decoders = (videoDecoders.values + retiringVideoDecoders.values).distinct()
         decoders.forEach { decoder ->
@@ -602,8 +601,8 @@ class AndroidMediaSink(
             }
         }
         (videoDecoders.values + retiringVideoDecoders.values).distinct().forEach { decoder -> runCatching { decoder.close() } }
-        retiringAudioRenderers.toList().forEach(::closeRetiringAudioRenderer)
-        retiringMicrophones.toList().forEach(::closeRetiringMicrophone)
+        retiringAudioRenderers.toList().forEach { renderer -> runCatching { renderer.requestClose() } }
+        retiringMicrophones.toList().forEach { microphone -> runCatching { microphone.requestClose() } }
     }
 
     private fun remainingMillis(deadlineNs: Long): Long {
@@ -1758,6 +1757,10 @@ internal class AudioRenderer(
 
     override fun close() {
         lifecycle.close(thread) { queue.clear() }
+    }
+
+    fun requestClose() {
+        lifecycle.requestClose(thread) { queue.clear() }
     }
 
     fun awaitStopped(timeoutMillis: Long): Boolean = lifecycle.awaitStopped(thread, timeoutMillis)

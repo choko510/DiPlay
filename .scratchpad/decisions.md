@@ -21,15 +21,6 @@
 - Register every AudioRenderer/Microphone retirement while holding its per-type owner lock. Retain it until the worker exits and its release path completes.
 - After three fast teardown attempts, keep the Controller/Sink/token behind the session barrier and expose a status tap plus Activity-resume retry. A retry clears the barrier only after Controller, Sink, and VPN/NCM completion are confirmed.
 - Preserve an unavailable USB inventory as transient at the attach Activity and let the existing bounded Dispatcher retry revalidate the event identity. A successfully-read empty inventory is terminal stale-device rejection.
-- Propagate runtime Opus failure into microphone activity state, stop silent capture, and cap per-owner Opus recovery and total microphone-start attempts.
-- Keep NCM worker references and the VPN descriptor until NCM/TUN close calls succeed and both workers exit; block service reattachment while teardown remains unresolved.
-
-## PR #45 second re-review follow-up — 2026-10-30
-
-- Treat `Thread.join(0)` as an unbounded wait; zero/negative `awaitStopped` budgets are immediate liveness checks and positive sub-millisecond deadlines round up to 1 ms.
-- Register every AudioRenderer/Microphone retirement while holding its per-type owner lock. Retain it until the worker exits and its release path completes.
-- After three fast teardown attempts, keep the Controller/Sink/token behind the session barrier and expose a status tap plus Activity-resume retry. A retry clears the barrier only after Controller, Sink, and VPN/NCM completion are confirmed.
-- Preserve an unavailable USB inventory as transient at the attach Activity and let the existing bounded Dispatcher retry revalidate the event identity. A successfully-read empty inventory is terminal stale-device rejection.
 - Propagate runtime Opus failure into microphone activity state, stop silent capture, and cap both encoder recovery and total mic start attempts for that stream owner.
 - Keep bridge worker references and VPN descriptor ownership until the NCM/TUN close flags and both worker exits are confirmed; block service attachment while teardown remains unresolved.
 

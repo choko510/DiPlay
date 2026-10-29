@@ -8,6 +8,7 @@
     <string name="dsp_operation_in_progress">DSP operation in progress.</string>
     <string name="dsp_unapplied_changes">Draft changes are not applied.</string>
     <string name="dsp_changes_applied">Draft matches the applied profile.</string>
+    <string name="dsp_preset_edits_session_only">Edits to built-in presets apply for this session only. Save them as Custom 1 or Custom 2 to keep them after restart.</string>
     <string name="dsp_selected_profile">Selected profile: %1$s</string>
     <string name="dsp_applied_profile">Configured profile: %1$s</string>
     <string name="dsp_settings_description">Some settings apply during playback. Rebuilding a stateful Convolver, Compressor, Multiband, or Dynamic EQ graph is deferred until the next audio stream.</string>

@@ -29,6 +29,9 @@ data class AirPlayDeviceInfo(
     val model: String,
 )
 
+internal fun touchReportSentDiagnostic(activeContactCount: Int): String =
+    "airplay touch report sent contacts=$activeContactCount"
+
 /** Session lifecycle and command callbacks for the driver/UI layer. */
 interface AirPlaySessionListener {
     fun onSessionActive(session: AirPlaySession) {}
@@ -239,12 +242,7 @@ class AirPlaySession(
         touchSlots.complete(assignment, sent)
         if (sent) com.shilapi.xcertplay.media.TouchLatencyProbe.onTouchSent(sendStartNs, System.nanoTime() - sendStartNs)
         if (sent && firstTouchSendLogged.compareAndSet(false, true)) {
-            val first = scaled.firstOrNull { it.down }
-            Log.i(
-                TAG,
-                "airplay touch report sent contacts=${scaled.count { it.down }} first=" +
-                    "(${first?.x},${first?.y},down=${first?.down}) report=${report.toHexString()}",
-            )
+            Log.i(TAG, touchReportSentDiagnostic(scaled.count { it.down }))
         } else if (!sent && touchSendFailureLogged.compareAndSet(false, true)) {
             Log.w(TAG, "airplay touch dropped: event channel is not ready")
         }

@@ -13,6 +13,7 @@ import java.io.PipedOutputStream
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,6 +29,26 @@ import org.robolectric.shadow.api.Shadow
     shadows = [ScriptedUsbEndpointShadow::class, ScriptedUsbDeviceConnectionShadow::class, ScriptedUsbRequestShadow::class],
 )
 class Ipv6NcmBridgeWiredPathDiagnosticsTest {
+    @Test
+    fun closeBeforeStartClosesTheOwnedNcmAndTunExactlyOnce() {
+        val (ncm, _) = newBridge(newDiagnostics())
+        val tunFd = ParcelFileDescriptor.createPipe().also { it[1].close() }[0]
+        var tunCloseCount = 0
+        val bridge = Ipv6NcmBridge(ncm, tunFd, HOST_MAC, onError = {})
+        bridge.closeTunForTest = {
+            tunCloseCount++
+            tunFd.close()
+        }
+
+        bridge.close()
+        bridge.close()
+
+        assertTrue(bridge.isClosedForTest)
+        assertFalse(bridge.isRunningForTest)
+        assertEquals(1, tunCloseCount)
+        assertTrue(ReflectionHelpers.getField<Boolean>(ncm, "closed"))
+    }
+
     @Test
     fun tunSynAckWithoutPeerMacIsObservedAndDroppedWithoutUsbOut() {
         val diagnostics = newDiagnostics()

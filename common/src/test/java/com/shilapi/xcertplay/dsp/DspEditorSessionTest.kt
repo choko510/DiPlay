@@ -48,6 +48,18 @@ class DspEditorSessionTest {
     }
 
     @Test
+    fun importIsAdoptedOnlyForItsCurrentUneditedDraftAndVisibleScreen() {
+        val session = session()
+        val operation = requireNotNull(session.beginOperation(DspEditorOperationKind.IMPORT))
+
+        assertTrue(session.canAdoptImport(operation, "flat", "flat", screenActive = true))
+        assertFalse(session.canAdoptImport(operation, "flat", "custom1", screenActive = true))
+        assertFalse(session.canAdoptImport(operation, "flat", "flat", screenActive = false))
+        session.draftProfile = applied.copy(preampDb = 1.0)
+        assertFalse(session.canAdoptImport(operation, "flat", "flat", screenActive = true))
+    }
+
+    @Test
     fun externalRuntimeChangesDoNotOverwriteADirtyDraft() {
         val session = session()
         val draft = applied.copy(preampDb = -3.0)

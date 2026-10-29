@@ -11,6 +11,8 @@ import android.content.pm.PackageManager
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -35,6 +37,11 @@ internal enum class IphoneUsbAutoAttachRejection {
 internal sealed interface IphoneUsbAutoAttachValidation {
     data class Accepted(val identity: UsbAttachDeviceIdentity) : IphoneUsbAutoAttachValidation
     data class Rejected(val reason: IphoneUsbAutoAttachRejection) : IphoneUsbAutoAttachValidation
+}
+
+internal sealed interface IphoneUsbInventoryRead {
+    data class Available(val devices: List<UsbDevice>) : IphoneUsbInventoryRead
+    data object Unavailable : IphoneUsbInventoryRead
 }
 
 internal object IphoneUsbAutoLaunchPolicy {
@@ -230,12 +237,15 @@ internal object IphoneUsbAutoLaunchSettings {
         false
     }
 
-    internal fun attachedDevices(manager: UsbManager): List<UsbDevice> = try {
-        manager.deviceList.values.toList()
+    internal fun readAttachedDevices(manager: UsbManager): IphoneUsbInventoryRead = try {
+        IphoneUsbInventoryRead.Available(manager.deviceList.values.toList())
     } catch (error: RuntimeException) {
         Log.w(TAG, "event=APPLE_USB_AUTO_ATTACH result=usb_inventory_unavailable error=${error.javaClass.simpleName}")
-        emptyList()
+        IphoneUsbInventoryRead.Unavailable
     }
+
+    internal fun attachedDevices(manager: UsbManager): List<UsbDevice> =
+        (readAttachedDevices(manager) as? IphoneUsbInventoryRead.Available)?.devices.orEmpty()
 
     private fun setComponentEnabled(context: Context, enabled: Boolean): Boolean = try {
         context.packageManager.setComponentEnabledSetting(
@@ -289,11 +299,22 @@ internal class IphoneUsbAutoLaunchRequestQueue {
 
     @Synchronized
     fun defer(request: DeferredIphoneUsbAutoLaunch) {
+        if (latestDeferred?.let { it.identity == request.identity && it.source == request.source } == true) return
         latestDeferred = request
     }
 
     @Synchronized
     fun takeDeferred(): DeferredIphoneUsbAutoLaunch? = latestDeferred.also { latestDeferred = null }
+
+    @Synchronized
+    fun peekDeferred(): DeferredIphoneUsbAutoLaunch? = latestDeferred
+
+    @Synchronized
+    fun completeDeferred(expected: DeferredIphoneUsbAutoLaunch): Boolean {
+        if (latestDeferred !== expected) return false
+        latestDeferred = null
+        return true
+    }
 
     @Synchronized
     fun beginHandoff(request: DeferredIphoneUsbAutoLaunch): Long {
@@ -338,8 +359,13 @@ internal class IphoneUsbAutoLaunchRequestQueue {
 
 internal object IphoneUsbAutoLaunchDispatcher {
     private const val TAG = "xcertplay-usb-auto"
+    private const val MAX_DEFERRED_RETRIES = 3
     private val coordinator = IphoneUsbAutoLaunchCoordinator()
     private val requests = IphoneUsbAutoLaunchRequestQueue()
+    private val deferredRetryHandler = Handler(Looper.getMainLooper())
+    private var deferredRetry: Runnable? = null
+    private var deferredRetryRequest: DeferredIphoneUsbAutoLaunch? = null
+    private var deferredRetryAttempts = 0
 
     fun beginHandoff(identity: UsbAttachDeviceIdentity, hostLaunchState: CarPlayHostLaunchState?): Long =
         requests.beginHandoff(
@@ -373,10 +399,12 @@ internal object IphoneUsbAutoLaunchDispatcher {
         requests.defer(DeferredIphoneUsbAutoLaunch(identity, source))
     }
 
+    @Synchronized
     fun resumeDeferred(context: Context) {
         if (requests.isHandoffActive()) return
-        val pending = requests.takeDeferred() ?: return
-        dispatch(context, pending.identity, pending.source, deferredReplay = true)
+        val pending = requests.peekDeferred() ?: return
+        if (deferredRetryRequest !== pending) resetDeferredRetry(pending)
+        dispatchDeferred(context.applicationContext, pending)
     }
 
     fun dispatch(
@@ -385,23 +413,77 @@ internal object IphoneUsbAutoLaunchDispatcher {
         source: IphoneUsbAutoLaunchSource,
         deferredReplay: Boolean = false,
     ): Boolean {
-        val manager = context.getSystemService(Context.USB_SERVICE) as? UsbManager
-        val candidates = manager?.let(IphoneUsbAutoLaunchSettings::attachedDevices)
-            ?.map(IphoneUsbAutoLaunchPolicy::candidate)
-            .orEmpty()
+        val outcome = dispatchDetailed(context, identity, source, deferredReplay)
+        if (outcome == DispatchOutcome.RETRY) {
+            requests.defer(DeferredIphoneUsbAutoLaunch(identity, source))
+            val pending = requests.peekDeferred()
+            if (pending != null) synchronized(this) {
+                if (deferredRetryRequest !== pending) resetDeferredRetry(pending)
+                scheduleDeferredRetry(context.applicationContext, pending)
+            }
+        }
+        return outcome == DispatchOutcome.ACCEPTED
+    }
+
+    private enum class DispatchOutcome { ACCEPTED, RETRY, REJECTED }
+
+    private fun dispatchDeferred(context: Context, pending: DeferredIphoneUsbAutoLaunch) {
+        val outcome = dispatchDetailed(context, pending.identity, pending.source, deferredReplay = true)
+        if (outcome == DispatchOutcome.RETRY) {
+            val latest = requests.peekDeferred() ?: pending
+            scheduleDeferredRetry(context, latest)
+        } else {
+            val completed = requests.completeDeferred(pending)
+            if (completed) {
+                if (deferredRetryRequest === pending) clearDeferredRetry()
+            } else {
+                requests.peekDeferred()?.let { latest ->
+                    resetDeferredRetry(latest)
+                    scheduleDeferredRetry(context, latest)
+                }
+            }
+        }
+    }
+
+    private fun dispatchDetailed(
+        context: Context,
+        identity: UsbAttachDeviceIdentity,
+        source: IphoneUsbAutoLaunchSource,
+        deferredReplay: Boolean,
+    ): DispatchOutcome {
+        val enabled = try {
+            IphoneUsbAutoLaunchSettings.isOperationallyEnabled(context)
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=settings_unavailable " +
+                "error=${error.javaClass.simpleName}")
+            return DispatchOutcome.RETRY
+        }
+        if (!enabled) return DispatchOutcome.REJECTED
+        val manager = try {
+            context.getSystemService(Context.USB_SERVICE) as? UsbManager
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=usb_manager_unavailable " +
+                "error=${error.javaClass.simpleName}")
+            return DispatchOutcome.RETRY
+        } ?: return DispatchOutcome.RETRY
+        val devices = when (val inventory = IphoneUsbAutoLaunchSettings.readAttachedDevices(manager)) {
+            is IphoneUsbInventoryRead.Available -> inventory.devices
+            IphoneUsbInventoryRead.Unavailable -> return DispatchOutcome.RETRY
+        }
+        val candidates = devices.map(IphoneUsbAutoLaunchPolicy::candidate)
         val validation = IphoneUsbAutoLaunchPolicy.evaluate(
             action = UsbManager.ACTION_USB_DEVICE_ATTACHED,
-            enabled = IphoneUsbAutoLaunchSettings.isOperationallyEnabled(context),
+            enabled = true,
             eventDevice = identity,
             attachedDevices = candidates,
         )
         if (validation !is IphoneUsbAutoAttachValidation.Accepted) {
             Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=${validation.rejectionLabel()}")
-            return false
+            return DispatchOutcome.REJECTED
         }
         if (requests.replaceDuringHandoff(DeferredIphoneUsbAutoLaunch(identity, source))) {
             Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=queued_during_handoff")
-            return true
+            return DispatchOutcome.ACCEPTED
         }
 
         val sessionSnapshot = CarPlayBackgroundSession.snapshot()
@@ -425,24 +507,44 @@ internal object IphoneUsbAutoLaunchDispatcher {
         ) {
             IphoneUsbAutoLaunchDecision.KeepCurrentWiredSession -> {
                 Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=keep_wired")
-                if (shouldBringWiredHostToFront(source)) return bringExistingWiredHostToFront(context)
-                true
+                if (shouldBringWiredHostToFront(source)) {
+                    if (bringExistingWiredHostToFront(context)) DispatchOutcome.ACCEPTED else DispatchOutcome.RETRY
+                } else DispatchOutcome.ACCEPTED
             }
             IphoneUsbAutoLaunchDecision.DeferToCurrentSession -> {
                 deferTransition(identity, source)
                 Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=defer_to_controller")
-                true
+                DispatchOutcome.RETRY
             }
             IphoneUsbAutoLaunchDecision.IgnoreDuplicate -> {
                 Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=duplicate")
-                true
+                DispatchOutcome.ACCEPTED
             }
             is IphoneUsbAutoLaunchDecision.Launch -> {
-                val device = IphoneUsbAutoLaunchSettings.currentCandidate(context, identity)
-                if (!IphoneUsbAutoLaunchSettings.isOperationallyEnabled(context) || device == null) {
+                val stillEnabled = runCatching { IphoneUsbAutoLaunchSettings.isOperationallyEnabled(context) }
+                    .getOrElse {
+                        coordinator.cancelDispatch(identity, decision.generation)
+                        return DispatchOutcome.RETRY
+                    }
+                val currentDevices = when (val inventory = IphoneUsbAutoLaunchSettings.readAttachedDevices(manager)) {
+                    is IphoneUsbInventoryRead.Available -> inventory.devices
+                    IphoneUsbInventoryRead.Unavailable -> {
+                        coordinator.cancelDispatch(identity, decision.generation)
+                        return DispatchOutcome.RETRY
+                    }
+                }
+                val currentCandidates = currentDevices.map(IphoneUsbAutoLaunchPolicy::candidate)
+                val currentValidation = IphoneUsbAutoLaunchPolicy.evaluate(
+                    action = UsbManager.ACTION_USB_DEVICE_ATTACHED,
+                    enabled = stillEnabled,
+                    eventDevice = identity,
+                    attachedDevices = currentCandidates,
+                )
+                val device = currentDevices.firstOrNull { it.toUsbAttachDeviceIdentity() == identity }
+                if (!stillEnabled || currentValidation !is IphoneUsbAutoAttachValidation.Accepted || device == null) {
                     coordinator.cancelDispatch(identity, decision.generation)
                     Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=stale_before_dispatch")
-                    return false
+                    return DispatchOutcome.REJECTED
                 }
                 try {
                     val intent = CarPlayHostActions.createInternalIntent(
@@ -456,10 +558,10 @@ internal object IphoneUsbAutoLaunchDispatcher {
                     Log.i(
                         TAG,
                         "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=host_dispatched " +
-                            "hasPermission=${try { manager?.hasPermission(device) == true } catch (_: RuntimeException) { false }} " +
+                        "hasPermission=${try { manager.hasPermission(device) } catch (_: RuntimeException) { false }} " +
                             "generation=${decision.generation}",
                     )
-                    true
+                    DispatchOutcome.ACCEPTED
                 } catch (error: RuntimeException) {
                     coordinator.cancelDispatch(identity, decision.generation)
                     Log.w(
@@ -468,10 +570,46 @@ internal object IphoneUsbAutoLaunchDispatcher {
                             "generation=${decision.generation} error=${error.javaClass.simpleName}",
                     )
                     IphoneUsbAutoLaunchNotification.show(context)
-                    false
+                    DispatchOutcome.RETRY
                 }
             }
         }
+    }
+
+    @Synchronized
+    private fun scheduleDeferredRetry(context: Context, pending: DeferredIphoneUsbAutoLaunch) {
+        if (deferredRetryRequest !== pending) resetDeferredRetry(pending)
+        if (deferredRetry != null) return
+        if (deferredRetryAttempts >= MAX_DEFERRED_RETRIES) {
+            Log.w(TAG, "event=APPLE_USB_AUTO_ATTACH source=${pending.source.label} " +
+                "result=deferred_retry_limit_reached; request retained")
+            return
+        }
+        deferredRetryAttempts++
+        val attempt = deferredRetryAttempts
+        val retry = Runnable {
+            synchronized(this) {
+                deferredRetry = null
+                if (requests.peekDeferred() === pending && !requests.isHandoffActive()) {
+                    dispatchDeferred(context, pending)
+                }
+            }
+        }
+        deferredRetry = retry
+        deferredRetryHandler.postDelayed(retry, DEFERRED_RETRY_DELAYS_MILLIS[attempt - 1])
+    }
+
+    private fun resetDeferredRetry(pending: DeferredIphoneUsbAutoLaunch) {
+        clearDeferredRetry()
+        deferredRetryRequest = pending
+        deferredRetryAttempts = 0
+    }
+
+    private fun clearDeferredRetry() {
+        deferredRetry?.let(deferredRetryHandler::removeCallbacks)
+        deferredRetry = null
+        deferredRetryRequest = null
+        deferredRetryAttempts = 0
     }
 
     private fun bringExistingWiredHostToFront(context: Context): Boolean {
@@ -500,6 +638,8 @@ internal object IphoneUsbAutoLaunchDispatcher {
             IphoneUsbAutoAttachRejection.NO_CARPLAY_CONFIGURATION -> "no_carplay_configuration"
         }
     }
+
+    private val DEFERRED_RETRY_DELAYS_MILLIS = longArrayOf(250L, 500L, 1_000L)
 }
 
 class IphoneUsbAutoAttachActivity : Activity() {

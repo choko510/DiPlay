@@ -18,37 +18,46 @@ internal data class OpusEncoderConfiguration(
 
 /** Encodes fixed-duration PCM frames at the negotiated rate into raw Opus access units. */
 internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) : Closeable {
-    private val codec: MediaCodec? = try {
-        val format = MediaFormat.createAudioFormat(
-            MediaFormat.MIMETYPE_AUDIO_OPUS,
-            configuration.sampleRate,
-            configuration.channels,
-        ).apply {
-            setInteger(MediaFormat.KEY_BIT_RATE, configuration.bitrate)
-            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxOf(configuration.frameBytes, MAX_INPUT_BYTES))
-        }
-        MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).also {
-            it.configure(
-                format,
-                null,
-                null,
-                MediaCodec.CONFIGURE_FLAG_ENCODE,
-            )
-            it.start()
-            Log.i(
-                TAG,
-                "Opus microphone encoder started rate=${configuration.sampleRate} " +
-                    "channels=${configuration.channels} bitrate=${configuration.bitrate}",
-            )
-        }
-    } catch (error: Exception) {
-        Log.w(TAG, "Opus microphone encoder unavailable error=${error.javaClass.simpleName}")
-        null
-    }
+    private val codec: MediaCodec? = createCodec()
     private val bufferInfo = MediaCodec.BufferInfo()
     private var presentationTimeUs = 0L
-    private var closed = false
+    @Volatile private var closed = false
+    @Volatile private var failed = false
+    private var failureLogged = false
     private var outputPackets = 0
+
+    private fun createCodec(): MediaCodec? {
+        var created: MediaCodec? = null
+        var started = false
+        return try {
+            val format = MediaFormat.createAudioFormat(
+                MediaFormat.MIMETYPE_AUDIO_OPUS,
+                configuration.sampleRate,
+                configuration.channels,
+            ).apply {
+                setInteger(MediaFormat.KEY_BIT_RATE, configuration.bitrate)
+                setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxOf(configuration.frameBytes, MAX_INPUT_BYTES))
+            }
+            MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).also { codec ->
+                created = codec
+                codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                codec.start()
+                started = true
+                Log.i(
+                    TAG,
+                    "Opus microphone encoder started rate=${configuration.sampleRate} " +
+                        "channels=${configuration.channels} bitrate=${configuration.bitrate}",
+                )
+            }
+        } catch (error: Exception) {
+            created?.let { codec ->
+                if (started) runCatching { codec.stop() }
+                runCatching { codec.release() }
+            }
+            Log.w(TAG, "Opus microphone encoder unavailable error=${error.javaClass.simpleName}")
+            null
+        }
+    }
 
     val available: Boolean get() = codec != null && !closed
 
@@ -57,35 +66,44 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
      */
     fun encode(pcm: ByteArray): List<ByteArray> {
         val codec = codec ?: return emptyList()
-        if (closed) return emptyList()
+        if (closed || failed) return emptyList()
         if (pcm.size != configuration.frameBytes) {
             Log.w(TAG, "Opus microphone frame size mismatch expected=${configuration.frameBytes} actual=${pcm.size}")
             return emptyList()
         }
-        val inputIndex = try {
-            codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+        return try {
+            val inputIndex = codec.dequeueInputBuffer(INPUT_TIMEOUT_US)
+            if (inputIndex >= 0) {
+                val input = codec.getInputBuffer(inputIndex)
+                if (input == null || pcm.size > input.remaining()) {
+                    codec.queueInputBuffer(inputIndex, 0, 0, presentationTimeUs, 0)
+                } else {
+                    input.clear()
+                    input.put(pcm)
+                    codec.queueInputBuffer(
+                        inputIndex,
+                        0,
+                        pcm.size,
+                        presentationTimeUs,
+                        0,
+                    )
+                    presentationTimeUs += configuration.frameDurationUs
+                }
+            }
+            drain()
         } catch (error: Exception) {
-            Log.w(TAG, "Opus microphone input dequeue failed error=${error.javaClass.simpleName}")
+            fail(error)
             return emptyList()
         }
-        if (inputIndex >= 0) {
-            val input = codec.getInputBuffer(inputIndex)
-            if (input == null || pcm.size > input.remaining()) {
-                codec.queueInputBuffer(inputIndex, 0, 0, presentationTimeUs, 0)
-            } else {
-                input.clear()
-                input.put(pcm)
-                codec.queueInputBuffer(
-                    inputIndex,
-                    0,
-                    pcm.size,
-                    presentationTimeUs,
-                    0,
-                )
-                presentationTimeUs += configuration.frameDurationUs
-            }
+    }
+
+    private fun fail(error: Exception) {
+        failed = true
+        if (!failureLogged) {
+            failureLogged = true
+            Log.w(TAG, "Opus microphone encoder failed error=${error.javaClass.simpleName}")
         }
-        return drain()
+        close()
     }
 
     private fun drain(): List<ByteArray> {
@@ -95,7 +113,7 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
             val index = try {
                 codec.dequeueOutputBuffer(bufferInfo, 0)
             } catch (error: Exception) {
-                Log.w(TAG, "Opus microphone output dequeue failed error=${error.javaClass.simpleName}")
+                fail(error)
                 return output
             }
             when {

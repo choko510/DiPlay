@@ -13,6 +13,7 @@
 
 ## P1 — Measurements before conditional changes
 
+- [ ] F-07 audio queue policy: run same-device A/B with the 192-packet drop-newest policy and any candidate alternative before changing packet eviction behavior; record latency, underruns, and reconnect evidence. No target-device result is available in this implementation run.
 - [ ] Collect same-device TS10/K706 + supported-iPhone video worker, receive-to-codec-Surface-release and actual display-presentation delay, MAIN/ALT request-result, Surface recovery, and 30–60-minute memory/FD metrics before enabling the default-off Surface recovery policy. Surface-release percentiles do not measure visible display time. Measure Host log dispatch/file-write cost before considering OPT-06 batching.
 - [ ] Same-device NCM `AUTO` vs `NO_STATUS_POLLING` A/B with first-frame, `SCREEN_STREAM_OPENED`, and timeout evidence; do not change status behavior or add control requests without cause.
 - [ ] Reproduce `queue()==false` / `requestWait()==null` while the USB device is present; preserve persistent USB-request ownership otherwise.

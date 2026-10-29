@@ -41,6 +41,58 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class CarPlayHostActivityReconnectTest {
     @Test
+    fun destroyingHostStopsActivityOwnedExecutors() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val lifecycle = Robolectric.buildActivity(CarPlayHostActivity::class.java).create()
+        val activity = lifecycle.get()
+        val teardown = field(activity, "teardownExecutor").get(activity) as java.util.concurrent.ExecutorService
+        val commands = field(activity, "airPlayCommandExecutor").get(activity) as java.util.concurrent.ExecutorService
+        try {
+            lifecycle.destroy()
+
+            assertTrue(teardown.isShutdown)
+            assertTrue(commands.isShutdown)
+        } finally {
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun shutdownTeardownRetriesAreBoundedAndRetainTheSessionBarrier() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val controller = allocateControllerPlaceholder()
+        val sink = AndroidMediaSink()
+        val attempts = AtomicInteger()
+        try {
+            CarPlayBackgroundSession.store(controller, sink, 800, 480, activity) { done -> done() }
+            activity.awaitControllerClosedForTest = { _, _ ->
+                attempts.incrementAndGet()
+                false
+            }
+            val awaitClosed = activity.javaClass.getDeclaredMethod(
+                "awaitControllerClosedForShutdown",
+                CarPlayController::class.java,
+            ).apply { isAccessible = true }
+            val result = awaitClosed.invoke(activity, controller) as Boolean
+
+            assertFalse(result)
+            assertEquals(3, attempts.get())
+            assertTrue(CarPlayBackgroundSession.hasSession())
+        } finally {
+            activity.awaitControllerClosedForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
     fun shutdownTimeoutKeepsTheTeardownBarrierUntilTheControllerCloses() {
         CarPlayBackgroundSession.clear()
         val bootstrapReady = field(DiPlayBootstrap, "ready")

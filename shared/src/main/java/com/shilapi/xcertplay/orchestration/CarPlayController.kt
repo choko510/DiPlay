@@ -218,7 +218,14 @@ class CarPlayController(
         },
     )
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
-    private val touchExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+    private val touchGeneration = AtomicLong()
+    private val touchDispatchQueue = AirPlayTouchDispatchQueue<AirPlaySession>(
+        dispatch = { session, generation, contacts ->
+            if (!closed && touchGeneration.get() == generation && activeSession === session) {
+                session.sendTouch(contacts)
+            }
+        },
+    )
     private val tunnelExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val hostId = UUID.randomUUID().toString().uppercase(Locale.US)
@@ -326,7 +333,7 @@ class CarPlayController(
                 if (activeSession !== session || activeWiredSessionAttempt != 0) {
                     false
                 } else {
-                    activeSession = null
+                    publishActiveSession(null)
                     true
                 }
             }
@@ -431,13 +438,10 @@ class CarPlayController(
 
     fun sendTouch(contacts: List<AirPlayContact>): Boolean {
         if (closed) return false
-        val session = activeSession ?: return false
-        return try {
-            touchExecutor.execute { session.sendTouch(contacts) }
-            true
-        } catch (_: Exception) {
-            false
+        val (session, generation) = synchronized(wiredTeardownLock) {
+            (activeSession ?: return false) to touchGeneration.get()
         }
+        return touchDispatchQueue.submit(session, generation, contacts)
     }
 
     override fun close() {
@@ -454,7 +458,7 @@ class CarPlayController(
             wirelessGeneration.incrementAndGet()
         }
         permissionPollGeneration += 1
-        touchExecutor.shutdownNow()
+        touchDispatchQueue.close()
         tunnelExecutor.shutdownNow()
         val service = vpnService
         unbindVpn()
@@ -1328,14 +1332,21 @@ class CarPlayController(
 
     private fun recordActiveSession(session: AirPlaySession) {
         synchronized(wiredTeardownLock) {
-            activeSession = session
+            publishActiveSession(session)
             activeWiredSessionAttempt = 0
+        }
+    }
+
+    private fun publishActiveSession(session: AirPlaySession?) {
+        if (activeSession !== session) {
+            activeSession = session
+            touchGeneration.incrementAndGet()
         }
     }
 
     private fun clearActiveSession(session: AirPlaySession) {
         synchronized(wiredTeardownLock) {
-            if (activeSession === session && activeWiredSessionAttempt == 0) activeSession = null
+            if (activeSession === session && activeWiredSessionAttempt == 0) publishActiveSession(null)
         }
     }
 
@@ -2838,7 +2849,7 @@ class CarPlayController(
 
     private fun clearWirelessActiveSession() {
         synchronized(wiredTeardownLock) {
-            if (activeWiredSessionAttempt == 0) activeSession = null
+            if (activeWiredSessionAttempt == 0) publishActiveSession(null)
         }
     }
 
@@ -3065,7 +3076,7 @@ class CarPlayController(
             if (!isActiveWiredAttemptLocked(attempt)) {
                 false
             } else {
-                activeSession = session
+                publishActiveSession(session)
                 activeWiredSessionAttempt = attempt
                 true
             }
@@ -3083,7 +3094,7 @@ class CarPlayController(
             if (activeSession !== session || activeWiredSessionAttempt != attempt) {
                 false
             } else {
-                activeSession = null
+                publishActiveSession(null)
                 activeWiredSessionAttempt = 0
                 true
             }

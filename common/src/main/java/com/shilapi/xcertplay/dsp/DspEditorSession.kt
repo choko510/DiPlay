@@ -81,6 +81,17 @@ internal class DspEditorSession(
     fun isCurrent(token: DspEditorOperationToken): Boolean =
         pendingState.value?.id == token.id
 
+    fun isDraftRevisionCurrent(token: DspEditorOperationToken): Boolean =
+        draftRevision == token.draftRevision
+
+    fun canAdoptImport(
+        token: DspEditorOperationToken,
+        sourceProfileId: String,
+        currentProfileId: String,
+        screenActive: Boolean,
+    ): Boolean = isCurrent(token) && isDraftRevisionCurrent(token) &&
+        screenActive && sourceProfileId == currentProfileId
+
     fun finishOperation(
         token: DspEditorOperationToken,
         currentAppliedProfile: DspAudioProfile,

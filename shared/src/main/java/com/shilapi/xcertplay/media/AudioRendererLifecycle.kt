@@ -64,6 +64,17 @@ internal class AudioRendererLifecycle(
         synchronized(lock) { state = State.CLOSED }
     }
 
+    fun awaitStopped(worker: Thread, timeoutMillis: Long): Boolean {
+        if (worker === Thread.currentThread()) return false
+        if (worker.state == Thread.State.NEW) return true
+        try {
+            worker.join(timeoutMillis.coerceAtLeast(0L))
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        return !worker.isAlive
+    }
+
     private fun joinWorker(worker: Thread) {
         if (worker === Thread.currentThread() || worker.state == Thread.State.NEW) return
         try {

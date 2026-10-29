@@ -22,6 +22,8 @@ internal interface MicrophoneUplinkController : Closeable {
     fun start(): Boolean
 
     fun activate()
+
+    fun awaitStopped(timeoutMillis: Long): Boolean = true
 }
 
 internal fun microphoneZeroReadBackoffMs(consecutiveEmptyReads: Int): Long =
@@ -251,22 +253,24 @@ internal class MicrophoneUplink(
     override fun close() {
         val worker = synchronized(this) {
             activation.countDown()
-            if (!closed.compareAndSet(false, true) || !running.compareAndSet(true, false)) {
+            closed.set(true)
+            running.set(false)
+            val currentWorker = thread
+            if (currentWorker == null) {
                 release()
-                null
             } else {
                 try {
                     recorder?.stop()
                 } catch (_: Exception) {
-                    // Best effort; release below is authoritative.
+                    // Best effort; the capture worker releases its resources when it exits.
                 }
                 try {
                     socket?.close()
                 } catch (_: Exception) {
                     // Best effort.
                 }
-                thread
             }
+            currentWorker
         }
         if (worker !== null && worker !== Thread.currentThread()) {
             try {
@@ -275,8 +279,19 @@ internal class MicrophoneUplink(
                 Thread.currentThread().interrupt()
             }
             if (worker.isAlive) worker.interrupt()
+            if (!worker.isAlive) release()
         }
-        release()
+    }
+
+    override fun awaitStopped(timeoutMillis: Long): Boolean {
+        val worker = thread ?: return true
+        if (worker === Thread.currentThread()) return false
+        try {
+            worker.join(timeoutMillis.coerceAtLeast(0L))
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        return !worker.isAlive
     }
 
     @Synchronized

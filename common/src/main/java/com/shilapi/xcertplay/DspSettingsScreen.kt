@@ -575,9 +575,15 @@ internal fun DspSettingsScreen(
                     id = irId,
                     openInput = { context.contentResolver.openInputStream(uri) },
                 ) { result ->
+                    val canAdopt = editorSession.canAdoptImport(
+                        operation,
+                        sourceProfileId,
+                        profile.id,
+                        screenActive.get(),
+                    )
                     val finished = editorSession.finishOperation(operation, runtime.selectedProfile(), runtime.isDspEnabled())
                     var adopted = false
-                    if (finished && screenActive.get() && profile.id == sourceProfileId) {
+                    if (finished && canAdopt) {
                         when (result) {
                             is DspImpulseImportResult.Imported -> {
                                 impulseResponseIds = runtime.availableImpulseResponseIds()
@@ -613,8 +619,14 @@ internal fun DspSettingsScreen(
                 runtime.importCabinMeasurementCsvAsync(
                     openInput = { context.contentResolver.openInputStream(uri) },
                 ) { result ->
+                    val canAdopt = editorSession.canAdoptImport(
+                        operation,
+                        sourceProfileId,
+                        profile.id,
+                        screenActive.get(),
+                    )
                     val finished = editorSession.finishOperation(operation, runtime.selectedProfile(), runtime.isDspEnabled())
-                    if (finished && screenActive.get() && profile.id == sourceProfileId) {
+                    if (finished && canAdopt) {
                         when (result) {
                             is DspCabinMeasurementParseResult.Available -> {
                                 profile = profile.copy(cabinCorrection = result.correction)
@@ -1157,6 +1169,12 @@ internal fun DspSettingsScreen(
                         ),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    if (profile.id != CUSTOM_PROFILE_1 && profile.id != CUSTOM_PROFILE_2) {
+                        Text(
+                            stringResource(R.string.dsp_preset_edits_session_only),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
 

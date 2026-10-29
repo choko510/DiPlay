@@ -681,3 +681,7 @@ Android's attach chooser can grant temporary USB permission when the user select
 For asynchronous USB read tests, do not model a timeout with a 1–2 ms real-time sleep when the assertion depends on the queued-request state being observable first. Use a scripted delay longer than the test's internal timeout and a larger external wait bound; verify timeout and request state separately. Hosted scheduling exposed the race even when local runs passed.
 
 For deferred USB launch work, distinguish a replay of the same queued request from a new attach event: the replay must retain the original request and bypass physical-event debounce after revalidation, while explicit user retries also bypass it. For codecs, pending input/output counts are only hints; retain a short output-drain grace after the estimate reaches zero, and name latency metrics by the event they actually observe.
+
+For teardown, a stop request is not a completion signal: keep resource ownership until the worker exits and its codec/surface release reports safe. A callback exception must not bypass sibling cleanup, and bounded retries must leave the session barrier intact when release cannot be confirmed.
+
+For async editor imports, compare the operation's captured draft revision before applying results; profile identity alone misses same-profile edits. For high-rate HID input, use bounded snapshot queues that merge only MOVE updates and release held slots on overflow.

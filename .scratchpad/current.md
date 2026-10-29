@@ -1,13 +1,14 @@
-# Current Status — DiPlay DSP Studio PR #52 (2026-10-29)
+# Current Status — DiPlay DSP Studio PR #52 (2026-10-30)
 
 ## Latest source and validation
 
-- Independent review baseline: `f40d51ea82f6129c1455f1ae533de526633025f8`. Latest product/test head: `419fa45e5dc15fa5a135f0693ffa13bab59f2056`, integrating fix commits `a0cb2d56` and `f5673dd7`.
-- Hosted run [#584](https://github.com/choko510/DiPlay/actions/runs/40723483149) passed at `419fa45e`: changes, Native, ASan/UBSan, Shared/Common, lint, Debug/Benchmark builds, JNI/R8, host-baseline, Release verification and API 35 emulator instrumentation. Its first attempt was cancelled during Common instrumentation; failed/cancelled jobs were rerun successfully. `quick-baseline` was skipped because the full check ran.
-- Local gates pass: Native DSP/Dynamic EQ, Shared/Common 734/734 + 357/357, mobile/automotive lint and Debug/Benchmark assemble, JNI mapping. Local MSYS2 sanitizer linking is unavailable because `libasan`/`libubsan` are missing; hosted sanitizer passed.
-- Evidence ledger remains 170 IDs: PASS 2 / PARTIAL 162 / NOT_RUN 6. No acceptance status was promoted by these fixes.
-- A separate independent post-fix review of F-01/F-02 remains `NOT_RUN`; known findings are covered by regression tests and run #584.
+- PR #52 source/test head is `00ac7453acd325f3523e1e832c01fb2a8375cf68` on `codex/dsp-studio-final`, based on PR #45's unchanged commit `07c0141c186b8e8df76dce097593170ab28b7faf`.
+- The supplied re-audit's F-03 was fixed by comparing requested linear targets against effective current linear gain, removing the persisted dB/current-state ambiguity, and retaining active target linear for ramp compatibility. The Native regression reproduced the failure at `53d15588` and passes at `00ac7453`.
+- Pull-request run [#589](https://github.com/choko510/DiPlay/actions/runs/40926483922) passed all required jobs at the exact source/test head. Native, ASan/UBSan, Shared/Common, lint, Debug/Benchmark builds, JNI/R8, API 35, host-baseline, and Release verification passed. API 35 passed Shared Release 23/23 and Common Debug 29/29 after retrying one FullHeavyChain wall-clock p99 failure at 63.232 ms vs. 21.332 ms; both attempts are preserved, and the retry does not explain the first tail.
+- Local Native DSP and Dynamic EQ HOT suites pass via MSYS2. Local ASan/UBSan is unavailable because libasan/libubsan are missing; hosted sanitizer passed.
+- Evidence ledger remains 170 IDs: PASS 2 / PARTIAL 162 / NOT_RUN 6. No acceptance status was promoted.
 
 ## Remaining acceptance
 
-TS10/K706+iPhone audio/USB/video/Touch, route-volume correlation, A/V, CPU/RSS, physical reconnect matrix and soak remain `NOT_RUN`. PR #52 is open, unmerged and not release-ready. Do not infer device acceptance from emulator results or merge without user approval.
+- TS10/K706+iPhone audio/USB/video/touch, route-volume correlation, A/V, CPU/RSS/thermal, reconnect cycles and soak remain `NOT_RUN`. No post-F-03 independent review has run. PR #52 remains open and unmerged; PR #45 and `main` are unchanged.
+- No source-correctable action remains for F-03. Hardware acceptance and user merge approval are still required; keep PR #52 open and unmerged.

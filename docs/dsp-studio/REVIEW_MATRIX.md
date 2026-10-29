@@ -2,6 +2,18 @@
 
 Review status is based on the task-supplied [PR #52 remediation specification](REMEDIATION_SPEC.md). Line references below are from the current source tree; the current integration commit SHA is recorded in [FINAL_IMPLEMENTATION_REPORT.md](FINAL_IMPLEMENTATION_REPORT.md).
 
+## Final-source review follow-up — 2026-10-30
+
+The supplied independent re-audit of PR #52 source HEAD `53d15588` confirmed the F-01/F-02 repairs and identified F-03: a canceled gain ramp left graph decisions comparing the requested dB with a partly progressed effective linear gain. Commit `00ac7453acd325f3523e1e832c01fb2a8375cf68` removes the persisted dB/current-state ambiguity and bases protective/refund ordering on the effective linear gain. The added Native matrix first failed against the audited source and passes after the fix; an engine-level owner-rebind test checks same-target PCM continuity and ACK ordering.
+
+[Run #40926483922](https://github.com/choko510/DiPlay/actions/runs/40926483922) (#589) passed at exact source/test head `00ac7453acd325f3523e1e832c01fb2a8375cf68`: Native/ASan/UBSan, Shared/Common, lint, Debug/Benchmark builds, JNI/R8, API 35 instrumentation, host-baseline, and Release verification. The first API 35 attempt failed the FullHeavyChain wall-clock p99 assertion at 63.232 ms against 21.332 ms; thread CPU p99 was 1.640 ms. The same-head instrumentation rerun passed Shared Release 23/23 and Common Debug 29/29. Both runs are retained; the retry does not explain the first wall-time tail.
+
+| Review area | Finding and action | Retest/evidence | Remaining risk |
+|---|---|---|---|
+| Independent re-audit F-03 | `dsp_gain` now represents effective current gain and ramp target in linear units; all graph safety decisions compare those values. The render path does no dB conversion. | New regression matrix covers 44.1/48 kHz, mono/stereo, Macro/Dynamics/Dynamic EQ, -12/-14/-10/-6 dB targets after cancellation; engine rebind test checks continuity and ACK after completion. Native regular and hosted ASan/UBSan pass. | No independent post-fix review of `00ac7453`; physical click/pop and target-device audio/p99 remain unverified. |
+
+The 170-ID ledger remains PASS 2 / PARTIAL 162 / NOT_RUN 6. No TS10/K706 or supported iPhone is attached, so hardware, acoustic, route-volume, A/V, performance and soak gates remain `NOT_RUN`. `SOURCE_READY=false`, `HARDWARE_PASS=false`, and PR #52 remains open and unmerged.
+
 ## Final-source review follow-up — 2026-10-29
 
 Four read-only reviewers re-audited the PR #52 Native signal path, Kotlin/JNI ownership and Save/Cancel races, UI/storage behavior, and the 170-ID evidence ledger at source `fbfc3b6e`. The supplied independent deep review then found F-01/F-02 at `f40d51ea`; both are fixed in source/test commits through `f5673dd7` and integrated at `419fa45e`. Run #583 passed on `f5673dd7`; final integrated-head run [#40723483149](https://github.com/choko510/DiPlay/actions/runs/40723483149) passed all required host, release-verification and API 35 lanes after retrying an initially cancelled instrumentation attempt. The supplied findings have source fixes and direct regressions; a second independent post-fix review has not been run.

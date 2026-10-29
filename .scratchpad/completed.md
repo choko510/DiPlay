@@ -2,6 +2,10 @@
 
 > Append-only history, grouped newest first. Old result counts and outcomes describe **their original time**, not today's PR status. See [current.md](current.md). Add new events under their date; don't turn this into a second active-status page.
 
+## 2026-10-30
+
+- Fixed the supplied PR #52 F-03 finding at source/test head `00ac7453`: Native HOT safety compares requested linear gain with effective gain after ramp cancellation. The new 44.1/48 kHz mono/stereo module matrix and owner-rebind continuity/ACK test pass. Hosted run #589 passed Native/ASan/UBSan, Shared/Common, lint/build/JNI/R8, API 35, host-baseline and Release verification after a same-head retry; the first benchmark p99 failure is preserved. Hardware acceptance remains NOT_RUN.
+
 ## 2026-10-29
 
 - PR #52 final F-01/F-02 integration is source/test HEAD `419fa45e`, merging `a0cb2d56` and `f5673dd7`. Run #584 passed all required CI lanes on that head after retrying an initially cancelled instrumentation attempt. A docs-only update at branch tip `51d2caa7` passed changes/check/Release verification in #586; its runtime jobs were skipped. Local Native, Shared/Common 734/734 + 357/357, Debug/Benchmark builds, lint and JNI/R8 mapping pass. TS10/K706/iPhone acceptance remains NOT_RUN.

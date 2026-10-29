@@ -2,7 +2,23 @@
 
 This matrix distinguishes automated evidence from Android instrumentation and target-device acceptance. The task-supplied PR #52 remediation specification is preserved in [REMEDIATION_SPEC.md](REMEDIATION_SPEC.md); its project acceptance requirements do not replace repository or agent instructions. Individual T-ID and PH-ID evidence is tracked in [TEST_MATRIX_DETAILED.md](TEST_MATRIX_DETAILED.md).
 
-## Current follow-up — integrated code/test head `419fa45e5dc15fa5a135f0693ffa13bab59f2056`
+## Current follow-up — integrated code/test head `2a6c04399012aff2b42c0d77f2675930104a2084`
+
+- The current source/test head includes the R-01 pending protective-ramp owner/generation fence. Tests cover owner and PCM-format changes, generation supersede, sample continuity, fresh-command re-protection, and ACK. The owner-rebind regression failed before the source fix; local Native DSP and Dynamic EQ HOT suites pass after it.
+- The supplied audit's R-02 remains safely deferred because Surface recovery is disabled/test-only. R-03 Runbook live-preview instructions and R-04 queue publication order are corrected.
+- Hosted PR run [#592](https://github.com/choko510/DiPlay/actions/runs/40937236189) passed at integrated source/test head `2a6c0439`: Native/ASan/UBSan, Shared/Common, Debug/Benchmark builds, lint, JNI/R8, API 35 instrumentation, host-baseline, and Release verification. API 35 passed Shared Release 23/23 and Common Debug 29/29. Artifacts: [check](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12926526125) and [instrumentation](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12926530895).
+- Run #589's three API 35 Shared Release attempts at the previous source head `00ac7453` include one FullHeavyChain wall-clock p99 failure and two passing same-head retries. The threshold was not changed, the cause remains unknown, and run #592 passed on the integrated head.
+- Evidence remains 170 IDs / 25 packages with PASS 2 / PARTIAL 162 / NOT_RUN 6. Hardware-only acceptance remains NOT_RUN.
+
+## Current execution evidence
+
+| Command/check | Result | Evidence and limits |
+|---|---|---|
+| `bash scripts/test_dsp_native.sh` | PASS | Native DSP and Dynamic EQ HOT suites pass, including R-01 owner/format/generation cancellation, sample continuity, and latest-generation ACK. |
+| `python scripts/check_dsp_studio_evidence.py` and `python -m unittest scripts.test_dsp_studio_evidence -v` | PASS | 170 IDs, 25 packages, PASS 2 / PARTIAL 162 / NOT_RUN 6; 24/24 validator fixtures. |
+| Hosted Native/ASan/UBSan, Shared/Common, lint/build/JNI/R8, API 35, host-baseline, Release verification | PASS | Run #592 at source/test head `2a6c0439`; API 35 23/23 Shared Release and 29/29 Common Debug. |
+
+## Historical follow-up — integrated code/test head `419fa45e5dc15fa5a135f0693ffa13bab59f2056` (2026-10-29)
 
 - Local Native regular suite passes with Preamp state-preservation and 20 ms Studio refund ramp tests; Shared/Common unit XML totals 734/734 and 357/357 with zero failures/errors/skips. The NCM no-progress deadline regression uses a virtual clock instead of short real-time sleeps.
 - The full local Gradle check command completed 359 actionable tasks: Mobile/Automotive Debug and Benchmark builds, both Debug lint tasks, and JNI Benchmark mapping all pass at this source. The installed NDK reports a missing `source.properties` file and unstripped libraries as non-fatal environment warnings.
@@ -10,7 +26,7 @@ This matrix distinguishes automated evidence from Android instrumentation and ta
 - Hosted PR run [#584](https://github.com/choko510/DiPlay/actions/runs/40723483149) passed at exact integrated code/test head `419fa45e`: Native+ASan/UBSan, Shared/Common, Debug/Benchmark builds, lint, JNI/R8, API 35 instrumentation, host-baseline, and Release verification. Its first attempt cancelled during Common instrumentation, then cancelled jobs were rerun successfully. `quick-baseline` was skipped because the full check ran. Artifacts: [check](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12833231327), [instrumentation](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12832178183). Prior dispatch #583 passed at `f5673dd7`.
 - Six remaining `NOT_RUN` IDs require physical CarPlay/TS10/K706/iPhone evidence: PH02-T05, T-PERF-09/10/11, T-UI-10/11. Other rows with software assertions and hardware sub-predicates remain `PARTIAL`.
 
-## Execution ledger
+## Historical execution ledger
 
 | Command | Result | Evidence and limits |
 |---|---|---|

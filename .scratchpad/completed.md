@@ -5,6 +5,7 @@
 ## 2026-10-30
 
 - Fixed the supplied PR #52 F-03 finding at source/test head `00ac7453`: Native HOT safety compares requested linear gain with effective gain after ramp cancellation. The new 44.1/48 kHz mono/stereo module matrix and owner-rebind continuity/ACK test pass. Hosted run #589 passed Native/ASan/UBSan, Shared/Common, lint/build/JNI/R8, API 35, host-baseline and Release verification after a same-head retry; the first benchmark p99 failure is preserved. Hardware acceptance remains NOT_RUN.
+- Closed re-audit R-01 at integrated head `2a6c0439`: pending protective ramps now retain generation/owner/format fences and stop at the effective linear gain when stale. Native tests cover rebind, format epoch, generation supersede, fresh protection and ACK. Run #592 passed full CI on the synchronized PR #45 base; R-02 remains default-off, and R-03/R-04 were corrected.
 
 ## 2026-10-29
 

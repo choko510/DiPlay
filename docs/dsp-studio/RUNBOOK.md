@@ -46,7 +46,7 @@ Stop capture with Ctrl-C after the session. Retain only the diagnostic lines nee
 
 ## 4. Exercise DSP Studio and CarPlay Split
 
-1. Open DSP Studio in FULL mode. Exercise Macro controls, 15-band PEQ editing, module Factory/User presets, A/B, Undo/Redo, Preview, Save, and Cancel. Verify draft edits do not change audio before Preview; Cancel restores the committed workspace; Save survives process restart.
+1. Open DSP Studio in FULL mode with media playing and DSP Master ON. Exercise Macro controls, 15-band PEQ editing, module Factory/User presets, A/B, Undo/Redo, Preview, Save, and Cancel. Studio workspace edits live-preview as values change; the explicit Preview action reapplies the current workspace. Verify Cancel restores the committed workspace and Save survives process restart. Repeat with DSP Master OFF and confirm the legacy bypass path remains active.
 2. Open the 55:45 CarPlay Split pane. Measure the actual pane bounds and confirm video remains visible and touchable. Record the Surface/session identity before and after every mode transition.
 3. Perform 20 cycles of Split open → DSP pane navigation/edit → Split close → reopen. Count failures, lost frames, black surfaces, touch misroutes, audio restarts, and session re-creation. A composable-only presentation test does not satisfy this gate.
 4. Repeat with profile changes that alter stateful processing or latency. Confirm the renderer reports DEFERRED when a safe in-place switch is unavailable and adopts only the correct generation.

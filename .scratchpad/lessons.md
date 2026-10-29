@@ -2,6 +2,7 @@
 
 - After a ramp is canceled, its previous target dB is not the effective gain. Regress same-target, lower-target, and higher-target Studio HOT updates after cancellation, including renderer rebind, module gating, PCM continuity, and final ACK.
 - A same-head API 35 p99 retry can pass after a wall-clock tail failure while the measured thread CPU p99 remains low. Preserve both samples and do not infer why the first wall-time tail occurred.
+- A protective HOT ramp can be in flight while the queue entry remains pending and there is no active ACK token. Test owner, PCM-format epoch, and generation retirement at block boundaries and verify stale work neither continues nor receives ACK/DEFER.
 
 - Do not infer audio restore success from a missing renderer status. Capture the owner when the Cancel restore starts; if that owned status disappears, wait for a current/replacement owner to confirm the committed generation or fail on timeout.
 - For a multi-sample gain ramp, keep a double-precision accumulator and snap to the validated target on the final frame. Repeated float additions can leave a long ramp slightly short of its target and make the completion boundary larger than the preceding sample steps.

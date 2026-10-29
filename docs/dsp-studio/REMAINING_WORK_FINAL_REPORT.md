@@ -1,11 +1,11 @@
-# PR #52 remaining-work completion report — 2026-10-29
+# PR #52 remaining-work completion report — 2026-10-30
 
 ## Scope and repository state
 
 - Repository: [choko510/DiPlay](https://github.com/choko510/DiPlay).
-- PR: [#52](https://github.com/choko510/DiPlay/pull/52), branch `codex/dsp-studio-final`, base `codex/step4-pr-00-test-baseline` at `07c0141c186b8e8df76dce097593170ab28b7faf`.
-- Final integrated source/test head: `00ac7453acd325f3523e1e832c01fb2a8375cf68`. Hosted pull-request run #40926483922 (#589) completed successfully at this exact head after retrying the failed API 35 benchmark job.
-- PR #52 is open, unmerged, and reported mergeable. The PR #45 and `main` refs were not changed. Do not merge before hardware acceptance and the user's approval.
+- PR: [#52](https://github.com/choko510/DiPlay/pull/52), branch `codex/dsp-studio-final`, base `codex/step4-pr-00-test-baseline` at `2f60aa9ac3034bcf68f61ed534772adb24999585`.
+- Final integrated source/test head: `2a6c04399012aff2b42c0d77f2675930104a2084`. Hosted pull-request run #40937236189 (#592) passed at this exact head after synchronizing the externally advanced base into PR #52 only.
+- PR #52 is open, unmerged, and clean against the current base. PR #45 remains at `2f60aa9a`; `main` remains at `95ba398f`. Neither was pushed by this task. Do not merge before hardware acceptance and the user's approval.
 - Previously integrated feature child PRs remain in `SUBAGENT_PR_LEDGER.md`; the final follow-up changes were implemented directly by Codex after the user's instruction. Read-only review contexts did not write code.
 - Notable integrated PRs for this remaining-work scope: [#68 Preamp HOT](https://github.com/choko510/DiPlay/pull/68), [#76 evidence map](https://github.com/choko510/DiPlay/pull/76), [#77 Dynamics/Dynamic EQ HOT](https://github.com/choko510/DiPlay/pull/77), and [#78 Save/Cancel race](https://github.com/choko510/DiPlay/pull/78). All target the PR #52 branch and are integrated there.
 
@@ -13,16 +13,16 @@
 
 ```text
 SOURCE_READY=FALSE_G4_INCOMPLETE
-FULL_CI_GREEN=TRUE_AT_RUN_40926483922
+FULL_CI_GREEN=TRUE_AT_RUN_40937236189
 HARDWARE_PASS=FALSE
 USER_APPROVAL=NOT_GIVEN
 MERGE_READY=FALSE
 OPEN_SOURCE_P0_P1=0
-POST_FIX_INDEPENDENT_REVIEW=NOT_RUN
+POST_R01_INDEPENDENT_REVIEW=NOT_RUN
 OPEN_ACCEPTANCE_EVIDENCE=162_PARTIAL
 ```
 
-The repaired source/test head `00ac7453acd325f3523e1e832c01fb2a8375cf68` passed pull-request workflow #40926483922 (#589), including Native/ASan/UBSan, Shared/Common, lint/build/JNI/R8, API 35 instrumentation (23/23 Shared Release and 29/29 Common Debug), host-baseline, and Release verification. Its first API 35 attempt failed one FullHeavyChain wall-clock p99 assertion at 63.232 ms over the fixed 21.332 ms limit; the same-head retry passed, and both results are preserved. No TS10/K706 or supported iPhone was connected, so physical acceptance remains `NOT_RUN` and PR #52 is not merge-ready.
+Integrated source/test head `2a6c04399012aff2b42c0d77f2675930104a2084` passed pull-request workflow #40937236189 (#592), including Native/ASan/UBSan, Shared/Common, lint/build/JNI/R8, API 35 instrumentation, host-baseline and Release verification. API 35 passed 23/23 Shared Release and 29/29 Common Debug tests. At prior head `00ac7453`, run #589 produced three API 35 Shared Release attempts: the first failed FullHeavyChain wall-clock p99 at 63.232 ms against the fixed 21.332 ms limit (thread CPU p99 1.640 ms), and two same-head reruns passed. All attempts are preserved and the initial tail's cause is unknown. No TS10/K706 or supported iPhone was connected, so physical acceptance remains `NOT_RUN` and PR #52 is not merge-ready.
 
 ## REM-01..12 status
 
@@ -39,7 +39,7 @@ The repaired source/test head `00ac7453acd325f3523e1e832c01fb2a8375cf68` passed 
 | REM-09 | `NOT_RUN` | No target head unit/iPhone. Physical Split, Surface/session/touch, route, voice-role, A/V, acoustic, thermal, CPU/RSS and soak checks remain unrun. See [RUNBOOK.md](RUNBOOK.md). |
 | REM-10 | `PARTIAL` | Same Android `STREAM_MUSIC` index remains untrusted, AUTO fails closed with zero gain, and 20 AUTO/OFF updates preserve profile, pipeline and latency. Physical MCU knob-to-route correlation/calibration remains unrun. |
 | REM-11 | `PARTIAL` | Existing graphical PEQ, numeric editing, selected-overlap semantics, localized descriptions and final gesture flush remain in place. Full filter/Native golden response and final audio ACK mapping across formats remain partial. |
-| REM-12 | `PARTIAL` | The supplied deep review at `f40d51ea` found F-01/F-02 and the supplied re-audit at `53d15588` found F-03; all three have direct regression coverage and pass source tests. Code/test head `00ac7453` passed full run #589 after preserving an initial API 35 FullHeavyChain p99 failure and passing the same-head retry. Hardware/per-ID acceptance and merge approval remain open; no post-F-03 independent review has run. |
+| REM-12 | `PARTIAL` | Supplied reviews found F-01/F-02/F-03/R-01; the gain/restore findings and pending protective-ramp ownership have direct source fixes/tests. R-02 remains deferred while test-only Surface recovery is disabled; R-03 is corrected in RUNBOOK; R-04 publication order is hardened. Integrated head `2a6c0439` passed #592. Hardware/per-ID acceptance and merge approval remain open; no post-R-01 independent review has run. |
 
 ## PKG-R00..R12 status
 
@@ -90,7 +90,7 @@ An interim dispatch, [run #406973](https://github.com/choko510/DiPlay/actions/ru
 
 ## Independent review findings
 
-Earlier independent Native, Runtime/JNI, UI/Storage, and QA/evidence reviewers found no P0/P1 at source `fbfc3b6e`; the Native state-preservation test, atomic owner/status update, and status-parity validator were retested on later heads. The supplied deep review `DiPlay_PR52_Independent_Deep_Code_Review_f40d51e_2026-10-29.md` identified F-01 and F-02 at `f40d51ea`; both were fixed and retested. The supplied independent re-audit `DiPlay_PR52_Independent_Reaudit_53d15588_2026-10-29.md` confirmed those repairs and found F-03. Source/test head `00ac7453` fixes F-03 by basing safety ordering on effective linear gain and passes Native/ASan/UBSan at run #589. The first API 35 FullHeavyChain p99 attempt failed at 63.232 ms against 21.332 ms; the same-head retry passed 23/23 Shared Release and 29/29 Common Debug. No post-F-03 independent review has run. P2 UI gaps remain screen-level Cancel retry, Save retry after I/O failure, TalkBack/external keyboard, and physical host flow.
+Earlier independent Native, Runtime/JNI, UI/Storage, and QA/evidence reviewers found no P0/P1 at source `fbfc3b6e`. The supplied deep review found F-01/F-02; the re-audit at `53d15588` confirmed those fixes and found F-03; the audit of `d5e792b1` found R-01/R-02/R-03/R-04. R-01 is fixed and tested at integrated head `2a6c0439`; R-02 remains default-off/test-only; R-03 is corrected in the Runbook; R-04 generation publication is ordered before queue visibility. Run #592 passed Native/ASan/UBSan and all host/API 35 checks. The three p99 attempts at source `00ac7453` are preserved; no post-R-01 independent review has run. P2 UI gaps remain screen-level Cancel retry, Save retry after I/O failure, TalkBack/external keyboard, and physical host flow.
 
 ## Rollback, hardware, and approval
 

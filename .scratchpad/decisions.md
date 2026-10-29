@@ -4,6 +4,14 @@
 
 The gain graph stores effective current linear gain and a separate ramp target linear value. Protective attenuation and Studio refund ordering compare those values; they do not infer current gain from a requested dB value after cancellation. This keeps safety checks accurate without log10/pow work in the audio callback.
 
+## Fence queued protective ramps by owner and generation
+
+A protective Studio ramp may start before its HOT command gets an active ACK token, while the command remains queued. Track the full owner/format/context tuple and generation for that ramp; cancel it at its current linear gain if stale, then let a fresh current command decide whether to resecure headroom.
+
+## Publish queue generation before its write index
+
+Release-store the latest HOT/LOCAL_WARM generation before release-publishing the corresponding queue slot index. A consumer that observes the new index then also observes the generation fence.
+
 ## Ramp Studio headroom refunds only after module gains settle
 
 Keep the protective headroom reduction immediate, but treat a later gain refund as a 20 ms sample ramp. Wait until Macro, Smart Loudness, Dynamic Bass, Compressor, and Dynamic EQ transitions are settled before starting the refund. The graph's HOT-completion predicate includes both a queued refund and its active gain ramp, so no generation is ACTIVE before the final sample.

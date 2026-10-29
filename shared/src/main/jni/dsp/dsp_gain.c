@@ -14,7 +14,6 @@ int dsp_gain_set_db(dsp_gain *gain, double decibels) {
     }
 
     gain->linear = (float)linear;
-    gain->decibels = decibels;
     gain->ramp_target_linear = (float)linear;
     gain->ramp_step = 0.0;
     gain->ramp_remaining = 0;
@@ -28,7 +27,6 @@ int dsp_gain_set_linear_ramped(dsp_gain *gain, float linear, double decibels, ui
     gain->ramp_target_linear = linear;
     if (ramp_samples == 0) {
         gain->linear = linear;
-        gain->decibels = decibels;
         gain->ramp_step = 0.0;
         gain->ramp_remaining = 0;
         gain->ramp_linear_accumulator = linear;
@@ -37,7 +35,6 @@ int dsp_gain_set_linear_ramped(dsp_gain *gain, float linear, double decibels, ui
     gain->ramp_linear_accumulator = gain->linear;
     gain->ramp_step = ((double)linear - gain->ramp_linear_accumulator) / (double)ramp_samples;
     gain->ramp_remaining = ramp_samples;
-    gain->decibels = decibels;
     return 1;
 }
 

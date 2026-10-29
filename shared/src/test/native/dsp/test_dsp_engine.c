@@ -3180,6 +3180,106 @@ static void test_studio_gain_refund_ramps_when_modules_are_already_settled(void)
     }
 }
 
+static void test_studio_hot_uses_effective_gain_after_cancelled_ramp(void) {
+    const int sample_rates[] = {44100, 48000};
+    const int channel_counts[] = {1, 2};
+    const double target_gains_db[] = {-12.0, -14.0, -10.0, -6.0};
+    const dsp_macro_config initial_macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_macro_config target_macro = {1, 1.0, 0.5, 0.25, 1.2};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {
+        0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0,
+    };
+
+    for (size_t rate_index = 0; rate_index < sizeof(sample_rates) / sizeof(sample_rates[0]); rate_index++) {
+        const int sample_rate = sample_rates[rate_index];
+        for (size_t channel_index = 0;
+             channel_index < sizeof(channel_counts) / sizeof(channel_counts[0]);
+             channel_index++) {
+            const int channels = channel_counts[channel_index];
+            dsp_dynamics_config active_dynamics = bypass_dynamics;
+            active_dynamics.compressor_enabled = 1;
+            dsp_dynamic_eq_config active_dynamic_eq = bypass_dynamic_eq;
+            active_dynamic_eq.enabled = 1;
+            active_dynamic_eq.bands[0].enabled = 1;
+
+            for (size_t target_index = 0;
+                 target_index < sizeof(target_gains_db) / sizeof(target_gains_db[0]);
+                 target_index++) {
+                dsp_graph graph = {0};
+                assert_true(dsp_graph_prepare(
+                        &graph, sample_rate, channels, -6.0, NULL, 0, &active_dynamics,
+                        &bypass_multiband, &active_dynamic_eq, NULL, 0, NULL, 0, &bypass_spatial,
+                        &bypass_convolver, &bypass_harmonic, &initial_macro, &loudness, &dynamic_bass),
+                    "cancelled-ramp graph prepares at each supported format");
+
+                dsp_dynamics_config target_dynamics = active_dynamics;
+                target_dynamics.compressor_threshold_db = -28.0;
+                dsp_dynamics_hot_params dynamics_update = {0};
+                assert_true(dsp_dynamics_prepare_hot_params(sample_rate, &target_dynamics, &dynamics_update),
+                    "safe Dynamics update prepares at each supported format");
+                dsp_dynamic_eq_config target_dynamic_eq = active_dynamic_eq;
+                target_dynamic_eq.bands[0].threshold_db = -26.0;
+                dsp_dynamic_eq_hot_update dynamic_eq_update = {0};
+                assert_true(dsp_dynamic_eq_prepare_hot_update(sample_rate, &target_dynamic_eq, &dynamic_eq_update),
+                    "safe Dynamic EQ update prepares at each supported format");
+
+                const uint32_t ramp_samples = (uint32_t)(sample_rate / 50);
+                const float interrupted_target_linear = (float)pow(10.0, -12.0 / 20.0);
+                assert_true(dsp_gain_set_linear_ramped(
+                        &graph.gain, interrupted_target_linear, -12.0, ramp_samples),
+                    "protective ramp starts toward the interrupted target");
+                const uint32_t frames_before_cancel = (ramp_samples * 2) / 5;
+                for (uint32_t frame = 0; frame < frames_before_cancel; frame++) {
+                    dsp_gain_advance(&graph.gain);
+                }
+                const float interrupted_linear = graph.gain.linear;
+                assert_true(interrupted_linear > interrupted_target_linear && interrupted_linear < 0.5012f,
+                    "interrupted gain remains between the prior and requested levels");
+                dsp_gain_cancel_ramp(&graph.gain);
+                assert_true(graph.gain.ramp_remaining == 0 &&
+                    graph.gain.ramp_target_linear == interrupted_linear,
+                    "cancellation keeps the actual gain as the only active target");
+
+                const double target_gain_db = target_gains_db[target_index];
+                const double target_gain_linear = pow(10.0, target_gain_db / 20.0);
+                const dsp_dynamics before_dynamics = graph.dynamics;
+                const dsp_dynamic_eq before_dynamic_eq = graph.dynamic_eq;
+                const dsp_macro before_macro = graph.macro;
+                const int result = dsp_graph_apply_hot(
+                    &graph,
+                    DSP_ENGINE_HOT_FIELD_STUDIO | DSP_ENGINE_HOT_FIELD_DYNAMICS |
+                        DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ,
+                    target_gain_db,
+                    target_gain_linear,
+                    &target_macro,
+                    &loudness,
+                    &dynamic_bass,
+                    &dynamics_update,
+                    &dynamic_eq_update);
+
+                if ((float)target_gain_linear < interrupted_linear) {
+                    assert_true(result == DSP_GRAPH_HOT_PROTECTIVE_RAMP,
+                        "same or lower effective gain protects against a cancelled ramp's retained target");
+                    assert_true(graph.gain.ramp_remaining == ramp_samples &&
+                        graph.gain.linear == interrupted_linear,
+                        "protective attenuation restarts smoothly from the actual interrupted gain");
+                    assert_true(memcmp(&graph.dynamics, &before_dynamics, sizeof(before_dynamics)) == 0 &&
+                        memcmp(&graph.dynamic_eq, &before_dynamic_eq, sizeof(before_dynamic_eq)) == 0 &&
+                        memcmp(&graph.macro, &before_macro, sizeof(before_macro)) == 0,
+                        "gain-increasing stages remain unchanged until protective attenuation completes");
+                } else {
+                    assert_true(result == DSP_GRAPH_HOT_APPLIED,
+                        "higher effective gain follows the normal Studio refund ordering");
+                    assert_true(graph.gain.linear == interrupted_linear && graph.studio_gain_refund_pending,
+                        "gain increase waits for module transitions before refunding headroom");
+                }
+                dsp_graph_close(&graph);
+            }
+        }
+    }
+}
+
 static void test_studio_gain_refund_ack_waits_for_ramp_and_newer_generation(void) {
     const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
     const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
@@ -4028,6 +4128,38 @@ static void test_preamp_hot_update_is_fenced_ramped_and_acknowledged_at_completi
         "rebound stale ramp block processes");
     assert_true(dsp_engine_get_preamp_ack_token(engine) == 0, "stale rebind target receives no ACK");
     assert_true(fabsf(output[1022] - last_good) < 1e-4f, "rebind keeps the last-good preamp gain");
+
+    const dsp_engine_hot_update rebound_studio_update = {
+        .generation_token = 45,
+        .generation = 45,
+        .editor_owner_epoch = 9,
+        .renderer_owner_token = 10,
+        .pcm_format_epoch = 5,
+        .hot_context_token = 3,
+        .media_role = 1,
+        .gain_db = -18.0,
+        .gain_linear = 0.1258925412,
+        .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
+        .macro = {1, 0.0, 0.0, 0.0, 1.2},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    assert_true(dsp_engine_enqueue_hot_update(engine, &rebound_studio_update),
+        "same-target Studio HOT can follow an owner-rebound preamp ramp");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 1, 2) == DSP_STATUS_OK,
+        "same-target Studio HOT starts its protective ramp after owner rebind");
+    assert_true(fabsf(output[0] - last_good) < 0.001f,
+        "same-target Studio HOT preserves sample continuity after the cancelled preamp ramp");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0,
+        "same-target Studio HOT is not acknowledged before the restarted protective ramp");
+    for (int block = 0; block < 12 && dsp_engine_get_hot_ack_token(engine) != 45; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "rebound Studio HOT completes its gain and module transitions");
+    }
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 45,
+        "rebound Studio HOT is acknowledged only after its protective ramp and module transition");
     dsp_engine_destroy(engine);
 }
 
@@ -4287,7 +4419,7 @@ static void test_studio_hot_update_rejects_invalid_module_configs_atomically(voi
     invalid_macro.air_gain_db = 3.0;
     assert_true(!dsp_graph_apply_studio_hot(&graph, 6.0, 1.995262315, &invalid_macro, &loudness, &dynamic_bass),
         "graph rejects invalid module config before applying hot changes");
-    assert_near(graph.gain.decibels, 0.0, 0.0, "invalid module config does not partially change preamp");
+    assert_near(graph.gain.linear, 0.0, 0.0, "invalid module config does not partially change preamp");
 }
 
 static void test_studio_hot_update_validates_ack_generation_token(void) {
@@ -4651,6 +4783,7 @@ int main(void) {
     test_studio_hot_refund_waits_for_stage_gain_release();
     test_studio_gain_refund_is_sample_ramped_at_supported_formats();
     test_studio_gain_refund_ramps_when_modules_are_already_settled();
+    test_studio_hot_uses_effective_gain_after_cancelled_ramp();
     test_studio_gain_refund_ack_waits_for_ramp_and_newer_generation();
     test_studio_refund_waits_for_dynamics_and_dynamic_eq();
     test_studio_neutral_macro_preserves_exact_samples();

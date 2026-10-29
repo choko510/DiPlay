@@ -250,9 +250,12 @@ int dsp_graph_apply_studio_hot(
     if (graph == NULL || !isfinite(gain_linear) || gain_linear <= 0.0 ||
         !dsp_graph_studio_hot_config_is_valid(
             gain_db, macro_config, smart_loudness_config, dynamic_bass_config)) return 0;
+    const float target_gain_linear = (float)gain_linear;
     const int gain_ramp_active = graph->gain.ramp_remaining > 0;
-    if (gain_ramp_active && gain_db != graph->gain.decibels) return DSP_GRAPH_HOT_DEFERRED;
-    const double current_gain_db = graph->gain.decibels;
+    if (gain_ramp_active && target_gain_linear != graph->gain.ramp_target_linear) {
+        return DSP_GRAPH_HOT_DEFERRED;
+    }
+    const float current_gain_linear = graph->gain.linear;
     if (!dsp_macro_apply_hot(&graph->macro, macro_config) ||
         !dsp_smart_loudness_apply_hot(&graph->smart_loudness, smart_loudness_config) ||
         !dsp_dynamic_bass_apply_hot(&graph->dynamic_bass, dynamic_bass_config)) {
@@ -260,7 +263,7 @@ int dsp_graph_apply_studio_hot(
     }
     if (gain_ramp_active) {
         graph->studio_gain_refund_pending = 0;
-    } else if (gain_db <= current_gain_db) {
+    } else if (target_gain_linear <= current_gain_linear) {
         if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db, 0)) return 0;
         graph->studio_gain_refund_pending = 0;
     } else {
@@ -321,8 +324,9 @@ int dsp_graph_apply_hot(
             macro_config, smart_loudness_config, dynamic_bass_config,
             dynamics_params, dynamic_eq_update);
     if (preflight != DSP_GRAPH_HOT_APPLIED) return preflight;
+    const float target_gain_linear = (float)gain_linear;
     if (graph->gain.ramp_remaining > 0) return DSP_GRAPH_HOT_PROTECTIVE_RAMP;
-    if (gain_db < graph->gain.decibels) {
+    if (target_gain_linear < graph->gain.linear) {
         if (!dsp_gain_set_linear_ramped(&graph->gain, (float)gain_linear, gain_db,
                 (uint32_t)(graph->sample_rate / 50))) return DSP_GRAPH_HOT_REJECTED;
         graph->studio_gain_refund_pending = 0;
@@ -339,7 +343,7 @@ int dsp_graph_apply_hot(
             macro_config, smart_loudness_config, dynamic_bass_config);
         if (studio_result != DSP_GRAPH_HOT_APPLIED) return studio_result;
     }
-    if ((field_mask & DSP_ENGINE_HOT_FIELD_STUDIO) == 0 && gain_db > graph->gain.decibels) {
+    if ((field_mask & DSP_ENGINE_HOT_FIELD_STUDIO) == 0 && target_gain_linear > graph->gain.linear) {
         graph->pending_studio_gain_db = gain_db;
         graph->pending_studio_gain_linear = (float)gain_linear;
         graph->studio_gain_refund_pending = 1;

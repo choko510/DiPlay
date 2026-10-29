@@ -52,35 +52,66 @@ class Ipv6NcmBridge(
     @Volatile
     private var peerMac: ByteArray? = null
     private val running = AtomicBoolean(false)
-    private lateinit var ncmToTunThread: Thread
-    private lateinit var tunToNcmThread: Thread
+    private val closed = AtomicBoolean(false)
+    private var ncmClosed = false
+    private var tunClosed = false
+    private var ncmToTunThread: Thread? = null
+    private var tunToNcmThread: Thread? = null
 
+    @Synchronized
     fun start() {
+        check(!closed.get()) { "bridge is closed" }
         check(running.compareAndSet(false, true)) { "bridge is already started" }
-        ncmToTunThread = Thread(::runNcmToTun, "ncm-ipv6-in").apply {
-            isDaemon = true
-            start()
+        try {
+            ncmToTunThread = Thread(::runNcmToTun, "ncm-ipv6-in").apply {
+                isDaemon = true
+                start()
+            }
+            tunToNcmThread = Thread(::runTunToNcm, "ncm-ipv6-out").apply {
+                isDaemon = true
+                start()
+            }
+            onBridgeStarted()
+        } catch (error: RuntimeException) {
+            runCatching { close() }
+            throw error
         }
-        tunToNcmThread = Thread(::runTunToNcm, "ncm-ipv6-out").apply {
-            isDaemon = true
-            start()
-        }
-        onBridgeStarted()
     }
 
+    @Synchronized
     override fun close() {
-        if (!running.compareAndSet(true, false)) return
-        try {
-            ncm.close()
-        } finally {
+        closed.set(true)
+        running.set(false)
+        var closeFailure: Exception? = null
+        if (!ncmClosed) {
             try {
-                closeTunForTest?.invoke() ?: tun.close()
-            } finally {
-                join(ncmToTunThread)
-                join(tunToNcmThread)
+                ncm.close()
+                ncmClosed = true
+            } catch (error: Exception) {
+                closeFailure = error
             }
         }
+        if (!tunClosed) {
+            try {
+                closeTunForTest?.invoke() ?: tun.close()
+                tunClosed = true
+            } catch (error: Exception) {
+                if (closeFailure == null) closeFailure = error else closeFailure.addSuppressed(error)
+            }
+        }
+        ncmToTunThread?.let(::join)
+        tunToNcmThread?.let(::join)
+        ncmToTunThread = null
+        tunToNcmThread = null
+        peerMac = null
+        closeFailure?.let { throw it }
     }
+
+    internal val isClosedForTest: Boolean
+        get() = closed.get()
+
+    internal val isRunningForTest: Boolean
+        get() = running.get()
 
     private fun runNcmToTun() {
         val output = tunOutputStreamForTest ?: FileOutputStream(tun.fileDescriptor)

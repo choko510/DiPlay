@@ -333,6 +333,94 @@ class AndroidMediaSinkStateTest {
         assertTrue(afterClose.isEmpty())
     }
 
+    @Test fun closeCallbackFailureDoesNotSkipVideoDecoderShutdown() {
+        val type = 110
+        val stopEntered = CountDownLatch(1)
+        val releaseStop = CountDownLatch(1)
+        val closeFinished = CountDownLatch(1)
+        val closeFailure = AtomicReference<Throwable?>()
+        val sink = AndroidMediaSink(onScreenStreamActiveChanged = { _, active ->
+            if (!active) throw IllegalStateException("injected screen-close callback failure")
+        })
+        sink.onScreenStreamActive(type, true)
+        sink.beforeVideoDecoderStopForTest = {
+            stopEntered.countDown()
+            var interrupted = false
+            while (true) {
+                try {
+                    releaseStop.await()
+                    break
+                } catch (_: InterruptedException) {
+                    interrupted = true
+                }
+            }
+            if (interrupted) Thread.currentThread().interrupt()
+        }
+        sink.onVideoCodec(type, VideoCodec.H264)
+        sink.onVideoConfig(type, byteArrayOf(1))
+        val decoder = checkNotNull(videoDecoder(sink, type))
+
+        try {
+            Thread {
+                try {
+                    sink.close()
+                } catch (error: Throwable) {
+                    closeFailure.set(error)
+                } finally {
+                    closeFinished.countDown()
+                }
+            }.apply { isDaemon = true; start() }
+
+            assertTrue("close must continue after a screen callback throws", stopEntered.await(2, TimeUnit.SECONDS))
+            assertFalse("close must not return while the video decoder worker is blocked", closeFinished.await(50, TimeUnit.MILLISECONDS))
+            releaseStop.countDown()
+            assertTrue(closeFinished.await(2, TimeUnit.SECONDS))
+            assertNull(closeFailure.get())
+            assertTrue(awaitVideoDecoderStopped(decoder))
+        } finally {
+            releaseStop.countDown()
+            sink.close()
+        }
+    }
+
+    @Test fun sinkCloseReportsPendingUntilVideoDecoderReleaseIsSafe() {
+        val type = 110
+        val stopEntered = CountDownLatch(1)
+        val releaseStop = CountDownLatch(1)
+        val sink = AndroidMediaSink()
+        sink.onScreenStreamActive(type, true)
+        sink.beforeVideoDecoderStopForTest = {
+            stopEntered.countDown()
+            var interrupted = false
+            while (true) {
+                try {
+                    releaseStop.await()
+                    break
+                } catch (_: InterruptedException) {
+                    interrupted = true
+                }
+            }
+            if (interrupted) Thread.currentThread().interrupt()
+        }
+        sink.onVideoCodec(type, VideoCodec.H264)
+        sink.onVideoConfig(type, byteArrayOf(1))
+        val decoder = checkNotNull(videoDecoder(sink, type))
+
+        try {
+            assertFalse(sink.closeAndAwaitResources(timeoutMillis = 50))
+            assertTrue(stopEntered.await(2, TimeUnit.SECONDS))
+            assertFalse("a repeated close cannot report success while codec release is blocked",
+                sink.closeAndAwaitResources(timeoutMillis = 50))
+            releaseStop.countDown()
+            assertTrue(sink.closeAndAwaitResources(timeoutMillis = 2_000))
+            assertTrue(awaitVideoDecoderStopped(decoder))
+            assertTrue(privateField(decoder, "surfaceReleaseSafe") as Boolean)
+        } finally {
+            releaseStop.countDown()
+            sink.close()
+        }
+    }
+
     @Test fun replacingTheScreenClearsTheOldDecoderAndCodecBeforeTheNextConfig() {
         val sink = AndroidMediaSink()
         val type = 110
@@ -845,6 +933,21 @@ class AndroidMediaSinkStateTest {
         }
     }
 
+    @Test fun sinkCloseWaitsForMicrophoneUplinkToFinish() {
+        val sink = AndroidMediaSink()
+        val token = AudioOwnerToken(100, 1)
+        val uplink = DelayedMicrophoneUplink()
+        sink.microphoneUplinkFactoryForTest = { _, _ -> uplink }
+        sink.claimAudioOwner(token)
+
+        assertTrue(sink.onMicrophoneStarted(token, microphoneConfig()))
+        assertFalse(sink.closeAndAwaitResources(timeoutMillis = 50))
+        assertTrue(uplink.closed)
+
+        uplink.stopped = true
+        assertTrue(sink.closeAndAwaitResources(timeoutMillis = 500))
+    }
+
     private fun microphoneConfig() = MicrophoneConfig(
         audioType = "telephony",
         sampleRate = 16_000,
@@ -883,6 +986,23 @@ class AndroidMediaSinkStateTest {
             active = false
             closed = true
         }
+    }
+
+    private class DelayedMicrophoneUplink : MicrophoneUplinkController {
+        override val isActive: Boolean = true
+        var closed = false
+            private set
+        var stopped = false
+
+        override fun start(): Boolean = true
+
+        override fun activate() = Unit
+
+        override fun close() {
+            closed = true
+        }
+
+        override fun awaitStopped(timeoutMillis: Long): Boolean = stopped
     }
 
     private fun rendererToken(sink: AndroidMediaSink, type: Int): AudioOwnerToken? {

@@ -130,6 +130,19 @@ class IphoneUsbAutoLaunchCoordinatorTest {
     }
 
     @Test
+    fun deferredReplayCanRemainQueuedAcrossTransientDispatchFailure() {
+        val queue = IphoneUsbAutoLaunchRequestQueue()
+        val pending = DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH)
+        queue.defer(pending)
+
+        assertEquals(pending, queue.peekDeferred())
+        assertFalse(queue.completeDeferred(pending.copy()))
+        assertEquals(pending, queue.peekDeferred())
+        assertTrue(queue.completeDeferred(pending))
+        assertEquals(null, queue.peekDeferred())
+    }
+
+    @Test
     fun handoffQueueUsesTheLatestIdentityAndPreservesTheSplitSnapshot() {
         val queue = IphoneUsbAutoLaunchRequestQueue()
         val layoutState = CarPlayHostLaunchState(

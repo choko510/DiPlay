@@ -7,6 +7,14 @@
 - Treat codec-config/empty buffers as non-pictures; only valid pictures consume pending output hints or count as Surface submissions. Keep the Surface recovery default off.
 - Report PTS-correlation latency through codec Surface-release call completion, including unmatched/overwritten fractions. Do not describe it as compositor or panel presentation latency.
 
+## PR #45 re-review remediation — 2026-10-30
+
+- Treat screen-state callbacks as best-effort notifications during sink close; retain decoder and worker ownership until worker exit and successful MediaCodec/Surface release are confirmed. Keep the Host teardown barrier closed on timeout and cap each retry cycle at three attempts.
+- For bounded touch dispatch, coalesce only continuous movement snapshots. Preserve edge snapshots while capacity is available; on edge saturation replace pending transitions with an all-contact cancellation so no touch remains held.
+- Keep built-in DSP preset edits session-only and make that behavior visible; custom profiles remain the persistence path. Accept async DSP imports only when the originating operation, draft revision, profile, and screen are still current.
+- Retry USB deferred replay only for transient inventory/dispatch failures, with a bounded delay schedule and identity revalidation. Keep stale/disabled devices terminal.
+- Do not change the audio queue's drop-newest policy without same-device A/B evidence; preserve it and leave the audio behavior gate NOT_RUN.
+
 ## XCertPlay OPT-00–OPT-08 adaptation
 
 Use the application context for `UsbManager` without changing permission or USB lifecycle behavior. Keep one `BufferInfo` per decoder worker; use capped approximate pending-output tracking, FIFO job priority, bounded 8 ms output waits and a 500 ms last-input deadline while preserving input-pump draining. Route MAIN keyframe requests with empty params and ALT with its nonblank SETUP UUID; stale/unknown requests do not fall back to MAIN. Keep changed-Surface recovery disabled by default until target-device evidence exists. Do not batch Host log delivery without real startup/reconnect cost measurements; retain the existing forward Annex B path.

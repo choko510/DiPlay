@@ -90,6 +90,25 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun builtInPresetEditsRemainSessionOnlyAcrossRuntimeRecreation() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        DspProfileRuntime.resetForTesting()
+        val runtime = DspProfileRuntime.get(context)
+        val changedPreset = DspProfilePresets.find("flat")!!.copy(preampDb = 3.0)
+
+        assertTrue(runtime.apply(changedPreset, enabled = true))
+        assertEquals(3.0, runtime.selectedProfile().preampDb, 0.0)
+        DspProfileRuntime.resetForTesting()
+
+        val recreated = DspProfileRuntime.get(context)
+        assertEquals(DspProfilePresets.find("flat"), recreated.selectedProfile())
+        assertTrue(recreated.isDspEnabled())
+        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()
+        DspProfileRuntime.resetForTesting()
+    }
+
+    @Test
     fun discardingImportedImpulseRemovesOnlyUnreferencedFiles() {
         val context: Application = RuntimeEnvironment.getApplication()
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE).edit().clear().commit()

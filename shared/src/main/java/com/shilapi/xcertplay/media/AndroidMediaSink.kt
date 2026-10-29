@@ -67,6 +67,7 @@ import java.util.concurrent.TimeUnit
 
 private const val VIDEO_RECOVERY_WORKER_COUNT = 2
 private const val VIDEO_RECOVERY_QUEUE_CAPACITY = 16
+private const val DEFAULT_CLOSE_WAIT_MILLIS = 750L
 
 internal fun interface AudioTrackWriteAdapterForTest {
     fun write(data: ByteArray, offset: Int, length: Int, writeMode: Int): Int
@@ -144,6 +145,8 @@ class AndroidMediaSink(
     private val activeAudioOwners = ConcurrentHashMap<Int, AudioOwnerToken>()
     private val audioRenderers = ConcurrentHashMap<Int, AudioRendererEntry>()
     private val microphoneUplinks = ConcurrentHashMap<Int, MicrophoneEntry>()
+    private val retiringAudioRenderers = ConcurrentHashMap.newKeySet<AudioRenderer>()
+    private val retiringMicrophones = ConcurrentHashMap.newKeySet<MicrophoneUplinkController>()
     private val closed = AtomicBoolean(false)
     private val pendingVideoCodec = ConcurrentHashMap<Int, VideoCodec>()
     private val videoRecoveryHandlers = ConcurrentHashMap<Int, VideoRecoveryHandler>()
@@ -481,33 +484,80 @@ class AndroidMediaSink(
     }
 
     fun close() {
-        if (!closed.compareAndSet(false, true)) return
-        synchronized(screenStateLock) {
-            activeScreenTypes.forEach { screenStreamActiveChanged?.invoke(it, false) }
-            activeScreenTypes.clear()
-            screenStreamActiveChanged = null
-        }
-        (videoDecoders.values + retiringVideoDecoders.values).distinct().forEach(VideoDecoder::close)
-        videoDecoders.clear()
-        retiringVideoDecoders.clear()
-        pendingVideoConfigs.clear()
-        videoRecoveryHandlers.clear()
-        videoDiagnosticHandlers.clear()
-        recoveryExecutor.shutdownNow()
-        recoveryPending.clear()
-        val types = (audioTypeLocks.keys + activeAudioOwners.keys + audioRenderers.keys + microphoneUplinks.keys).toSet()
-        val renderers = mutableListOf<AudioRenderer>()
-        val microphones = mutableListOf<MicrophoneUplinkController>()
-        types.forEach { type ->
-            synchronized(audioTypeLock(type)) {
-                activeAudioOwners.remove(type)
-                audioRenderers.remove(type)?.let { renderers.add(it.renderer) }
-                microphoneUplinks.remove(type)?.let { microphones.add(it.uplink) }
+        requestClose()
+        closeAndAwaitResources(DEFAULT_CLOSE_WAIT_MILLIS)
+    }
+
+    fun closeAndAwaitResources(timeoutMillis: Long): Boolean {
+        requestClose()
+        val deadlineNs = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis.coerceAtLeast(0L))
+        var resourcesStopped = true
+        val decoders = (videoDecoders.values + retiringVideoDecoders.values).distinct()
+        decoders.forEach { decoder ->
+            val stopped = decoder.awaitStopped(remainingMillis(deadlineNs)) && decoder.surfaceReleaseSafe
+            if (stopped) {
+                videoDecoders.entries.removeAll { it.value === decoder }
+                retiringVideoDecoders.entries.removeAll { it.value === decoder }
+            } else {
+                resourcesStopped = false
             }
         }
-        renderers.forEach(AudioRenderer::close)
-        microphones.forEach(MicrophoneUplinkController::close)
+        retiringAudioRenderers.toList().forEach { renderer ->
+            if (renderer.awaitStopped(remainingMillis(deadlineNs))) {
+                retiringAudioRenderers.remove(renderer)
+            } else {
+                resourcesStopped = false
+            }
+        }
+        retiringMicrophones.toList().forEach { microphone ->
+            if (microphone.awaitStopped(remainingMillis(deadlineNs))) {
+                retiringMicrophones.remove(microphone)
+            } else {
+                resourcesStopped = false
+            }
+        }
+        try {
+            if (!recoveryExecutor.awaitTermination(remainingMillis(deadlineNs), TimeUnit.MILLISECONDS)) {
+                resourcesStopped = false
+            }
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            resourcesStopped = false
+        }
+        return resourcesStopped
     }
+
+    private fun requestClose() {
+        val firstClose = closed.compareAndSet(false, true)
+        if (firstClose) {
+            val (activeTypes, callback) = synchronized(screenStateLock) {
+                activeScreenTypes.toList() to screenStreamActiveChanged.also {
+                    activeScreenTypes.clear()
+                    screenStreamActiveChanged = null
+                }
+            }
+            activeTypes.forEach { type -> runCatching { callback?.invoke(type, false) } }
+            pendingVideoConfigs.clear()
+            videoRecoveryHandlers.clear()
+            videoDiagnosticHandlers.clear()
+            recoveryExecutor.shutdownNow()
+            recoveryPending.clear()
+            val types = (audioTypeLocks.keys + activeAudioOwners.keys + audioRenderers.keys + microphoneUplinks.keys).toSet()
+            types.forEach { type ->
+                synchronized(audioTypeLock(type)) {
+                    activeAudioOwners.remove(type)
+                    audioRenderers.remove(type)?.renderer?.let(retiringAudioRenderers::add)
+                    microphoneUplinks.remove(type)?.uplink?.let(retiringMicrophones::add)
+                }
+            }
+        }
+        (videoDecoders.values + retiringVideoDecoders.values).distinct().forEach { decoder -> runCatching { decoder.close() } }
+        retiringAudioRenderers.toList().forEach { renderer -> runCatching { renderer.close() } }
+        retiringMicrophones.toList().forEach { microphone -> runCatching { microphone.close() } }
+    }
+
+    private fun remainingMillis(deadlineNs: Long): Long =
+        TimeUnit.NANOSECONDS.toMillis((deadlineNs - System.nanoTime()).coerceAtLeast(0L))
 
     private fun videoDecoder(type: Int): VideoDecoder? = videoDecoder(type, restorePendingConfig = true)
 
@@ -1657,6 +1707,8 @@ internal class AudioRenderer(
     override fun close() {
         lifecycle.close(thread) { queue.clear() }
     }
+
+    fun awaitStopped(timeoutMillis: Long): Boolean = lifecycle.awaitStopped(thread, timeoutMillis)
 
     private fun run() {
         try {

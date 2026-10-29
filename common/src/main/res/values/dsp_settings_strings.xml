@@ -8,6 +8,7 @@
     <string name="dsp_operation_in_progress">DSP処理中…</string>
     <string name="dsp_unapplied_changes">未適用の変更があります</string>
     <string name="dsp_changes_applied">プロファイルは適用済みです</string>
+    <string name="dsp_preset_edits_session_only">標準プリセットの編集はこのセッション中のみ有効です。再起動後も使うにはCustom 1またはCustom 2に保存してください。</string>
     <string name="dsp_selected_profile">選択中のプロファイル: %1$s</string>
     <string name="dsp_applied_profile">設定済みプロファイル: %1$s</string>
     <string name="dsp_settings_description">一部の設定は再生中に反映されます。Convolver、Compressor、Multiband、Dynamic EQなど、内部状態を持つgraphの再構築は次のオーディオストリームまで保留されます。</string>

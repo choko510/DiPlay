@@ -1453,6 +1453,8 @@ class CarPlayHostActivity : ComponentActivity() {
         sessionLog?.append("Activity destroyed")
         sessionLog?.close()
         sessionLog = null
+        teardownExecutor.shutdown()
+        airPlayCommandExecutor.shutdown()
         super.onDestroy()
     }
 
@@ -4941,6 +4943,7 @@ class CarPlayHostActivity : ComponentActivity() {
         val traceSequence = java.util.concurrent.atomic.AtomicLong()
         val traceLock = Any()
         val traceStore = ConnectionTraceStore.shared(applicationContext)
+        val pairingContext = applicationContext
         val next = CarPlayController(
             context = this,
             config = config,
@@ -4950,9 +4953,9 @@ class CarPlayHostActivity : ComponentActivity() {
             listener = createSessionListener(controllerGeneration, controllerConnectionEpoch),
             media = media,
             reportStatus = createStatusReporter(controllerGeneration, controllerConnectionEpoch),
-            loadPairRecord = { AirPlayPersistence.loadLockdownRecord(this) },
-            savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(this, record) },
-            clearPairRecord = { AirPlayPersistence.clearLockdownRecord(this) },
+            loadPairRecord = { AirPlayPersistence.loadLockdownRecord(pairingContext) },
+            savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(pairingContext, record) },
+            clearPairRecord = { AirPlayPersistence.clearLockdownRecord(pairingContext) },
             locationProvider = locationProvider,
             connectionTraceEnabled = AirPlayPersistence.loadDebugLogsEnabled(this),
             onConnectionTrace = { event ->
@@ -5405,6 +5408,7 @@ class CarPlayHostActivity : ComponentActivity() {
             val clean = oldController?.let(::awaitControllerClosedForShutdown) ?: true
             if (!clean || !closeSinkForShutdown(oldSink)) {
                 Log.e(TAG, "Controller restart cancelled because shutdown is still pending")
+                reportTeardownBlocked("CarPlay restart is blocked until the previous Controller and media resources stop")
                 if (shutdownTerminatesProcess.get()) Process.killProcess(Process.myPid())
                 return@execute
             }
@@ -5558,18 +5562,25 @@ class CarPlayHostActivity : ComponentActivity() {
             val clean = oldController?.let(::awaitControllerClosedForShutdown) ?: true
             if (!clean) {
                 Log.e(TAG, "Controller teardown still pending during process shutdown")
-                runCatching { oldSink?.close() }
-                runCatching { applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java)) }
-                runCatching { applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java)) }
-                teardownExecutor.shutdown()
-                Process.killProcess(Process.myPid())
+                if (shutdownTerminatesProcess.get()) {
+                    runCatching { applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java)) }
+                    runCatching { applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java)) }
+                    teardownExecutor.shutdown()
+                    Process.killProcess(Process.myPid())
+                } else {
+                    reportTeardownBlocked("Controller teardown is still pending; the existing session barrier remains active")
+                }
                 return@execute
             }
             if (!closeSinkForShutdown(oldSink)) {
-                runCatching { applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java)) }
-                runCatching { applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java)) }
-                teardownExecutor.shutdown()
-                Process.killProcess(Process.myPid())
+                if (shutdownTerminatesProcess.get()) {
+                    runCatching { applicationContext.stopService(Intent(applicationContext, CarPlayVpnService::class.java)) }
+                    runCatching { applicationContext.stopService(Intent(applicationContext, DiPlaySessionService::class.java)) }
+                    teardownExecutor.shutdown()
+                    Process.killProcess(Process.myPid())
+                } else {
+                    reportTeardownBlocked("Media resources are still stopping; the existing session barrier remains active")
+                }
                 return@execute
             }
             airPlayCommandExecutor.shutdown()
@@ -5592,7 +5603,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun awaitControllerClosedForShutdown(controller: CarPlayController): Boolean {
         var notified = false
-        while (!shutdownTerminatesProcess.get()) {
+        repeat(MAX_TEARDOWN_ATTEMPTS) { attempt ->
             val closed = try {
                 awaitControllerClosedForTest?.invoke(controller, CONTROLLER_CLOSE_TIMEOUT_MILLIS)
                     ?: controller.awaitClosed(CONTROLLER_CLOSE_TIMEOUT_MILLIS)
@@ -5614,14 +5625,15 @@ class CarPlayHostActivity : ComponentActivity() {
             if (Thread.interrupted()) {
                 Log.w(TAG, "Controller close wait interrupted; continuing fail-closed teardown")
             }
-            pauseShutdownRetry()
+            if (attempt + 1 < MAX_TEARDOWN_ATTEMPTS && !shutdownTerminatesProcess.get()) pauseShutdownRetry()
         }
+        Log.e(TAG, "Controller teardown did not finish after $MAX_TEARDOWN_ATTEMPTS attempts")
         return false
     }
 
     private fun requestControllerCloseForShutdown(controller: CarPlayController) {
         var notified = false
-        while (!shutdownTerminatesProcess.get()) {
+        repeat(MAX_TEARDOWN_ATTEMPTS) { attempt ->
             try {
                 controller.close()
                 return
@@ -5632,9 +5644,10 @@ class CarPlayHostActivity : ComponentActivity() {
                     notified = true
                 }
                 if (controller.isClosed()) return
-                pauseShutdownRetry()
+                if (attempt + 1 < MAX_TEARDOWN_ATTEMPTS && !shutdownTerminatesProcess.get()) pauseShutdownRetry()
             }
         }
+        Log.e(TAG, "Controller close request did not succeed after $MAX_TEARDOWN_ATTEMPTS attempts")
     }
 
     private fun pauseShutdownRetry() {
@@ -5647,10 +5660,14 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun closeSinkForShutdown(oldSink: AndroidMediaSink?): Boolean {
         var notified = false
-        while (!shutdownTerminatesProcess.get()) {
+        repeat(MAX_TEARDOWN_ATTEMPTS) { attempt ->
             try {
-                oldSink?.close()
-                return true
+                if (oldSink?.closeAndAwaitResources(CONTROLLER_CLOSE_TIMEOUT_MILLIS) != false) return true
+                if (!notified) {
+                    Log.e(TAG, "Media sink resources are still active; retaining teardown barrier")
+                    notifyShutdownCallbacks(CarPlayHostShutdownResult.TIMED_OUT)
+                    notified = true
+                }
             } catch (error: RuntimeException) {
                 if (!notified) {
                     Log.e(TAG, "Media sink close failed; blocking next start " +
@@ -5658,10 +5675,19 @@ class CarPlayHostActivity : ComponentActivity() {
                     notifyShutdownCallbacks(CarPlayHostShutdownResult.FAILED)
                     notified = true
                 }
-                pauseShutdownRetry()
             }
+            if (attempt + 1 < MAX_TEARDOWN_ATTEMPTS && !shutdownTerminatesProcess.get()) pauseShutdownRetry()
         }
+        Log.e(TAG, "Media sink teardown did not finish after $MAX_TEARDOWN_ATTEMPTS attempts")
         return false
+    }
+
+    private fun reportTeardownBlocked(message: String) {
+        mainHandler.post {
+            if (isDestroyed) return@post
+            appendLog(message)
+            setConnectionStage(message)
+        }
     }
 
     private fun enqueueShutdownCompletion(completion: (CarPlayHostShutdownResult) -> Unit) {
@@ -6074,6 +6100,7 @@ class CarPlayHostActivity : ComponentActivity() {
         const val IAP_TUNNEL_RECONNECT_DELAY_MILLIS = 15_000L
         const val CONTROLLER_CLOSE_TIMEOUT_MILLIS = 4_000L
         const val SHUTDOWN_RETRY_DELAY_MILLIS = 250L
+        const val MAX_TEARDOWN_ATTEMPTS = 3
         const val AUDIO_CAPTURE_MARKER = "audio-capture.enabled"
         const val AUDIO_CAPTURE_DIRECTORY = "audio-captures"
         const val PROTOCOL_TRACE_PREFIX = "TRACE_EVENT "

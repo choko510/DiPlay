@@ -3280,6 +3280,180 @@ static void test_studio_hot_uses_effective_gain_after_cancelled_ramp(void) {
     }
 }
 
+static void assert_protective_ramp_stops_at_a_changed_update_context(
+    uint64_t editor_owner_epoch,
+    uint64_t renderer_owner_token,
+    uint64_t pcm_format_epoch) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) {
+        input[frame * 2] = 0.5f;
+        input[frame * 2 + 1] = 0.5f;
+    }
+
+    dsp_engine *engine = create_studio_test_engine_with_gain(
+        48000, 2, 512, -6.0, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "protective-ramp context graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "protective-ramp context graph binds its original owner");
+    const dsp_engine_hot_update old_owner_update = {
+        .generation_token = 41,
+        .generation = 41,
+        .editor_owner_epoch = 7,
+        .renderer_owner_token = 9,
+        .pcm_format_epoch = 3,
+        .hot_context_token = 1,
+        .media_role = 1,
+        .gain_db = -12.0,
+        .gain_linear = 0.2511886432,
+        .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
+        .macro = {0, 0.0, 0.0, 0.0, 1.0},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    assert_true(dsp_engine_enqueue_hot_update(engine, &old_owner_update),
+        "old-owner protective HOT enters the queue");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 128, 2) == DSP_STATUS_OK,
+        "old-owner protective ramp begins");
+    const float last_old_owner_sample = output[254];
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0,
+        "protective attenuation does not acknowledge the old-owner command");
+
+    assert_true(dsp_engine_bind_hot_update_context(
+            engine, 48000, 2, editor_owner_epoch, renderer_owner_token, pcm_format_epoch, 2, 1),
+        "protective-ramp owner or PCM format context changes");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "old-owner queue and protective ramp are retired on the audio thread");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0 &&
+        dsp_engine_get_hot_deferred_token(engine) == 0,
+        "retired protective update receives neither ACK nor DEFER");
+    assert_true(fabsf(output[0] - last_old_owner_sample) < 0.001f &&
+        fabsf(output[1022] - output[0]) < 0.001f,
+        "owner or PCM format rebind stops the old ramp without a gain step");
+
+    const dsp_engine_hot_update new_owner_update = {
+        .generation_token = 42,
+        .generation = 42,
+        .editor_owner_epoch = editor_owner_epoch,
+        .renderer_owner_token = renderer_owner_token,
+        .pcm_format_epoch = pcm_format_epoch,
+        .hot_context_token = 2,
+        .media_role = 1,
+        .gain_db = -8.0,
+        .gain_linear = 0.3981071706,
+        .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
+        .macro = {0, 0.0, 0.0, 0.0, 1.0},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    assert_true(dsp_engine_enqueue_hot_update(engine, &new_owner_update),
+        "new owner supplies its current protective target");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "new-owner protective ramp is resecured from the retained effective gain");
+    assert_true(output[1022] < output[0] - 0.005f,
+        "new-owner command starts a fresh bounded attenuation ramp");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0,
+        "new-owner protective ramp remains unacknowledged while in flight");
+    for (int block = 0; block < 8 && dsp_engine_get_hot_ack_token(engine) != 42; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "new-owner protective ramp and Studio apply complete");
+    }
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 42,
+        "only the new-owner generation is acknowledged after completion");
+    dsp_engine_destroy(engine);
+}
+
+static void test_protective_studio_ramp_is_cancelled_on_owner_and_format_change(void) {
+    assert_protective_ramp_stops_at_a_changed_update_context(8, 10, 3);
+    assert_protective_ramp_stops_at_a_changed_update_context(7, 9, 4);
+}
+
+static void test_protective_studio_ramp_is_retargeted_when_generation_is_superseded(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) {
+        input[frame * 2] = 0.5f;
+        input[frame * 2 + 1] = 0.5f;
+    }
+
+    dsp_engine *engine = create_studio_test_engine_with_gain(
+        48000, 2, 512, -6.0, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "protective-ramp generation graph creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "protective-ramp generation graph binds MEDIA owner");
+    const dsp_engine_hot_update old_generation_update = {
+        .generation_token = 51,
+        .generation = 51,
+        .editor_owner_epoch = 7,
+        .renderer_owner_token = 9,
+        .pcm_format_epoch = 3,
+        .hot_context_token = 1,
+        .media_role = 1,
+        .gain_db = -12.0,
+        .gain_linear = 0.2511886432,
+        .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
+        .macro = {0, 0.0, 0.0, 0.0, 1.0},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    assert_true(dsp_engine_enqueue_hot_update(engine, &old_generation_update),
+        "old-generation protective HOT enters the queue");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 128, 2) == DSP_STATUS_OK,
+        "old-generation protective ramp begins");
+    const float last_old_generation_sample = output[254];
+    const dsp_engine_hot_update new_generation_update = {
+        .generation_token = 52,
+        .generation = 52,
+        .editor_owner_epoch = 7,
+        .renderer_owner_token = 9,
+        .pcm_format_epoch = 3,
+        .hot_context_token = 1,
+        .media_role = 1,
+        .gain_db = -8.0,
+        .gain_linear = 0.3981071706,
+        .gain_pair_validated = 1,
+        .field_mask = DSP_ENGINE_HOT_FIELD_STUDIO,
+        .hot_version = 1,
+        .macro = {0, 0.0, 0.0, 0.0, 1.0},
+        .smart_loudness = {0, 0.0, 0.0},
+        .dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0},
+    };
+    assert_true(dsp_engine_enqueue_hot_update(engine, &new_generation_update),
+        "new generation supersedes the old protective ramp");
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "superseding generation starts from the actual effective gain");
+    const uint32_t ramp_samples = 48000 / 50;
+    const float old_target_linear = 0.2511886432f;
+    const float current_linear = last_old_generation_sample / 0.5f;
+    const float old_target_continuation = 0.5f *
+        (current_linear + (old_target_linear - current_linear) * 512.0f / (float)ramp_samples);
+    assert_true(output[1022] > old_target_continuation + 0.02f,
+        "superseding command does not continue attenuation toward the stale target");
+    assert_true(output[1022] < last_old_generation_sample - 0.005f,
+        "the latest lower target receives a new protective ramp");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0,
+        "neither protective generation receives an early ACK");
+    for (int block = 0; block < 8 && dsp_engine_get_hot_ack_token(engine) != 52; block++) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "superseding protective ramp and Studio apply complete");
+    }
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 52,
+        "only the latest generation is acknowledged after its transition");
+    dsp_engine_destroy(engine);
+}
+
 static void test_studio_gain_refund_ack_waits_for_ramp_and_newer_generation(void) {
     const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
     const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
@@ -4784,6 +4958,8 @@ int main(void) {
     test_studio_gain_refund_is_sample_ramped_at_supported_formats();
     test_studio_gain_refund_ramps_when_modules_are_already_settled();
     test_studio_hot_uses_effective_gain_after_cancelled_ramp();
+    test_protective_studio_ramp_is_cancelled_on_owner_and_format_change();
+    test_protective_studio_ramp_is_retargeted_when_generation_is_superseded();
     test_studio_gain_refund_ack_waits_for_ramp_and_newer_generation();
     test_studio_refund_waits_for_dynamics_and_dynamic_eq();
     test_studio_neutral_macro_preserves_exact_samples();

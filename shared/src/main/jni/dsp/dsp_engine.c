@@ -36,6 +36,11 @@ struct dsp_engine {
     uint32_t active_hot_ack_token;
     uint32_t active_hot_context_token;
     int active_hot_ack_after_ramp;
+    uint64_t protective_hot_generation;
+    uint64_t protective_hot_editor_owner_epoch;
+    uint64_t protective_hot_renderer_owner_token;
+    uint64_t protective_hot_pcm_format_epoch;
+    uint32_t protective_hot_context_token;
     dsp_engine_local_peq_update local_peq_updates[DSP_LOCAL_PEQ_QUEUE_CAPACITY];
     _Atomic uint32_t local_peq_write_index;
     _Atomic uint32_t local_peq_read_index;
@@ -74,6 +79,33 @@ static int engine_is_prepared(const dsp_engine *engine) {
 static uint32_t hot_generation_token(uint64_t generation) {
     const uint32_t token = (uint32_t)(generation & UINT64_C(0x7fffffff));
     return token == 0 ? 1 : token;
+}
+
+static void clear_protective_hot_ramp_owner(dsp_engine *engine) {
+    engine->protective_hot_generation = 0;
+    engine->protective_hot_editor_owner_epoch = 0;
+    engine->protective_hot_renderer_owner_token = 0;
+    engine->protective_hot_pcm_format_epoch = 0;
+    engine->protective_hot_context_token = 0;
+}
+
+static void cancel_stale_protective_hot_ramp(dsp_engine *engine, uint64_t latest_control_generation) {
+    if (engine->protective_hot_generation == 0) return;
+    const int owner_is_current =
+        engine->protective_hot_editor_owner_epoch == atomic_load_explicit(
+            &engine->hot_editor_owner_epoch, memory_order_acquire) &&
+        engine->protective_hot_renderer_owner_token == atomic_load_explicit(
+            &engine->hot_renderer_owner_token, memory_order_acquire) &&
+        engine->protective_hot_pcm_format_epoch == atomic_load_explicit(
+            &engine->hot_pcm_format_epoch, memory_order_acquire) &&
+        engine->protective_hot_context_token == atomic_load_explicit(
+            &engine->hot_context_token, memory_order_acquire);
+    if (engine->protective_hot_generation != latest_control_generation || !owner_is_current) {
+        dsp_gain_cancel_ramp(&engine->graph.gain);
+        clear_protective_hot_ramp_owner(engine);
+    } else if (engine->graph.gain.ramp_remaining == 0) {
+        clear_protective_hot_ramp_owner(engine);
+    }
 }
 
 static void saturating_add_counter(_Atomic uint32_t *counter, uint32_t increment) {
@@ -268,8 +300,9 @@ int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_updat
     atomic_store_explicit(&engine->hot_deferred_token, 0, memory_order_relaxed);
     atomic_store_explicit(&engine->hot_deferred_reason, 0, memory_order_relaxed);
     atomic_store_explicit(&engine->local_peq_ack_token, 0, memory_order_relaxed);
-    atomic_store_explicit(&engine->hot_write_index, write_index + 1, memory_order_release);
+    /* The release-published index must also publish the generation for this slot. */
     atomic_store_explicit(&engine->hot_last_generation, update->generation, memory_order_release);
+    atomic_store_explicit(&engine->hot_write_index, write_index + 1, memory_order_release);
     return 1;
 }
 
@@ -406,9 +439,10 @@ int dsp_engine_enqueue_local_peq_update(dsp_engine *engine, const dsp_engine_loc
     atomic_store_explicit(&engine->hot_ack_token, 0, memory_order_relaxed);
     atomic_store_explicit(&engine->local_peq_ack_token, 0, memory_order_relaxed);
     atomic_store_explicit(&engine->local_peq_rejected_token, 0, memory_order_relaxed);
-    atomic_store_explicit(&engine->local_peq_write_index, write_index + 1, memory_order_release);
+    /* Publish both generation fences before making the prepared slot visible. */
     atomic_store_explicit(&engine->local_peq_last_generation, update->generation, memory_order_release);
     atomic_store_explicit(&engine->hot_last_generation, update->generation, memory_order_release);
+    atomic_store_explicit(&engine->local_peq_write_index, write_index + 1, memory_order_release);
     return DSP_STATUS_OK;
 }
 
@@ -589,6 +623,7 @@ dsp_status dsp_engine_process(
         engine->active_local_peq_context_token = 0;
         engine->active_local_peq_generation = 0;
         dsp_gain_cancel_ramp(&engine->graph.gain);
+        clear_protective_hot_ramp_owner(engine);
         engine->active_hot_ack_token = 0;
         engine->active_hot_context_token = 0;
         engine->active_hot_ack_after_ramp = 0;
@@ -630,6 +665,7 @@ dsp_status dsp_engine_process(
     uint32_t processed_hot_token = 0;
     const uint64_t latest_control_generation = atomic_load_explicit(
         &engine->hot_last_generation, memory_order_acquire);
+    cancel_stale_protective_hot_ramp(engine, latest_control_generation);
     while (hot_read_index != hot_write_index) {
         const dsp_engine_hot_update *update =
             &engine->hot_updates[hot_read_index % DSP_HOT_UPDATE_QUEUE_CAPACITY];
@@ -671,7 +707,16 @@ dsp_status dsp_engine_process(
                 &update->dynamic_bass,
                 &update->dynamics,
                 &update->dynamic_eq);
-        if (studio_hot_result == DSP_GRAPH_HOT_PROTECTIVE_RAMP) break;
+        if (studio_hot_result == DSP_GRAPH_HOT_PROTECTIVE_RAMP) {
+            if (engine->protective_hot_generation == 0 && engine->graph.gain.ramp_remaining > 0) {
+                engine->protective_hot_generation = update->generation;
+                engine->protective_hot_editor_owner_epoch = update->editor_owner_epoch;
+                engine->protective_hot_renderer_owner_token = update->renderer_owner_token;
+                engine->protective_hot_pcm_format_epoch = update->pcm_format_epoch;
+                engine->protective_hot_context_token = update->hot_context_token;
+            }
+            break;
+        }
         if (studio_hot_result != DSP_GRAPH_HOT_APPLIED) {
             atomic_store_explicit(&engine->hot_deferred_reason, (uint32_t)studio_hot_result, memory_order_relaxed);
             atomic_store_explicit(&engine->hot_deferred_token, update->generation_token, memory_order_release);
@@ -694,6 +739,8 @@ dsp_status dsp_engine_process(
     atomic_store_explicit(&engine->hot_read_index, hot_read_index, memory_order_release);
 
     begin_pending_local_peq_update(engine);
+    cancel_stale_protective_hot_ramp(
+        engine, atomic_load_explicit(&engine->hot_last_generation, memory_order_acquire));
 
     dsp_graph_process(
         &engine->graph,

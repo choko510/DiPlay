@@ -232,6 +232,65 @@ internal class DspPcmPipeline(
         startupLatencyRemainingFrames = if (forceInitialLatencySilence) processor.latencyFrames.coerceAtLeast(0) else 0
     }
 
+    internal fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = processor.enqueueHotUpdate(update)
+
+    internal fun enqueuePreampHotUpdate(update: DspPreparedPreampHotUpdate): Boolean =
+        processor.enqueuePreampHotUpdate(update)
+
+    internal fun prepareLocalPeqWarmUpdate(
+        coefficients: DoubleArray,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): DspPreparedLocalPeqWarmUpdate? = processor.prepareLocalPeqWarmUpdate(
+        coefficients,
+        generation,
+        editorOwnerEpoch,
+        rendererOwnerToken,
+        pcmFormatEpoch,
+        hotContextToken,
+        mediaRole,
+    )
+
+    internal fun enqueueLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int =
+        processor.enqueueLocalPeqWarmUpdate(update)
+
+    internal fun cancelLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int =
+        processor.cancelLocalPeqWarmUpdate(update)
+
+    internal fun bindHotUpdateContext(
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): Boolean = processor.bindHotUpdateContext(
+        editorOwnerEpoch, rendererOwnerToken, pcmFormatEpoch, hotContextToken, mediaRole,
+    )
+
+    internal fun invalidateHotUpdateContext() = processor.invalidateHotUpdateContext()
+
+    internal fun hotUpdateContextToken(): Int = processor.hotUpdateContextToken()
+
+    internal fun hasAcknowledged(update: DspPreparedHotUpdate): Boolean =
+        processor.hotAcknowledgedToken() == update.generationToken
+
+    internal fun hotDeferredToken(): Int = processor.hotDeferredToken()
+
+    internal fun hotDeferredReason(): Int = processor.hotDeferredReason()
+
+    internal fun hasAcknowledged(update: DspPreparedPreampHotUpdate): Boolean =
+        processor.preampHotAcknowledgedToken() == update.generationToken
+
+    internal fun hasAcknowledged(update: DspPreparedLocalPeqWarmUpdate): Boolean =
+        processor.localPeqWarmAcknowledgedToken() == update.generationToken
+
+    internal fun hasRejected(update: DspPreparedLocalPeqWarmUpdate): Boolean =
+        processor.localPeqWarmRejectedToken() == update.generationToken
+
     fun diagnostics(): DspDiagnosticsSnapshot {
         val pipelineSnapshot = diagnostics.snapshot()
         val processorSnapshot = processor.diagnostics()

@@ -473,17 +473,21 @@ class NcmUsbBridgeFixtureTest {
             validBlock.copyInto(this)
             writeU16(this, 8, size)
         }
-        val (bridge, script) = newBridge(incompleteNtbNoProgressTimeoutMillis = 35)
+        var nowNanos = 0L
+        val (bridge, script) = newBridge(
+            incompleteNtbNoProgressTimeoutMillis = 35,
+            incompleteNtbClockNanos = { nowNanos },
+        )
         script.enqueueRead(UsbRequestWaitFixture.Completed(declaredBlock.copyOfRange(0, 100)))
         script.enqueueRead(UsbRequestWaitFixture.Timeout)
 
         bridge.use {
             assertNull(it.recv(20))
-            Thread.sleep(10)
+            nowNanos += 30_000_000L
             script.enqueueRead(UsbRequestWaitFixture.Completed(declaredBlock.copyOfRange(100, 200)))
             script.enqueueRead(UsbRequestWaitFixture.Timeout)
             assertNull(it.recv(20))
-            Thread.sleep(10)
+            nowNanos += 30_000_000L
             script.enqueueRead(UsbRequestWaitFixture.Completed(declaredBlock.copyOfRange(200, 300)))
 
             assertArrayEquals(Step4TestFixtures.ethernetFrame(length = 60, seed = 0x32), it.recv(100))
@@ -1000,6 +1004,7 @@ class NcmUsbBridgeFixtureTest {
         bulkInMaxPacketSize: Int = 512,
         bulkOutMaxPacketSize: Int = 512,
         incompleteNtbNoProgressTimeoutMillis: Long = 30_000,
+        incompleteNtbClockNanos: () -> Long = System::nanoTime,
     ): Pair<NcmUsbBridge, ScriptedUsbDeviceConnectionShadow> {
         val connection = ReflectionHelpers.callConstructor(UsbDeviceConnection::class.java)
         val script = Shadow.extract<ScriptedUsbDeviceConnectionShadow>(connection)
@@ -1020,6 +1025,7 @@ class NcmUsbBridgeFixtureTest {
             wiredPathDiagnostics = wiredPathDiagnostics,
             wiredStartupTiming = wiredStartupTiming,
             incompleteNtbNoProgressTimeoutMillis = incompleteNtbNoProgressTimeoutMillis,
+            incompleteNtbClockNanos = incompleteNtbClockNanos,
         )
         return bridge to script
     }

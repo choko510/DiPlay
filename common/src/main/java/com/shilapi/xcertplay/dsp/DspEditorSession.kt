@@ -120,6 +120,14 @@ internal class DspEditorSession(
         masterEnabled = currentMasterEnabled
     }
 
+    fun refreshAppliedStateFromRuntime(
+        currentAppliedProfile: DspAudioProfile,
+        currentMasterEnabled: Boolean,
+    ) {
+        applied.value = currentAppliedProfile
+        masterEnabled = currentMasterEnabled
+    }
+
     fun restoreDraft(profile: DspAudioProfile) {
         draftProfile = profile
     }

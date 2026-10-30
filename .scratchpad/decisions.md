@@ -1,5 +1,42 @@
 # Decisions
 
+## Use effective linear gain for live HOT ordering
+
+The gain graph stores effective current linear gain and a separate ramp target linear value. Protective attenuation and Studio refund ordering compare those values; they do not infer current gain from a requested dB value after cancellation. This keeps safety checks accurate without log10/pow work in the audio callback.
+
+## Fence queued protective ramps by owner and generation
+
+A protective Studio ramp may start before its HOT command gets an active ACK token, while the command remains queued. Track the full owner/format/context tuple and generation for that ramp; cancel it at its current linear gain if stale, then let a fresh current command decide whether to resecure headroom.
+
+## Publish queue generation before its write index
+
+Release-store the latest HOT/LOCAL_WARM generation before release-publishing the corresponding queue slot index. A consumer that observes the new index then also observes the generation fence.
+
+## Ramp Studio headroom refunds only after module gains settle
+
+Keep the protective headroom reduction immediate, but treat a later gain refund as a 20 ms sample ramp. Wait until Macro, Smart Loudness, Dynamic Bass, Compressor, and Dynamic EQ transitions are settled before starting the refund. The graph's HOT-completion predicate includes both a queued refund and its active gain ramp, so no generation is ACTIVE before the final sample.
+
+## Cancel restore requires owner and generation evidence
+
+Treat `rendererOwnerToken == null` as proof that no renderer owned the request at its start. If an owned request later loses status or owner identity, wait for a valid report and reject on timeout; do not mark the draft Saved. A newer owner can satisfy the request only after it reports the committed generation ACTIVE and the runtime confirms the committed workspace.
+
+## Sync the stacked PR base without moving the parent PR ref
+
+For the PR #52 completion pass, merge the current `codex/step4-pr-00-test-baseline` tip into `codex/dsp-studio-final` so GitHub evaluates #52 against its current stacked base. Resolve the DSP overlap by retaining PR #52's PCM-format epoch/HOT preparers and PR #45's retirement failure fence/timing callbacks. Push only the PR #52 branch; keep PR #45 and `main` unchanged.
+
+## Keep per-ID evidence claims at the assertion boundary
+
+For REM-10 rows, name only assertions the mapped method executes. A test that resolves a selected-state resource string does not prove selected `StateDescription` semantics; stored undo/redo snapshot references do not prove redo interaction; and tab scroll restoration does not prove a Macro control is reachable. Keep these subpredicates explicitly open and keep PARTIAL status.
+
+## Restore only committed Studio state when a runtime is reconstructed
+
+Treat an uncommitted Studio preview as runtime-owned state. When a new runtime is created, restore the persisted workspace and rebuild its effective DSP configuration rather than carrying over the preview. Runtime-reconstruction unit coverage is useful but does not substitute for Android process-death or Activity recreation evidence.
+
+## Keep the five DSP Studio tabs aligned with their editing domains
+
+- **Decision:** Use Studio for macros and legacy profile/basic controls, EQ for PEQ, Spatial for legacy width/mono bass plus Seat and M/S, Dynamics for Smart Loudness/Dynamic Bass and compressor-family stages, and Advanced for headroom, cabin, Harmonic, Convolver, and diagnostics.
+- **Reason:** This satisfies the product tab contract while keeping every existing editor reachable and all edits bound to the screen's existing profile/editor and studio session owners.
+- **Status:** Implemented on the PR #52 Phase 02 child branch; connected host geometry and session continuity remain unverified.
 ## Independent code-review remediation — 2026-10-28
 
 - Fail closed after a DSP retirement error: on the audio owner, retire active/fading graphs, keep PCM fallback safe, and rescale saved algorithmic latency duration when the decoder sample rate changes. Never prepare or publish another graph in the failed renderer.
@@ -32,11 +69,31 @@ Use the application context for `UsbManager` without changing permission or USB 
 
 The decisions below are retained with their full rationale; earlier choices may require validation against a newer PR head.
 
+## Keep DSP Studio workspace persistence separate from schema-v7 profiles
+
+Store committed workspace state in its own schema-v1 AtomicFile under `files/dsp/workspace/current.json`. The workspace embeds the complete v7-compatible base profile snapshot and the new enhancement/module-selection settings; this preserves `custom1`/`custom2` semantics and lets old app versions continue using the untouched v7 repository. Unknown future workspace schemas must fail closed on writes.
+
 - **Scope / EX-08:** [pinned baseline](#freeze-main-behavior-before-step4-corrections), [provenance](#keep-ex-08-provenance-separate-from-current-decisions), [PR #45 batching](#batch-remaining-step4-work-in-the-existing-pr).
 - **Wired NCM / USBMUX:** [persistent NCM IN](#keep-ncm-bulk-in-persistent-and-drain-an-available-status-endpoint), [USBMUX recovery](#keep-one-usbmux-in-request-and-use-bounded-recovery), [teardown](#fence-and-serialize-wired-teardown).
 - **AirPlay / host split:** [LOCAL Split](#keep-local-split-resizing-inside-android), [ViewAreas](#keep-multiple-viewareas-explicit-and-wire-switching-disabled), [DSP Split](#add-dsp-as-a-mutually-exclusive-host-split-mode).
 - **DSP:** [OFF baseline](#preserve-the-dsp-off-baseline-before-extending-the-graph), [Seat](#align-seat-timing-by-explicit-near-speaker-and-preserve-graph-history), [Cabin](#cabin-correction-requires-external-measurements-and-explicit-approval), [Harmonic](#harmonic-effects-use-bounded-2-fir-oversampling-and-report-the-dry-matched-latency).
 - **CI / security:** [draft gates](#defer-emulator-instrumentation-while-a-pr-is-draft), [privacy](#keep-connection-traces-opt-in-and-app-owned), [MFi local identity](#keep-local-mfi-identity-outside-tracked-source), [USB auto-launch](#keep-usb-auto-launch-as-a-validated-entry-to-the-existing-controller).
+
+## Keep Dynamic Bass detection on the sanitized raw-input tap
+
+Capture finite-checked PCM before gain or graph stages and pass it separately to the detector, while leaving Dynamic Bass at its existing output position. This makes detector gain independent of compressor/IR processing without changing the established audio-stage order or disabled path.
+
+## Preserve the configured Dynamic EQ transfer when adding HOT limits
+
+Prepare each enabled Dynamic EQ peak filter with its configured boost/cut cap, matching the existing transfer function exactly. A Native HOT update may lower the active cap while retaining that filter and its detector delay, envelope, and current mix; it schedules target recalculation on the next frame and ramps from the retained mix. A cap above the prepared filter's range returns `DEFERRED` without mutation. This adds only a Native helper; renderer/JNI mailbox wiring must remain a separate integration step.
+
+## Keep Dynamics and Dynamic EQ HOT on the existing fenced mailbox
+
+Use one versioned field mask in the bounded Native HOT mailbox for Studio, Dynamics, and Dynamic EQ payloads. The graph preflights the complete command—including both stateful helpers and current topology—before any stage mutation; a gain-lowering protective ramp completes first, and a gain refund waits for all affected parameter/mix transitions. Compressor/Limiter enable changes, Limiter threshold increases, Dynamic EQ topology changes, and cap increases beyond the prepared filter ceiling remain deferred.
+
+## Make every Studio gain refund sample-continuous and ACK after the ramp
+
+Apply the same 20 ms linear sample ramp whether a headroom refund can begin immediately or must wait for module ramps to settle. Accumulate the ramp in double precision, land exactly on the requested linear endpoint, and let the graph transition fence hold the Native ACK through its final sample. Keep zero/unknown renderer ownership distinct from an owned restore whose status temporarily disappeared; retain the owner observed when the request starts, and only allow a same/new owner to prove the committed generation ACTIVE or fail at timeout.
 
 ## Keep EX-08 provenance separate from current decisions
 
@@ -698,6 +755,12 @@ For DSP Split measurement diagnostics, retain the most recent 64 distinct measur
 
 For a retired DSP pipeline close failure, bind the failure to that pipeline's configuration generation and identity. Keep the status phase ACTIVE for the current graph, attach the old pipeline failure as separate metadata, and report that further updates are blocked; never mark the latest configured generation as a preparation failure for an older pipeline.
 
+Serialize active playback-route selection and monitor publication as one operation. Otherwise concurrent renderer callbacks can publish a stale route after a later owner removal.
+
+Treat persisted Studio workspaces whose source profile ID differs from their embedded snapshot ID as Invalid at repository load, and reject the same mismatch on save. Runtime startup then falls back to the selected profile instead of applying an internally inconsistent draft.
+
+Only MEDIA renderers publish the active playback sample rate used for EQ frequency validation. Route callbacks read the current routed device inside the listener generation gate immediately before publishing so delayed initial callbacks cannot restore an earlier route.
+
 When separating Surface retirement callbacks from coalesced jobs, preserve the original `SurfaceChanged` job if its callback list is empty. Tests for background DSP teardown must wait on an explicit close signal, and tests observing transient apply status must allow preparation to advance to deferred before reading it.
 
 The reaper's close callback can signal before its `finally` decrements the retired-pipeline count. Tests of controller adoption must wait for `canAdoptUpdate()` after close notification instead of reading it immediately.
@@ -724,7 +787,7 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 2026-10-27 B09: retain the wall-clock p99 as the deadline gate, because audio delivery depends on elapsed time. Add per-block thread CPU timing only to the instrumentation benchmark so high wall p99 with lower CPU p99 can indicate time not charged to the measuring thread; this diagnostic does not prove the target audio path is safe and cannot replace TS10/K706 measurements or justify relaxing the limit.
 
-2026-10-27 B09 follow-up: run #495 passes all 56 median wall-p99 gates on x86_64, while two focused local arm64 Debug runs fail different configurations. The latest has two cases whose thread-CPU p99 also exceeds budget; this invalidates a scheduling-only explanation for every failure. Debug's native `-O0` versus Release `-O2` difference is confirmed but not causal proof. Keep ABI/variant results separate, retain thresholds, and leave G4 partial until target behavior is measured.
+2026-10-27 B09 follow-up: run #495 passes all 56 median wall-p99 gates on x86_64, while the focused local arm64 class fails four wall-p99 assertions with lower thread-CPU p99. Keep the ABI results separate, retain the existing thresholds, and leave G4 partial until the local timing cause and target-device behavior are understood.
 
 2026-10-27 B09 Release instrumentation: make the Shared p99 harness opt into the optimized Release JNI variant (`NDK_DEBUG=0`) while keeping Debug as the default for other tasks. Run Shared Release and Common Debug in separate Gradle invocations to avoid overlapping instrumentation with build work. Preserve the earlier combined-run failures and all thresholds; Release emulator passes do not replace TS10/K706 acceptance.
 
@@ -740,10 +803,83 @@ Keep the wired startup watchdog's existing completion signal on an accepted MAIN
 
 The decoder-retirement test must keep its stop gate closed until the assertion completes even though `VideoDecoder.close()` interrupts the worker to wake its queue. The test hook absorbs that expected interrupt while waiting, then restores the thread interrupt flag after explicit release.
 
+Smart Loudness AUTO trusts only explicit route-bound readings supplied by a platform adapter and user-captured quiet/reference points. The common module does not infer Android stream volume as physical playback volume; MANUAL and FIXED remain independent fallbacks.
+
+Production Android AUTO readings remain untrusted until supported-device evidence proves the hardware volume control follows Android's MUSIC index. Track the active `AudioTrack` route, index and fixed-volume status, but do not infer OEM/MCU correspondence from index changes alone. Keep the raw route address transient; only a SHA-256-derived route token reaches calibration storage.
+
+## Keep DSP Studio rollback claims tied to production wiring (superseded 2026-10-27)
+
+At the earlier source revision, `DspStudioFeatureFlags` had no production call sites and was not an operational kill switch. That observation is superseded by the integrated runtime wiring at `fe083f4f`: `DspProfileRuntime` now persists the flags, initializes renderer gates, applies supported feature changes, and restores the prior active workspace if persistence fails. Keep rollback claims tied to those production call sites and their tests.
+
+## Exercise the production EQ graph in Compose instrumentation
+
+Host `DspEqEditorPane` directly and inject touch coordinates relative to the graph Canvas bounds so the test covers the production pointer handlers, callback mapping, and filter-specific gain behavior without adding test-only production APIs.
+Select a draggable band from the original pointer-down coordinate; Compose's simple drag-start position is at touch-slop recognition and can be too far from the small handle hit target after a single large movement.
+
 2026-10-26 B05: bound TextureView surface ownership at the generation boundary, where new Surface wrappers can still be deferred safely. Count pending retirements plus the current Surface against an eight-pair ceiling; keep only the newest deferred Texture and resume it after ACKs. Retire same-Texture Surface wrappers only after decoder ACK and release the Texture only after its destroyed generation's owners complete.
 
 2026-10-26 B06: keep the microphone zero-read backoff and send-only-after-positive-read behavior unchanged because the production capture loop already implements the contract; exercise it end-to-end with a scripted AudioRecord and loopback UDP receiver. Extend only the OFF_INITIAL regression matrix to the four supported rate/channel combinations; do not change sample-clock or live-OFF latency behavior.
 
+2026-10-26: Integrate the latest PR #45 base through a merge commit on the PR #52 branch, preserving both branches' Working Memory history. Keep PR #45 and main unchanged, and keep PR #52 open pending user approval.
+
+## Keep module A/B previews separate from the editor draft
+
+Compare a single module by overlaying its frozen A/B fields onto the current draft workspace and keep the rest of the draft unchanged. If the selected User preset is deleted while a comparison side is audible, return the renderer to the current draft before resetting the UI side to Draft; the visible side and audible configuration must stay aligned.
+
+## Keep Static Bass inside the EQ warm path without changing the user band limit
+
+Represent Static Bass as one internal graph filter after the combined 15-slot PEQ/Cabin capacity, then prepare and warm the EQ candidate from the existing bounded pre-EQ history. This preserves the public band limit and stage latency while allowing only PEQ and Static Bass to use opt-in LOCAL_WARM; Cabin Correction and IR remain deferred. Allocate renderer-status owner tokens process-wide because the runtime status store can outlive a sink, and make render-thread retry requests signal the control worker rather than wait on the config-listener lock.
+
+Smart Loudness headroom must bound the transient response of `sample - lowpass(sample)`, not only its steady-state sine gain; use the residual filter's impulse-gain bound before calculating preamp reduction.
+# Preamp HOT uses its own fenced command path
+
+Keep the versioned preamp-only payload kind separate from the existing Macro/Loudness/Dynamic Bass payload while reusing the same bounded Native HOT mailbox and generation fence. Require Auto Headroom, at least 6 dB of applied preamp reserve, and a current MEDIA owner/format tuple; ramp native linear gain over 20 ms and ACK only after the ramp finishes. On rebind, cancel an active ramp at its last-good value.
+
+2026-10-28 REM-01 follow-up: Prepare the linear gain for Studio HOT alongside the dB value and carry both through JNI. Use the linear value for immediate gain changes and deferred headroom refunds so PCM processing does not call `pow`; preserve the existing safe gain deferral while a Preamp ramp is active.
+
+2026-10-27 REM-07: Do not inherit PASS from historical test-matrix rows into the per-ID evidence ledger. A row can be PASS only when method, exact command, result, full source SHA, and artifact are attached to that row; until then retain PARTIAL or NOT_RUN.
+
+2026-10-27 REM-07 validator: Resolve artifact paths within the repository and permit only direct GitHub Actions run URLs as remote artifacts. Resolve runbooks relative to the tracker directory, reject paths outside the repository, and compare each acceptance predicate against the canonical matrix text.
+
+2026-10-27 REM-07 validator: Accept a remote Actions run artifact only when the URL points to this repository (`github.com/choko510/DiPlay/actions/runs/<id>`); a syntactically valid URL for another repository is not evidence for this tree.
+
+2026-10-27 REM-07: Keep `Missing fields` limited to absent evidence inputs and use a separate `What missing` column to identify the unproven acceptance subcase. This allows a PARTIAL row to contain complete execution metadata while still stating the requirement that remains unverified.
+
+2026-10-27 REM-07: Keep work-package execution tracking separate from the per-ID acceptance ledger. Use explicit `Not recorded` values for unavailable owners, dependencies, commits, commands, and reviews; only associate commits and tests where the project records provide a direct match.
+
+2026-10-27 REM-07: PKG-R11 is PARTIAL because a device runbook exists but its hardware gates have not run; PKG-R12 is PARTIAL because integration, independent reviews, and rollback evidence are recorded while per-ID/hardware and merge gates remain open.
+
+2026-10-27 REM-07: Use the completion spec's REM-01..12 and PKG-R00..12 scopes verbatim as tracker keys; do not substitute REQ-001..012 for REM IDs or reuse the earlier package-summary grouping. REM-07 is the 170-ID evidence package; REM-12 is the full code-head CI package.
+
+2026-10-28 REM-07: Run `check_dsp_studio_evidence.py` in the Android `check` job after checkout/static checks and before Gradle setup, so every PR check enforces evidence ledger contracts. Workflow changes are classified workflow-sensitive and select full host plus instrumentation verification.
+
+2026-10-28 REM-07: Keep each §12.2 evidence dimension in its own column. PARTIAL's `Missing evidence` enumerates exactly blank evidence fields while `Unproven predicate` identifies the acceptance criterion still open; a PARTIAL row may have all execution metadata populated if the acceptance remains incomplete.
+
+2026-10-28 REM-07 PH mapping: Associate run #40625689851 only with test methods present at its exact source SHA and tasks that its workflow actually ran. Keep the row `PARTIAL` when mapped assertions cover only a subpredicate, a reviewer is unrecorded, or native/physical evidence is still open; a successful aggregate must not promote acceptance status.
+
+2026-10-28 REM-10 T-UI/T-PRE mapping: Reuse a successful Actions run only for methods present at its source SHA and in a completed matching task. Keep API 35 screen evidence separate from physical CarPlay acceptance, and leave reviewer blank unless a reviewer was recorded.
+
+2026-10-28 REM-05 Native helper: Prepare and fully verify Compressor/Limiter coefficients on the control side; the render-side apply checks a sealed payload fingerprint without recomputing pow/exp. Preserve compressor envelope and limiter gain, defer enable/topology changes and Limiter threshold increases, slew Compressor curve/output gain plus makeup within bounded per-frame steps, and end ACK-pending after the configured frame count regardless of program-level variation.
+
+2026-10-28 REM-04 Save/Cancel: Advance request generations atomically without waiting on persistence. Write the workspace to AtomicFile's temporary path, then check the generation immediately before `finishWrite` as the linearization point: an earlier Cancel aborts via `failWrite`; a later Cancel restores the workspace that committed first. Do not hold a monitor across workspace file I/O on the UI path.
+
+2026-10-28 REM-04 JNI follow-up: Run the full Dynamics HOT validator before enqueuing at the JNI boundary. The prepared-only validator is insufficient there because it accepts finite, in-range coefficients without proving they match the config and sample rate.
+
+2026-10-28 REM-04 JNI review follow-up: Validate the raw Dynamics and Dynamic EQ enable fields before constructing typed configs; C floating-to-integer conversion is undefined for NaN and out-of-range values.
+
+2026-10-28 T-LOUD: Automatic correction remains unavailable unless a route-bound Android stream-volume reading is trustworthy and matches calibration. An unchanged stream index does not infer an OEM/MCU knob change; untrusted or mismatched readings produce zero Auto correction. Smart Loudness parameter toggles remain HOT and preserve the active pipeline's latency.
+
+2026-10-28 REM-03: While DSP remains enabled on a committed track, treat symmetric Seat trim and Legacy Width as same-latency whole-pipeline WARM only when no stateful stage requires continuity. Defer asymmetric Seat trims, Seat delay/polarity/near-speaker/enable changes, Legacy Width while Advanced M/S is active, and width/trim changes while stateful graphs are active; preserve the separate DSP-off crossfade path and do not report these spatial changes as Native HOT.
+
+2026-10-28 T-SAFE-08: Display Limiter threshold as a sample-peak ceiling and explicitly state that True Peak and continuous gain-reduction measurements are unavailable until those measurements are implemented; never label sample peak as True Peak.
+
+REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.
+
+2026-10-28 PR #52 final follow-up: publish renderer status as one atomic owner/status pair so a PCM-path status report never waits on a monitor while still fencing owner, generation, and phase together.
+
+2026-10-28 PR #52 evidence: detailed matrix and evidence tracker status must match exactly; keep emulator/host subcases PARTIAL when a physical clause remains, and reject evidence regeneration over an existing populated tracker.
+
+2026-10-28 PR #52 Preamp: a Preamp HOT update may alter only the shared gain ramp; test the active Compressor/Limiter state, Convolver history, and reported latency before/after applying the command.
 ## Keep USB auto-launch as a validated entry to the existing Controller
 
 Keep the Apple attach component disabled by default and enable it only with the independent user setting. Require the exact current USB device plus the existing CarPlay USBMUX/NCM configuration before launching; keep permission requests, USB opens, and re-enumeration with `IphoneUsbHost` and `CarPlayController`. Gate background-session adoption on the requested transport. During a wireless-to-wired handoff, retain only the latest validated attach identity, revalidate after teardown, fence stale callbacks, and preserve the Host split snapshot. Keep boot recovery user-initiated with a notification when background launch is unavailable. Use `MANAGE_USB` only as an Activity caller restriction; do not request it for the app.

@@ -6,6 +6,9 @@ import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
 import com.shilapi.xcertplay.media.dsp.DspHarmonicConfig
+import com.shilapi.xcertplay.media.dsp.DspDynamicBassRuntimeConfig
+import com.shilapi.xcertplay.media.dsp.DspMacroToneConfig
+import com.shilapi.xcertplay.media.dsp.DspSmartLoudnessRuntimeConfig
 import com.shilapi.xcertplay.media.dsp.DspDynamicEqConfig
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
@@ -49,6 +52,9 @@ data class DspAudioProfile(
     fun toRuntimeConfig(
         masterEnabled: Boolean,
         impulseResponse: DspImpulseResponse? = null,
+        macroTone: DspMacroToneConfig = DspMacroToneConfig(),
+        smartLoudness: DspSmartLoudnessRuntimeConfig = DspSmartLoudnessRuntimeConfig(),
+        dynamicBass: DspDynamicBassRuntimeConfig = DspDynamicBassRuntimeConfig(),
     ): DspRuntimeConfig = DspRuntimeConfig(
         enabled = masterEnabled,
         gainDb = preampDb,
@@ -67,6 +73,9 @@ data class DspAudioProfile(
         advancedMs = advancedMs,
         cabinCorrection = cabinCorrection,
         harmonic = harmonic,
+        macroTone = macroTone,
+        smartLoudness = smartLoudness,
+        dynamicBass = dynamicBass,
     )
 
     fun activeEqBandCount(): Int = eqBands.count(DspEqBand::enabled) +

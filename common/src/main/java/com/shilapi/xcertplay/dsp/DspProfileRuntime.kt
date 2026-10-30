@@ -1,25 +1,45 @@
 package com.shilapi.xcertplay.dsp
 
 import android.content.Context
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import androidx.core.content.edit
 import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
 import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementCsv
 import com.shilapi.xcertplay.media.dsp.DspCabinMeasurementParseResult
 import com.shilapi.xcertplay.media.dsp.DspConfigProvider
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import java.io.File
 import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
-internal class DspProfileRuntime private constructor(context: Context) {
+internal data class DspStudioRestoreRequest(
+    val configGeneration: Long,
+    val rendererOwnerToken: Long?,
+)
+
+internal class DspProfileRuntime private constructor(
+    context: Context,
+    filesDirectory: File = context.applicationContext.filesDir,
+    preferencesName: String = PREFERENCES_NAME,
+    workspaceWriterForTesting: ((File, ByteArray) -> Unit)? = null,
+) {
     private val applicationContext = context.applicationContext
-    private val preferences = applicationContext.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-    private val repository = DspProfileRepository(applicationContext.filesDir)
-    private val impulseRepository = DspImpulseResponseRepository(applicationContext.filesDir)
+    private val preferences = applicationContext.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+    private val repository = DspProfileRepository(filesDirectory)
+    private val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory, workspaceWriterForTesting)
+    private val modulePresetRepository = DspModulePresetRepository(filesDirectory)
+    private val impulseRepository = DspImpulseResponseRepository(filesDirectory)
+    private val studioFeatureFlags = AtomicReference(DspStudioFeatureFlags.load(preferences))
     private val impulseCache = ConcurrentHashMap<String, DspImpulseResponse>()
     private val ioExecutor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "dsp-profile-io").apply { isDaemon = true }
@@ -27,6 +47,24 @@ internal class DspProfileRuntime private constructor(context: Context) {
     private val activeProfile: AtomicReference<DspAudioProfile>
     private val dspEnabled: AtomicBoolean
     private val runtimeConfig = DspRuntimeConfigStore()
+    private val volumeSource = AtomicReference<DspVolumeSource>(ManualVolumeSource())
+    private val cachedVolumeReading = AtomicReference(DspVolumeReading())
+    private val playbackVolumeMonitor = AndroidPlaybackVolumeMonitor(applicationContext) { reading ->
+        onPlaybackVolumeReadingChanged(reading)
+    }
+    private val playbackRouteOwners = PlaybackRouteOwners()
+    private val studioApplyGeneration = AtomicLong()
+    internal var afterStudioFeatureFlagRuntimeApplyForTest: (() -> Unit)? = null
+    internal var afterStudioWorkspaceApplyForTest: (() -> Unit)? = null
+    internal var beforeStudioWorkspaceCommitForTest: (() -> Unit)? = null
+    internal var afterStudioWorkspaceCommitDecisionForTest: (() -> Unit)? = null
+    internal var beforeStudioWorkspaceRestoreForTest: (() -> Boolean)? = null
+    internal var persistStudioFeatureFlagsForTest: (() -> Boolean)? = null
+    private val activeStudioWorkspace: AtomicReference<DspStudioWorkspace>
+    private val committedStudioWorkspace: AtomicReference<DspStudioWorkspace>
+    private val studioSessionCoordinator by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        DspStudioSessionCoordinator(committedStudioWorkspace.get().deepCopy(), workspaceRepository)
+    }
     internal val editorSession: DspEditorSession by lazy {
         DspEditorSession(
             initialDraft = selectedProfile(),
@@ -39,24 +77,330 @@ internal class DspProfileRuntime private constructor(context: Context) {
     init {
         val selectedId = preferences.getString(KEY_SELECTED_PROFILE_ID, DEFAULT_PROFILE_ID) ?: DEFAULT_PROFILE_ID
         val loadedProfile = loadProfile(selectedId) ?: DspProfilePresets.find(DEFAULT_PROFILE_ID)!!
+        val loadedWorkspace = (workspaceRepository.load() as? DspWorkspaceReadResult.Loaded)?.workspace
+        val initialWorkspace = loadedWorkspace ?: DspStudioWorkspace(loadedProfile.id, loadedProfile)
+        if (loadedWorkspace != null && selectedId != loadedWorkspace.profileSourceId) {
+            preferences.edit().putString(KEY_SELECTED_PROFILE_ID, loadedWorkspace.profileSourceId).apply()
+        }
         val initialEnabled = preferences.getBoolean(KEY_DSP_ENABLED, false)
-        activeProfile = AtomicReference(loadedProfile)
+        activeStudioWorkspace = AtomicReference(initialWorkspace)
+        committedStudioWorkspace = AtomicReference(initialWorkspace.deepCopy())
+        activeProfile = AtomicReference(initialWorkspace.baseProfileSnapshot)
         dspEnabled = AtomicBoolean(initialEnabled)
-        runtimeConfig.update(loadedProfile.toRuntimeConfig(initialEnabled, impulseResponseFor(loadedProfile)))
+        playbackVolumeMonitor.start()
+        volumeSource.set(playbackVolumeMonitor)
+        runtimeConfig.setStudioHotUpdatesEnabled(studioFeatureFlags.get().nativeHotUpdatesEnabled)
+        runtimeConfig.setStudioLocalWarmEnabled(studioFeatureFlags.get().localWarmEnabled)
+        cachedVolumeReading.set(readVolumeSource())
+        runtimeConfig.update(resolveStudioWorkspace(initialWorkspace, initialEnabled, impulseResponseFor(initialWorkspace.baseProfileSnapshot)))
     }
 
     fun selectedProfile(): DspAudioProfile = activeProfile.get()
 
     fun isDspEnabled(): Boolean = dspEnabled.get()
 
+    fun activePlaybackSampleRateHz(): Int? = runtimeConfig.activePlaybackSampleRateHz()
+
+    fun createStudioSessionCoordinator(): DspStudioSessionCoordinator = studioSessionCoordinator
+
+    fun currentStudioFeatureFlags(): DspStudioFeatureFlags = studioFeatureFlags.get()
+
+    fun updateStudioFeatureFlagsAsync(
+        flags: DspStudioFeatureFlags,
+        onComplete: (Boolean) -> Unit,
+    ) {
+        if (flags.irWarmBudgetEnabled) {
+            Handler(Looper.getMainLooper()).post { onComplete(false) }
+            return
+        }
+        val generation = nextStudioApplyGeneration()
+        ioExecutor.execute {
+            val previous = studioFeatureFlags.get()
+            val previousActiveWorkspace = activeStudioWorkspace.get().deepCopy()
+            val audioFeaturesChanged = previous.macroOverlayEnabled != flags.macroOverlayEnabled ||
+                previous.smartLoudnessEnabled != flags.smartLoudnessEnabled ||
+                previous.dynamicBassEnabled != flags.dynamicBassEnabled
+            val enablingAudioFeature = (!previous.macroOverlayEnabled && flags.macroOverlayEnabled) ||
+                (!previous.smartLoudnessEnabled && flags.smartLoudnessEnabled) ||
+                (!previous.dynamicBassEnabled && flags.dynamicBassEnabled)
+            val workspace = if (enablingAudioFeature) {
+                committedStudioWorkspace.get().deepCopy()
+            } else {
+                activeStudioWorkspace.get().deepCopy()
+            }
+            val applied = if (generation != studioApplyGeneration.get()) {
+                false
+            } else {
+                studioFeatureFlags.set(flags)
+                runtimeConfig.setStudioHotUpdatesEnabled(flags.nativeHotUpdatesEnabled)
+                runtimeConfig.setStudioLocalWarmEnabled(flags.localWarmEnabled)
+                val runtimeApplied = !audioFeaturesChanged || runCatching {
+                    applyStudioWorkspace(workspace, dspEnabled.get(), impulseResponseFor(workspace.baseProfileSnapshot))
+                }.getOrDefault(false)
+                if (runtimeApplied) afterStudioFeatureFlagRuntimeApplyForTest?.invoke()
+                val persisted = runtimeApplied && studioApplyGeneration.get() == generation && runCatching {
+                    persistStudioFeatureFlagsForTest?.invoke()
+                        ?: preferences.edit().also(flags::writeTo).commit()
+                }.getOrDefault(false)
+                if (!persisted) {
+                    studioFeatureFlags.set(previous)
+                    runtimeConfig.setStudioHotUpdatesEnabled(previous.nativeHotUpdatesEnabled)
+                    runCatching { preferences.edit().also(previous::writeTo).commit() }
+                    if (audioFeaturesChanged) {
+                        runCatching {
+                            applyStudioWorkspace(
+                                previousActiveWorkspace,
+                                dspEnabled.get(),
+                                impulseResponseFor(previousActiveWorkspace.baseProfileSnapshot),
+                            )
+                        }
+                    }
+                    runtimeConfig.setStudioLocalWarmEnabled(previous.localWarmEnabled)
+                }
+                persisted
+            }
+            Handler(Looper.getMainLooper()).post { onComplete(applied) }
+        }
+    }
+
+    fun applyStudioModulePreset(workspace: DspStudioWorkspace, preset: DspModulePreset): DspStudioWorkspace? =
+        modulePresetRepository.applyTo(workspace, preset)
+
+    fun loadModulePresetsAsync(moduleKey: String, onComplete: (List<DspModulePreset>) -> Unit) {
+        ioExecutor.execute {
+            val presets = DspFactoryPresets.modulePresets().filter { it.moduleKey == moduleKey } +
+                modulePresetRepository.userPresets(moduleKey)
+            Handler(Looper.getMainLooper()).post { onComplete(presets) }
+        }
+    }
+
+    fun saveModulePresetAsync(
+        workspace: DspStudioWorkspace,
+        moduleKey: String,
+        id: String,
+        name: String,
+        onComplete: (DspPresetStoreResult) -> Unit,
+    ) {
+        val snapshot = workspace.deepCopy()
+        ioExecutor.execute {
+            val result = modulePresetRepository.saveCurrent(snapshot, moduleKey, id, name)
+            Handler(Looper.getMainLooper()).post { onComplete(result) }
+        }
+    }
+
+    fun deleteModulePresetAsync(
+        moduleKey: String,
+        id: String,
+        onComplete: (DspPresetStoreResult) -> Unit,
+    ) {
+        ioExecutor.execute {
+            val workspaceRead = workspaceRepository.load()
+            val savedWorkspace = (workspaceRead as? DspWorkspaceReadResult.Loaded)?.workspace
+            val sanitizedSavedWorkspace = savedWorkspace?.takeIf {
+                it.selectedModulePresetIds[moduleKey] == id
+            }?.copy(selectedModulePresetIds = savedWorkspace.selectedModulePresetIds - moduleKey)
+            val result = when (workspaceRead) {
+                is DspWorkspaceReadResult.FutureSchema -> DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED
+                DspWorkspaceReadResult.Invalid -> DspPresetStoreResult.WRITE_FAILED
+                is DspWorkspaceReadResult.Loaded, DspWorkspaceReadResult.NotFound -> {
+                    val referenceCleared = sanitizedSavedWorkspace == null ||
+                        workspaceRepository.save(sanitizedSavedWorkspace) == DspWorkspaceSaveResult.SAVED
+                    if (referenceCleared) modulePresetRepository.deleteUserPreset(moduleKey, id)
+                    else DspPresetStoreResult.WRITE_FAILED
+                }
+            }
+            if (result == DspPresetStoreResult.DELETED) {
+                sanitizedSavedWorkspace?.let { committedStudioWorkspace.set(it.deepCopy()) }
+                activeStudioWorkspace.updateAndGet { workspace ->
+                    if (workspace.selectedModulePresetIds[moduleKey] == id) {
+                        workspace.copy(selectedModulePresetIds = workspace.selectedModulePresetIds - moduleKey)
+                    } else {
+                        workspace
+                    }
+                }
+                committedStudioWorkspace.updateAndGet { workspace ->
+                    if (workspace.selectedModulePresetIds[moduleKey] == id) {
+                        workspace.copy(selectedModulePresetIds = workspace.selectedModulePresetIds - moduleKey)
+                    } else {
+                        workspace
+                    }
+                }
+            } else if (sanitizedSavedWorkspace != null) {
+                workspaceRepository.save(savedWorkspace)
+            }
+            Handler(Looper.getMainLooper()).post {
+                if (result == DspPresetStoreResult.DELETED) {
+                    studioSessionCoordinator.clearSelectedPresetReference(moduleKey, id)
+                }
+                onComplete(result)
+            }
+        }
+    }
+
+    fun studioVolumeReading(): DspVolumeReading {
+        val reading = readVolumeSource()
+        val previous = cachedVolumeReading.getAndSet(reading)
+        if (previous != reading) {
+            val workspace = activeStudioWorkspace.get()
+            val enabled = dspEnabled.get()
+            ioExecutor.execute {
+                if (activeStudioWorkspace.get() == workspace) {
+                    runCatching {
+                        applyStudioWorkspace(workspace, enabled, impulseResponseFor(workspace.baseProfileSnapshot))
+                    }
+                }
+            }
+        }
+        return reading
+    }
+
+    internal fun onPlaybackRouteChanged(owner: Long, deviceType: Int?, deviceAddress: String?, usesMusicStream: Boolean) {
+        playbackRouteOwners.updateAndPublish(owner, deviceType, deviceAddress, usesMusicStream) { route ->
+            playbackVolumeMonitor.setPlaybackRoute(route)
+        }
+    }
+
+    internal fun onPlaybackVolumeReadingChanged(reading: DspVolumeReading) {
+        val previous = cachedVolumeReading.getAndSet(reading)
+        if (previous == reading) return
+        val workspace = activeStudioWorkspace.get()
+        val enabled = dspEnabled.get()
+        ioExecutor.execute {
+            if (activeStudioWorkspace.get() == workspace) {
+                runCatching { applyStudioWorkspace(workspace, enabled, impulseResponseFor(workspace.baseProfileSnapshot)) }
+            }
+        }
+    }
+
+    internal fun closeForTesting() {
+        playbackVolumeMonitor.stop()
+        ioExecutor.shutdownNow()
+    }
+
+    internal fun setStudioVolumeSource(source: DspVolumeSource) {
+        volumeSource.set(source)
+        studioVolumeReading()
+    }
+
+    fun previewStudioWorkspaceAsync(
+        workspace: DspStudioWorkspace,
+        enabled: Boolean,
+        onComplete: (Boolean) -> Unit,
+    ) {
+        val generation = nextStudioApplyGeneration()
+        if (!validStudioWorkspace(workspace)) {
+            Handler(Looper.getMainLooper()).post { onComplete(false) }
+            return
+        }
+        ioExecutor.execute {
+            val applied = generation == studioApplyGeneration.get() && runCatching {
+                applyStudioWorkspace(workspace, enabled, impulseResponseFor(workspace.baseProfileSnapshot))
+            }.getOrDefault(false)
+            Handler(Looper.getMainLooper()).post { onComplete(applied) }
+        }
+    }
+
+    fun saveStudioWorkspaceAsync(
+        workspace: DspStudioWorkspace,
+        enabled: Boolean,
+        onComplete: (DspWorkspaceSaveResult) -> Unit,
+    ) {
+        val generation = nextStudioApplyGeneration()
+        ioExecutor.execute {
+            val candidate = workspace.deepCopy()
+            val result = if (!validStudioWorkspace(candidate)) {
+                DspWorkspaceSaveResult.INVALID
+            } else {
+                val activated = generation == studioApplyGeneration.get() && runCatching {
+                    applyStudioWorkspace(candidate, enabled, impulseResponseFor(candidate.baseProfileSnapshot))
+                }.getOrDefault(false)
+                if (!activated) {
+                    DspWorkspaceSaveResult.INVALID
+                } else {
+                    afterStudioWorkspaceApplyForTest?.invoke()
+                    if (generation != studioApplyGeneration.get()) {
+                        DspWorkspaceSaveResult.STALE
+                    } else {
+                        val saveResult = workspaceRepository.save(candidate, beforeCommit = {
+                            beforeStudioWorkspaceCommitForTest?.invoke()
+                            val shouldCommit = generation == studioApplyGeneration.get()
+                            if (shouldCommit) afterStudioWorkspaceCommitDecisionForTest?.invoke()
+                            shouldCommit
+                        })
+                        if (saveResult == DspWorkspaceSaveResult.SAVED) {
+                            committedStudioWorkspace.set(candidate)
+                            preferences.edit {
+                                putBoolean(KEY_DSP_ENABLED, enabled)
+                                putString(KEY_SELECTED_PROFILE_ID, candidate.profileSourceId)
+                            }
+                        }
+                        saveResult
+                    }
+                }
+            }
+            Handler(Looper.getMainLooper()).post { onComplete(result) }
+        }
+    }
+
+    fun requestCommittedStudioWorkspaceRestoreAsync(
+        enabled: Boolean,
+        onComplete: (DspStudioRestoreRequest?) -> Unit,
+    ) {
+        val rendererOwnerTokenAtRequestStart = runtimeConfig.rendererApplyStatus()?.rendererOwnerToken
+        val generation = nextStudioApplyGeneration()
+        ioExecutor.execute {
+            val workspace = committedStudioWorkspace.get().deepCopy()
+            val restored = generation == studioApplyGeneration.get() &&
+                (beforeStudioWorkspaceRestoreForTest?.invoke() != false) &&
+                runCatching {
+                    applyStudioWorkspace(workspace, enabled, impulseResponseFor(workspace.baseProfileSnapshot))
+                }.getOrDefault(false) && generation == studioApplyGeneration.get()
+            val request = if (restored) {
+                val snapshot = runtimeConfig.versionedSnapshot()
+                val rendererOwnerToken = runtimeConfig.rendererApplyStatus()?.rendererOwnerToken
+                    ?: rendererOwnerTokenAtRequestStart
+                preferences.edit {
+                    putBoolean(KEY_DSP_ENABLED, enabled)
+                    putString(KEY_SELECTED_PROFILE_ID, workspace.profileSourceId)
+                }
+                DspStudioRestoreRequest(snapshot.generation, rendererOwnerToken)
+            } else {
+                null
+            }
+            Handler(Looper.getMainLooper()).post { onComplete(request) }
+        }
+    }
+
+    fun isCommittedStudioWorkspaceActive(): Boolean = activeStudioWorkspace.get() == committedStudioWorkspace.get()
+
     fun availableImpulseResponseIds(): List<String> = impulseRepository.ids()
 
-    fun discardImportedImpulseResponse(id: String) {
-        val referencedByActiveProfile = activeProfile.get().convolver.impulseResponseId == id
-        val referencedBySavedProfile = availableProfiles().any { it.convolver.impulseResponseId == id }
-        if (referencedByActiveProfile || referencedBySavedProfile) return
-        impulseCache.remove(id)
-        impulseRepository.delete(id)
+    @Synchronized fun discardImportedImpulseResponse(id: String) {
+        runCatching {
+            val referencedOutsideSession = activeProfile.get().convolver.impulseResponseId == id ||
+                activeStudioWorkspace.get().baseProfileSnapshot.convolver.impulseResponseId == id ||
+                committedStudioWorkspace.get().baseProfileSnapshot.convolver.impulseResponseId == id ||
+                workspaceRepository.referencesImpulseResponse(id) ||
+                repository.referencesImpulseResponse(id) ||
+                modulePresetRepository.referencesImpulseResponse(id)
+            if (referencedOutsideSession) return
+            if (studioSessionCoordinator.deleteImpulseResponseIfUnreferenced(id) {
+                    impulseRepository.delete(id)
+                }
+            ) {
+                impulseCache.remove(id)
+            }
+        }
+    }
+
+    fun discardImportedImpulseResponseAsync(id: String, onComplete: () -> Unit) {
+        ioExecutor.execute {
+            try {
+                discardImportedImpulseResponse(id)
+            } finally {
+                Handler(Looper.getMainLooper()).post(onComplete)
+            }
+        }
     }
 
     fun availableProfiles(): List<DspAudioProfile> {
@@ -83,7 +427,7 @@ internal class DspProfileRuntime private constructor(context: Context) {
         return DspProfilePresets.find(profileId)
     }
 
-    fun apply(profile: DspAudioProfile, enabled: Boolean): Boolean =
+    @Synchronized fun apply(profile: DspAudioProfile, enabled: Boolean): Boolean =
         applyWithImpulse(profile, enabled, cachedImpulseResponse(profile))
 
     fun setMasterEnabled(enabled: Boolean) {
@@ -152,14 +496,63 @@ internal class DspProfileRuntime private constructor(context: Context) {
 
     private fun applyWithImpulse(profile: DspAudioProfile, enabled: Boolean, impulse: DspImpulseResponse?): Boolean {
         if (!profile.hasValidEqCapacity()) return false
+        val workspace = activeStudioWorkspace.get().copy(
+            profileSourceId = profile.id,
+            baseProfileSnapshot = profile,
+        )
+        val resolved = runCatching { resolveStudioWorkspace(workspace, enabled, impulse) }.getOrNull() ?: return false
+        activeStudioWorkspace.set(workspace)
         activeProfile.set(profile)
         dspEnabled.set(enabled)
-        runtimeConfig.update(profile.toRuntimeConfig(enabled, impulse))
+        runtimeConfig.update(resolved)
         preferences.edit()
             .putBoolean(KEY_DSP_ENABLED, enabled)
             .putString(KEY_SELECTED_PROFILE_ID, profile.id)
             .apply()
         return true
+    }
+
+    private fun applyStudioWorkspace(
+        workspace: DspStudioWorkspace,
+        enabled: Boolean,
+        impulse: DspImpulseResponse?,
+    ): Boolean {
+        if (!validStudioWorkspace(workspace)) return false
+        val snapshot = workspace.deepCopy()
+        val resolved = runCatching { resolveStudioWorkspace(snapshot, enabled, impulse) }.getOrNull() ?: return false
+        activeStudioWorkspace.set(snapshot)
+        activeProfile.set(snapshot.baseProfileSnapshot)
+        dspEnabled.set(enabled)
+        runtimeConfig.update(resolved)
+        return true
+    }
+
+    private fun validStudioWorkspace(workspace: DspStudioWorkspace): Boolean =
+        workspace.profileSourceId == workspace.baseProfileSnapshot.id && workspace.baseProfileSnapshot.hasValidEqCapacity()
+
+    private fun nextStudioApplyGeneration(): Long = studioApplyGeneration.incrementAndGet()
+
+    private fun resolveStudioWorkspace(
+        workspace: DspStudioWorkspace,
+        enabled: Boolean,
+        impulse: DspImpulseResponse?,
+    ): DspRuntimeConfig {
+        val flags = studioFeatureFlags.get()
+        return DspTuningResolver.resolve(
+            profile = workspace.baseProfileSnapshot,
+            masterEnabled = enabled,
+            macros = if (flags.macroOverlayEnabled) workspace.macros else DspSoundMacroSettings(),
+            loudness = if (flags.smartLoudnessEnabled) workspace.smartLoudness else DspSmartLoudnessSettings(),
+            volumeReading = cachedVolumeReading.get(),
+            dynamicBass = if (flags.dynamicBassEnabled) workspace.dynamicBass else DspDynamicBassSettings(),
+            impulseResponse = impulse,
+        ).runtimeConfig
+    }
+
+    private fun readVolumeSource(): DspVolumeReading = try {
+        volumeSource.get().read()
+    } catch (_: Exception) {
+        DspVolumeReading()
     }
 
     fun saveCustomAsync(profile: DspAudioProfile, enabled: Boolean, onComplete: (DspProfileSaveResult) -> Unit) {
@@ -228,10 +621,20 @@ internal class DspProfileRuntime private constructor(context: Context) {
             instance ?: DspProfileRuntime(context).also { instance = it }
         }
 
+        internal fun createForTesting(
+            context: Context,
+            filesDirectory: File,
+            preferencesName: String,
+            workspaceWriter: ((File, ByteArray) -> Unit)? = null,
+        ): DspProfileRuntime = DspProfileRuntime(context, filesDirectory, preferencesName, workspaceWriter)
+
         internal fun peekInstance(): DspProfileRuntime? = instance
 
         internal fun resetForTesting() {
-            synchronized(this) { instance = null }
+            synchronized(this) {
+                instance?.closeForTesting()
+                instance = null
+            }
         }
     }
 }

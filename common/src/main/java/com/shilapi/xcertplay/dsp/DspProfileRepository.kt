@@ -47,11 +47,19 @@ internal class DspProfileRepository(
     filesDirectory: File,
     private val atomicWriter: (File, ByteArray) -> Unit = ::writeProfileAtomically,
 ) {
-    internal val profilesDirectory = File(File(filesDirectory, PROFILE_DIRECTORY), "profiles")
+    private val appFilesDirectory = filesDirectory.canonicalFile
+    internal val profilesDirectory = File(File(appFilesDirectory, PROFILE_DIRECTORY), "profiles")
 
     fun load(profileId: String): DspProfileReadResult {
         val file = profileFile(profileId) ?: return DspProfileReadResult.Invalid
-        if (!file.isFile) return DspProfileReadResult.NotFound
+        val backup = File(file.path + ".bak")
+        if (backup.exists() && (!backup.isFile || backup.canonicalFile.parentFile != file.parentFile)) {
+            return DspProfileReadResult.Invalid
+        }
+        if (!file.isFile && !backup.isFile) return DspProfileReadResult.NotFound
+        if (file.length() > MAX_PROFILE_BYTES || backup.length() > MAX_PROFILE_BYTES) {
+            return DspProfileReadResult.Invalid
+        }
         return try {
             val json = AtomicFile(file).openRead().bufferedReader(StandardCharsets.UTF_8).use { reader ->
                 JSONObject(reader.readText())
@@ -83,8 +91,19 @@ internal class DspProfileRepository(
             return DspProfileSaveResult.INVALID_PROFILE_ID
         }
         val file = profileFile(profile.id) ?: return DspProfileSaveResult.INVALID_PROFILE_ID
-        if (file.isFile && schemaVersion(file)?.let { it > CURRENT_SCHEMA_VERSION } == true) {
-            return DspProfileSaveResult.FUTURE_SCHEMA_PRESERVED
+        val backup = File(file.path + ".bak")
+        if (backup.exists() && (!backup.isFile || backup.canonicalFile.parentFile != file.parentFile)) {
+            return DspProfileSaveResult.WRITE_FAILED
+        }
+        if (file.exists() || backup.exists()) {
+            if (file.length() > MAX_PROFILE_BYTES || backup.length() > MAX_PROFILE_BYTES) {
+                return DspProfileSaveResult.WRITE_FAILED
+            }
+            when (load(profile.id)) {
+                is DspProfileReadResult.Loaded -> Unit
+                is DspProfileReadResult.FutureSchema -> return DspProfileSaveResult.FUTURE_SCHEMA_PRESERVED
+                DspProfileReadResult.Invalid, DspProfileReadResult.NotFound -> return DspProfileSaveResult.WRITE_FAILED
+            }
         }
         if (!profile.hasValidEqCapacity()) return DspProfileSaveResult.INVALID_EQ_CAPACITY
         if (!profilesDirectory.exists() && !profilesDirectory.mkdirs()) return DspProfileSaveResult.WRITE_FAILED
@@ -107,6 +126,14 @@ internal class DspProfileRepository(
         .sorted()
         .toList()
 
+    fun referencesImpulseResponse(id: String): Boolean = CUSTOM_PROFILE_IDS.any { profileId ->
+        when (val result = load(profileId)) {
+            is DspProfileReadResult.Loaded -> result.profile.convolver.impulseResponseId == id
+            is DspProfileReadResult.FutureSchema, DspProfileReadResult.Invalid -> true
+            DspProfileReadResult.NotFound -> false
+        }
+    }
+
     internal fun profileFileForTesting(profileId: String): File? = profileFile(profileId)
 
     internal fun encodeDraftForSavedState(profile: DspAudioProfile): String = encode(profile).toString()
@@ -125,17 +152,10 @@ internal class DspProfileRepository(
 
     private fun profileFile(profileId: String): File? {
         if (!isValidProfileId(profileId)) return null
-        val directory = profilesDirectory.canonicalFile
-        val file = File(directory, "$profileId.$PROFILE_EXTENSION").canonicalFile
-        return file.takeIf { it.parentFile == directory }
-    }
-
-    private fun schemaVersion(file: File): Int? = try {
-        AtomicFile(file).openRead().bufferedReader(StandardCharsets.UTF_8).use { reader ->
-            JSONObject(reader.readText()).optInt(KEY_SCHEMA_VERSION, LEGACY_SCHEMA_VERSION)
-        }
-    } catch (_: Exception) {
-        null
+        val directory = DspStoragePaths.directoryUnder(appFilesDirectory, PROFILE_DIRECTORY, "profiles") ?: return null
+        val file = DspStoragePaths.fileIn(directory, "$profileId.$PROFILE_EXTENSION") ?: return null
+        DspStoragePaths.fileIn(directory, "${file.name}.bak") ?: return null
+        return file
     }
 
     private fun decode(profileId: String, json: JSONObject, schemaVersion: Int): DspAudioProfile {
@@ -497,6 +517,7 @@ internal class DspProfileRepository(
         private const val LEGACY_SCHEMA_VERSION = 0
         private const val PROFILE_DIRECTORY = "dsp"
         private const val PROFILE_EXTENSION = "json"
+        private const val MAX_PROFILE_BYTES = 1_048_576L
         private const val KEY_SCHEMA_VERSION = "schemaVersion"
         private const val KEY_ID = "id"
         private const val KEY_NAME = "name"

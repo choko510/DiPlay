@@ -19,6 +19,40 @@ internal interface NativeDspBindings {
         convolverSamples: FloatArray,
         harmonicValues: DoubleArray,
     ): Long
+    fun createWithStudio(
+        sampleRate: Int,
+        channels: Int,
+        maxFrames: Int,
+        gainDb: Double,
+        eqCoefficients: DoubleArray,
+        dynamics: DoubleArray,
+        multiband: DoubleArray,
+        dynamicEq: DoubleArray,
+        bassCoefficients: DoubleArray,
+        monoBassCoefficients: DoubleArray,
+        spatial: DoubleArray,
+        convolverConfig: DoubleArray,
+        convolverSamples: FloatArray,
+        harmonicValues: DoubleArray,
+        macroValues: DoubleArray,
+        smartLoudnessValues: DoubleArray,
+        dynamicBassValues: DoubleArray,
+    ): Long = create(
+        sampleRate,
+        channels,
+        maxFrames,
+        gainDb,
+        eqCoefficients,
+        dynamics,
+        multiband,
+        dynamicEq,
+        bassCoefficients,
+        monoBassCoefficients,
+        spatial,
+        convolverConfig,
+        convolverSamples,
+        harmonicValues,
+    )
     fun process(
         handle: Long,
         input: ByteBuffer,
@@ -31,6 +65,31 @@ internal interface NativeDspBindings {
         channels: Int,
     ): Int
     fun reset(handle: Long): Int
+    fun applyHotConfig(handle: Long, update: DspPreparedHotUpdate): Int = -1
+    fun applyPreampHot(handle: Long, update: DspPreparedPreampHotUpdate): Int = -1
+    fun prepareLocalPeqUpdate(
+        handle: Long,
+        coefficients: DoubleArray,
+        preparedValues: DoubleArray,
+        historySequences: LongArray,
+    ): Boolean = false
+    fun enqueueLocalPeqUpdate(handle: Long, update: DspPreparedLocalPeqWarmUpdate): Int = -1
+    fun cancelLocalPeqUpdate(handle: Long, generationToken: Int): Int = -1
+    fun bindHotUpdateContext(
+        handle: Long,
+        format: DspAudioFormat,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): Boolean = false
+    fun hotAckToken(handle: Long): Int = 0
+    fun hotDeferredToken(handle: Long): Int = 0
+    fun hotDeferredReason(handle: Long): Int = 0
+    fun preampHotAckToken(handle: Long): Int = 0
+    fun localPeqAckToken(handle: Long): Int = 0
+    fun localPeqRejectedToken(handle: Long): Int = 0
     fun latencyFrames(handle: Long): Int
     fun interchannelRelativeDelayFrames(handle: Long): Double = 0.0
     fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int
@@ -68,7 +127,130 @@ internal object NativeDspJni : NativeDspBindings {
         convolverConfig,
         convolverSamples,
         harmonicValues,
+        doubleArrayOf(0.0, 0.0, 0.0, 0.0, 1.0),
+        doubleArrayOf(0.0, 0.0, 0.0),
+        doubleArrayOf(0.0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0),
     )
+
+    override fun createWithStudio(
+        sampleRate: Int,
+        channels: Int,
+        maxFrames: Int,
+        gainDb: Double,
+        eqCoefficients: DoubleArray,
+        dynamics: DoubleArray,
+        multiband: DoubleArray,
+        dynamicEq: DoubleArray,
+        bassCoefficients: DoubleArray,
+        monoBassCoefficients: DoubleArray,
+        spatial: DoubleArray,
+        convolverConfig: DoubleArray,
+        convolverSamples: FloatArray,
+        harmonicValues: DoubleArray,
+        macroValues: DoubleArray,
+        smartLoudnessValues: DoubleArray,
+        dynamicBassValues: DoubleArray,
+    ): Long = nativeCreate(
+        sampleRate,
+        channels,
+        maxFrames,
+        gainDb,
+        eqCoefficients,
+        dynamics,
+        multiband,
+        dynamicEq,
+        bassCoefficients,
+        monoBassCoefficients,
+        spatial,
+        convolverConfig,
+        convolverSamples,
+        harmonicValues,
+        macroValues,
+        smartLoudnessValues,
+        dynamicBassValues,
+    )
+
+    override fun applyHotConfig(handle: Long, update: DspPreparedHotUpdate): Int = nativeApplyHotConfig(
+        handle,
+        update.generation,
+        update.editorOwnerEpoch,
+        update.rendererOwnerToken,
+        update.pcmFormatEpoch,
+        update.hotContextToken,
+        update.mediaRole,
+        update.appliedPreampDb,
+        update.appliedPreampLinear,
+        update.gainPairIsConsistent,
+        update.macroValues,
+        update.smartLoudnessValues,
+        update.dynamicBassValues,
+        update.sampleRateHz,
+        update.hotFieldMask,
+        update.hotPayloadVersion,
+        update.dynamicsValues,
+        update.dynamicEqValues,
+        update.dynamicsCoefficients,
+        update.dynamicEqCoefficients,
+    )
+
+    override fun applyPreampHot(handle: Long, update: DspPreparedPreampHotUpdate): Int = nativeApplyPreampHot(
+        handle, update.version, update.generation, update.editorOwnerEpoch, update.rendererOwnerToken,
+        update.pcmFormatEpoch, update.hotContextToken, update.mediaRole,
+        update.appliedPreampDb, update.appliedPreampLinear, update.gainPairIsConsistent,
+    )
+
+    override fun prepareLocalPeqUpdate(
+        handle: Long,
+        coefficients: DoubleArray,
+        preparedValues: DoubleArray,
+        historySequences: LongArray,
+    ): Boolean = nativePrepareLocalPeqUpdate(handle, coefficients, preparedValues, historySequences)
+
+    override fun enqueueLocalPeqUpdate(handle: Long, update: DspPreparedLocalPeqWarmUpdate): Int =
+        nativeEnqueueLocalPeqUpdate(
+            handle,
+            update.generation,
+            update.editorOwnerEpoch,
+            update.rendererOwnerToken,
+            update.pcmFormatEpoch,
+            update.hotContextToken,
+            update.mediaRole,
+            update.historyEpochSequence,
+            update.historyEndSequence,
+            update.bandCount,
+            update.preparedValues,
+        )
+
+    override fun cancelLocalPeqUpdate(handle: Long, generationToken: Int): Int =
+        nativeCancelLocalPeqUpdate(handle, generationToken)
+
+    override fun bindHotUpdateContext(
+        handle: Long,
+        format: DspAudioFormat,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): Boolean = nativeBindHotUpdateContext(
+        handle,
+        format.sampleRate,
+        format.channels,
+        editorOwnerEpoch,
+        rendererOwnerToken,
+        pcmFormatEpoch,
+        hotContextToken,
+        mediaRole,
+    ) == 0
+
+    override fun hotAckToken(handle: Long): Int = nativeGetHotAckToken(handle)
+    override fun hotDeferredToken(handle: Long): Int = nativeGetHotDeferredToken(handle)
+    override fun hotDeferredReason(handle: Long): Int = nativeGetHotDeferredReason(handle)
+    override fun preampHotAckToken(handle: Long): Int = nativeGetPreampHotAckToken(handle)
+
+    override fun localPeqAckToken(handle: Long): Int = nativeGetLocalPeqAckToken(handle)
+
+    override fun localPeqRejectedToken(handle: Long): Int = nativeGetLocalPeqRejectedToken(handle)
 
     override fun process(
         handle: Long,
@@ -114,7 +296,81 @@ internal object NativeDspJni : NativeDspBindings {
         convolverConfig: DoubleArray,
         convolverSamples: FloatArray,
         harmonicValues: DoubleArray,
+        macroValues: DoubleArray,
+        smartLoudnessValues: DoubleArray,
+        dynamicBassValues: DoubleArray,
     ): Long
+    private external fun nativeApplyHotConfig(
+        handle: Long,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+        gainDb: Double,
+        gainLinear: Double,
+        gainPairValidated: Boolean,
+        macroValues: DoubleArray,
+        smartLoudnessValues: DoubleArray,
+        dynamicBassValues: DoubleArray,
+        sampleRateHz: Int,
+        hotFieldMask: Int,
+        hotPayloadVersion: Int,
+        dynamicsValues: DoubleArray,
+        dynamicEqValues: DoubleArray,
+        dynamicsCoefficients: DoubleArray,
+        dynamicEqCoefficients: DoubleArray,
+    ): Int
+    private external fun nativeApplyPreampHot(
+        handle: Long,
+        version: Int,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+        gainDb: Double,
+        gainLinear: Double,
+        gainPairValidated: Boolean,
+    ): Int
+    private external fun nativePrepareLocalPeqUpdate(
+        handle: Long,
+        eqCoefficients: DoubleArray,
+        preparedValues: DoubleArray,
+        historySequences: LongArray,
+    ): Boolean
+    private external fun nativeEnqueueLocalPeqUpdate(
+        handle: Long,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+        historyEpochSequence: Long,
+        historyEndSequence: Long,
+        bandCount: Int,
+        preparedValues: DoubleArray,
+    ): Int
+    private external fun nativeBindHotUpdateContext(
+        handle: Long,
+        sampleRate: Int,
+        channels: Int,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): Int
+    private external fun nativeGetHotAckToken(handle: Long): Int
+    private external fun nativeGetHotDeferredToken(handle: Long): Int
+    private external fun nativeGetHotDeferredReason(handle: Long): Int
+    private external fun nativeGetPreampHotAckToken(handle: Long): Int
+    private external fun nativeGetLocalPeqAckToken(handle: Long): Int
+    private external fun nativeCancelLocalPeqUpdate(handle: Long, generationToken: Int): Int
+    private external fun nativeGetLocalPeqRejectedToken(handle: Long): Int
     private external fun nativeProcess(
         handle: Long,
         input: ByteBuffer,
@@ -171,6 +427,59 @@ internal class NativeDspProcessor internal constructor(
     private val meterValues = DoubleArray(DIAGNOSTIC_VALUE_COUNT)
     private val counters = LongArray(DIAGNOSTIC_COUNTER_COUNT)
     @Volatile private var localNativeErrors = 0L
+    @Volatile private var hotEditorOwnerEpoch = 0L
+    @Volatile private var hotRendererOwnerToken = 0L
+    @Volatile private var hotPcmFormatEpoch = 0L
+    @Volatile private var hotContextToken = 0
+
+    override fun bindHotUpdateContext(
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): Boolean {
+        val handle = nativeHandle
+        if (handle <= 0L || editorOwnerEpoch <= 0L || rendererOwnerToken <= 0L || pcmFormatEpoch <= 0L ||
+            hotContextToken <= 0 || !mediaRole
+        ) {
+            return false
+        }
+        val bound = try {
+            bindings.bindHotUpdateContext(
+                handle, format, editorOwnerEpoch, rendererOwnerToken, pcmFormatEpoch, hotContextToken, mediaRole,
+            )
+        } catch (_: Exception) {
+            false
+        } catch (_: LinkageError) {
+            false
+        }
+        if (bound) {
+            hotEditorOwnerEpoch = editorOwnerEpoch
+            hotRendererOwnerToken = rendererOwnerToken
+            hotPcmFormatEpoch = pcmFormatEpoch
+            this.hotContextToken = hotContextToken
+        }
+        return bound
+    }
+
+    override fun invalidateHotUpdateContext() {
+        val handle = nativeHandle
+        hotEditorOwnerEpoch = 0L
+        hotRendererOwnerToken = 0L
+        hotPcmFormatEpoch = 0L
+        hotContextToken = 0
+        if (handle <= 0L) return
+        try {
+            bindings.bindHotUpdateContext(handle, format, 0L, 0L, 0L, 0, mediaRole = false)
+        } catch (_: Exception) {
+            localNativeErrors++
+        } catch (_: LinkageError) {
+            localNativeErrors++
+        }
+    }
+
+    override fun hotUpdateContextToken(): Int = hotContextToken
 
     override fun process(input: ByteBuffer, output: ByteBuffer, frames: Int): DspProcessResult {
         val expectedByteCount = frames.toLong() * format.channels * Float.SIZE_BYTES
@@ -231,6 +540,203 @@ internal class NativeDspProcessor internal constructor(
         if (status != NATIVE_OK) localNativeErrors++
     }
 
+    override fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean {
+        val handle = nativeHandle
+        if (handle <= 0L || update.generation <= 0L || update.hotPayloadVersion != 1 ||
+            update.sampleRateHz != format.sampleRate ||
+            update.hotFieldMask <= 0 || (update.hotFieldMask and
+                (DspPreparedHotUpdate.HOT_FIELD_STUDIO or DspPreparedHotUpdate.HOT_FIELD_DYNAMICS or
+                    DspPreparedHotUpdate.HOT_FIELD_DYNAMIC_EQ).inv()) != 0 ||
+            update.dynamicsValues.size != DspPreparedHotUpdate.DYNAMICS_VALUES_COUNT ||
+            update.dynamicEqValues.size != DspPreparedHotUpdate.DYNAMIC_EQ_VALUES_COUNT ||
+            update.dynamicsCoefficients.size != DspPreparedHotUpdate.DYNAMICS_COEFFICIENTS_COUNT ||
+            update.dynamicEqCoefficients.size != DspPreparedHotUpdate.DYNAMIC_EQ_COEFFICIENTS_COUNT ||
+            update.dynamicsValues.any { !it.isFinite() } || update.dynamicEqValues.any { !it.isFinite() } ||
+            update.dynamicsCoefficients.any { !it.isFinite() } || update.dynamicEqCoefficients.any { !it.isFinite() } ||
+            update.editorOwnerEpoch != hotEditorOwnerEpoch ||
+            update.rendererOwnerToken != hotRendererOwnerToken || update.pcmFormatEpoch != hotPcmFormatEpoch ||
+            update.hotContextToken != hotContextToken || !update.mediaRole
+        ) return false
+        val status = try {
+            bindings.applyHotConfig(handle, update)
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        } catch (_: Exception) {
+            -1
+        }
+        if (status != NATIVE_OK && status != NATIVE_QUEUE_FULL) localNativeErrors++
+        return status == NATIVE_OK
+    }
+
+    override fun enqueuePreampHotUpdate(update: DspPreparedPreampHotUpdate): Boolean {
+        val handle = nativeHandle
+        if (handle <= 0L || !update.gainPairIsConsistent || update.editorOwnerEpoch != hotEditorOwnerEpoch ||
+            update.rendererOwnerToken != hotRendererOwnerToken || update.pcmFormatEpoch != hotPcmFormatEpoch ||
+            update.hotContextToken != hotContextToken || !update.mediaRole
+        ) return false
+        val status = try {
+            bindings.applyPreampHot(handle, update)
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        } catch (_: Exception) {
+            -1
+        }
+        if (status != NATIVE_OK && status != NATIVE_QUEUE_FULL) localNativeErrors++
+        return status == NATIVE_OK
+    }
+
+    override fun prepareLocalPeqWarmUpdate(
+        coefficients: DoubleArray,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): DspPreparedLocalPeqWarmUpdate? {
+        val handle = nativeHandle
+        if (handle <= 0L || generation <= 0L || editorOwnerEpoch != hotEditorOwnerEpoch ||
+            rendererOwnerToken != hotRendererOwnerToken || pcmFormatEpoch != hotPcmFormatEpoch ||
+            hotContextToken != this.hotContextToken || !mediaRole || coefficients.size % DspEqDesigner.COEFFICIENTS_PER_BAND != 0 ||
+            coefficients.size > DspEqDesigner.MAX_GRAPH_FILTERS * DspEqDesigner.COEFFICIENTS_PER_BAND
+        ) return null
+        val bandCount = coefficients.size / DspEqDesigner.COEFFICIENTS_PER_BAND
+        val preparedValues = DoubleArray(bandCount * DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND)
+        val historySequences = LongArray(2)
+        val prepared = try {
+            bindings.prepareLocalPeqUpdate(handle, coefficients, preparedValues, historySequences)
+        } catch (_: SecurityException) {
+            false
+        } catch (_: LinkageError) {
+            false
+        } catch (_: Exception) {
+            false
+        }
+        if (!prepared || preparedValues.any { !it.isFinite() } || historySequences[0] < 0L ||
+            historySequences[1] < historySequences[0]
+        ) return null
+        return DspPreparedLocalPeqWarmUpdate(
+            generation = generation,
+            editorOwnerEpoch = editorOwnerEpoch,
+            rendererOwnerToken = rendererOwnerToken,
+            pcmFormatEpoch = pcmFormatEpoch,
+            hotContextToken = hotContextToken,
+            mediaRole = mediaRole,
+            bandCount = bandCount,
+            historyEpochSequence = historySequences[0],
+            historyEndSequence = historySequences[1],
+            preparedValues = preparedValues,
+        )
+    }
+
+    override fun enqueueLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int {
+        val handle = nativeHandle
+        if (handle <= 0L || update.editorOwnerEpoch != hotEditorOwnerEpoch ||
+            update.rendererOwnerToken != hotRendererOwnerToken || update.pcmFormatEpoch != hotPcmFormatEpoch ||
+            update.hotContextToken != hotContextToken || !update.mediaRole
+        ) return DSP_STATUS_STALE_UPDATE
+        return try {
+            bindings.enqueueLocalPeqUpdate(handle, update)
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        } catch (_: Exception) {
+            -1
+        }
+    }
+
+    override fun cancelLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int {
+        val handle = nativeHandle
+        if (handle <= 0L || update.editorOwnerEpoch != hotEditorOwnerEpoch ||
+            update.rendererOwnerToken != hotRendererOwnerToken || update.pcmFormatEpoch != hotPcmFormatEpoch ||
+            update.hotContextToken != hotContextToken || !update.mediaRole
+        ) return DSP_STATUS_STALE_UPDATE
+        return try {
+            bindings.cancelLocalPeqUpdate(handle, update.generationToken)
+        } catch (_: SecurityException) {
+            -1
+        } catch (_: LinkageError) {
+            -1
+        } catch (_: Exception) {
+            -1
+        }
+    }
+
+    override fun localPeqWarmAcknowledgedToken(): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try {
+            bindings.localPeqAckToken(handle)
+        } catch (_: SecurityException) {
+            0
+        } catch (_: LinkageError) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    override fun localPeqWarmRejectedToken(): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try {
+            bindings.localPeqRejectedToken(handle)
+        } catch (_: SecurityException) {
+            0
+        } catch (_: LinkageError) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    override fun hotAcknowledgedToken(): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try {
+            bindings.hotAckToken(handle)
+        } catch (_: SecurityException) {
+            0
+        } catch (_: LinkageError) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
+    override fun hotDeferredToken(): Int = nativeStatusToken(bindings::hotDeferredToken)
+
+    override fun hotDeferredReason(): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try { bindings.hotDeferredReason(handle) } catch (_: Exception) { 0 } catch (_: LinkageError) { 0 }
+    }
+
+    private inline fun nativeStatusToken(read: (Long) -> Int): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try { read(handle) } catch (_: Exception) { 0 } catch (_: LinkageError) { 0 }
+    }
+
+    override fun preampHotAcknowledgedToken(): Int {
+        val handle = nativeHandle
+        if (handle <= 0L) return 0
+        return try {
+            bindings.preampHotAckToken(handle)
+        } catch (_: SecurityException) {
+            0
+        } catch (_: LinkageError) {
+            0
+        } catch (_: Exception) {
+            0
+        }
+    }
+
     @Synchronized
     override fun diagnostics(): DspDiagnosticsSnapshot {
         val handle = nativeHandle
@@ -287,6 +793,8 @@ internal class NativeDspProcessor internal constructor(
 
     companion object {
         private const val NATIVE_OK = 0
+        private const val NATIVE_QUEUE_FULL = 5
+        private const val DSP_STATUS_STALE_UPDATE = 7
         private const val DIAGNOSTIC_VALUE_COUNT = 8
         private const val DIAGNOSTIC_COUNTER_COUNT = 5
 
@@ -306,7 +814,7 @@ internal class NativeDspProcessor internal constructor(
             }
             var handle = 0L
             return try {
-                handle = bindings.create(
+                handle = bindings.createWithStudio(
                     sampleRate = format.sampleRate,
                     channels = format.channels,
                     maxFrames = DspBufferSizing.PROCESSING_CHUNK_FRAMES,
@@ -321,6 +829,9 @@ internal class NativeDspProcessor internal constructor(
                     convolverConfig = prepared.convolverConfig,
                     convolverSamples = prepared.convolverSamples,
                     harmonicValues = prepared.harmonic,
+                    macroValues = prepared.macroTone,
+                    smartLoudnessValues = prepared.smartLoudness,
+                    dynamicBassValues = prepared.dynamicBass,
                 )
                 if (handle <= 0L) return null
                 val latencyFrames = bindings.latencyFrames(handle)

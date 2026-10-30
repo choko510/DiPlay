@@ -39,6 +39,9 @@ fi
   "$source_dir/dsp_dynamic_eq.c" \
   "$source_dir/dsp_spatial.c" \
   "$source_dir/dsp_harmonic.c" \
+  "$source_dir/dsp_macro.c" \
+  "$source_dir/dsp_smart_loudness.c" \
+  "$source_dir/dsp_dynamic_bass.c" \
   "$source_dir/dsp_convolver.c" \
   "$source_dir/dsp_gain.c" \
   "$source_dir/dsp_meter.c" \
@@ -52,4 +55,10 @@ if [[ $sanitize -eq 1 ]]; then
     "$build_dir/test_dsp_engine"
 else
   "$build_dir/test_dsp_engine"
+fi
+
+if [[ $sanitize -eq 1 ]]; then
+  bash "$root_dir/scripts/test_dsp_dynamic_eq_hot.sh" --sanitize
+else
+  bash "$root_dir/scripts/test_dsp_dynamic_eq_hot.sh"
 fi

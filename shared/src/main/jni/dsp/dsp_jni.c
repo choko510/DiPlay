@@ -1,10 +1,15 @@
 #include "dsp_engine.h"
+#include "dsp_graph.h"
 
 #include <jni.h>
 #include <math.h>
 #include <sched.h>
 #include <stdatomic.h>
 #include <stdint.h>
+
+static int hot_value_is_boolean(double value) {
+    return isfinite(value) && (value == 0.0 || value == 1.0);
+}
 
 #define DSP_HANDLE_SLOT_COUNT 64u
 #define DSP_RESERVED_POINTER ((dsp_engine *)(uintptr_t)1)
@@ -139,13 +144,17 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     jdoubleArray spatial_values,
     jdoubleArray convolver_values,
     jfloatArray convolver_samples,
-    jdoubleArray harmonic_values) {
+    jdoubleArray harmonic_values,
+    jdoubleArray macro_values,
+    jdoubleArray smart_loudness_values,
+    jdoubleArray dynamic_bass_values) {
     (void)env;
     (void)receiver;
     if (peq_coefficients == NULL || dynamics_values == NULL || multiband_values == NULL ||
         dynamic_eq_values == NULL || bass_coefficients == NULL ||
         mono_bass_coefficients == NULL || spatial_values == NULL || convolver_values == NULL ||
-        convolver_samples == NULL || harmonic_values == NULL) {
+        convolver_samples == NULL || harmonic_values == NULL || macro_values == NULL ||
+        smart_loudness_values == NULL || dynamic_bass_values == NULL) {
         return 0;
     }
     const jsize coefficient_count = (*env)->GetArrayLength(env, peq_coefficients);
@@ -158,19 +167,23 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     const jsize convolver_value_count = (*env)->GetArrayLength(env, convolver_values);
     const jsize convolver_sample_count = (*env)->GetArrayLength(env, convolver_samples);
     const jsize harmonic_count = (*env)->GetArrayLength(env, harmonic_values);
+    const jsize macro_count = (*env)->GetArrayLength(env, macro_values);
+    const jsize smart_loudness_count = (*env)->GetArrayLength(env, smart_loudness_values);
+    const jsize dynamic_bass_count = (*env)->GetArrayLength(env, dynamic_bass_values);
     if (coefficient_count < 0 || coefficient_count >
-            DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT ||
+            DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_BIQUAD_COEFFICIENT_COUNT ||
         coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 || dynamics_count != 10 ||
         multiband_count != DSP_MULTIBAND_VALUES_COUNT ||
         dynamic_eq_count != DSP_DYNAMIC_EQ_VALUES_COUNT ||
         (bass_coefficient_count != 0 && bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         (mono_bass_coefficient_count != 0 && mono_bass_coefficient_count != DSP_BIQUAD_COEFFICIENT_COUNT) ||
         spatial_count != DSP_SPATIAL_VALUES_COUNT || convolver_value_count != 5 ||
-        harmonic_count != DSP_HARMONIC_VALUES_COUNT || convolver_sample_count < 0 ||
+        harmonic_count != DSP_HARMONIC_VALUES_COUNT || macro_count != 5 ||
+        smart_loudness_count != 3 || dynamic_bass_count != 9 || convolver_sample_count < 0 ||
         convolver_sample_count > DSP_CONVOLVER_MAX_IR_FRAMES * 2) {
         return 0;
     }
-    double coefficients[DSP_BIQUAD_MAX_BANDS * DSP_BIQUAD_COEFFICIENT_COUNT];
+    double coefficients[DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_BIQUAD_COEFFICIENT_COUNT];
     double multiband_values_data[DSP_MULTIBAND_VALUES_COUNT];
     double dynamic_eq_values_data[DSP_DYNAMIC_EQ_VALUES_COUNT];
     double bass_coefficients_values[DSP_BIQUAD_COEFFICIENT_COUNT];
@@ -179,6 +192,9 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     double spatial_values_data[DSP_SPATIAL_VALUES_COUNT];
     double convolver_values_data[5];
     double harmonic_values_data[DSP_HARMONIC_VALUES_COUNT];
+    double macro_values_data[5];
+    double smart_loudness_values_data[3];
+    double dynamic_bass_values_data[9];
     if (coefficient_count > 0) {
         (*env)->GetDoubleArrayRegion(env, peq_coefficients, 0, coefficient_count, coefficients);
         if ((*env)->ExceptionCheck(env)) {
@@ -194,6 +210,41 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
     if ((*env)->ExceptionCheck(env) ||
         (multiband_values_data[0] != 0.0 && multiband_values_data[0] != 1.0) ||
         !isfinite(multiband_values_data[1]) || !isfinite(multiband_values_data[2])) {
+        return 0;
+    }
+    (*env)->GetDoubleArrayRegion(env, macro_values, 0, macro_count, macro_values_data);
+    if ((*env)->ExceptionCheck(env) ||
+        (macro_values_data[0] != 0.0 && macro_values_data[0] != 1.0) ||
+        !isfinite(macro_values_data[1]) || macro_values_data[1] < -2.0 || macro_values_data[1] > 4.0 ||
+        !isfinite(macro_values_data[2]) || macro_values_data[2] < -2.0 || macro_values_data[2] > 2.5 ||
+        !isfinite(macro_values_data[3]) || macro_values_data[3] < -2.0 || macro_values_data[3] > 2.0 ||
+        !isfinite(macro_values_data[4]) || macro_values_data[4] < 0.75 || macro_values_data[4] > 1.25) {
+        return 0;
+    }
+    (*env)->GetDoubleArrayRegion(env, smart_loudness_values, 0, smart_loudness_count, smart_loudness_values_data);
+    if ((*env)->ExceptionCheck(env) ||
+        (smart_loudness_values_data[0] != 0.0 && smart_loudness_values_data[0] != 1.0) ||
+        !isfinite(smart_loudness_values_data[1]) || smart_loudness_values_data[1] < 0.0 ||
+        smart_loudness_values_data[1] > 3.0 || !isfinite(smart_loudness_values_data[2]) ||
+        smart_loudness_values_data[2] < 0.0 || smart_loudness_values_data[2] > 1.5) {
+        return 0;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamic_bass_values, 0, dynamic_bass_count, dynamic_bass_values_data);
+    if ((*env)->ExceptionCheck(env) ||
+        (dynamic_bass_values_data[0] != 0.0 && dynamic_bass_values_data[0] != 1.0) ||
+        !isfinite(dynamic_bass_values_data[1]) || dynamic_bass_values_data[1] < 0.0 ||
+        dynamic_bass_values_data[1] > 1.0 || !isfinite(dynamic_bass_values_data[2]) ||
+        dynamic_bass_values_data[2] < 0.0 || dynamic_bass_values_data[2] > 3.0 ||
+        !isfinite(dynamic_bass_values_data[3]) || dynamic_bass_values_data[3] < 80.0 ||
+        dynamic_bass_values_data[3] > 160.0 || !isfinite(dynamic_bass_values_data[4]) ||
+        dynamic_bass_values_data[4] < -90.0 || dynamic_bass_values_data[4] > -30.0 ||
+        !isfinite(dynamic_bass_values_data[5]) || dynamic_bass_values_data[5] < -60.0 ||
+        dynamic_bass_values_data[5] > 0.0 || !isfinite(dynamic_bass_values_data[6]) ||
+        dynamic_bass_values_data[6] < -60.0 || dynamic_bass_values_data[6] > 0.0 ||
+        dynamic_bass_values_data[5] >= dynamic_bass_values_data[6] ||
+        !isfinite(dynamic_bass_values_data[7]) || dynamic_bass_values_data[7] < 10.0 ||
+        dynamic_bass_values_data[7] > 200.0 || !isfinite(dynamic_bass_values_data[8]) ||
+        dynamic_bass_values_data[8] < 50.0 || dynamic_bass_values_data[8] > 1000.0) {
         return 0;
     }
     (*env)->GetDoubleArrayRegion(env, harmonic_values, 0, harmonic_count, harmonic_values_data);
@@ -407,7 +458,30 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         .virtual_bass_cutoff_hz = harmonic_values_data[8],
         .level_match_enabled = (int)harmonic_values_data[9],
     };
-    dsp_engine *engine = dsp_engine_create(
+    const dsp_macro_config macro_config = {
+        .enabled = (int)macro_values_data[0],
+        .bass_gain_db = macro_values_data[1],
+        .vocal_gain_db = macro_values_data[2],
+        .air_gain_db = macro_values_data[3],
+        .relative_width = macro_values_data[4],
+    };
+    const dsp_smart_loudness_config smart_loudness_config = {
+        .enabled = (int)smart_loudness_values_data[0],
+        .low_gain_db = smart_loudness_values_data[1],
+        .high_gain_db = smart_loudness_values_data[2],
+    };
+    const dsp_dynamic_bass_config dynamic_bass_config = {
+        .enabled = (int)dynamic_bass_values_data[0],
+        .strength = dynamic_bass_values_data[1],
+        .max_boost_db = dynamic_bass_values_data[2],
+        .detector_cutoff_hz = dynamic_bass_values_data[3],
+        .silence_gate_dbfs = dynamic_bass_values_data[4],
+        .low_threshold_dbfs = dynamic_bass_values_data[5],
+        .high_threshold_dbfs = dynamic_bass_values_data[6],
+        .attack_ms = dynamic_bass_values_data[7],
+        .release_ms = dynamic_bass_values_data[8],
+    };
+    dsp_engine *engine = dsp_engine_create_with_studio(
         sample_rate,
         channels,
         max_frames,
@@ -423,11 +497,528 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCreate(
         mono_bass_coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT,
         &spatial_config,
         &convolver_config,
-        &harmonic_config);
+        &harmonic_config,
+        &macro_config,
+        &smart_loudness_config,
+        &dynamic_bass_config);
     if (impulse_samples != NULL) {
         (*env)->ReleaseFloatArrayElements(env, convolver_samples, impulse_samples, JNI_ABORT);
     }
     return register_engine(engine);
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jlong generation,
+    jlong editor_owner_epoch,
+    jlong renderer_owner_token,
+    jlong pcm_format_epoch,
+    jint hot_context_token,
+    jboolean media_role,
+    jdouble gain_db,
+    jdouble gain_linear,
+    jboolean gain_pair_validated,
+    jdoubleArray macro_values,
+    jdoubleArray smart_loudness_values,
+    jdoubleArray dynamic_bass_values,
+    jint sample_rate,
+    jint field_mask,
+    jint hot_version,
+    jdoubleArray dynamics_values,
+    jdoubleArray dynamic_eq_values,
+    jdoubleArray dynamics_coefficients,
+    jdoubleArray dynamic_eq_coefficients) {
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    if (generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 || pcm_format_epoch <= 0 ||
+        hot_context_token <= 0 ||
+        media_role != JNI_TRUE || !isfinite(gain_db) || gain_db < -700.0 || gain_db > 24.0 ||
+        gain_pair_validated != JNI_TRUE || !isfinite(gain_linear) || gain_linear < 1.0e-35 ||
+        gain_linear > 15.84893193 ||
+        macro_values == NULL || smart_loudness_values == NULL || dynamic_bass_values == NULL ||
+        dynamics_values == NULL || dynamic_eq_values == NULL || dynamics_coefficients == NULL ||
+        dynamic_eq_coefficients == NULL || sample_rate < 8000 || sample_rate > 192000 ||
+        field_mask <= 0 || (field_mask & ~7) != 0 || hot_version != 1 ||
+        (*env)->GetArrayLength(env, macro_values) != 5 ||
+        (*env)->GetArrayLength(env, smart_loudness_values) != 3 ||
+        (*env)->GetArrayLength(env, dynamic_bass_values) != 9 ||
+        (*env)->GetArrayLength(env, dynamics_values) != 10 ||
+        (*env)->GetArrayLength(env, dynamic_eq_values) != DSP_DYNAMIC_EQ_VALUES_COUNT ||
+        (*env)->GetArrayLength(env, dynamics_coefficients) != 5 ||
+        (*env)->GetArrayLength(env, dynamic_eq_coefficients) != 10) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    jdouble macro_values_data[5];
+    jdouble smart_loudness_values_data[3];
+    jdouble dynamic_bass_values_data[9];
+    jdouble dynamics_values_data[10];
+    jdouble dynamic_eq_values_data[DSP_DYNAMIC_EQ_VALUES_COUNT];
+    jdouble dynamics_coefficients_data[5];
+    jdouble dynamic_eq_coefficients_data[10];
+    (*env)->GetDoubleArrayRegion(env, macro_values, 0, 5, macro_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamics_values, 0, 10, dynamics_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamic_eq_values, 0, DSP_DYNAMIC_EQ_VALUES_COUNT, dynamic_eq_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamics_coefficients, 0, 5, dynamics_coefficients_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamic_eq_coefficients, 0, 10, dynamic_eq_coefficients_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, smart_loudness_values, 0, 3, smart_loudness_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, dynamic_bass_values, 0, 9, dynamic_bass_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    if (!hot_value_is_boolean(dynamics_values_data[0]) || !hot_value_is_boolean(dynamics_values_data[7]) ||
+        !hot_value_is_boolean(dynamic_eq_values_data[0])) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
+        if (!hot_value_is_boolean(dynamic_eq_values_data[1 + band * 10])) {
+            release_engine(&lease);
+            return DSP_STATUS_INVALID_ARGUMENT;
+        }
+    }
+    if ((macro_values_data[0] != 0.0 && macro_values_data[0] != 1.0) ||
+        !isfinite(macro_values_data[1]) || macro_values_data[1] < -2.0 || macro_values_data[1] > 4.0 ||
+        !isfinite(macro_values_data[2]) || macro_values_data[2] < -2.0 || macro_values_data[2] > 2.5 ||
+        !isfinite(macro_values_data[3]) || macro_values_data[3] < -2.0 || macro_values_data[3] > 2.0 ||
+        !isfinite(macro_values_data[4]) || macro_values_data[4] < 0.75 || macro_values_data[4] > 1.25 ||
+        (smart_loudness_values_data[0] != 0.0 && smart_loudness_values_data[0] != 1.0) ||
+        !isfinite(smart_loudness_values_data[1]) || smart_loudness_values_data[1] < 0.0 ||
+        smart_loudness_values_data[1] > 3.0 || !isfinite(smart_loudness_values_data[2]) ||
+        smart_loudness_values_data[2] < 0.0 || smart_loudness_values_data[2] > 1.5 ||
+        (dynamic_bass_values_data[0] != 0.0 && dynamic_bass_values_data[0] != 1.0) ||
+        !isfinite(dynamic_bass_values_data[1]) || dynamic_bass_values_data[1] < 0.0 ||
+        dynamic_bass_values_data[1] > 1.0 || !isfinite(dynamic_bass_values_data[2]) ||
+        dynamic_bass_values_data[2] < 0.0 || dynamic_bass_values_data[2] > 3.0 ||
+        !isfinite(dynamic_bass_values_data[3]) || dynamic_bass_values_data[3] < 80.0 ||
+        dynamic_bass_values_data[3] > 160.0 || !isfinite(dynamic_bass_values_data[4]) ||
+        dynamic_bass_values_data[4] < -90.0 || dynamic_bass_values_data[4] > -30.0 ||
+        !isfinite(dynamic_bass_values_data[5]) || dynamic_bass_values_data[5] < -60.0 ||
+        dynamic_bass_values_data[5] > 0.0 || !isfinite(dynamic_bass_values_data[6]) ||
+        dynamic_bass_values_data[6] < -60.0 || dynamic_bass_values_data[6] > 0.0 ||
+        dynamic_bass_values_data[5] >= dynamic_bass_values_data[6] ||
+        !isfinite(dynamic_bass_values_data[7]) || dynamic_bass_values_data[7] < 10.0 ||
+        dynamic_bass_values_data[7] > 200.0 || !isfinite(dynamic_bass_values_data[8]) ||
+        dynamic_bass_values_data[8] < 50.0 || dynamic_bass_values_data[8] > 1000.0) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    const dsp_dynamics_config dynamics_config = {
+        .compressor_enabled = (int)dynamics_values_data[0],
+        .compressor_threshold_db = dynamics_values_data[1],
+        .compressor_ratio = dynamics_values_data[2],
+        .compressor_attack_ms = dynamics_values_data[3],
+        .compressor_release_ms = dynamics_values_data[4],
+        .compressor_knee_db = dynamics_values_data[5],
+        .compressor_makeup_db = dynamics_values_data[6],
+        .limiter_enabled = (int)dynamics_values_data[7],
+        .limiter_threshold_db = dynamics_values_data[8],
+        .limiter_release_ms = dynamics_values_data[9],
+    };
+    dsp_dynamics_hot_params dynamics_params = {0};
+    dynamics_params.version = 1;
+    dynamics_params.sample_rate = sample_rate;
+    dynamics_params.config = dynamics_config;
+    dynamics_params.compressor_attack_coefficient = (float)dynamics_coefficients_data[0];
+    dynamics_params.compressor_release_coefficient = (float)dynamics_coefficients_data[1];
+    dynamics_params.compressor_makeup_linear = (float)dynamics_coefficients_data[2];
+    dynamics_params.limiter_release_coefficient = (float)dynamics_coefficients_data[3];
+    dynamics_params.limiter_threshold_linear = (float)dynamics_coefficients_data[4];
+    dsp_dynamic_eq_config dynamic_eq_config = { .enabled = (int)dynamic_eq_values_data[0] };
+    for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
+        const size_t start = 1 + band * 10;
+        if ((dynamic_eq_values_data[start] != 0.0 && dynamic_eq_values_data[start] != 1.0) ||
+            (dynamic_eq_values_data[start + 1] != DSP_DYNAMIC_EQ_CUT &&
+                dynamic_eq_values_data[start + 1] != DSP_DYNAMIC_EQ_BOOST)) {
+            release_engine(&lease);
+            return DSP_STATUS_INVALID_ARGUMENT;
+        }
+        dynamic_eq_config.bands[band] = (dsp_dynamic_eq_band_config) {
+            .enabled = (int)dynamic_eq_values_data[start],
+            .mode = (int)dynamic_eq_values_data[start + 1],
+            .frequency_hz = dynamic_eq_values_data[start + 2],
+            .q = dynamic_eq_values_data[start + 3],
+            .threshold_db = dynamic_eq_values_data[start + 4],
+            .ratio = dynamic_eq_values_data[start + 5],
+            .attack_ms = dynamic_eq_values_data[start + 6],
+            .release_ms = dynamic_eq_values_data[start + 7],
+            .max_boost_db = dynamic_eq_values_data[start + 8],
+            .max_cut_db = dynamic_eq_values_data[start + 9],
+        };
+    }
+    dsp_dynamic_eq_hot_update dynamic_eq_update = {0};
+    float attack_coefficients[DSP_DYNAMIC_EQ_MAX_BANDS];
+    float release_coefficients[DSP_DYNAMIC_EQ_MAX_BANDS];
+    for (size_t band = 0; band < DSP_DYNAMIC_EQ_MAX_BANDS; band++) {
+        attack_coefficients[band] = (float)dynamic_eq_coefficients_data[band * 2];
+        release_coefficients[band] = (float)dynamic_eq_coefficients_data[band * 2 + 1];
+    }
+    int values_are_finite = 1;
+    for (size_t index = 0; index < 10; index++) {
+        if (!isfinite(dynamics_values_data[index])) values_are_finite = 0;
+    }
+    for (size_t index = 0; index < DSP_DYNAMIC_EQ_VALUES_COUNT; index++) {
+        if (!isfinite(dynamic_eq_values_data[index])) values_are_finite = 0;
+    }
+    for (size_t index = 0; index < 5; index++) {
+        if (!isfinite(dynamics_coefficients_data[index])) values_are_finite = 0;
+    }
+    for (size_t index = 0; index < 10; index++) {
+        if (!isfinite(dynamic_eq_coefficients_data[index])) values_are_finite = 0;
+    }
+    if (!values_are_finite || !dsp_dynamics_hot_params_validate(&dynamics_params) ||
+        !dsp_dynamic_eq_prepare_hot_update_with_coefficients(sample_rate, &dynamic_eq_config,
+            attack_coefficients, release_coefficients, &dynamic_eq_update)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t generation_token = (uint32_t)((uint64_t)generation & UINT32_C(0x7fffffff));
+    if (generation_token == 0) generation_token = 1;
+    const dsp_engine_hot_update update = {
+        .generation_token = generation_token,
+        .generation = (uint64_t)generation,
+        .editor_owner_epoch = (uint64_t)editor_owner_epoch,
+        .renderer_owner_token = (uint64_t)renderer_owner_token,
+        .pcm_format_epoch = (uint64_t)pcm_format_epoch,
+        .hot_context_token = hot_context_token > 0 ? (uint32_t)hot_context_token : 0,
+        .media_role = media_role == JNI_TRUE ? 1 : 0,
+        .gain_db = gain_db,
+        .gain_linear = gain_linear,
+        .gain_pair_validated = gain_pair_validated == JNI_TRUE ? 1u : 0u,
+        .payload_kind = DSP_ENGINE_HOT_KIND_STUDIO,
+        .field_mask = (uint32_t)field_mask,
+        .hot_version = (uint32_t)hot_version,
+        .macro = {
+            .enabled = (int)macro_values_data[0],
+            .bass_gain_db = macro_values_data[1],
+            .vocal_gain_db = macro_values_data[2],
+            .air_gain_db = macro_values_data[3],
+            .relative_width = macro_values_data[4],
+        },
+        .smart_loudness = {
+            .enabled = (int)smart_loudness_values_data[0],
+            .low_gain_db = smart_loudness_values_data[1],
+            .high_gain_db = smart_loudness_values_data[2],
+        },
+        .dynamic_bass = {
+            .enabled = (int)dynamic_bass_values_data[0],
+            .strength = dynamic_bass_values_data[1],
+            .max_boost_db = dynamic_bass_values_data[2],
+            .detector_cutoff_hz = dynamic_bass_values_data[3],
+            .silence_gate_dbfs = dynamic_bass_values_data[4],
+            .low_threshold_dbfs = dynamic_bass_values_data[5],
+            .high_threshold_dbfs = dynamic_bass_values_data[6],
+            .attack_ms = dynamic_bass_values_data[7],
+            .release_ms = dynamic_bass_values_data[8],
+        },
+        .dynamics = dynamics_params,
+        .dynamic_eq = dynamic_eq_update,
+    };
+    const int queued = dsp_engine_enqueue_hot_update(lease.engine, &update);
+    release_engine(&lease);
+    return queued ? DSP_STATUS_OK : DSP_STATUS_QUEUE_FULL;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyPreampHot(
+    JNIEnv *env, jobject receiver, jlong handle, jint version, jlong generation,
+    jlong editor_owner_epoch, jlong renderer_owner_token, jlong pcm_format_epoch,
+    jint hot_context_token, jboolean media_role, jdouble gain_db, jdouble gain_linear,
+    jboolean gain_pair_validated) {
+    (void)env;
+    (void)receiver;
+    if (version != 1 || generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 ||
+        pcm_format_epoch <= 0 || hot_context_token <= 0 || media_role != JNI_TRUE ||
+        gain_pair_validated != JNI_TRUE || !isfinite(gain_db) || gain_db < -120.0 || gain_db > -6.0 ||
+        !isfinite(gain_linear) || gain_linear < 1.0e-6 || gain_linear > 0.50118724) {
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    uint32_t generation_token = (uint32_t)((uint64_t)generation & UINT32_C(0x7fffffff));
+    if (generation_token == 0) generation_token = 1;
+    const dsp_engine_preamp_update update = {
+        .version = (uint32_t)version,
+        .generation_token = generation_token,
+        .generation = (uint64_t)generation,
+        .editor_owner_epoch = (uint64_t)editor_owner_epoch,
+        .renderer_owner_token = (uint64_t)renderer_owner_token,
+        .pcm_format_epoch = (uint64_t)pcm_format_epoch,
+        .hot_context_token = (uint32_t)hot_context_token,
+        .media_role = 1,
+        .gain_db = gain_db,
+        .gain_linear = gain_linear,
+        .gain_pair_validated = gain_pair_validated == JNI_TRUE ? 1u : 0u,
+    };
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    const int queued = dsp_engine_enqueue_preamp_update(lease.engine, &update);
+    release_engine(&lease);
+    return queued ? DSP_STATUS_OK : DSP_STATUS_QUEUE_FULL;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeBindHotUpdateContext(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jint sample_rate,
+    jint channels,
+    jlong editor_owner_epoch,
+    jlong renderer_owner_token,
+    jlong pcm_format_epoch,
+    jint hot_context_token,
+    jboolean media_role) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    const int bound = dsp_engine_bind_hot_update_context(
+        lease.engine,
+        sample_rate,
+        channels,
+        editor_owner_epoch > 0 ? (uint64_t)editor_owner_epoch : 0,
+        renderer_owner_token > 0 ? (uint64_t)renderer_owner_token : 0,
+        pcm_format_epoch > 0 ? (uint64_t)pcm_format_epoch : 0,
+        hot_context_token > 0 ? (uint32_t)hot_context_token : 0,
+        media_role == JNI_TRUE ? 1 : 0);
+    release_engine(&lease);
+    return bound ? DSP_STATUS_OK : DSP_STATUS_INVALID_ARGUMENT;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativePrepareLocalPeqUpdate(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jdoubleArray eq_coefficients,
+    jdoubleArray prepared_values,
+    jlongArray history_epoch_sequence) {
+    (void)receiver;
+    if (eq_coefficients == NULL || prepared_values == NULL || history_epoch_sequence == NULL) return JNI_FALSE;
+    const jsize coefficient_count = (*env)->GetArrayLength(env, eq_coefficients);
+    const jsize prepared_count = (*env)->GetArrayLength(env, prepared_values);
+    if (coefficient_count < 0 || coefficient_count > DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_BIQUAD_COEFFICIENT_COUNT ||
+        coefficient_count % DSP_BIQUAD_COEFFICIENT_COUNT != 0 ||
+        prepared_count != (coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT) *
+            DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND ||
+        (*env)->GetArrayLength(env, history_epoch_sequence) != 2) return JNI_FALSE;
+
+    double coefficients[DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_BIQUAD_COEFFICIENT_COUNT] = {0};
+    double values[DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0};
+    if (coefficient_count > 0) {
+        (*env)->GetDoubleArrayRegion(env, eq_coefficients, 0, coefficient_count, coefficients);
+        if ((*env)->ExceptionCheck(env)) return JNI_FALSE;
+    }
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return JNI_FALSE;
+    unsigned long long history_epoch = 0;
+    unsigned long long history_end = 0;
+    const int prepared = dsp_engine_prepare_local_peq_update(
+        lease.engine,
+        coefficient_count > 0 ? coefficients : NULL,
+        (size_t)(coefficient_count / DSP_BIQUAD_COEFFICIENT_COUNT),
+        prepared_count > 0 ? values : NULL,
+        (size_t)prepared_count,
+        &history_epoch,
+        &history_end);
+    if (prepared) {
+        if (prepared_count > 0) {
+            (*env)->SetDoubleArrayRegion(env, prepared_values, 0, prepared_count, values);
+        }
+        if (!(*env)->ExceptionCheck(env)) {
+            const jlong sequences[2] = {(jlong)history_epoch, (jlong)history_end};
+            (*env)->SetLongArrayRegion(env, history_epoch_sequence, 0, 2, sequences);
+        }
+    }
+    const int failed = (*env)->ExceptionCheck(env);
+    release_engine(&lease);
+    return prepared && !failed ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeEnqueueLocalPeqUpdate(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jlong generation,
+    jlong editor_owner_epoch,
+    jlong renderer_owner_token,
+    jlong pcm_format_epoch,
+    jint hot_context_token,
+    jboolean media_role,
+    jlong history_epoch_sequence,
+    jlong history_end_sequence,
+    jint band_count,
+    jdoubleArray prepared_values) {
+    (void)receiver;
+    if (prepared_values == NULL || generation <= 0 || editor_owner_epoch <= 0 || renderer_owner_token <= 0 ||
+        pcm_format_epoch <= 0 || hot_context_token <= 0 || media_role != JNI_TRUE ||
+        history_epoch_sequence < 0 || history_end_sequence < history_epoch_sequence || band_count < 0 ||
+        band_count > DSP_GRAPH_EQ_FILTER_CAPACITY ||
+        (*env)->GetArrayLength(env, prepared_values) != band_count * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND) {
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    const jsize value_count = (*env)->GetArrayLength(env, prepared_values);
+    jdouble prepared_values_data[DSP_GRAPH_EQ_FILTER_CAPACITY * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND] = {0};
+    if (value_count > 0) {
+        (*env)->GetDoubleArrayRegion(env, prepared_values, 0, value_count, prepared_values_data);
+        if ((*env)->ExceptionCheck(env)) return DSP_STATUS_INVALID_ARGUMENT;
+    }
+
+    uint32_t generation_token = (uint32_t)((uint64_t)generation & UINT32_C(0x7fffffff));
+    if (generation_token == 0) generation_token = 1;
+    dsp_engine_local_peq_update update = {
+        .generation_token = generation_token,
+        .generation = (uint64_t)generation,
+        .editor_owner_epoch = (uint64_t)editor_owner_epoch,
+        .renderer_owner_token = (uint64_t)renderer_owner_token,
+        .pcm_format_epoch = (uint64_t)pcm_format_epoch,
+        .history_epoch_sequence = (uint64_t)history_epoch_sequence,
+        .history_end_sequence = (uint64_t)history_end_sequence,
+        .hot_context_token = (uint32_t)hot_context_token,
+        .media_role = 1,
+        .peq_count = (size_t)band_count,
+    };
+    for (size_t band = 0; band < update.peq_count; band++) {
+        const size_t offset = band * DSP_PEQ_LOCAL_WARM_VALUES_PER_BAND;
+        update.peq[band] = (dsp_biquad) {
+            .b0 = prepared_values_data[offset],
+            .b1 = prepared_values_data[offset + 1],
+            .b2 = prepared_values_data[offset + 2],
+            .a1 = prepared_values_data[offset + 3],
+            .a2 = prepared_values_data[offset + 4],
+            .z1 = {(float)prepared_values_data[offset + 5], (float)prepared_values_data[offset + 6]},
+            .z2 = {(float)prepared_values_data[offset + 7], (float)prepared_values_data[offset + 8]},
+        };
+    }
+
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    const int queued = dsp_engine_enqueue_local_peq_update(lease.engine, &update);
+    release_engine(&lease);
+    return queued;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotAckToken(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return -DSP_STATUS_INVALID_HANDLE;
+    const uint32_t ack_token = dsp_engine_get_hot_ack_token(lease.engine);
+    release_engine(&lease);
+    return (jint)ack_token;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotDeferredToken(
+    JNIEnv *env, jobject receiver, jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return 0;
+    const uint32_t token = dsp_engine_get_hot_deferred_token(lease.engine);
+    release_engine(&lease);
+    return (jint)token;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetHotDeferredReason(
+    JNIEnv *env, jobject receiver, jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return 0;
+    const uint32_t reason = dsp_engine_get_hot_deferred_reason(lease.engine);
+    release_engine(&lease);
+    return (jint)reason;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetPreampHotAckToken(
+    JNIEnv *env, jobject receiver, jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return -DSP_STATUS_INVALID_HANDLE;
+    const uint32_t ack_token = dsp_engine_get_preamp_ack_token(lease.engine);
+    release_engine(&lease);
+    return (jint)ack_token;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetLocalPeqAckToken(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return -DSP_STATUS_INVALID_HANDLE;
+    const uint32_t ack_token = dsp_engine_get_local_peq_ack_token(lease.engine);
+    release_engine(&lease);
+    return (jint)ack_token;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeCancelLocalPeqUpdate(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jint generation_token) {
+    (void)env;
+    (void)receiver;
+    if (generation_token <= 0) return DSP_STATUS_INVALID_ARGUMENT;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    const int status = dsp_engine_cancel_local_peq_update(lease.engine, (uint32_t)generation_token);
+    release_engine(&lease);
+    return (jint)status;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeGetLocalPeqRejectedToken(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle) {
+    (void)env;
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return -DSP_STATUS_INVALID_HANDLE;
+    const uint32_t rejected_token = dsp_engine_get_local_peq_rejected_token(lease.engine);
+    release_engine(&lease);
+    return (jint)rejected_token;
 }
 
 JNIEXPORT jint JNICALL

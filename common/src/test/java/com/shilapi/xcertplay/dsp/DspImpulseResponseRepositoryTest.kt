@@ -2,8 +2,10 @@ package com.shilapi.xcertplay.dsp
 
 import com.shilapi.xcertplay.media.dsp.DspImpulseResponse
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -127,6 +129,49 @@ class DspImpulseResponseRepositoryTest {
         assertEquals(listOf("saved_ir"), repository.ids())
         assertTrue(requireNotNull(repository.impulseFileForTesting("saved_ir")).isFile)
         assertEquals(imported.impulseResponse.sampleAt(0, 0), repository.load("saved_ir")?.sampleAt(0, 0) ?: 1.0f, 0f)
+    }
+
+    @Test
+    fun rejectsSymlinkedImpulseDirectoriesOutsideFilesRoot() {
+        val root = temporaryFolder.newFolder("ir-symlink-root")
+        val outside = temporaryFolder.newFolder("ir-symlink-outside")
+        Files.createSymbolicLink(File(root, "dsp").toPath(), outside.toPath())
+        val repository = DspImpulseResponseRepository(root)
+        val valid = wav(1, 1, 48_000, 16, byteArrayOf(0, 0))
+
+        assertNull(repository.impulseFileForTesting("unsafe_ir"))
+        assertEquals(DspImpulseImportResult.InvalidId, repository.import("unsafe_ir", valid.inputStream()))
+        assertNull(repository.load("unsafe_ir"))
+        assertFalse(repository.delete("unsafe_ir"))
+        assertFalse(File(outside, "irs").exists())
+    }
+
+    @Test
+    fun rejectsSymlinkedImpulseDirectoryToSiblingAppStorage() {
+        val root = temporaryFolder.newFolder("ir-sibling-root")
+        val dsp = File(root, "dsp").apply { mkdirs() }
+        val siblingDirectory = File(dsp, "profiles").apply { mkdirs() }
+        val repository = DspImpulseResponseRepository(root)
+        Files.createSymbolicLink(File(dsp, "irs").toPath(), siblingDirectory.toPath())
+        val valid = wav(1, 1, 48_000, 16, byteArrayOf(0, 0))
+
+        assertNull(repository.impulseFileForTesting("unsafe_ir"))
+        assertEquals(DspImpulseImportResult.InvalidId, repository.import("unsafe_ir", valid.inputStream()))
+        assertFalse(File(siblingDirectory, "unsafe_ir.wav").exists())
+    }
+
+    @Test
+    fun rejectsSymlinkedImpulseBackupFiles() {
+        val root = temporaryFolder.newFolder("ir-backup-root")
+        val repository = DspImpulseResponseRepository(root)
+        val directory = repository.impulseDirectory.apply { mkdirs() }
+        val outside = File(temporaryFolder.newFolder("ir-backup-outside"), "outside.wav")
+        Files.createSymbolicLink(File(directory, "unsafe_ir.wav.bak").toPath(), outside.toPath())
+
+        assertNull(repository.impulseFileForTesting("unsafe_ir"))
+        assertNull(repository.load("unsafe_ir"))
+        assertFalse(repository.delete("unsafe_ir"))
+        assertFalse(outside.exists())
     }
 
     @Test

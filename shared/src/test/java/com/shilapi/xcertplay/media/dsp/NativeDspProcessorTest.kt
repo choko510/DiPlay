@@ -121,7 +121,8 @@ class NativeDspProcessorTest {
         )
 
         assertTrue(processor != null)
-        assertEquals(5, bindings.createdBassCoefficients?.size)
+        assertEquals(5, bindings.createdEqCoefficients?.size)
+        assertEquals(0, bindings.createdBassCoefficients?.size)
         assertEquals(5, bindings.createdMonoBassCoefficients?.size)
         assertEquals(1.5, bindings.createdSpatial?.get(0) ?: 0.0, 0.0)
         assertEquals(1.0, bindings.createdSpatial?.get(1) ?: 0.0, 0.0)
@@ -158,6 +159,133 @@ class NativeDspProcessorTest {
         assertEquals(1.0, bindings.createdSpatial?.get(8) ?: 0.0, 0.0)
         assertEquals(0.0, bindings.createdSpatial?.get(9) ?: 0.0, 0.0)
         processor?.close()
+    }
+
+    @Test
+    fun studioOverlaysArePassedAsSeparateNativeControlBlocks() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor.createOrNull(
+            format = DspAudioFormat(48_000, 2),
+            runtimeConfig = DspRuntimeConfig(
+                enabled = true,
+                macroTone = DspMacroToneConfig(enabled = true, bassGainDb = 2.0, vocalGainDb = 1.0, airGainDb = 0.5),
+                smartLoudness = DspSmartLoudnessRuntimeConfig(enabled = true, lowGainDb = 1.5, highGainDb = 0.75),
+                dynamicBass = DspDynamicBassRuntimeConfig(enabled = true, strength = 0.5, maxBoostDb = 2.0),
+            ),
+            loadLibrary = { true },
+            bindings = bindings,
+        )
+
+        assertEquals(listOf(1.0, 2.0, 1.0, 0.5, 1.0), bindings.createdStudioMacro?.toList())
+        assertEquals(listOf(1.0, 1.5, 0.75), bindings.createdStudioLoudness?.toList())
+        assertEquals(9, bindings.createdStudioDynamicBass?.size)
+        assertEquals(0.5, bindings.createdStudioDynamicBass?.get(1) ?: 0.0, 0.0)
+        assertEquals(2.0, bindings.createdStudioDynamicBass?.get(2) ?: 0.0, 0.0)
+        processor?.close()
+    }
+
+    @Test
+    fun nativeHotUpdateAcknowledgementAppearsAfterProcessing() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor(DspAudioFormat(48_000, 2), 7L, bindings, latencyFrames = 0)
+        val update = DspPreparedHotUpdate(
+            generation = 11L,
+            editorOwnerEpoch = 4L,
+            rendererOwnerToken = 9L,
+            pcmFormatEpoch = 3L,
+            hotContextToken = 1,
+            mediaRole = true,
+            appliedPreampDb = -1.0,
+            macroValues = doubleArrayOf(1.0, 1.0, 0.0, 0.0, 1.0),
+            smartLoudnessValues = doubleArrayOf(0.0, 0.0, 0.0),
+            dynamicBassValues = doubleArrayOf(0.0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0),
+        )
+
+        assertFalse(processor.enqueueHotUpdate(update))
+        assertTrue(processor.bindHotUpdateContext(4L, 9L, 3L, 1, mediaRole = true))
+        assertFalse(processor.enqueueHotUpdate(update.copy(editorOwnerEpoch = 5L)))
+        assertFalse(processor.enqueueHotUpdate(update.copy(rendererOwnerToken = 10L)))
+        assertFalse(processor.enqueueHotUpdate(update.copy(pcmFormatEpoch = 4L)))
+        assertFalse(processor.enqueueHotUpdate(update.copy(hotContextToken = 2)))
+        assertFalse(processor.enqueueHotUpdate(update.copy(mediaRole = false)))
+        assertTrue(processor.enqueueHotUpdate(update))
+        assertEquals(0, processor.hotAcknowledgedToken())
+        val result = processor.process(floatBuffer(0.1f, -0.1f), ByteBuffer.allocateDirect(8), frames = 1)
+
+        assertEquals(DspProcessStatus.SUCCESS, result.status)
+        assertEquals(update.generationToken, processor.hotAcknowledgedToken())
+        assertEquals(update.generation, bindings.lastHotGeneration)
+        processor.invalidateHotUpdateContext()
+        assertFalse(processor.enqueueHotUpdate(update.copy(generation = 12L)))
+        processor.close()
+    }
+
+    @Test
+    fun preampHotBridgeFencesOwnerAndAcknowledgesTheLatestVersionedTarget() {
+        val bindings = FakeNativeDspBindings()
+        val processor = NativeDspProcessor(DspAudioFormat(48_000, 2), 7L, bindings, latencyFrames = 0)
+        val update = DspPreparedPreampHotUpdate(
+            generation = 12L,
+            editorOwnerEpoch = 4L,
+            rendererOwnerToken = 9L,
+            pcmFormatEpoch = 3L,
+            hotContextToken = 1,
+            mediaRole = true,
+            appliedPreampDb = -6.0,
+            appliedPreampLinear = Math.pow(10.0, -6.0 / 20.0),
+        )
+        assertFalse(processor.enqueuePreampHotUpdate(update))
+        assertTrue(processor.bindHotUpdateContext(4L, 9L, 3L, 1, mediaRole = true))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(editorOwnerEpoch = 5L)))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(rendererOwnerToken = 10L)))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(pcmFormatEpoch = 4L)))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(hotContextToken = 2)))
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(appliedPreampDb = -120.0, appliedPreampLinear = 0.5)))
+        assertTrue(processor.enqueuePreampHotUpdate(update))
+        assertEquals(0, processor.preampHotAcknowledgedToken())
+        processor.process(floatBuffer(0.1f, -0.1f), ByteBuffer.allocateDirect(8), frames = 1)
+        assertEquals(update.generationToken, processor.preampHotAcknowledgedToken())
+        assertEquals(update.generation, bindings.lastPreampGeneration)
+        processor.invalidateHotUpdateContext()
+        assertFalse(processor.enqueuePreampHotUpdate(update.copy(generation = 13L)))
+        processor.close()
+    }
+
+    @Test
+    fun nativeLocalPeqCandidateIsPreparedOffThreadAndFencedByItsOwnerTuple() {
+        val bindings = FakeNativeDspBindings()
+        val format = DspAudioFormat(48_000, 2)
+        val processor = NativeDspProcessor(format, 7L, bindings, latencyFrames = 0)
+        val coefficients = DoubleArray(DspEqDesigner.COEFFICIENTS_PER_BAND).also {
+            DspEqDesigner.design(48_000, DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 3.0)).writeTo(it, 0)
+        }
+
+        assertNull(processor.prepareLocalPeqWarmUpdate(coefficients, 11L, 4L, 9L, 3L, 1, mediaRole = true))
+        assertTrue(processor.bindHotUpdateContext(4L, 9L, 3L, 1, mediaRole = true))
+        val candidate = requireNotNull(
+            processor.prepareLocalPeqWarmUpdate(coefficients, 11L, 4L, 9L, 3L, 1, mediaRole = true),
+        )
+
+        assertEquals(1, candidate.bandCount)
+        assertEquals(DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND, candidate.preparedValues.size)
+        assertEquals(3L, candidate.historyEpochSequence)
+        assertEquals(12L, candidate.historyEndSequence)
+        assertEquals(0, processor.localPeqWarmAcknowledgedToken())
+        assertEquals(0, processor.enqueueLocalPeqWarmUpdate(candidate))
+        assertEquals(DspProcessStatus.SUCCESS, processor.process(floatBuffer(0.1f, -0.1f), ByteBuffer.allocateDirect(8), 1).status)
+        assertEquals(candidate.generationToken, processor.localPeqWarmAcknowledgedToken())
+        assertEquals(candidate, bindings.lastLocalPeqUpdate)
+
+        val cancellable = requireNotNull(
+            processor.prepareLocalPeqWarmUpdate(coefficients, 12L, 4L, 9L, 3L, 1, mediaRole = true),
+        )
+        assertEquals(0, processor.enqueueLocalPeqWarmUpdate(cancellable))
+        assertEquals(0, processor.cancelLocalPeqWarmUpdate(cancellable))
+        assertEquals(cancellable.generationToken, processor.localPeqWarmRejectedToken())
+
+        processor.invalidateHotUpdateContext()
+        assertEquals(7, processor.enqueueLocalPeqWarmUpdate(candidate.copy(generation = 12L)))
+        processor.close()
     }
 
     @Test
@@ -359,6 +487,61 @@ class NativeDspProcessorTest {
         var createdConvolverConfig: DoubleArray? = null
         var createdConvolverSamples: FloatArray? = null
         var createdHarmonic: DoubleArray? = null
+        var createdStudioMacro: DoubleArray? = null
+        var createdStudioLoudness: DoubleArray? = null
+        var createdStudioDynamicBass: DoubleArray? = null
+        var lastHotGeneration: Long? = null
+        var lastPreampGeneration: Long? = null
+        var lastLocalPeqUpdate: DspPreparedLocalPeqWarmUpdate? = null
+        var cancelledLocalPeqGenerationToken: Int? = null
+        private var pendingHotToken = 0
+        private var acknowledgedHotToken = 0
+        private var pendingPreampToken = 0
+        private var acknowledgedPreampToken = 0
+        private var pendingLocalPeqToken = 0
+        private var acknowledgedLocalPeqToken = 0
+        private var rejectedLocalPeqToken = 0
+        private var hotContext: List<Long>? = null
+
+        override fun createWithStudio(
+            sampleRate: Int,
+            channels: Int,
+            maxFrames: Int,
+            gainDb: Double,
+            eqCoefficients: DoubleArray,
+            dynamics: DoubleArray,
+            multiband: DoubleArray,
+            dynamicEq: DoubleArray,
+            bassCoefficients: DoubleArray,
+            monoBassCoefficients: DoubleArray,
+            spatial: DoubleArray,
+            convolverConfig: DoubleArray,
+            convolverSamples: FloatArray,
+            harmonicValues: DoubleArray,
+            macroValues: DoubleArray,
+            smartLoudnessValues: DoubleArray,
+            dynamicBassValues: DoubleArray,
+        ): Long {
+            createdStudioMacro = macroValues.copyOf()
+            createdStudioLoudness = smartLoudnessValues.copyOf()
+            createdStudioDynamicBass = dynamicBassValues.copyOf()
+            return create(
+                sampleRate,
+                channels,
+                maxFrames,
+                gainDb,
+                eqCoefficients,
+                dynamics,
+                multiband,
+                dynamicEq,
+                bassCoefficients,
+                monoBassCoefficients,
+                spatial,
+                convolverConfig,
+                convolverSamples,
+                harmonicValues,
+            )
+        }
 
         override fun create(
             sampleRate: Int,
@@ -409,10 +592,108 @@ class NativeDspProcessorTest {
             for (index in 0 until sampleCount) {
                 output.putFloat(outputPosition + index * Float.SIZE_BYTES, input.getFloat(inputPosition + index * Float.SIZE_BYTES))
             }
+            if (pendingHotToken != 0) {
+                acknowledgedHotToken = pendingHotToken
+                pendingHotToken = 0
+            }
+            if (pendingPreampToken != 0) {
+                acknowledgedPreampToken = pendingPreampToken
+                pendingPreampToken = 0
+            }
+            if (pendingLocalPeqToken != 0) {
+                acknowledgedLocalPeqToken = pendingLocalPeqToken
+                pendingLocalPeqToken = 0
+            }
             return 0
         }
 
         override fun reset(handle: Long): Int = 0
+        override fun applyHotConfig(handle: Long, update: DspPreparedHotUpdate): Int {
+            if (hotContext != listOf(
+                    update.editorOwnerEpoch,
+                    update.rendererOwnerToken,
+                    update.pcmFormatEpoch,
+                    update.hotContextToken.toLong(),
+                ) || !update.mediaRole
+            ) return 2
+            lastHotGeneration = update.generation
+            pendingHotToken = update.generationToken
+            return 0
+        }
+        override fun applyPreampHot(handle: Long, update: DspPreparedPreampHotUpdate): Int {
+            if (hotContext != listOf(
+                    update.editorOwnerEpoch,
+                    update.rendererOwnerToken,
+                    update.pcmFormatEpoch,
+                    update.hotContextToken.toLong(),
+                ) || !update.mediaRole || update.version != 1 || update.appliedPreampDb > -6.0
+            ) return 2
+            lastPreampGeneration = update.generation
+            pendingPreampToken = update.generationToken
+            return 0
+        }
+        override fun prepareLocalPeqUpdate(
+            handle: Long,
+            coefficients: DoubleArray,
+            preparedValues: DoubleArray,
+            historySequences: LongArray,
+        ): Boolean {
+            if (coefficients.size % DspEqDesigner.COEFFICIENTS_PER_BAND != 0 ||
+                preparedValues.size != coefficients.size / 5 * DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND ||
+                historySequences.size != 2
+            ) return false
+            repeat(coefficients.size / 5) { band ->
+                coefficients.copyInto(
+                    preparedValues,
+                    destinationOffset = band * DspPreparedLocalPeqWarmUpdate.VALUES_PER_BAND,
+                    startIndex = band * 5,
+                    endIndex = (band + 1) * 5,
+                )
+            }
+            historySequences[0] = 3L
+            historySequences[1] = 12L
+            return true
+        }
+        override fun enqueueLocalPeqUpdate(handle: Long, update: DspPreparedLocalPeqWarmUpdate): Int {
+            if (hotContext != listOf(
+                    update.editorOwnerEpoch,
+                    update.rendererOwnerToken,
+                    update.pcmFormatEpoch,
+                    update.hotContextToken.toLong(),
+                ) || !update.mediaRole
+            ) return 7
+            lastLocalPeqUpdate = update
+            pendingLocalPeqToken = update.generationToken
+            return 0
+        }
+        override fun cancelLocalPeqUpdate(handle: Long, generationToken: Int): Int {
+            if (generationToken != pendingLocalPeqToken) return 7
+            pendingLocalPeqToken = 0
+            rejectedLocalPeqToken = generationToken
+            cancelledLocalPeqGenerationToken = generationToken
+            return 0
+        }
+        override fun bindHotUpdateContext(
+            handle: Long,
+            format: DspAudioFormat,
+            editorOwnerEpoch: Long,
+            rendererOwnerToken: Long,
+            pcmFormatEpoch: Long,
+            hotContextToken: Int,
+            mediaRole: Boolean,
+        ): Boolean {
+            if (format != DspAudioFormat(48_000, 2)) return false
+            if (!mediaRole) {
+                hotContext = null
+                return true
+            }
+            hotContext = listOf(editorOwnerEpoch, rendererOwnerToken, pcmFormatEpoch, hotContextToken.toLong())
+            return true
+        }
+        override fun hotAckToken(handle: Long): Int = acknowledgedHotToken
+        override fun preampHotAckToken(handle: Long): Int = acknowledgedPreampToken
+        override fun localPeqAckToken(handle: Long): Int = acknowledgedLocalPeqToken
+        override fun localPeqRejectedToken(handle: Long): Int = rejectedLocalPeqToken
         override fun latencyFrames(handle: Long): Int = 0
         override fun interchannelRelativeDelayFrames(handle: Long): Double = interchannelRelativeDelayFrames
         override fun diagnostics(handle: Long, values: DoubleArray, counters: LongArray): Int = 0

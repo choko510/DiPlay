@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.media.dsp
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -22,5 +23,19 @@ class DspStreamPolicyTest {
         assertFalse(DspStreamPolicy.shouldProcess(false, DspStreamRole.MEDIA))
         assertTrue(DspStreamPolicy.shouldProcess(true, DspStreamRole.MEDIA))
         assertFalse(DspStreamPolicy.shouldProcess(true, DspStreamRole.NAVIGATION))
+    }
+
+    @Test
+    fun nonMediaSampleRateCannotReplaceActiveMediaRate() {
+        val rates = linkedMapOf<Any, Int>()
+        val report: (Any, Int?) -> Unit = { owner, rate ->
+            if (rate == null) rates.remove(owner) else rates[owner] = rate
+        }
+        val mediaOwner = Any()
+
+        DspStreamPolicy.reportPlaybackSampleRate(DspStreamRole.MEDIA, mediaOwner, 48_000, report)
+        DspStreamPolicy.reportPlaybackSampleRate(DspStreamRole.NAVIGATION, Any(), 44_100, report)
+
+        assertEquals(48_000, rates.values.last())
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,6 +13,35 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class DspProfileRepositoryInstrumentedTest {
+    @Test
+    fun cancelledWorkspaceAtomicCommitRestoresThePreviousFile() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-studio-workspace-atomic-cancel-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val repository = DspStudioWorkspaceRepository(filesDirectory)
+        val profile = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(profile.id, profile)
+        val candidate = committed.copy(macros = committed.macros.copy(enabled = true, bassImpact = 95))
+        val workspaceFile = File(filesDirectory, "dsp/workspace/current.json")
+
+        try {
+            assertEquals(DspWorkspaceSaveResult.SAVED, repository.save(committed))
+            val previousBytes = workspaceFile.readBytes()
+
+            assertEquals(
+                DspWorkspaceSaveResult.STALE,
+                repository.save(candidate, beforeCommit = { false }),
+            )
+
+            assertArrayEquals(previousBytes, workspaceFile.readBytes())
+            assertEquals(committed, (repository.load() as DspWorkspaceReadResult.Loaded).workspace)
+        } finally {
+            filesDirectory.deleteRecursively()
+        }
+    }
+
     @Test
     fun schemaThreeProfileLoadsAtRuntimeAndSavesWithAndroidAtomicFile() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

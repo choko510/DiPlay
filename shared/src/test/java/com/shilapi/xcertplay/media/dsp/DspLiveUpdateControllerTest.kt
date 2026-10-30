@@ -59,7 +59,7 @@ class DspLiveUpdateControllerTest {
             activeLatencyFrames = { 0 },
             canAdoptLatencyChange = { !committed.get() },
             onPrepared = { prepared.offer(it) },
-            onDeferred = { deferred.offer(it) },
+            onDeferred = { generation, _ -> deferred.offer(generation) },
             pipelinePreparer = { format, _ ->
                 preparing.countDown()
                 check(release.await(5, TimeUnit.SECONDS))
@@ -111,6 +111,45 @@ class DspLiveUpdateControllerTest {
         assertEquals("dsp-live-control", prepareThread.get())
         candidate?.pipeline?.close()
         controller.close()
+    }
+
+    @Test
+    fun reprepareRequestDoesNotWaitForConfigListenerLock() {
+        val provider = MutableConfigProvider()
+        val preparingEntered = CountDownLatch(1)
+        val releasePreparing = CountDownLatch(1)
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = {},
+            onPreparing = {
+                preparingEntered.countDown()
+                check(releasePreparing.await(5, TimeUnit.SECONDS))
+            },
+            pipelinePreparer = { _, _ -> null },
+        )
+        val updateThread = Thread { provider.update(DspRuntimeConfig(enabled = true)) }
+        val reprepareComplete = CountDownLatch(1)
+        val reprepareThread = Thread {
+            controller.reprepareLatest(1L)
+            reprepareComplete.countDown()
+        }
+
+        try {
+            updateThread.start()
+            assertTrue(preparingEntered.await(5, TimeUnit.SECONDS))
+            reprepareThread.start()
+
+            assertTrue(reprepareComplete.await(500, TimeUnit.MILLISECONDS))
+        } finally {
+            releasePreparing.countDown()
+            controller.close()
+            updateThread.join(5_000)
+            reprepareThread.join(5_000)
+        }
     }
 
     @Test
@@ -344,6 +383,47 @@ class DspLiveUpdateControllerTest {
     }
 
     @Test
+    fun rapidPreampChangesPrepareOnlyTheLatestVersionedHotTarget() {
+        val provider = MutableConfigProvider()
+        val firstPreparationStarted = CountDownLatch(1)
+        val releaseFirstPreparation = CountDownLatch(1)
+        val prepared = LinkedBlockingQueue<DspPreparedUpdate>()
+        val controller = DspLiveUpdateController(
+            format = DspAudioFormat(48_000, 2),
+            role = DspStreamRole.MEDIA,
+            provider = provider,
+            initialGeneration = 0L,
+            activeLatencyFrames = { 0 },
+            onPrepared = { prepared.offer(it) },
+            preampHotUpdatePreparer = { format, snapshot ->
+                if (snapshot.generation == 1L) {
+                    firstPreparationStarted.countDown()
+                    check(releaseFirstPreparation.await(5, TimeUnit.SECONDS))
+                }
+                snapshot.config.preparePreampHotUpdate(format, snapshot.generation, 4, 9, 3, 1, mediaRole = true)
+            },
+        )
+
+        try {
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = -8.0))
+            assertTrue(firstPreparationStarted.await(5, TimeUnit.SECONDS))
+            provider.update(DspRuntimeConfig(enabled = true, gainDb = -12.0))
+            releaseFirstPreparation.countDown()
+
+            val latest = prepared.poll(5, TimeUnit.SECONDS)
+            assertNotNull(latest)
+            assertEquals(2L, latest?.generation)
+            assertEquals(-12.0, latest?.preampHotUpdate?.appliedPreampDb ?: 0.0, 0.02)
+            assertEquals(2, latest?.preampHotUpdate?.generationToken)
+            assertNull(latest?.pipeline)
+            assertNull(prepared.poll(100, TimeUnit.MILLISECONDS))
+        } finally {
+            releaseFirstPreparation.countDown()
+            controller.close()
+        }
+    }
+
+    @Test
     fun lateOlderNotificationCannotRegressPreparingOrPreparedGeneration() {
         val provider = MutableConfigProvider()
         val generationTwoStarted = CountDownLatch(1)
@@ -409,7 +489,7 @@ class DspLiveUpdateControllerTest {
             initialGeneration = 0L,
             activeLatencyFrames = { 128 },
             onPrepared = { prepared.offer(it) },
-            onDeferred = { deferred.offer(it) },
+            onDeferred = { generation, _ -> deferred.offer(generation) },
             pipelinePreparer = { format, config ->
                 val latency = if (config.convolver.enabled) 128 else 0
                 trackingPipeline(format, latency) { }

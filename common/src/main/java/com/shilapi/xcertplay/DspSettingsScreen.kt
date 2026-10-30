@@ -1,8 +1,10 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -31,13 +34,17 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -49,6 +56,8 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import com.shilapi.xcertplay.dsp.DspAudioProfile
@@ -56,6 +65,29 @@ import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.dsp.DspProfileSaveResult
 import com.shilapi.xcertplay.dsp.DspImpulseImportResult
 import com.shilapi.xcertplay.dsp.DspEditorOperationKind
+import com.shilapi.xcertplay.dsp.DspStudioEditTransaction
+import com.shilapi.xcertplay.dsp.DspStudioComparisonSide
+import com.shilapi.xcertplay.dsp.DspStudioFeature
+import com.shilapi.xcertplay.dsp.DspStudioFeatureFlags
+import com.shilapi.xcertplay.dsp.DspStudioSessionCoordinator
+import com.shilapi.xcertplay.dsp.DspSoundMacroSettings
+import com.shilapi.xcertplay.dsp.DspSmartLoudnessSettings
+import com.shilapi.xcertplay.dsp.DspDynamicBassSettings
+import com.shilapi.xcertplay.dsp.DspTuningResolver
+import com.shilapi.xcertplay.dsp.DspStudioWorkspace
+import com.shilapi.xcertplay.dsp.DspFactoryPresets
+import com.shilapi.xcertplay.dsp.DspPresetStoreResult
+import com.shilapi.xcertplay.dsp.DspLoudnessCalibrationController
+import com.shilapi.xcertplay.dsp.DspWorkspaceSaveResult
+import com.shilapi.xcertplay.dsp.DspStudioCancelOperation
+import com.shilapi.xcertplay.dsp.DspStudioRestoreRequest
+import com.shilapi.xcertplay.dsp.DspStudioRestoreAcknowledgement
+import com.shilapi.xcertplay.dsp.evaluateStudioRestoreAcknowledgement
+import com.shilapi.xcertplay.dsp.DspSmartLoudnessPane
+import com.shilapi.xcertplay.dsp.DspDynamicBassSettingsPane
+import com.shilapi.xcertplay.dsp.DspEqEditorPane
+import com.shilapi.xcertplay.dsp.DspModulePresetPane
+import com.shilapi.xcertplay.dsp.filterLabelResource
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
@@ -109,10 +141,50 @@ internal enum class DspPresentationMode {
 
 private const val RENDERER_APPLY_STATUS_POLL_INTERVAL_MS = 500L
 
-private enum class DspCompactSection {
-    BASIC,
-    EQ,
-    ADVANCED,
+internal enum class DspStudioTab(val labelRes: Int) {
+    STUDIO(R.string.dsp_studio_tab_studio),
+    EQ(R.string.dsp_studio_tab_eq),
+    SPATIAL(R.string.dsp_studio_tab_spatial),
+    DYNAMICS(R.string.dsp_studio_tab_dynamics),
+    ADVANCED(R.string.dsp_studio_tab_advanced),
+}
+
+internal fun dspStudioTabs(): List<DspStudioTab> = DspStudioTab.values().toList()
+
+internal fun dspModulePresetKeys(): List<String> =
+    DspStudioWorkspace.MODULE_KEYS
+
+@Composable
+private fun DspStudioNavigation(
+    selected: DspStudioTab,
+    onSelect: (DspStudioTab) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        dspStudioTabs().forEach { tab ->
+            val isSelected = selected == tab
+            val label = stringResource(tab.labelRes)
+            val tabDescription = if (isSelected) {
+                stringResource(R.string.dsp_studio_tab_selected, label)
+            } else {
+                label
+            }
+            TextButton(
+                onClick = { onSelect(tab) },
+                modifier = Modifier.semantics {
+                    contentDescription = tabDescription
+                },
+            ) {
+                Text(
+                    label,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -131,11 +203,18 @@ private fun rendererApplyStatusText(status: DspRendererApplyStatus?): String = w
     } else {
         stringResource(R.string.dsp_renderer_apply_active, status.generation)
     }
-    DspRendererApplyPhase.DEFERRED -> stringResource(
-        R.string.dsp_renderer_apply_deferred,
-        status.generation,
-        status.activeGeneration?.toString() ?: stringResource(R.string.dsp_renderer_apply_no_active),
-    )
+    DspRendererApplyPhase.DEFERRED -> {
+        val activeGeneration = status.activeGeneration?.toString()
+            ?: stringResource(R.string.dsp_renderer_apply_no_active)
+        status.reason?.takeIf(String::isNotBlank)?.let { reason ->
+            stringResource(
+                R.string.dsp_renderer_apply_deferred_with_reason,
+                status.generation,
+                activeGeneration,
+                reason,
+            )
+        } ?: stringResource(R.string.dsp_renderer_apply_deferred, status.generation, activeGeneration)
+    }
     DspRendererApplyPhase.FAILED -> stringResource(R.string.dsp_renderer_apply_failed, status.generation)
 }
 
@@ -148,6 +227,10 @@ private fun rendererApplyWarningText(status: DspRendererApplyStatus?): String? =
         stringResource(R.string.dsp_renderer_apply_convolver_rate_mismatch)
 }
 
+private val LocalDspStudioEditStarted = staticCompositionLocalOf<() -> Unit> { {} }
+private val LocalDspStudioProfileSliderChanged = staticCompositionLocalOf<() -> Unit> { {} }
+private val LocalDspStudioEditFinished = staticCompositionLocalOf<() -> Unit> { {} }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun DspSettingsScreen(
@@ -157,33 +240,328 @@ internal fun DspSettingsScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val closeSettingsDescription = stringResource(R.string.dsp_close_settings)
+    val customProfile1Name = stringResource(R.string.dsp_preset_custom_1)
+    val customProfile2Name = stringResource(R.string.dsp_preset_custom_2)
+    val cabinMeasurementImportedFormat = stringResource(R.string.dsp_cabin_measurement_imported)
+    val studioSaveSuccessText = stringResource(R.string.dsp_studio_save_success)
+    val studioSaveStaleText = stringResource(R.string.dsp_studio_save_stale)
+    val studioSaveFutureText = stringResource(R.string.dsp_studio_save_future)
+    val studioSaveInvalidText = stringResource(R.string.dsp_studio_save_invalid)
+    val studioSaveFailedText = stringResource(R.string.dsp_studio_save_failed)
+    val modulePresetSaveInvalidText = stringResource(R.string.dsp_module_preset_save_invalid)
+    val modulePresetDeleteSuccessText = stringResource(R.string.dsp_module_preset_delete_success)
+    val modulePresetSaveFutureText = stringResource(R.string.dsp_module_preset_save_future)
+    val modulePresetSaveFailedText = stringResource(R.string.dsp_module_preset_save_failed)
+    val modulePresetNotFoundText = stringResource(R.string.dsp_module_preset_not_found)
+    val modulePresetSavedText = stringResource(R.string.dsp_module_preset_saved)
+    val modulePresetDeleteNotFoundText = stringResource(R.string.dsp_module_preset_delete_not_found)
+    val modulePresetDeleteInvalidText = stringResource(R.string.dsp_module_preset_delete_invalid)
+    val modulePresetDeleteFutureText = stringResource(R.string.dsp_module_preset_delete_future)
+    val modulePresetDeleteFailedText = stringResource(R.string.dsp_module_preset_delete_failed)
+    val unexpectedPresetResultText = stringResource(R.string.dsp_module_preset_unexpected_result)
+    val impulseResponseNoneLabel = stringResource(R.string.dsp_ir_none)
     val screenActive = remember { AtomicBoolean(true) }
     DisposableEffect(screenActive) {
         onDispose { screenActive.set(false) }
     }
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
-    val leaveEditor = {
-        focusManager.clearFocus()
-        keyboardController?.hide()
-        onBack()
-    }
     val editorSession = remember(runtime) { runtime.editorSession }
-    val operationPending = editorSession.pendingOperation != null
+    val studioSession = remember(runtime) { runtime.createStudioSessionCoordinator() }
+    var studioUiRevision by remember(studioSession) { mutableStateOf(0) }
+    var studioOperationPending by remember(studioSession) { mutableStateOf(false) }
+    var studioCancelOperation by remember(studioSession) { mutableStateOf<DspStudioCancelOperation?>(null) }
+    var studioRestoreRequest by remember(studioSession) { mutableStateOf<DspStudioRestoreRequest?>(null) }
+    var studioCancelFailed by remember(studioSession) { mutableStateOf(false) }
+    DisposableEffect(studioSession, studioCancelOperation) {
+        val operation = studioCancelOperation
+        onDispose { if (operation != null) studioSession.failCancel(operation) }
+    }
+    var studioFeatureOperationPending by remember(runtime) { mutableStateOf(false) }
+    var studioFeatureFlags by remember(runtime) { mutableStateOf(runtime.currentStudioFeatureFlags()) }
+    val operationPending = editorSession.pendingOperation != null || studioOperationPending || studioFeatureOperationPending
     var profiles by remember(runtime) { mutableStateOf(runtime.availableProfiles()) }
     var profile by remember(editorSession) { editorSession.draftProfileState }
     var dspEnabled by remember(editorSession) { editorSession.masterEnabledMutableState }
     var advanced by rememberSaveable { mutableStateOf(false) }
-    var compactSection by rememberSaveable { mutableStateOf(DspCompactSection.BASIC) }
+    var compactSection by rememberSaveable { mutableStateOf(DspStudioTab.STUDIO) }
+    val studioScrollState = rememberScrollState()
+    val eqScrollState = rememberScrollState()
+    val spatialScrollState = rememberScrollState()
+    val dynamicsScrollState = rememberScrollState()
+    val advancedScrollState = rememberScrollState()
+    val tabSaveableStateHolder = rememberSaveableStateHolder()
+    val activeTabScrollState = when (compactSection) {
+        DspStudioTab.STUDIO -> studioScrollState
+        DspStudioTab.EQ -> eqScrollState
+        DspStudioTab.SPATIAL -> spatialScrollState
+        DspStudioTab.DYNAMICS -> dynamicsScrollState
+        DspStudioTab.ADVANCED -> advancedScrollState
+    }
+    var macroSettings by remember(studioSession) { mutableStateOf(studioSession.preview.macros) }
+    var studioEditTransaction by remember(studioSession) { mutableStateOf<DspStudioEditTransaction?>(null) }
+    var studioProfileSliderCommitPending by remember(studioSession) { mutableStateOf(false) }
+    var studioProfileSliderChangedPending by remember(studioSession) { mutableStateOf(false) }
+    var leaveConfirmationVisible by remember { mutableStateOf(false) }
+    var leaveAfterSave by remember { mutableStateOf(false) }
+    var leaveAfterRestore by remember { mutableStateOf(false) }
+    val leaveEditor = {
+        focusManager.clearFocus()
+        keyboardController?.hide()
+        if (!operationPending) {
+            if (studioSession.isDirty) leaveConfirmationVisible = true else onBack()
+        }
+    }
+    BackHandler(enabled = !operationPending) { leaveEditor() }
+    var loudnessSettings by remember(studioSession) { mutableStateOf(studioSession.preview.smartLoudness) }
+    var dynamicBassSettings by remember(studioSession) { mutableStateOf(studioSession.preview.dynamicBass) }
+    val modulePresetKeys = remember { dspModulePresetKeys() }
+    var selectedModulePresetModule by rememberSaveable { mutableStateOf("macros") }
+    var selectedModulePresetId by rememberSaveable { mutableStateOf<String?>(null) }
+    var modulePresets by remember(runtime) {
+        mutableStateOf(DspFactoryPresets.modulePresets().filter { it.moduleKey == "macros" })
+    }
+    var volumeReading by remember(runtime) { mutableStateOf(runtime.studioVolumeReading()) }
+    var playbackSampleRateHz by remember(runtime) { mutableStateOf(runtime.activePlaybackSampleRateHz()) }
+    val calibrationController = remember(studioSession) {
+        DspLoudnessCalibrationController(studioSession.preview.smartLoudness.calibration)
+    }
     var profileMenuExpanded by remember { mutableStateOf(false) }
     var bandTypeDialog by remember { mutableStateOf<Int?>(null) }
     var impulseResponseIds by remember(runtime) { mutableStateOf(runtime.availableImpulseResponseIds()) }
     var rendererApplyStatus by remember(runtime) { mutableStateOf(runtime.configProvider.rendererApplyStatus()) }
+    SideEffect {
+        if (!studioOperationPending) {
+            val candidate = studioSession.preview.copy(
+                profileSourceId = profile.id,
+                baseProfileSnapshot = profile.copy(convolver = profile.convolver.copy(impulseResponse = null)),
+                macros = macroSettings,
+                smartLoudness = loudnessSettings,
+                dynamicBass = dynamicBassSettings,
+            )
+            var workspaceChanged = false
+            if (candidate != studioSession.preview) {
+                val selectedPresetBefore = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+                val transaction = studioEditTransaction
+                val updated = transaction?.let { studioSession.edit(it) { candidate } }
+                if (updated == null) studioSession.edit { candidate }
+                val selectedPresetAfter = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+                if (selectedPresetBefore != selectedPresetAfter) selectedModulePresetId = selectedPresetAfter
+                workspaceChanged = true
+                studioUiRevision += 1
+            }
+            if (studioProfileSliderCommitPending) {
+                studioEditTransaction?.let(studioSession::commitEditTransaction)
+                studioEditTransaction = null
+                studioProfileSliderCommitPending = false
+                if (workspaceChanged || studioProfileSliderChangedPending) {
+                    runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
+                }
+                studioProfileSliderChangedPending = false
+                studioUiRevision += 1
+            }
+        }
+    }
     LaunchedEffect(runtime, isVisible) {
         if (isVisible) {
             while (true) {
                 rendererApplyStatus = runtime.configProvider.rendererApplyStatus()
+                volumeReading = runtime.studioVolumeReading()
+                playbackSampleRateHz = runtime.activePlaybackSampleRateHz()
                 delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
+            }
+        }
+    }
+    LaunchedEffect(runtime, selectedModulePresetModule) {
+        val requestedModuleKey = selectedModulePresetModule
+        runtime.loadModulePresetsAsync(requestedModuleKey) {
+            if (selectedModulePresetModule == requestedModuleKey) modulePresets = it
+        }
+    }
+    val studioDirty = remember(studioSession, studioUiRevision) { studioSession.isDirty }
+    val canUndoStudio = remember(studioSession, studioUiRevision) { studioSession.canUndo }
+    val canRedoStudio = remember(studioSession, studioUiRevision) { studioSession.canRedo }
+    val syncStudioDraftToScreen: (DspStudioWorkspace) -> Unit = { workspace ->
+        profile = workspace.baseProfileSnapshot
+        macroSettings = workspace.macros
+        loudnessSettings = workspace.smartLoudness
+        dynamicBassSettings = workspace.dynamicBass
+        studioUiRevision += 1
+    }
+    val finishStudioCancel: (DspStudioCancelOperation, Boolean) -> Unit = { operation, restored ->
+        if (studioCancelOperation == operation) {
+            val finished = if (restored) {
+                studioSession.commitCancel(operation)
+            } else {
+                studioSession.failCancel(operation)
+            }
+            if (finished) {
+                if (restored) {
+                    syncStudioDraftToScreen(studioSession.preview)
+                    editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
+                } else {
+                    studioCancelFailed = true
+                    if (screenActive.get()) {
+                        Toast.makeText(context, R.string.dsp_studio_restore_failed, Toast.LENGTH_LONG).show()
+                    }
+                }
+                studioUiRevision += 1
+                if (leaveAfterRestore) {
+                    leaveAfterRestore = false
+                    if (restored) onBack()
+                }
+            }
+            studioRestoreRequest = null
+            studioCancelOperation = null
+            studioOperationPending = false
+        }
+    }
+    val requestCommittedStudioRestore: () -> Unit = {
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
+        val operation = studioSession.beginCancel()
+        if (operation != null) {
+            studioCancelFailed = false
+            studioCancelOperation = operation
+            studioRestoreRequest = null
+            studioOperationPending = true
+            calibrationController.cancel()
+            runtime.requestCommittedStudioWorkspaceRestoreAsync(dspEnabled) { request ->
+                if (studioCancelOperation == operation) {
+                    if (request == null) finishStudioCancel(operation, false)
+                    else studioRestoreRequest = request
+                }
+            }
+        }
+    }
+    LaunchedEffect(studioCancelOperation, studioRestoreRequest, isVisible) {
+        val operation = studioCancelOperation ?: return@LaunchedEffect
+        val request = studioRestoreRequest ?: return@LaunchedEffect
+        if (request.rendererOwnerToken == null) {
+            finishStudioCancel(operation, true)
+            return@LaunchedEffect
+        }
+        val deadline = SystemClock.elapsedRealtime() + STUDIO_RESTORE_ACK_TIMEOUT_MS
+        while (isVisible) {
+            val status = runtime.configProvider.rendererApplyStatus()
+            rendererApplyStatus = status
+            when (evaluateStudioRestoreAcknowledgement(
+                request = request,
+                status = status,
+                committedWorkspaceActive = runtime.isCommittedStudioWorkspaceActive(),
+                timedOut = SystemClock.elapsedRealtime() >= deadline,
+            )) {
+                DspStudioRestoreAcknowledgement.APPLIED -> {
+                    finishStudioCancel(operation, true)
+                    return@LaunchedEffect
+                }
+                DspStudioRestoreAcknowledgement.REJECTED -> {
+                    finishStudioCancel(operation, false)
+                    return@LaunchedEffect
+                }
+                DspStudioRestoreAcknowledgement.WAITING -> Unit
+            }
+            delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
+        }
+    }
+    val updateStudioFeatureWorkspace: ((DspStudioWorkspace) -> DspStudioWorkspace) -> Unit = { transform ->
+        val current = studioSession.preview
+        val next = transform(current)
+        if (next != current) {
+            val selectedPresetBefore = current.selectedModulePresetIds[selectedModulePresetModule]
+            var transaction = studioEditTransaction
+            val edited = transaction?.let { studioSession.edit(it, transform) }
+            if (edited == null) {
+                transaction = studioSession.beginEditTransaction()
+                studioEditTransaction = transaction
+                if (transaction != null) studioSession.edit(transaction, transform)
+                else studioSession.edit(transform)
+            }
+            val selectedPresetAfter = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+            if (selectedPresetBefore != selectedPresetAfter) selectedModulePresetId = selectedPresetAfter
+            studioUiRevision += 1
+            runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
+        }
+    }
+    val updateMacroSettings: (DspSoundMacroSettings) -> Unit = { settings ->
+        macroSettings = settings
+        updateStudioFeatureWorkspace { it.copy(macros = settings) }
+    }
+    val updateLoudnessSettings: (DspSmartLoudnessSettings) -> Unit = { settings ->
+        loudnessSettings = settings
+        updateStudioFeatureWorkspace { it.copy(smartLoudness = settings) }
+    }
+    val updateDynamicBassSettings: (DspDynamicBassSettings) -> Unit = { settings ->
+        dynamicBassSettings = settings
+        updateStudioFeatureWorkspace { it.copy(dynamicBass = settings) }
+    }
+    val finishStudioFeatureEdit: () -> Unit = {
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
+        studioUiRevision += 1
+        runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
+    }
+    val finishStudioProfileSliderEdit: () -> Unit = {
+        studioProfileSliderCommitPending = true
+    }
+    val syncStudioProfileSliderEdit: () -> Unit = {
+        val currentProfile = editorSession.draftProfile.copy(
+            convolver = editorSession.draftProfile.convolver.copy(impulseResponse = null),
+        )
+        val currentWorkspace = studioSession.preview
+        val candidate = currentWorkspace.copy(
+            profileSourceId = currentProfile.id,
+            baseProfileSnapshot = currentProfile,
+        )
+        if (candidate != currentWorkspace) {
+            val selectedPresetBefore = currentWorkspace.selectedModulePresetIds[selectedModulePresetModule]
+            val transaction = studioEditTransaction
+            val updated = transaction?.let { studioSession.edit(it) { candidate } }
+            if (updated == null) studioSession.edit { candidate }
+            val selectedPresetAfter = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+            if (selectedPresetBefore != selectedPresetAfter) selectedModulePresetId = selectedPresetAfter
+            studioProfileSliderChangedPending = true
+            studioUiRevision += 1
+        }
+    }
+    val updateStudioProfile: (DspAudioProfile) -> Unit = { next ->
+        if (!next.hasValidEqCapacity()) {
+            Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
+        } else {
+            val candidate = next.copy(convolver = next.convolver.copy(impulseResponse = null))
+            profile = candidate
+            updateStudioFeatureWorkspace {
+                it.copy(profileSourceId = candidate.id, baseProfileSnapshot = candidate)
+            }
+        }
+    }
+    val updateStudioFeatureFlags: (DspStudioFeatureFlags) -> Unit = { updatedFlags ->
+        studioFeatureOperationPending = true
+        runtime.updateStudioFeatureFlagsAsync(updatedFlags) { applied ->
+            studioFeatureOperationPending = false
+            if (applied) {
+                studioFeatureFlags = updatedFlags
+                studioUiRevision += 1
+            } else if (screenActive.get()) {
+                Toast.makeText(context, R.string.dsp_rollout_update_failed, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    val disableEnhancedDsp: () -> Unit = {
+        updateStudioFeatureFlags(studioFeatureFlags.disableEnhancedDsp())
+    }
+    val restoreSavedStudioProfile: () -> Unit = {
+        requestCommittedStudioRestore()
+    }
+    val previewStudioWorkspace: (DspStudioWorkspace) -> Unit = { workspace ->
+        studioOperationPending = true
+        runtime.previewStudioWorkspaceAsync(workspace, dspEnabled) { applied ->
+            studioOperationPending = false
+            if (applied) editorSession.refreshAppliedStateFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
+            studioUiRevision += 1
+            if (!applied && screenActive.get()) {
+                Toast.makeText(context, R.string.dsp_studio_preview_failed, Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -225,8 +603,9 @@ internal fun DspSettingsScreen(
                         }
                     }
                     if (result is DspImpulseImportResult.Imported && !adopted) {
-                        runtime.discardImportedImpulseResponse(result.impulseResponse.id)
-                        if (screenActive.get()) impulseResponseIds = runtime.availableImpulseResponseIds()
+                        runtime.discardImportedImpulseResponseAsync(result.impulseResponse.id) {
+                            if (screenActive.get()) impulseResponseIds = runtime.availableImpulseResponseIds()
+                        }
                     }
                 }
             }
@@ -253,7 +632,7 @@ internal fun DspSettingsScreen(
                                 profile = profile.copy(cabinCorrection = result.correction)
                                 Toast.makeText(
                                     context,
-                                    context.getString(R.string.dsp_cabin_measurement_imported, result.suggestedNotchCount),
+                                    String.format(Locale.getDefault(), cabinMeasurementImportedFormat, result.suggestedNotchCount),
                                     Toast.LENGTH_LONG,
                                 ).show()
                             }
@@ -267,8 +646,8 @@ internal fun DspSettingsScreen(
         }
     }
 
-    val saveCustomProfile: (String, Int) -> Unit = { id, nameResource ->
-        val custom = profile.copy(id = id, name = context.getString(nameResource))
+    val saveCustomProfile: (String, String) -> Unit = { id, name ->
+        val custom = profile.copy(id = id, name = name)
         val operation = editorSession.beginOperation(DspEditorOperationKind.SAVE)
         if (operation != null) {
             runtime.saveCustomAsync(custom, dspEnabled) { result ->
@@ -285,6 +664,49 @@ internal fun DspSettingsScreen(
                     }
                 }
             }
+        }
+    }
+    val saveStudioWorkspace: () -> Unit = {
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
+        val workspace = studioSession.preview
+        studioOperationPending = true
+        runtime.saveStudioWorkspaceAsync(workspace, dspEnabled) { result ->
+            studioOperationPending = false
+            if (result == DspWorkspaceSaveResult.SAVED) studioSession.commitSaved(workspace)
+            editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
+            studioUiRevision += 1
+            val message = when (result) {
+                DspWorkspaceSaveResult.SAVED -> studioSaveSuccessText
+                DspWorkspaceSaveResult.STALE -> studioSaveStaleText
+                DspWorkspaceSaveResult.FUTURE_SCHEMA_PRESERVED -> studioSaveFutureText
+                DspWorkspaceSaveResult.INVALID -> studioSaveInvalidText
+                DspWorkspaceSaveResult.WRITE_FAILED -> studioSaveFailedText
+            }
+            if (screenActive.get()) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            if (leaveAfterSave) {
+                leaveAfterSave = false
+                if (result == DspWorkspaceSaveResult.SAVED) onBack()
+            }
+        }
+    }
+    val cancelStudioChanges: () -> Unit = {
+        requestCommittedStudioRestore()
+    }
+    val undoStudioChange: () -> Unit = {
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
+        if (studioSession.undo()) {
+            syncStudioDraftToScreen(studioSession.preview)
+            previewStudioWorkspace(studioSession.preview)
+        }
+    }
+    val redoStudioChange: () -> Unit = {
+        studioEditTransaction?.let(studioSession::commitEditTransaction)
+        studioEditTransaction = null
+        if (studioSession.redo()) {
+            syncStudioDraftToScreen(studioSession.preview)
+            previewStudioWorkspace(studioSession.preview)
         }
     }
     val applyChanges: () -> Unit = {
@@ -326,9 +748,12 @@ internal fun DspSettingsScreen(
     }
 
     val compact = presentation == DspPresentationMode.COMPACT_SPLIT
-    val showBasic = !compact || compactSection == DspCompactSection.BASIC
-    val showEq = (compact && compactSection == DspCompactSection.EQ) || (!compact && advanced)
-    val showAdvanced = (compact && compactSection == DspCompactSection.ADVANCED) || (!compact && advanced)
+    val showStudio = compactSection == DspStudioTab.STUDIO
+    val showProfile = compactSection == DspStudioTab.STUDIO
+    val showEq = compactSection == DspStudioTab.EQ
+    val showSpatial = compactSection == DspStudioTab.SPATIAL
+    val showDynamics = compactSection == DspStudioTab.DYNAMICS
+    val showAdvanced = compactSection == DspStudioTab.ADVANCED && advanced
     val compactHeightCap = LocalConfiguration.current.screenHeightDp.coerceAtLeast(1).dp
     val compactBodyConstraint = if (compact) {
         Modifier.layout { measurable, constraints ->
@@ -359,6 +784,15 @@ internal fun DspSettingsScreen(
         Modifier
     }
 
+    CompositionLocalProvider(
+        LocalDspStudioEditStarted provides {
+            if (studioEditTransaction == null) {
+                studioEditTransaction = studioSession.beginEditTransaction()
+            }
+        },
+        LocalDspStudioProfileSliderChanged provides syncStudioProfileSliderEdit,
+        LocalDspStudioEditFinished provides finishStudioProfileSliderEdit,
+    ) {
     Scaffold(
         modifier = if (compact) {
             // Cap an unbounded OEM pane to the current window before its body creates a scroll viewport.
@@ -380,53 +814,20 @@ internal fun DspSettingsScreen(
                         )
                         TextButton(onClick = leaveEditor) {
                             Text("×", modifier = Modifier.semantics {
-                                contentDescription = context.getString(R.string.dsp_close_settings)
+                                contentDescription = closeSettingsDescription
                             })
                         }
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        TextButton(onClick = { compactSection = DspCompactSection.BASIC }) {
-                            Text(
-                                stringResource(R.string.dsp_basic_controls),
-                                color = if (compactSection == DspCompactSection.BASIC) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                        TextButton(onClick = { compactSection = DspCompactSection.EQ }) {
-                            Text(
-                                stringResource(R.string.dsp_compact_eq_tab),
-                                color = if (compactSection == DspCompactSection.EQ) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                        TextButton(onClick = { compactSection = DspCompactSection.ADVANCED }) {
-                            Text(
-                                stringResource(R.string.dsp_advanced_controls),
-                                color = if (compactSection == DspCompactSection.ADVANCED) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
-                    }
+                    DspStudioNavigation(compactSection) { compactSection = it }
                 }
             } else {
-                TopAppBar(
-                    title = { Text(stringResource(R.string.dsp_settings_title)) },
-                    navigationIcon = {
-                        TextButton(onClick = leaveEditor) { Text("‹") }
-                    },
-                )
+                Column {
+                    TopAppBar(
+                        title = { Text("DSP Studio") },
+                        navigationIcon = { TextButton(onClick = leaveEditor) { Text("‹") } },
+                    )
+                    DspStudioNavigation(compactSection) { compactSection = it }
+                }
             }
         },
         bottomBar = {
@@ -435,20 +836,24 @@ internal fun DspSettingsScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Button(onClick = applyChanges, enabled = !operationPending, modifier = Modifier.fillMaxWidth()) {
-                        Text(stringResource(R.string.dsp_apply))
+                    if (!showStudio) {
+                        Button(onClick = applyChanges, enabled = !operationPending, modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(R.string.dsp_apply))
+                        }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        OutlinedButton(
-                            enabled = !operationPending,
-                            modifier = Modifier.weight(1f),
-                            onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
-                        ) { Text(stringResource(R.string.dsp_save_custom_1)) }
-                        OutlinedButton(
-                            enabled = !operationPending,
-                            modifier = Modifier.weight(1f),
-                            onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
-                        ) { Text(stringResource(R.string.dsp_save_custom_2)) }
+                    if (showStudio) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            OutlinedButton(
+                                enabled = !operationPending,
+                                modifier = Modifier.weight(1f),
+                                onClick = { saveCustomProfile(CUSTOM_PROFILE_1, customProfile1Name) },
+                            ) { Text(stringResource(R.string.dsp_save_custom_1)) }
+                            OutlinedButton(
+                                enabled = !operationPending,
+                                modifier = Modifier.weight(1f),
+                                onClick = { saveCustomProfile(CUSTOM_PROFILE_2, customProfile2Name) },
+                            ) { Text(stringResource(R.string.dsp_save_custom_2)) }
+                        }
                     }
                     editorSession.pendingOperation?.let {
                         Text(stringResource(R.string.dsp_operation_in_progress), style = MaterialTheme.typography.labelSmall)
@@ -461,15 +866,263 @@ internal fun DspSettingsScreen(
             modifier = compactBodyConstraint
                 .fillMaxSize()
                 .padding(insetPadding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(activeTabScrollState)
+                .testTag("dsp-tab-scroll-pane")
                 .padding(horizontal = if (compact) 8.dp else 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (!compact) {
-                Text(stringResource(R.string.dsp_settings_description), style = MaterialTheme.typography.bodyMedium)
+            if (showStudio) {
+                if (studioFeatureFlags.workspaceUiEnabled) {
+                    DspModulePresetPane(
+                    moduleKey = selectedModulePresetModule,
+                    moduleKeys = modulePresetKeys,
+                    presets = modulePresets,
+                    selectedPresetId = selectedModulePresetId
+                        ?: studioSession.preview.selectedModulePresetIds[selectedModulePresetModule],
+                    enabled = !operationPending,
+                    onModuleKeyChange = { moduleKey ->
+                        val restoreDraftPreview = studioSession.comparisonSide != DspStudioComparisonSide.DRAFT
+                        studioSession.resetComparison()
+                        if (restoreDraftPreview) previewStudioWorkspace(studioSession.preview)
+                        selectedModulePresetModule = moduleKey
+                        selectedModulePresetId = studioSession.preview.selectedModulePresetIds[moduleKey]
+                        modulePresets = emptyList()
+                        studioUiRevision += 1
+                    },
+                    onPresetSelect = { selectedModulePresetId = it },
+                    onApply = { preset ->
+                        val applied = runtime.applyStudioModulePreset(studioSession.preview, preset)
+                        if (applied == null) {
+                            Toast.makeText(context, R.string.dsp_studio_module_apply_failed, Toast.LENGTH_LONG).show()
+                        } else {
+                            val selected = applied.copy(
+                                selectedModulePresetIds = applied.selectedModulePresetIds + (preset.moduleKey to preset.id),
+                            )
+                            studioSession.edit { selected }
+                            syncStudioDraftToScreen(studioSession.preview)
+                            selectedModulePresetId = preset.id
+                        }
+                    },
+                    onFactoryReset = {
+                        val preset = DspFactoryPresets.neutralModulePreset(selectedModulePresetModule)
+                        val reset = preset?.let {
+                            runtime.applyStudioModulePreset(studioSession.preview, it)?.copy(
+                                selectedModulePresetIds = studioSession.preview.selectedModulePresetIds +
+                                    (selectedModulePresetModule to it.id),
+                            )
+                        }
+                        if (reset == null) {
+                            Toast.makeText(context, R.string.dsp_module_factory_reset_unavailable, Toast.LENGTH_LONG).show()
+                        } else {
+                            studioSession.edit { reset }
+                            syncStudioDraftToScreen(studioSession.preview)
+                            selectedModulePresetId = preset.id
+                        }
+                    },
+                    onCompareA = {
+                        studioEditTransaction?.let(studioSession::commitEditTransaction)
+                        studioEditTransaction = null
+                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
+                            studioSession.beginModuleComparison(selectedModulePresetModule)
+                        }
+                        studioSession.selectComparisonSide(DspStudioComparisonSide.A)?.let(previewStudioWorkspace)
+                        studioUiRevision += 1
+                    },
+                    onCompareB = {
+                        studioEditTransaction?.let(studioSession::commitEditTransaction)
+                        studioEditTransaction = null
+                        if (studioSession.comparisonSide == DspStudioComparisonSide.DRAFT) {
+                            studioSession.beginModuleComparison(selectedModulePresetModule)
+                        }
+                        studioSession.selectComparisonSide(DspStudioComparisonSide.B)?.let(previewStudioWorkspace)
+                        studioUiRevision += 1
+                    },
+                    onSave = { name ->
+                        val moduleKey = selectedModulePresetModule
+                        val id = "user_" + UUID.randomUUID().toString().replace("-", "")
+                        studioOperationPending = true
+                        runtime.saveModulePresetAsync(studioSession.preview, moduleKey, id, name) { result ->
+                            studioOperationPending = false
+                            studioUiRevision += 1
+                            if (result == DspPresetStoreResult.SAVED) {
+                                studioSession.edit {
+                                    it.copy(selectedModulePresetIds = it.selectedModulePresetIds + (moduleKey to id))
+                                }
+                                syncStudioDraftToScreen(studioSession.preview)
+                                selectedModulePresetId = id
+                                runtime.loadModulePresetsAsync(moduleKey) {
+                                    if (selectedModulePresetModule == moduleKey) modulePresets = it
+                                }
+                                if (screenActive.get()) Toast.makeText(context, modulePresetSavedText, Toast.LENGTH_SHORT).show()
+                            } else if (screenActive.get()) {
+                                val message = when (result) {
+                                    DspPresetStoreResult.INVALID -> modulePresetSaveInvalidText
+                                    DspPresetStoreResult.DELETED -> modulePresetDeleteSuccessText
+                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> modulePresetSaveFutureText
+                                    DspPresetStoreResult.WRITE_FAILED -> modulePresetSaveFailedText
+                                    DspPresetStoreResult.NOT_FOUND -> modulePresetNotFoundText
+                                    DspPresetStoreResult.SAVED -> modulePresetSavedText
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    onDelete = { preset ->
+                        val selectedPresetWasDeleted = selectedModulePresetId == preset.id ||
+                            studioSession.preview.selectedModulePresetIds[preset.moduleKey] == preset.id
+                        val restoreDraftPreview = studioSession.comparisonSide != DspStudioComparisonSide.DRAFT
+                        studioOperationPending = true
+                        runtime.deleteModulePresetAsync(preset.moduleKey, preset.id) { result ->
+                            studioOperationPending = false
+                            studioUiRevision += 1
+                            if (result == DspPresetStoreResult.DELETED) {
+                                if (selectedPresetWasDeleted) {
+                                    studioSession.clearSelectedPresetReference(preset.moduleKey, preset.id)
+                                    if (selectedModulePresetModule == preset.moduleKey) selectedModulePresetId = null
+                                    syncStudioDraftToScreen(studioSession.preview)
+                                }
+                                if (restoreDraftPreview) previewStudioWorkspace(studioSession.preview)
+                                runtime.loadModulePresetsAsync(preset.moduleKey) {
+                                    if (selectedModulePresetModule == preset.moduleKey) modulePresets = it
+                                }
+                                if (screenActive.get()) {
+                                    Toast.makeText(context, modulePresetDeleteSuccessText, Toast.LENGTH_SHORT).show()
+                                }
+                            } else if (screenActive.get()) {
+                                val message = when (result) {
+                                    DspPresetStoreResult.DELETED -> modulePresetDeleteSuccessText
+                                    DspPresetStoreResult.NOT_FOUND -> modulePresetDeleteNotFoundText
+                                    DspPresetStoreResult.INVALID -> modulePresetDeleteInvalidText
+                                    DspPresetStoreResult.FUTURE_SCHEMA_PRESERVED -> modulePresetDeleteFutureText
+                                    DspPresetStoreResult.WRITE_FAILED -> modulePresetDeleteFailedText
+                                    DspPresetStoreResult.SAVED -> unexpectedPresetResultText
+                                }
+                                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    )
+                    if (studioFeatureFlags.macroOverlayEnabled) {
+                        DspMacroStudio(
+                            settings = macroSettings,
+                            enabled = !operationPending,
+                            onSettingsChange = updateMacroSettings,
+                            onSettingsChangeFinished = finishStudioFeatureEdit,
+                        )
+                    } else {
+                        Text(stringResource(R.string.dsp_macro_overlay_disabled), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(
+                        stringResource(if (studioDirty) R.string.dsp_studio_unsaved_draft else R.string.dsp_studio_saved_workspace),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(enabled = canUndoStudio && !operationPending, onClick = undoStudioChange) { Text(stringResource(R.string.dsp_undo)) }
+                        OutlinedButton(enabled = canRedoStudio && !operationPending, onClick = redoStudioChange) { Text(stringResource(R.string.dsp_redo)) }
+                    }
+                    Text(
+                        stringResource(
+                            R.string.dsp_module_compare_status,
+                            selectedModulePresetModule,
+                            studioSession.comparisonSide.label,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    val levelMatchLabel = stringResource(R.string.dsp_module_level_match_label)
+                    val levelMatchUnavailable = stringResource(R.string.dsp_module_level_match_unavailable)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(levelMatchLabel, Modifier.weight(1f))
+                        Switch(
+                            checked = false,
+                            onCheckedChange = {},
+                            enabled = false,
+                            modifier = Modifier.semantics {
+                                contentDescription = levelMatchLabel
+                                stateDescription = levelMatchUnavailable
+                            },
+                        )
+                    }
+                    if (playbackSampleRateHz == null) {
+                        Text(stringResource(R.string.dsp_renderer_apply_waiting), style = MaterialTheme.typography.bodySmall)
+                        rendererApplyStatus?.let { lastStatus ->
+                            Text(
+                                stringResource(R.string.dsp_renderer_last_report, rendererApplyStatusText(lastStatus)),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    } else {
+                        Text(rendererApplyStatusText(rendererApplyStatus), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(stringResource(R.string.dsp_renderer_apply_status_note), style = MaterialTheme.typography.bodySmall)
+                    rendererApplyWarningText(rendererApplyStatus)?.let { warning ->
+                        Text(warning, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Button(enabled = !operationPending, onClick = {
+                            studioEditTransaction?.let(studioSession::commitEditTransaction)
+                            studioEditTransaction = null
+                            studioSession.resetComparison()
+                            studioUiRevision += 1
+                            previewStudioWorkspace(studioSession.preview)
+                        }) { Text(stringResource(R.string.dsp_preview)) }
+                        Button(enabled = !operationPending, onClick = saveStudioWorkspace) { Text(stringResource(R.string.dsp_save)) }
+                        OutlinedButton(enabled = !operationPending, onClick = cancelStudioChanges) { Text(stringResource(R.string.dsp_cancel_preview)) }
+                    }
+                    if (studioCancelFailed) {
+                        Text(stringResource(R.string.dsp_studio_cancel_restore_retry), style = MaterialTheme.typography.bodySmall)
+                    }
+                    Text(stringResource(R.string.dsp_studio_macro_independent_hint), style = MaterialTheme.typography.bodySmall)
+                } else {
+                    Text(stringResource(R.string.dsp_studio_workspace_disabled), style = MaterialTheme.typography.bodySmall)
+                }
             }
 
-            if (showBasic) Card(modifier = Modifier.fillMaxWidth()) {
+            if (showDynamics) {
+                if (studioFeatureFlags.smartLoudnessEnabled) Card(modifier = Modifier.fillMaxWidth()) {
+                    DspSmartLoudnessPane(
+                        settings = loudnessSettings,
+                        volumeReading = volumeReading,
+                        onSettingsChange = updateLoudnessSettings,
+                        onSettingsChangeFinished = finishStudioFeatureEdit,
+                        enabled = !operationPending,
+                        onCaptureQuietPoint = {
+                            if (!calibrationController.captureQuietPoint(volumeReading)) {
+                                Toast.makeText(context, R.string.dsp_capture_quiet_untrusted, Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        onCaptureReferencePoint = {
+                            val calibration = calibrationController.captureReferencePoint(volumeReading)
+                            if (calibration == null) {
+                                Toast.makeText(context, R.string.dsp_capture_reference_higher, Toast.LENGTH_LONG).show()
+                            } else {
+                                updateLoudnessSettings(loudnessSettings.copy(
+                                    mode = com.shilapi.xcertplay.dsp.DspSmartLoudnessMode.AUTO_CALIBRATED,
+                                    calibration = calibration,
+                                ))
+                                finishStudioFeatureEdit()
+                            }
+                        },
+                    )
+                } else {
+                    Text(stringResource(R.string.dsp_smart_loudness_disabled), style = MaterialTheme.typography.bodySmall)
+                }
+                if (studioFeatureFlags.dynamicBassEnabled) {
+                    DspDynamicBassSettingsPane(
+                        settings = dynamicBassSettings,
+                        onSettingsChange = updateDynamicBassSettings,
+                        onSettingsChangeFinished = finishStudioFeatureEdit,
+                        enabled = !operationPending,
+                    )
+                } else {
+                    Text(stringResource(R.string.dsp_dynamic_bass_disabled), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            if (!compact) {
+                if (showProfile) Text(stringResource(R.string.dsp_settings_description), style = MaterialTheme.typography.bodyMedium)
+            }
+
+            if (showProfile) Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_enabled),
@@ -525,7 +1178,7 @@ internal fun DspSettingsScreen(
                 }
             }
 
-            if (showBasic) SectionCard(title = stringResource(R.string.dsp_basic_controls)) {
+            if (showProfile) SectionCard(title = stringResource(R.string.dsp_basic_controls)) {
                 DspValueSlider(stringResource(R.string.dsp_preamp), profile.preampDb, -24.0..12.0, "dB") {
                     profile = profile.copy(preampDb = it)
                 }
@@ -540,6 +1193,9 @@ internal fun DspSettingsScreen(
                 DspValueSlider(stringResource(R.string.dsp_bass_frequency), profile.bass.frequencyHz, 20.0..300.0, "Hz") {
                     profile = profile.copy(bass = profile.bass.copy(frequencyHz = it))
                 }
+            }
+
+            if (showSpatial) SectionCard(title = stringResource(R.string.dsp_stereo_width)) {
                 if (!profile.advancedMs.enabled) {
                     DspValueSlider(stringResource(R.string.dsp_stereo_width), profile.stereoWidth, 0.0..2.0, "") {
                         profile = profile.copy(stereoWidth = it)
@@ -560,7 +1216,7 @@ internal fun DspSettingsScreen(
                 }
             }
 
-            if (!compact) Card(modifier = Modifier.fillMaxWidth()) {
+            if (compactSection == DspStudioTab.ADVANCED) Card(modifier = Modifier.fillMaxWidth()) {
                 DspSwitchRow(
                     modifier = Modifier.padding(16.dp),
                     title = stringResource(R.string.dsp_advanced_controls),
@@ -569,8 +1225,78 @@ internal fun DspSettingsScreen(
                 )
             }
 
-            if (showAdvanced) {
-                SectionCard(title = stringResource(R.string.dsp_auto_headroom)) {
+            if (showAdvanced || showSpatial) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_rollout_title)) {
+                    Text(stringResource(R.string.dsp_rollout_description), style = MaterialTheme.typography.bodySmall)
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_rollout_workspace_ui),
+                        description = stringResource(R.string.dsp_rollout_workspace_ui_description),
+                        checked = studioFeatureFlags.workspaceUiEnabled,
+                        enabled = !operationPending,
+                        onCheckedChange = { enabled ->
+                            updateStudioFeatureFlags(studioFeatureFlags.withEnabled(DspStudioFeature.WORKSPACE_UI, enabled))
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_rollout_macro_overlay),
+                        description = stringResource(R.string.dsp_rollout_macro_overlay_description),
+                        checked = studioFeatureFlags.macroOverlayEnabled,
+                        enabled = !operationPending,
+                        onCheckedChange = { enabled ->
+                            updateStudioFeatureFlags(studioFeatureFlags.withEnabled(DspStudioFeature.MACRO_OVERLAY, enabled))
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_rollout_smart_loudness),
+                        description = stringResource(R.string.dsp_rollout_smart_loudness_description),
+                        checked = studioFeatureFlags.smartLoudnessEnabled,
+                        enabled = !operationPending,
+                        onCheckedChange = { enabled ->
+                            updateStudioFeatureFlags(studioFeatureFlags.withEnabled(DspStudioFeature.SMART_LOUDNESS, enabled))
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_rollout_dynamic_bass),
+                        description = stringResource(R.string.dsp_rollout_dynamic_bass_description),
+                        checked = studioFeatureFlags.dynamicBassEnabled,
+                        enabled = !operationPending,
+                        onCheckedChange = { enabled ->
+                            updateStudioFeatureFlags(studioFeatureFlags.withEnabled(DspStudioFeature.DYNAMIC_BASS, enabled))
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_rollout_native_hot),
+                        description = stringResource(R.string.dsp_rollout_native_hot_description),
+                        checked = studioFeatureFlags.nativeHotUpdatesEnabled,
+                        enabled = !operationPending,
+                        onCheckedChange = { enabled ->
+                            updateStudioFeatureFlags(studioFeatureFlags.withEnabled(DspStudioFeature.NATIVE_HOT_UPDATES, enabled))
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_rollout_local_warm),
+                        description = stringResource(R.string.dsp_rollout_local_warm_description),
+                        checked = studioFeatureFlags.localWarmEnabled,
+                        enabled = !operationPending,
+                        onCheckedChange = { enabled ->
+                            updateStudioFeatureFlags(studioFeatureFlags.withEnabled(DspStudioFeature.LOCAL_WARM, enabled))
+                        },
+                    )
+                    DspSwitchRow(
+                        title = stringResource(R.string.dsp_rollout_ir_warm),
+                        description = stringResource(R.string.dsp_rollout_ir_warm_unavailable),
+                        checked = studioFeatureFlags.irWarmBudgetEnabled,
+                        enabled = false,
+                        onCheckedChange = {},
+                    )
+                    Button(onClick = disableEnhancedDsp, enabled = !operationPending) {
+                        Text(stringResource(R.string.dsp_rollout_disable_all))
+                    }
+                    OutlinedButton(onClick = restoreSavedStudioProfile, enabled = !operationPending) {
+                        Text(stringResource(R.string.dsp_rollout_restore_saved))
+                    }
+                }
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_auto_headroom)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_auto_headroom),
                         checked = profile.autoHeadroomEnabled,
@@ -583,7 +1309,7 @@ internal fun DspSettingsScreen(
                         "dB",
                     ) { profile = profile.copy(autoHeadroomMarginDb = it) }
                 }
-                SectionCard(title = stringResource(R.string.dsp_seat_alignment)) {
+                if (showSpatial) SectionCard(title = stringResource(R.string.dsp_seat_alignment)) {
                     val seat = profile.seatAlignment
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_seat_alignment),
@@ -645,7 +1371,7 @@ internal fun DspSettingsScreen(
                         onCheckedChange = { profile = profile.copy(seatAlignment = seat.copy(invertRight = it)) },
                     )
                 }
-                SectionCard(title = stringResource(R.string.dsp_ms_advanced)) {
+                if (showSpatial) SectionCard(title = stringResource(R.string.dsp_ms_advanced)) {
                     val ms = profile.advancedMs
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_ms_advanced),
@@ -726,7 +1452,7 @@ internal fun DspSettingsScreen(
                         )) }
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_cabin_correction)) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_cabin_correction)) {
                     val cabin = profile.cabinCorrection
                     Text(stringResource(R.string.dsp_cabin_description))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -849,7 +1575,7 @@ internal fun DspSettingsScreen(
                         },
                     )
                 }
-                SectionCard(title = stringResource(R.string.dsp_harmonic_engine)) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_harmonic_engine)) {
                     val harmonic = profile.harmonic
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_harmonic_engine),
@@ -927,34 +1653,47 @@ internal fun DspSettingsScreen(
                 }
             }
 
-            if (showEq) SectionCard(title = stringResource(R.string.dsp_parametric_eq)) {
-                profile.eqBands.forEachIndexed { index, band ->
-                    EqBandControl(
-                        index = index,
-                        band = band,
-                        onEditType = { bandTypeDialog = index },
-                        onChange = { changed ->
-                            val next = profile.copy(
-                                eqBands = profile.eqBands.toMutableList().apply { set(index, changed) },
-                            )
-                            if (!next.hasValidEqCapacity()) {
-                                Toast.makeText(context, R.string.dsp_cabin_peq_capacity, Toast.LENGTH_LONG).show()
-                            } else {
-                                profile = next
-                            }
-                        },
+            if (showEq) {
+                val tuning = DspTuningResolver.resolve(
+                    profile = profile,
+                    masterEnabled = dspEnabled,
+                    macros = macroSettings.copy(
+                        enabled = macroSettings.enabled && studioFeatureFlags.macroOverlayEnabled,
+                    ),
+                    loudness = if (studioFeatureFlags.smartLoudnessEnabled) {
+                        loudnessSettings
+                    } else {
+                        DspSmartLoudnessSettings()
+                    },
+                    volumeReading = volumeReading,
+                    dynamicBass = dynamicBassSettings.copy(
+                        enabled = dynamicBassSettings.enabled && studioFeatureFlags.dynamicBassEnabled,
+                    ),
+                )
+                tabSaveableStateHolder.SaveableStateProvider(DspStudioTab.EQ) {
+                    DspEqEditorPane(
+                        profile = profile,
+                        onProfileChange = updateStudioProfile,
+                        onEditBandType = { bandTypeDialog = it },
+                        sampleRateHz = playbackSampleRateHz,
+                        modifier = Modifier.fillMaxWidth(),
+                        onEditFinished = finishStudioFeatureEdit,
+                        macroTone = tuning.runtimeConfig.macroTone,
+                        smartLoudness = tuning.runtimeConfig.smartLoudness,
+                        dynamicBassEnabled = tuning.runtimeConfig.dynamicBass.enabled,
+                        predictedPreampDb = tuning.runtimeConfig.gainDb,
                     )
                 }
             }
 
-            if (showAdvanced) {
-                SectionCard(title = stringResource(R.string.dsp_compressor)) {
+            if (showDynamics || showAdvanced) {
+                if (showDynamics) SectionCard(title = stringResource(R.string.dsp_compressor)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_compressor),
                         checked = profile.compressor.enabled,
                         onCheckedChange = { profile = profile.copy(compressor = profile.compressor.copy(enabled = it)) },
                     )
-                    DspValueSlider(stringResource(R.string.dsp_threshold), profile.compressor.thresholdDb, -60.0..0.0, "dB") {
+                    DspValueSlider(stringResource(R.string.dsp_compressor_threshold), profile.compressor.thresholdDb, -60.0..0.0, "dB") {
                         profile = profile.copy(compressor = profile.compressor.copy(thresholdDb = it))
                     }
                     DspValueSlider(stringResource(R.string.dsp_ratio), profile.compressor.ratio, 1.0..20.0, ":1") {
@@ -973,7 +1712,7 @@ internal fun DspSettingsScreen(
                         profile = profile.copy(compressor = profile.compressor.copy(makeupDb = it))
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_multiband)) {
+                if (showDynamics) SectionCard(title = stringResource(R.string.dsp_multiband)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_multiband),
                         checked = profile.multiband.enabled,
@@ -1012,7 +1751,7 @@ internal fun DspSettingsScreen(
                         )
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_dynamic_eq)) {
+                if (showDynamics) SectionCard(title = stringResource(R.string.dsp_dynamic_eq)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_dynamic_eq),
                         checked = profile.dynamicEq.enabled,
@@ -1035,20 +1774,21 @@ internal fun DspSettingsScreen(
                         }
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_limiter)) {
+                if (showDynamics) SectionCard(title = stringResource(R.string.dsp_limiter)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_limiter),
                         checked = profile.limiter.enabled,
                         onCheckedChange = { profile = profile.copy(limiter = profile.limiter.copy(enabled = it)) },
                     )
-                    DspValueSlider(stringResource(R.string.dsp_threshold), profile.limiter.thresholdDb, -12.0..0.0, "dB") {
+                    Text(stringResource(R.string.dsp_limiter_measurement_note), style = MaterialTheme.typography.bodySmall)
+                    DspValueSlider(stringResource(R.string.dsp_limiter_threshold), profile.limiter.thresholdDb, -12.0..0.0, "dB") {
                         profile = profile.copy(limiter = profile.limiter.copy(thresholdDb = it))
                     }
                     DspValueSlider(stringResource(R.string.dsp_release), profile.limiter.releaseMs, 1.0..500.0, "ms") {
                         profile = profile.copy(limiter = profile.limiter.copy(releaseMs = it))
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_convolver)) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_convolver)) {
                     DspSwitchRow(
                         title = stringResource(R.string.dsp_convolver),
                         checked = profile.convolver.enabled,
@@ -1067,7 +1807,7 @@ internal fun DspSettingsScreen(
                         choices = listOf(stringResource(R.string.dsp_ir_none)) + impulseResponseIds,
                         enabled = !operationPending,
                         onSelect = { selected ->
-                            val id = selected.takeUnless { it == context.getString(R.string.dsp_ir_none) }
+                            val id = selected.takeUnless { it == impulseResponseNoneLabel }
                             profile = profile.copy(
                                 convolver = profile.convolver.copy(
                                     enabled = id != null,
@@ -1093,7 +1833,7 @@ internal fun DspSettingsScreen(
                         )
                     }
                 }
-                SectionCard(title = stringResource(R.string.dsp_diagnostics)) {
+                if (showAdvanced) SectionCard(title = stringResource(R.string.dsp_diagnostics)) {
                     Text(stringResource(R.string.dsp_selected_profile, profileLabel(context, profile)))
                     Text(stringResource(R.string.dsp_applied_profile, profileLabel(context, editorSession.appliedProfile)))
                     Text(stringResource(R.string.dsp_dsp_state, if (dspEnabled) "ON" else "OFF"))
@@ -1104,7 +1844,7 @@ internal fun DspSettingsScreen(
                 }
             }
 
-            if (!compact) {
+            if (!compact && !showStudio) {
                 Button(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !operationPending,
@@ -1112,20 +1852,23 @@ internal fun DspSettingsScreen(
                 ) {
                     Text(stringResource(R.string.dsp_apply))
                 }
+            }
+            if (!compact && showStudio) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
                         enabled = !operationPending,
-                        onClick = { saveCustomProfile(CUSTOM_PROFILE_1, R.string.dsp_preset_custom_1) },
+                        onClick = { saveCustomProfile(CUSTOM_PROFILE_1, customProfile1Name) },
                     ) { Text(stringResource(R.string.dsp_save_custom_1)) }
                     OutlinedButton(
                         modifier = Modifier.weight(1f),
                         enabled = !operationPending,
-                        onClick = { saveCustomProfile(CUSTOM_PROFILE_2, R.string.dsp_preset_custom_2) },
+                        onClick = { saveCustomProfile(CUSTOM_PROFILE_2, customProfile2Name) },
                     ) { Text(stringResource(R.string.dsp_save_custom_2)) }
                 }
             }
         }
+    }
     }
 
     bandTypeDialog?.let { index ->
@@ -1138,16 +1881,50 @@ internal fun DspSettingsScreen(
                     DspEqType.entries.forEach { type ->
                         TextButton(
                             onClick = {
-                                profile = profile.copy(eqBands = profile.eqBands.toMutableList().apply {
+                                updateStudioProfile(profile.copy(eqBands = profile.eqBands.toMutableList().apply {
                                     set(index, band.copy(type = type))
-                                })
+                                }))
+                                finishStudioFeatureEdit()
                                 bandTypeDialog = null
                             },
-                        ) { Text(type.name) }
+                        ) { Text(stringResource(type.filterLabelResource())) }
                     }
                 }
             },
             confirmButton = { TextButton(onClick = { bandTypeDialog = null }) { Text(stringResource(R.string.dsp_done)) } },
+        )
+    }
+
+    if (leaveConfirmationVisible) {
+        AlertDialog(
+            onDismissRequest = { leaveConfirmationVisible = false },
+            title = { Text(stringResource(R.string.dsp_studio_leave_title)) },
+            text = { Text(stringResource(R.string.dsp_studio_leave_message)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        leaveConfirmationVisible = false
+                        leaveAfterSave = true
+                        saveStudioWorkspace()
+                    },
+                    enabled = !operationPending,
+                ) { Text(stringResource(R.string.dsp_studio_leave_save)) }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            leaveConfirmationVisible = false
+                            leaveAfterRestore = true
+                            cancelStudioChanges()
+                        },
+                        enabled = !operationPending,
+                    ) { Text(stringResource(R.string.dsp_studio_leave_discard)) }
+                    TextButton(onClick = { leaveConfirmationVisible = false }) {
+                        Text(stringResource(R.string.dsp_studio_leave_continue))
+                    }
+                }
+            },
         )
     }
 }
@@ -1194,13 +1971,25 @@ private fun DspValueSlider(
     unit: String,
     onChange: (Double) -> Unit,
 ) {
+    val editStarted = LocalDspStudioEditStarted.current
+    val profileSliderChanged = LocalDspStudioProfileSliderChanged.current
+    val editFinished = LocalDspStudioEditFinished.current
     Column {
         val formatted = String.format(Locale.getDefault(), "%.1f", value)
         Text(if (unit.isBlank()) "$title: $formatted" else "$title: $formatted $unit")
         Slider(
             value = value.toFloat().coerceIn(range.start.toFloat(), range.endInclusive.toFloat()),
-            onValueChange = { onChange(it.toDouble()) },
+            onValueChange = {
+                editStarted()
+                onChange(it.toDouble())
+                profileSliderChanged()
+            },
+            onValueChangeFinished = editFinished,
             valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
+            modifier = Modifier.semantics {
+                contentDescription = title
+                stateDescription = if (unit.isBlank()) formatted else "$formatted $unit"
+            },
         )
     }
 }
@@ -1393,3 +2182,4 @@ private fun showProfileSaveResult(context: Context, result: DspProfileSaveResult
 
 private const val CUSTOM_PROFILE_1 = "custom1"
 private const val CUSTOM_PROFILE_2 = "custom2"
+private const val STUDIO_RESTORE_ACK_TIMEOUT_MS = 10_000L

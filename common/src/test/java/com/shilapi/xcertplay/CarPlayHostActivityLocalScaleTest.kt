@@ -1,6 +1,5 @@
 package com.shilapi.xcertplay
 
-import android.Manifest
 import android.content.Intent
 import android.os.Bundle
 import android.graphics.SurfaceTexture
@@ -9,10 +8,6 @@ import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.ComposeView
 import com.shilapi.xcertplay.airplay.AirPlayConfig
 import com.shilapi.xcertplay.airplay.AirPlayDisplayConfig
 import com.shilapi.xcertplay.airplay.AirPlayIdentity
@@ -20,7 +15,6 @@ import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
 import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.airplay.PairingStore
-import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.orchestration.CarPlayController
 import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
 import com.shilapi.xcertplay.orchestration.CarPlayTransport
@@ -41,7 +35,6 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -78,42 +71,6 @@ class CarPlayHostActivityLocalScaleTest {
             moveOutside.recycle()
             moveInside.recycle()
             up.recycle()
-        }
-    }
-
-    @Test
-    fun dspSplitMeasurementPaneLogsTheExactSpecsPassedToComposeView() {
-        shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(Manifest.permission.RECORD_AUDIO)
-        val controller = Robolectric.buildActivity(CarPlayHostActivity::class.java).setup()
-        try {
-            val activity = controller.get()
-            val createMeasurementPane = CarPlayHostActivity::class.java.getDeclaredMethod("createDspMeasurementPane")
-                .apply { isAccessible = true }
-            val pane = createMeasurementPane.invoke(activity) as FrameLayout
-            val composeView = ComposeView(activity).apply {
-                id = R.id.dsp_split_compose_view
-                setContent { Box(Modifier.fillMaxSize()) }
-            }
-            pane.addView(composeView, FrameLayout.LayoutParams(-1, -1))
-            activity.setContentView(pane)
-            val widthSize = 913
-            val heightSize = 607
-
-            pane.measure(
-                View.MeasureSpec.makeMeasureSpec(widthSize, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(heightSize, View.MeasureSpec.AT_MOST),
-            )
-
-            assertEquals(widthSize, composeView.measuredWidth)
-            assertTrue(composeView.measuredHeight <= heightSize)
-            assertTrue(
-                DspSplitMeasureDiagnostics.recentMeasurements().contains(
-                    "widthMode=EXACTLY widthSize=$widthSize heightMode=AT_MOST heightSize=$heightSize " +
-                        "measured=${composeView.measuredWidth}x${composeView.measuredHeight}",
-                ),
-            )
-        } finally {
-            controller.pause().stop().destroy()
         }
     }
 

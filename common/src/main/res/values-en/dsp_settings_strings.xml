@@ -20,7 +20,8 @@
     <string name="dsp_save_custom_2">Save as Custom 2</string>
     <string name="dsp_profile_saved">Profile saved.</string>
     <string name="dsp_profile_save_failed">Could not save the profile.</string>
-    <string name="dsp_profile_future_schema">A profile from a newer format cannot be overwritten.</string>
+    <string name="dsp_profile_future_schema">A newer DSP workspace or profile format was preserved.</string>
+    <string name="dsp_profile_save_stale">A newer DSP operation took priority, so the profile was not saved. Try again.</string>
     <string name="dsp_basic_controls">Basic</string>
     <string name="dsp_advanced_controls">Advanced</string>
     <string name="dsp_preamp">Preamp</string>

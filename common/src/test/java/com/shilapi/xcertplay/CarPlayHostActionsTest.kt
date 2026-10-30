@@ -78,6 +78,71 @@ class CarPlayHostActionsTest {
     }
 
     @Test
+    fun userCommandsThatLeaveDspSplitShareTheStudioExitReview() {
+        assertTrue(CarPlayHostActions.requiresDspExitReview(CarPlayHostActions.OPEN_CARPLAY))
+        assertTrue(CarPlayHostActions.requiresDspExitReview(CarPlayHostActions.EXIT_YOUTUBE_SPLIT))
+        assertTrue(CarPlayHostActions.requiresDspExitReview(CarPlayHostActions.ENTER_YOUTUBE_SPLIT))
+        assertTrue(CarPlayHostActions.requiresDspExitReview(CarPlayHostActions.EXIT_DSP_SPLIT_BACK))
+        assertFalse(CarPlayHostActions.requiresDspExitReview(CarPlayHostActions.ENTER_DSP_SPLIT))
+        assertFalse(CarPlayHostActions.requiresDspExitReview(CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED))
+    }
+
+    @Test
+    fun latestDspExitRequestReplacesOlderCommandsAndRejectsLateResolution() {
+        val queue = DspHostExitRequestQueue()
+        val first = queue.submit(CarPlayHostActions.OPEN_CARPLAY, activityGeneration = 3, sessionGeneration = 8)
+        val latest = queue.submit(CarPlayHostActions.ENTER_YOUTUBE_SPLIT, activityGeneration = 3, sessionGeneration = 8)
+
+        assertEquals(latest, queue.requestState.value)
+        assertNull(
+            queue.resolve(
+                first,
+                DspHostExitResolution.PROCEED,
+                activityGeneration = 3,
+                sessionGeneration = 8,
+            ),
+        )
+        assertEquals(latest, queue.requestState.value)
+        assertEquals(
+            CarPlayHostActions.ENTER_YOUTUBE_SPLIT,
+            queue.resolve(
+                latest,
+                DspHostExitResolution.PROCEED,
+                activityGeneration = 3,
+                sessionGeneration = 8,
+            ),
+        )
+        assertNull(queue.requestState.value)
+    }
+
+    @Test
+    fun dspExitResolutionRequiresUserProceedAndCurrentActivityAndSession() {
+        val queue = DspHostExitRequestQueue()
+        val cancelled = queue.submit(CarPlayHostActions.OPEN_CARPLAY, activityGeneration = 4, sessionGeneration = 9)
+
+        assertNull(
+            queue.resolve(
+                cancelled,
+                DspHostExitResolution.CANCELLED,
+                activityGeneration = 4,
+                sessionGeneration = 9,
+            ),
+        )
+        assertNull(queue.requestState.value)
+
+        val stale = queue.submit(CarPlayHostActions.OPEN_CARPLAY, activityGeneration = 4, sessionGeneration = 9)
+        assertNull(
+            queue.resolve(
+                stale,
+                DspHostExitResolution.PROCEED,
+                activityGeneration = 5,
+                sessionGeneration = 9,
+            ),
+        )
+        assertNull(queue.requestState.value)
+    }
+
+    @Test
     fun aNewLaunchActionReplacesASavedPendingSplitMode() {
         assertNull(
             CarPlayHostActions.pendingSplitModeAfterLaunch(

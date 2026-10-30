@@ -17,7 +17,10 @@ import com.shilapi.xcertplay.orchestration.CarPlayTransport
 import com.shilapi.xcertplay.orchestration.MfiTarget
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
+import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.youtube.DisplaySize
+import com.shilapi.xcertplay.youtube.HostLayoutMode
+import com.shilapi.xcertplay.youtube.HostLayoutState
 import java.lang.reflect.Field
 import java.net.ServerSocket
 import java.net.Socket
@@ -29,6 +32,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -451,6 +455,95 @@ class CarPlayHostActivityReconnectTest {
     }
 
     @Test
+    fun externalDspExitWaitsForTheLatestDecisionWithoutReplacingCarPlayController() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        CarPlayBackgroundSession.clear()
+        val activityController = Robolectric.buildActivity(CarPlayHostActivity::class.java).create()
+        val activity = activityController.get()
+        val existingController = allocateControllerPlaceholder()
+        field(activity, "controller").set(activity, existingController)
+        val runtime = DspProfileRuntime.get(activity.applicationContext)
+        runtime.createStudioSessionCoordinator().edit { it.copy(macros = it.macros.copy(enabled = true, bassImpact = 12)) }
+
+        try {
+            field(activity, "hostLayoutState").set(activity, HostLayoutState().enterDspSplit())
+            activity.javaClass.getDeclaredMethod("updateHostLayout").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+            dispatchOnNewIntent(
+                activity,
+                CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.OPEN_CARPLAY),
+            )
+            val firstRequest = (field(activity, "dspHostExitRequests").get(activity) as DspHostExitRequestQueue)
+                .requestState.value
+            assertNotNull(firstRequest)
+            assertEquals(CarPlayHostActions.OPEN_CARPLAY, firstRequest?.action)
+            assertEquals(HostLayoutMode.CARPLAY_DSP_SPLIT, (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode)
+            assertSame(existingController, field(activity, "controller").get(activity))
+
+            dispatchOnNewIntent(
+                activity,
+                CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.ENTER_YOUTUBE_SPLIT),
+            )
+            val latestRequest = (field(activity, "dspHostExitRequests").get(activity) as DspHostExitRequestQueue)
+                .requestState.value
+            assertNotNull(latestRequest)
+            assertEquals(CarPlayHostActions.ENTER_YOUTUBE_SPLIT, latestRequest?.action)
+            invokeDspHostExitResolution(activity, requireNotNull(firstRequest), DspHostExitResolution.PROCEED)
+            assertEquals(HostLayoutMode.CARPLAY_DSP_SPLIT, (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode)
+            assertSame(existingController, field(activity, "controller").get(activity))
+
+            invokeDspHostExitResolution(activity, requireNotNull(latestRequest), DspHostExitResolution.PROCEED)
+            assertEquals(HostLayoutMode.CARPLAY_YOUTUBE_SPLIT, (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode)
+            assertSame(existingController, field(activity, "controller").get(activity))
+        } finally {
+            field(activity, "controller").set(activity, null)
+            activityController.destroy()
+            CarPlayBackgroundSession.clear()
+            DspProfileRuntime.resetForTesting()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun dspPaneVisibilityTracksTwentyHostLayoutCycles() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        CarPlayBackgroundSession.clear()
+        val activityController = Robolectric.buildActivity(CarPlayHostActivity::class.java).create()
+        val activity = activityController.get()
+        val visible = field(activity, "dspPaneVisible").get(activity) as androidx.compose.runtime.MutableState<*>
+        val updateLayout = activity.javaClass.getDeclaredMethod("updateHostLayout").apply { isAccessible = true }
+
+        try {
+            field(activity, "pendingSplitMode").set(activity, null)
+            repeat(20) {
+                field(activity, "hostLayoutState").set(activity, HostLayoutState().enterDspSplit())
+                updateLayout.invoke(activity)
+                assertEquals(true, visible.value)
+
+                field(activity, "hostLayoutState").set(activity, HostLayoutState().enterYoutubeSplit())
+                updateLayout.invoke(activity)
+                assertEquals(false, visible.value)
+
+                field(activity, "hostLayoutState").set(activity, HostLayoutState())
+                updateLayout.invoke(activity)
+                assertEquals(false, visible.value)
+            }
+            assertNull(field(activity, "controller").get(activity))
+        } finally {
+            activityController.destroy()
+            CarPlayBackgroundSession.clear()
+            DspProfileRuntime.resetForTesting()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
     fun altOnlyScreenDoesNotHideTheMainConnectionPanel() {
         assertFalse(mainScreenStreamIsActive(setOf(111), 110))
         assertTrue(mainScreenStreamIsActive(setOf(110), 110))
@@ -763,6 +856,21 @@ class CarPlayHostActivityReconnectTest {
         activity.javaClass.getDeclaredMethod("onNewIntent", Intent::class.java).apply {
             isAccessible = true
             invoke(activity, intent)
+        }
+    }
+
+    private fun invokeDspHostExitResolution(
+        activity: CarPlayHostActivity,
+        request: DspHostExitRequest,
+        resolution: DspHostExitResolution,
+    ) {
+        activity.javaClass.getDeclaredMethod(
+            "onDspHostExitResolved",
+            DspHostExitRequest::class.java,
+            DspHostExitResolution::class.java,
+        ).apply {
+            isAccessible = true
+            invoke(activity, request, resolution)
         }
     }
 

@@ -237,6 +237,8 @@ internal fun DspSettingsScreen(
     runtime: DspProfileRuntime,
     presentation: DspPresentationMode = DspPresentationMode.FULL,
     isVisible: Boolean = true,
+    hostExitRequest: DspHostExitRequest? = null,
+    onHostExitResolved: (DspHostExitRequest, DspHostExitResolution) -> Unit = { _, _ -> },
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -306,14 +308,35 @@ internal fun DspSettingsScreen(
     var leaveConfirmationVisible by remember { mutableStateOf(false) }
     var leaveAfterSave by remember { mutableStateOf(false) }
     var leaveAfterRestore by remember { mutableStateOf(false) }
-    val leaveEditor = {
+    var pendingHostExitRequest by remember { mutableStateOf<DspHostExitRequest?>(null) }
+    val resolveHostExit: (DspHostExitResolution) -> Unit = { resolution ->
+        val request = pendingHostExitRequest
+        pendingHostExitRequest = null
+        if (request != null) onHostExitResolved(request, resolution)
+    }
+    val completeEditorExit = {
+        val request = pendingHostExitRequest
+        pendingHostExitRequest = null
+        if (request == null) onBack() else onHostExitResolved(request, DspHostExitResolution.PROCEED)
+    }
+    val requestEditorExit = {
         focusManager.clearFocus()
         keyboardController?.hide()
         if (!operationPending) {
-            if (studioSession.isDirty) leaveConfirmationVisible = true else onBack()
+            if (studioSession.isDirty || editorSession.hasUnappliedChanges) {
+                leaveConfirmationVisible = true
+            } else {
+                completeEditorExit()
+            }
         }
     }
-    BackHandler(enabled = !operationPending) { leaveEditor() }
+    LaunchedEffect(hostExitRequest?.id, operationPending) {
+        val request = hostExitRequest ?: return@LaunchedEffect
+        if (operationPending || pendingHostExitRequest?.id == request.id) return@LaunchedEffect
+        pendingHostExitRequest = request
+        requestEditorExit()
+    }
+    BackHandler(enabled = isVisible && !operationPending) { requestEditorExit() }
     var loudnessSettings by remember(studioSession) { mutableStateOf(studioSession.preview.smartLoudness) }
     var dynamicBassSettings by remember(studioSession) { mutableStateOf(studioSession.preview.dynamicBass) }
     val modulePresetKeys = remember { dspModulePresetKeys() }
@@ -409,7 +432,7 @@ internal fun DspSettingsScreen(
                 studioUiRevision += 1
                 if (leaveAfterRestore) {
                     leaveAfterRestore = false
-                    if (restored) onBack()
+                    if (restored) completeEditorExit() else resolveHostExit(DspHostExitResolution.FAILED)
                 }
             }
             studioRestoreRequest = null
@@ -659,7 +682,11 @@ internal fun DspSettingsScreen(
                     )
                 ) {
                     if (screenActive.get()) {
-                        if (result == DspProfileSaveResult.SAVED) profiles = runtime.availableProfiles()
+                        if (result == DspProfileSaveResult.SAVED) {
+                            profiles = runtime.availableProfiles()
+                            selectedModulePresetId = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+                            studioUiRevision += 1
+                        }
                         showProfileSaveResult(context, result)
                     }
                 }
@@ -673,7 +700,6 @@ internal fun DspSettingsScreen(
         studioOperationPending = true
         runtime.saveStudioWorkspaceAsync(workspace, dspEnabled) { result ->
             studioOperationPending = false
-            if (result == DspWorkspaceSaveResult.SAVED) studioSession.commitSaved(workspace)
             editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
             studioUiRevision += 1
             val message = when (result) {
@@ -686,7 +712,11 @@ internal fun DspSettingsScreen(
             if (screenActive.get()) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             if (leaveAfterSave) {
                 leaveAfterSave = false
-                if (result == DspWorkspaceSaveResult.SAVED) onBack()
+                if (result == DspWorkspaceSaveResult.SAVED) {
+                    completeEditorExit()
+                } else {
+                    resolveHostExit(DspHostExitResolution.FAILED)
+                }
             }
         }
     }
@@ -723,7 +753,11 @@ internal fun DspSettingsScreen(
                         )
                     ) {
                         if (screenActive.get()) {
-                            if (result == DspProfileSaveResult.SAVED) profiles = runtime.availableProfiles()
+                            if (result == DspProfileSaveResult.SAVED) {
+                                profiles = runtime.availableProfiles()
+                                selectedModulePresetId = studioSession.preview.selectedModulePresetIds[selectedModulePresetModule]
+                                studioUiRevision += 1
+                            }
                             showProfileSaveResult(context, result)
                         }
                     }
@@ -812,7 +846,7 @@ internal fun DspSettingsScreen(
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.titleMedium,
                         )
-                        TextButton(onClick = leaveEditor) {
+                        TextButton(onClick = requestEditorExit) {
                             Text("×", modifier = Modifier.semantics {
                                 contentDescription = closeSettingsDescription
                             })
@@ -824,7 +858,7 @@ internal fun DspSettingsScreen(
                 Column {
                     TopAppBar(
                         title = { Text("DSP Studio") },
-                        navigationIcon = { TextButton(onClick = leaveEditor) { Text("‹") } },
+                        navigationIcon = { TextButton(onClick = requestEditorExit) { Text("‹") } },
                     )
                     DspStudioNavigation(compactSection) { compactSection = it }
                 }
@@ -1897,7 +1931,10 @@ internal fun DspSettingsScreen(
 
     if (leaveConfirmationVisible) {
         AlertDialog(
-            onDismissRequest = { leaveConfirmationVisible = false },
+            onDismissRequest = {
+                leaveConfirmationVisible = false
+                resolveHostExit(DspHostExitResolution.CANCELLED)
+            },
             title = { Text(stringResource(R.string.dsp_studio_leave_title)) },
             text = { Text(stringResource(R.string.dsp_studio_leave_message)) },
             confirmButton = {
@@ -1920,7 +1957,10 @@ internal fun DspSettingsScreen(
                         },
                         enabled = !operationPending,
                     ) { Text(stringResource(R.string.dsp_studio_leave_discard)) }
-                    TextButton(onClick = { leaveConfirmationVisible = false }) {
+                    TextButton(onClick = {
+                        leaveConfirmationVisible = false
+                        resolveHostExit(DspHostExitResolution.CANCELLED)
+                    }) {
                         Text(stringResource(R.string.dsp_studio_leave_continue))
                     }
                 }
@@ -2175,6 +2215,7 @@ private fun showProfileSaveResult(context: Context, result: DspProfileSaveResult
         DspProfileSaveResult.SAVED -> R.string.dsp_profile_saved
         DspProfileSaveResult.INVALID_EQ_CAPACITY -> R.string.dsp_cabin_peq_capacity
         DspProfileSaveResult.FUTURE_SCHEMA_PRESERVED -> R.string.dsp_profile_future_schema
+        DspProfileSaveResult.STALE -> R.string.dsp_profile_save_stale
         else -> R.string.dsp_profile_save_failed
     }
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()

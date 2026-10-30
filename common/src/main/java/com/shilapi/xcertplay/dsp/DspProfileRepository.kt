@@ -40,6 +40,7 @@ internal enum class DspProfileSaveResult {
     INVALID_PROFILE_ID,
     INVALID_EQ_CAPACITY,
     FUTURE_SCHEMA_PRESERVED,
+    STALE,
     WRITE_FAILED,
 }
 

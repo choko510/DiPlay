@@ -2,6 +2,10 @@ package com.shilapi.xcertplay
 
 import android.content.res.Configuration
 import android.os.Debug
+import android.content.Intent
+import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +34,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.shilapi.xcertplay.dsp.DspFactoryPresets
@@ -38,6 +43,8 @@ import com.shilapi.xcertplay.dsp.DspStudioRestoreRequest
 import com.shilapi.xcertplay.dsp.DspPresetStoreResult
 import com.shilapi.xcertplay.dsp.DspRuntimeConfigStore
 import com.shilapi.xcertplay.dsp.DspStudioComparisonSide
+import com.shilapi.xcertplay.dsp.DspStudioWorkspaceRepository
+import com.shilapi.xcertplay.dsp.DspWorkspaceReadResult
 import com.shilapi.xcertplay.dsp.DspTuningResolver
 import com.shilapi.xcertplay.host.R
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
@@ -56,10 +63,210 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+class DspSettingsBackHandlerTestActivity : ComponentActivity() {
+    internal lateinit var runtime: DspProfileRuntime
+        private set
+    var hostBackCount = 0
+    var dspBackCount = 0
+    private lateinit var filesDirectory: File
+
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        filesDirectory = File(cacheDir, "dsp-back-handler-activity-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        runtime = DspProfileRuntime.createForTesting(
+            context = applicationContext,
+            filesDirectory = filesDirectory,
+            preferencesName = "dsp_back_handler_activity_test",
+        )
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                hostBackCount += 1
+            }
+        })
+        val dspVisible = intent.getBooleanExtra(EXTRA_START_VISIBLE, false)
+        setContent {
+            MaterialTheme {
+                DspSettingsScreen(
+                    runtime = runtime,
+                    isVisible = dspVisible,
+                    onBack = { dspBackCount += 1 },
+                )
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        runtime.closeForTesting()
+        filesDirectory.deleteRecursively()
+        getSharedPreferences("dsp_back_handler_activity_test", MODE_PRIVATE).edit().clear().commit()
+    }
+
+    companion object {
+        const val EXTRA_START_VISIBLE = "dsp.back.test.START_VISIBLE"
+    }
+}
+
+@RunWith(AndroidJUnit4::class)
+class DspSettingsBackHandlerActivityTest {
+    @Test
+    fun hiddenDspLeavesBackWithHostAndPreservesDraft() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        ActivityScenario.launch(DspSettingsBackHandlerTestActivity::class.java).use { scenario ->
+            lateinit var draft: com.shilapi.xcertplay.dsp.DspAudioProfile
+            scenario.onActivity { activity ->
+                draft = activity.runtime.editorSession.draftProfile.copy(preampDb = 3.0)
+                activity.runtime.editorSession.restoreDraft(draft)
+            }
+            instrumentation.waitForIdleSync()
+
+            repeat(20) { index ->
+                scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+                assertEquals(index + 1, readActivity(scenario) { it.hostBackCount })
+                assertEquals(0, readActivity(scenario) { it.dspBackCount })
+            }
+            assertEquals(draft, readActivity(scenario) { it.runtime.editorSession.draftProfile })
+        }
+    }
+
+    @Test
+    fun visibleDspRestoresBackHandlingAfterActivityRecreation() {
+        val intent = Intent(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            DspSettingsBackHandlerTestActivity::class.java,
+        ).putExtra(DspSettingsBackHandlerTestActivity.EXTRA_START_VISIBLE, false)
+        ActivityScenario.launch<DspSettingsBackHandlerTestActivity>(intent).use { scenario ->
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+            assertEquals(1, readActivity(scenario) { it.hostBackCount })
+
+            scenario.onActivity {
+                it.intent.putExtra(DspSettingsBackHandlerTestActivity.EXTRA_START_VISIBLE, true)
+            }
+            scenario.recreate()
+            scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+
+            assertEquals(1, readActivity(scenario) { it.dspBackCount })
+            assertEquals(0, readActivity(scenario) { it.hostBackCount })
+        }
+    }
+
+    private fun <T> readActivity(
+        scenario: ActivityScenario<DspSettingsBackHandlerTestActivity>,
+        read: (DspSettingsBackHandlerTestActivity) -> T,
+    ): T {
+        val result = AtomicReference<T>()
+        scenario.onActivity { result.set(read(it)) }
+        return result.get()
+    }
+
+}
+
 @RunWith(AndroidJUnit4::class)
 class DspSettingsScreenTest {
     @get:Rule
     val composeRule = createComposeRule()
+
+    @Test
+    fun externalOpenAndYoutubeRequestsUseTheSharedContinueAndDiscardChoices() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-external-exit-choices-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferences = context.getSharedPreferences("dsp_external_exit_choices_test", android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, "dsp_external_exit_choices_test")
+        val session = runtime.createStudioSessionCoordinator()
+        session.edit { it.copy(macros = it.macros.copy(enabled = true, bassImpact = 17)) }
+        val hostRequest = mutableStateOf<DspHostExitRequest?>(null)
+        val resolved = AtomicReference<Pair<DspHostExitRequest, DspHostExitResolution>?>()
+
+        try {
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        hostExitRequest = hostRequest.value,
+                        onHostExitResolved = { request, resolution ->
+                            resolved.set(request to resolution)
+                            hostRequest.value = null
+                        },
+                        onBack = {},
+                    )
+                }
+            }
+
+            hostRequest.value = DspHostExitRequest(1, CarPlayHostActions.OPEN_CARPLAY, 1, 1)
+            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_title)).assertIsDisplayed()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_continue)).performClick()
+            composeRule.waitUntil(5_000) { resolved.get()?.second == DspHostExitResolution.CANCELLED }
+            assertTrue(session.isDirty)
+            assertEquals(CarPlayHostActions.OPEN_CARPLAY, resolved.get()?.first?.action)
+
+            resolved.set(null)
+            hostRequest.value = DspHostExitRequest(2, CarPlayHostActions.ENTER_YOUTUBE_SPLIT, 1, 1)
+            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_title)).assertIsDisplayed()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_discard)).performClick()
+            composeRule.waitUntil(5_000) { resolved.get()?.second == DspHostExitResolution.PROCEED }
+            assertEquals(CarPlayHostActions.ENTER_YOUTUBE_SPLIT, resolved.get()?.first?.action)
+            assertFalse(session.isDirty)
+            assertEquals(50, session.preview.macros.bassImpact)
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun externalYoutubeRequestLeavesOnlyAfterWorkspaceSaveSucceeds() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDirectory = File(context.cacheDir, "dsp-external-exit-save-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_external_exit_save_test"
+        val preferences = context.getSharedPreferences(preferencesName, android.content.Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName)
+        val session = runtime.createStudioSessionCoordinator()
+        session.edit { it.copy(macros = it.macros.copy(enabled = true, bassImpact = 23)) }
+        val hostRequest = mutableStateOf<DspHostExitRequest?>(null)
+        val resolved = AtomicReference<Pair<DspHostExitRequest, DspHostExitResolution>?>()
+
+        try {
+            composeRule.setContent {
+                MaterialTheme {
+                    DspSettingsScreen(
+                        runtime = runtime,
+                        hostExitRequest = hostRequest.value,
+                        onHostExitResolved = { request, resolution ->
+                            resolved.set(request to resolution)
+                            hostRequest.value = null
+                        },
+                        onBack = {},
+                    )
+                }
+            }
+
+            hostRequest.value = DspHostExitRequest(3, CarPlayHostActions.ENTER_YOUTUBE_SPLIT, 1, 1)
+            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_title)).assertIsDisplayed()
+            composeRule.onNodeWithText(context.getString(R.string.dsp_studio_leave_save)).performClick()
+            composeRule.waitUntil(15_000) { resolved.get()?.second == DspHostExitResolution.PROCEED }
+
+            val saved = (DspStudioWorkspaceRepository(filesDirectory).load() as DspWorkspaceReadResult.Loaded).workspace
+            assertEquals(23, saved.macros.bassImpact)
+            assertEquals(CarPlayHostActions.ENTER_YOUTUBE_SPLIT, resolved.get()?.first?.action)
+            assertEquals(DspHostExitResolution.PROCEED, resolved.get()?.second)
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
 
     @Test
     fun compactTabScrollPositionsAreIndependentAndRestoredOnReturn() {

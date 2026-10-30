@@ -427,6 +427,359 @@ class DspProfileRuntimeTest {
     }
 
     @Test
+    fun savingCustomProfileUpdatesPersistedStudioBaseAndSurvivesRuntimeRecreation() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-custom-save-workspace-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_custom_save_workspace_test"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        val flat = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(
+            profileSourceId = flat.id,
+            baseProfileSnapshot = flat,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 81),
+            smartLoudness = DspSmartLoudnessSettings(mode = DspSmartLoudnessMode.FIXED, fixedAmount = 0.7),
+            dynamicBass = DspDynamicBassSettings(enabled = true, strength = 0.8),
+            selectedModulePresetIds = mapOf(
+                "bass" to "factory_bass",
+                "macros" to "factory_macros",
+                "dynamic_bass" to "factory_dynamic_bass",
+            ),
+        )
+        val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+        assertEquals(DspWorkspaceSaveResult.SAVED, workspaceRepository.save(committed))
+        preferences.edit().putBoolean(KEY_DSP_ENABLED, true).putString(KEY_SELECTED_PROFILE_ID, flat.id).commit()
+        val workspaceWriter: (File, ByteArray) -> Unit = { file, bytes ->
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+        }
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName, workspaceWriter)
+        val custom = DspProfilePresets.customProfile("custom1").copy(
+            name = "Saved Vocal",
+            preampDb = 4.0,
+            bass = flat.bass.copy(enabled = true, gainDb = 3.0),
+        )
+        val result = AtomicReference<DspProfileSaveResult?>()
+        val completed = CountDownLatch(1)
+
+        try {
+            runtime.saveCustomAsync(custom, enabled = true) {
+                result.set(it)
+                completed.countDown()
+            }
+            drainMainLooperUntil(completed)
+
+            assertEquals(DspProfileSaveResult.SAVED, result.get())
+            val persisted = (workspaceRepository.load() as DspWorkspaceReadResult.Loaded).workspace
+            assertEquals("custom1", persisted.profileSourceId)
+            assertEquals(custom, persisted.baseProfileSnapshot)
+            assertEquals(committed.macros, persisted.macros)
+            assertEquals(committed.smartLoudness, persisted.smartLoudness)
+            assertEquals(committed.dynamicBass, persisted.dynamicBass)
+            assertEquals(mapOf("macros" to "factory_macros", "dynamic_bass" to "factory_dynamic_bass"), persisted.selectedModulePresetIds)
+            assertEquals("custom1", preferences.getString(KEY_SELECTED_PROFILE_ID, null))
+
+            runtime.closeForTesting()
+            val recreated = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName, workspaceWriter)
+            try {
+                assertEquals(custom, recreated.selectedProfile())
+                assertEquals("custom1", (workspaceRepository.load() as DspWorkspaceReadResult.Loaded).workspace.profileSourceId)
+                assertTrue(recreated.isDspEnabled())
+            } finally {
+                recreated.closeForTesting()
+            }
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun customSaveDoesNotPersistUncommittedStudioModules() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-custom-save-draft-isolation-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_custom_save_draft_isolation_test"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        preferences.edit().clear().commit()
+        val flat = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace(
+            profileSourceId = flat.id,
+            baseProfileSnapshot = flat,
+            macros = DspSoundMacroSettings(enabled = true, bassImpact = 82),
+            smartLoudness = DspSmartLoudnessSettings(mode = DspSmartLoudnessMode.FIXED, fixedAmount = 0.6),
+            dynamicBass = DspDynamicBassSettings(enabled = true, strength = 0.7),
+        )
+        val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+        assertEquals(DspWorkspaceSaveResult.SAVED, workspaceRepository.save(committed))
+        preferences.edit().putBoolean(KEY_DSP_ENABLED, true).putString(KEY_SELECTED_PROFILE_ID, flat.id).commit()
+        val workspaceWriter: (File, ByteArray) -> Unit = { file, bytes ->
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+        }
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName, workspaceWriter)
+        val session = runtime.createStudioSessionCoordinator()
+        val draftComplete = CountDownLatch(1)
+        val saveComplete = CountDownLatch(1)
+        val saveResult = AtomicReference<DspProfileSaveResult?>()
+        val custom = DspProfilePresets.customProfile("custom1").copy(name = "Draft isolation", preampDb = 2.0)
+
+        try {
+            session.edit {
+                it.copy(
+                    macros = it.macros.copy(bassImpact = 13),
+                    smartLoudness = it.smartLoudness.copy(fixedAmount = 0.2),
+                    dynamicBass = it.dynamicBass.copy(strength = 0.3),
+                )
+            }
+            runtime.previewStudioWorkspaceAsync(session.preview, enabled = true) { draftComplete.countDown() }
+            drainMainLooperUntil(draftComplete)
+            assertEquals(13, activeStudioWorkspace(runtime).macros.bassImpact)
+
+            runtime.saveCustomAsync(custom, enabled = true) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            drainMainLooperUntil(saveComplete)
+
+            assertEquals(DspProfileSaveResult.SAVED, saveResult.get())
+            val persisted = (workspaceRepository.load() as DspWorkspaceReadResult.Loaded).workspace
+            assertEquals(custom, persisted.baseProfileSnapshot)
+            assertEquals(committed.macros, persisted.macros)
+            assertEquals(committed.smartLoudness, persisted.smartLoudness)
+            assertEquals(committed.dynamicBass, persisted.dynamicBass)
+            assertTrue(session.isDirty)
+            assertTrue(session.canUndo)
+            assertEquals(13, session.preview.macros.bassImpact)
+            assertEquals(13, activeStudioWorkspace(runtime).macros.bassImpact)
+
+            runtime.closeForTesting()
+            val recreated = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName, workspaceWriter)
+            try {
+                val restored = (workspaceRepository.load() as DspWorkspaceReadResult.Loaded).workspace
+                assertEquals(custom, recreated.selectedProfile())
+                assertEquals(committed.macros, restored.macros)
+                assertEquals(committed.smartLoudness, restored.smartLoudness)
+                assertEquals(committed.dynamicBass, restored.dynamicBass)
+            } finally {
+                recreated.closeForTesting()
+            }
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun customSavePreservesFutureWorkspaceWithoutSavingProfile() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-custom-save-future-workspace-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_custom_save_future_workspace_test"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        preferences.edit().clear().putBoolean(KEY_DSP_ENABLED, true).putString(KEY_SELECTED_PROFILE_ID, "flat").commit()
+        val workspaceFile = File(filesDirectory, "dsp/workspace/current.json").apply {
+            parentFile!!.mkdirs()
+        }
+        val futureWorkspace = "{\"workspaceSchema\":99,\"sentinel\":\"leave untouched\"}"
+        workspaceFile.writeText(futureWorkspace)
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName)
+        val result = AtomicReference<DspProfileSaveResult?>()
+        val completed = CountDownLatch(1)
+
+        try {
+            runtime.saveCustomAsync(
+                DspProfilePresets.customProfile("custom1").copy(name = "Future guard"),
+                enabled = true,
+            ) {
+                result.set(it)
+                completed.countDown()
+            }
+            drainMainLooperUntil(completed)
+
+            assertEquals(DspProfileSaveResult.FUTURE_SCHEMA_PRESERVED, result.get())
+            assertEquals(futureWorkspace, workspaceFile.readText())
+            assertEquals(DspProfileReadResult.NotFound, DspProfileRepository(filesDirectory).load("custom1"))
+            assertEquals("flat", preferences.getString(KEY_SELECTED_PROFILE_ID, null))
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun customSaveWorkspaceFailureKeepsCommittedFilesAndActiveProfile() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-custom-save-io-failure-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_custom_save_io_failure_test"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        preferences.edit().clear().putBoolean(KEY_DSP_ENABLED, true).putString(KEY_SELECTED_PROFILE_ID, "flat").commit()
+        val flat = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace("flat", flat, macros = DspSoundMacroSettings(enabled = true, bassImpact = 76))
+        val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+        assertEquals(DspWorkspaceSaveResult.SAVED, workspaceRepository.save(committed))
+        val workspaceFile = File(filesDirectory, "dsp/workspace/current.json")
+        val savedBytes = workspaceFile.readBytes()
+        var writes = 0
+        val workspaceWriter: (File, ByteArray) -> Unit = { file, bytes ->
+            writes += 1
+            if (writes == 1) throw java.io.IOException("injected workspace write failure")
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+        }
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName, workspaceWriter)
+        val result = AtomicReference<DspProfileSaveResult?>()
+        val completed = CountDownLatch(1)
+
+        try {
+            runtime.saveCustomAsync(
+                DspProfilePresets.customProfile("custom1").copy(name = "I/O failure"),
+                enabled = true,
+            ) {
+                result.set(it)
+                completed.countDown()
+            }
+            drainMainLooperUntil(completed)
+
+            assertEquals(DspProfileSaveResult.WRITE_FAILED, result.get())
+            assertTrue(writes >= 2)
+            assertTrue(savedBytes.contentEquals(workspaceFile.readBytes()))
+            assertEquals(DspProfileReadResult.NotFound, DspProfileRepository(filesDirectory).load("custom1"))
+            assertEquals(flat, runtime.selectedProfile())
+            assertEquals("flat", preferences.getString(KEY_SELECTED_PROFILE_ID, null))
+        } finally {
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun newerStudioPreviewSupersedesCustomSaveBeforeWorkspaceCommit() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-custom-save-generation-race-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val preferencesName = "dsp_custom_save_generation_race_test"
+        val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        preferences.edit().clear().putBoolean(KEY_DSP_ENABLED, true).putString(KEY_SELECTED_PROFILE_ID, "flat").commit()
+        val flat = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace("flat", flat)
+        val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory)
+        assertEquals(DspWorkspaceSaveResult.SAVED, workspaceRepository.save(committed))
+        val workspaceFile = File(filesDirectory, "dsp/workspace/current.json")
+        val savedBytes = workspaceFile.readBytes()
+        val workspaceWriter: (File, ByteArray) -> Unit = { file, bytes ->
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+        }
+        val runtime = DspProfileRuntime.createForTesting(context, filesDirectory, preferencesName, workspaceWriter)
+        val reachedCommit = CountDownLatch(1)
+        val releaseCommit = CountDownLatch(1)
+        val saveResult = AtomicReference<DspProfileSaveResult?>()
+        val saveComplete = CountDownLatch(1)
+        val previewResult = AtomicReference<Boolean?>()
+        val previewComplete = CountDownLatch(1)
+        val preview = committed.copy(macros = committed.macros.copy(enabled = true, bassImpact = 19))
+
+        try {
+            runtime.beforeCustomWorkspaceCommitForTest = {
+                reachedCommit.countDown()
+                check(releaseCommit.await(5, TimeUnit.SECONDS))
+            }
+            runtime.saveCustomAsync(
+                DspProfilePresets.customProfile("custom1").copy(name = "Superseded"),
+                enabled = true,
+            ) {
+                saveResult.set(it)
+                saveComplete.countDown()
+            }
+            assertTrue(reachedCommit.await(5, TimeUnit.SECONDS))
+
+            runtime.previewStudioWorkspaceAsync(preview, enabled = true) {
+                previewResult.set(it)
+                previewComplete.countDown()
+            }
+            releaseCommit.countDown()
+            drainMainLooperUntil(saveComplete)
+            drainMainLooperUntil(previewComplete)
+
+            assertEquals(DspProfileSaveResult.STALE, saveResult.get())
+            assertEquals(true, previewResult.get())
+            assertTrue(savedBytes.contentEquals(workspaceFile.readBytes()))
+            assertEquals(DspProfileReadResult.NotFound, DspProfileRepository(filesDirectory).load("custom1"))
+            assertEquals(flat, runtime.selectedProfile())
+            assertEquals(19, activeStudioWorkspace(runtime).macros.bassImpact)
+        } finally {
+            releaseCommit.countDown()
+            runtime.beforeCustomWorkspaceCommitForTest = null
+            runtime.closeForTesting()
+            preferences.edit().clear().commit()
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun interruptedCustomSaveCompletesFromJournalBeforeRuntimeRecreation() {
+        val context: Application = RuntimeEnvironment.getApplication()
+        val filesDirectory = File(context.cacheDir, "dsp-custom-save-crash-recovery-test").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val workspaceWriter: (File, ByteArray) -> Unit = { file, bytes ->
+            file.parentFile?.mkdirs()
+            file.writeBytes(bytes)
+        }
+        val profileRepository = DspProfileRepository(filesDirectory)
+        val workspaceRepository = DspStudioWorkspaceRepository(filesDirectory, workspaceWriter)
+        val flat = DspProfilePresets.find("flat")!!
+        val committed = DspStudioWorkspace("flat", flat, macros = DspSoundMacroSettings(enabled = true, bassImpact = 74))
+        assertEquals(DspWorkspaceSaveResult.SAVED, workspaceRepository.save(committed))
+        val custom = DspProfilePresets.customProfile("custom1").copy(name = "Recovered custom")
+        val candidate = committed.copy(profileSourceId = custom.id, baseProfileSnapshot = custom)
+        val firstAttempt = DspCustomProfileWorkspaceSave(filesDirectory, profileRepository, workspaceRepository).apply {
+            afterWorkspaceSavedForTesting = { throw SimulatedProcessInterruption() }
+        }
+
+        try {
+            var interrupted = false
+            try {
+                firstAttempt.save(custom, candidate)
+            } catch (_: SimulatedProcessInterruption) {
+                interrupted = true
+            }
+            assertTrue(interrupted)
+            assertEquals(DspProfileReadResult.NotFound, profileRepository.load("custom1"))
+            assertEquals("custom1", (workspaceRepository.load() as DspWorkspaceReadResult.Loaded).workspace.profileSourceId)
+
+            val recovered = DspCustomProfileWorkspaceSave(filesDirectory, profileRepository, workspaceRepository)
+            assertTrue(recovered.recoverPending())
+
+            assertEquals(custom, (profileRepository.load("custom1") as DspProfileReadResult.Loaded).profile)
+            val restored = (workspaceRepository.load() as DspWorkspaceReadResult.Loaded).workspace
+            assertEquals("custom1", restored.profileSourceId)
+            assertEquals(custom, restored.baseProfileSnapshot)
+            assertEquals(committed.macros, restored.macros)
+            assertFalse(File(filesDirectory, "dsp/workspace/custom-profile-save.json").exists())
+        } finally {
+            filesDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun studioSessionCoordinatorRetainsDraftWhenSettingsScreenIsRecreated() {
         val context: Application = RuntimeEnvironment.getApplication()
         val workspaceFile = File(context.filesDir, "dsp/workspace/current.json")
@@ -1081,6 +1434,8 @@ class DspProfileRuntimeTest {
         const val KEY_DSP_ENABLED = "enabled"
         const val KEY_SELECTED_PROFILE_ID = "selected_profile_id"
     }
+
+    private class SimulatedProcessInterruption : RuntimeException()
 
     private fun createImpulseFile(repository: DspImpulseResponseRepository, id: String): File {
         val file = requireNotNull(repository.impulseFileForTesting(id))

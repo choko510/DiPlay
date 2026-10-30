@@ -158,6 +158,7 @@ internal object CarPlayHostActions {
     const val EXIT_YOUTUBE_SPLIT = "com.shilapi.xcertplay.action.EXIT_YOUTUBE_SPLIT"
     const val ENTER_DSP_SPLIT = "com.shilapi.xcertplay.action.ENTER_DSP_SPLIT"
     const val OPEN_CARPLAY = "com.shilapi.xcertplay.action.OPEN_CARPLAY"
+    const val EXIT_DSP_SPLIT_BACK = "com.shilapi.xcertplay.action.EXIT_DSP_SPLIT_BACK"
     const val USB_DEVICE_ATTACHED = "android.hardware.usb.action.USB_DEVICE_ATTACHED"
     const val AUTO_IPHONE_USB_ATTACHED = "com.shilapi.xcertplay.action.AUTO_IPHONE_USB_ATTACHED"
     private const val INTERNAL_HOST_ACTION = "com.shilapi.xcertplay.action.INTERNAL_HOST_ACTION"
@@ -262,6 +263,10 @@ internal object CarPlayHostActions {
         action == USB_DEVICE_ATTACHED || action == AUTO_IPHONE_USB_ATTACHED ||
             command(action) != CarPlayHostLayoutCommand.NONE || action == OPEN_CARPLAY
 
+    fun requiresDspExitReview(action: String?): Boolean =
+        action == EXIT_DSP_SPLIT_BACK || command(action) == CarPlayHostLayoutCommand.ENTER_YOUTUBE_SPLIT ||
+            command(action) == CarPlayHostLayoutCommand.EXIT_SPLIT_TO_CARPLAY
+
     fun command(action: String?): CarPlayHostLayoutCommand = when (action) {
         ENTER_YOUTUBE_SPLIT -> CarPlayHostLayoutCommand.ENTER_YOUTUBE_SPLIT
         ENTER_DSP_SPLIT -> CarPlayHostLayoutCommand.ENTER_DSP_SPLIT
@@ -279,6 +284,53 @@ internal object CarPlayHostActions {
 
     fun pendingSplitModeAfterLaunch(savedPending: HostLayoutMode?, action: String?): HostLayoutMode? =
         if (action == null || action == AUTO_IPHONE_USB_ATTACHED) savedPending else null
+}
+
+internal enum class DspHostExitResolution {
+    PROCEED,
+    CANCELLED,
+    FAILED,
+}
+
+internal data class DspHostExitRequest(
+    val id: Long,
+    val action: String,
+    val activityGeneration: Long,
+    val sessionGeneration: Long,
+)
+
+internal class DspHostExitRequestQueue {
+    val requestState = mutableStateOf<DspHostExitRequest?>(null)
+    private var nextId = 0L
+
+    fun submit(action: String, activityGeneration: Long, sessionGeneration: Long): DspHostExitRequest {
+        nextId += 1
+        return DspHostExitRequest(nextId, action, activityGeneration, sessionGeneration).also {
+            requestState.value = it
+        }
+    }
+
+    fun resolve(
+        request: DspHostExitRequest,
+        resolution: DspHostExitResolution,
+        activityGeneration: Long,
+        sessionGeneration: Long,
+    ): String? {
+        val current = requestState.value ?: return null
+        if (current.id != request.id) return null
+        requestState.value = null
+        if (resolution != DspHostExitResolution.PROCEED ||
+            current.activityGeneration != activityGeneration ||
+            current.sessionGeneration != sessionGeneration
+        ) {
+            return null
+        }
+        return current.action
+    }
+
+    fun clear() {
+        requestState.value = null
+    }
 }
 
 /**
@@ -438,6 +490,8 @@ class CarPlayHostActivity : ComponentActivity() {
     private var dspPane: FrameLayout? = null
     private var dspComposeView: ComposeView? = null
     private val dspPaneVisible = mutableStateOf(false)
+    private val dspHostExitRequests = DspHostExitRequestQueue()
+    private var dspHostExitActivityGeneration = 0L
     private var pendingSplitStatusView: TextView? = null
     private var youtubeContent: FrameLayout? = null
     private var youtubeStatusView: TextView? = null
@@ -833,9 +887,6 @@ class CarPlayHostActivity : ComponentActivity() {
                 autoUsbLaunchBlocked = true
             }
         }
-        if (CarPlayHostActions.shouldClearRestartSuppression(initialAction)) {
-            CarPlayBackgroundSession.clearRestartSuppression()
-        }
         val launchState = initialRequest?.hostLaunchState
             ?: CarPlayBackgroundSession.snapshot()?.hostLaunchState
         hostLayoutState = HostLayoutState(
@@ -859,7 +910,21 @@ class CarPlayHostActivity : ComponentActivity() {
             val runtime = DspProfileRuntime.get(applicationContext)
             runtime.decodeProfileDraftFromSavedState(savedDraft)?.let(runtime.editorSession::restoreDraft)
         }
-        hostLayoutState = CarPlayHostActions.applyLayoutCommand(hostLayoutState, initialAction)
+        val deferInitialDspExit = hostLayoutState.mode == HostLayoutMode.CARPLAY_DSP_SPLIT &&
+            CarPlayHostActions.requiresDspExitReview(initialAction) &&
+            DspProfileRuntime.peekInstance()?.requiresStudioExitReview() == true
+        if (deferInitialDspExit) {
+            dspHostExitRequests.submit(
+                requireNotNull(initialAction),
+                dspHostExitActivityGeneration,
+                CarPlayBackgroundSession.ownerEpoch(),
+            )
+        } else {
+            if (CarPlayHostActions.shouldClearRestartSuppression(initialAction)) {
+                CarPlayBackgroundSession.clearRestartSuppression()
+            }
+            hostLayoutState = CarPlayHostActions.applyLayoutCommand(hostLayoutState, initialAction)
+        }
         if (
             hostLayoutState.mode != HostLayoutMode.CARPLAY_FULL &&
             (controller != null || CarPlayBackgroundSession.hasSession()) &&
@@ -901,7 +966,11 @@ class CarPlayHostActivity : ComponentActivity() {
                     } else if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
                         if (youtubeBrowser?.goBack() != true) exitYoutubeSplit()
                     } else if (hostLayoutState.mode == HostLayoutMode.CARPLAY_DSP_SPLIT) {
-                        exitDspSplit()
+                        if (dspPaneVisible.value) {
+                            requestHostAction(CarPlayHostActions.EXIT_DSP_SPLIT_BACK)
+                        } else {
+                            exitDspSplit()
+                        }
                     } else {
                         showDiPlayHome()
                     }
@@ -1247,32 +1316,7 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             return
         }
-        if (CarPlayHostActions.shouldClearRestartSuppression(action)) {
-            CarPlayBackgroundSession.clearRestartSuppression()
-        }
-        if (action == CarPlayHostActions.OPEN_CARPLAY) {
-            autoUsbLaunchIdentity = null
-            autoUsbLaunchBlocked = false
-            pendingSplitMode = null
-            returnToCarPlay()
-            maybeStartCarPlay()
-            return
-        }
-        when (CarPlayHostActions.command(action)) {
-            CarPlayHostLayoutCommand.ENTER_YOUTUBE_SPLIT -> {
-                pendingSplitMode = null
-                enterYoutubeSplit()
-            }
-            CarPlayHostLayoutCommand.ENTER_DSP_SPLIT -> {
-                pendingSplitMode = null
-                enterDspSplit()
-            }
-            CarPlayHostLayoutCommand.EXIT_SPLIT_TO_CARPLAY -> {
-                pendingSplitMode = null
-                returnToCarPlay()
-            }
-            CarPlayHostLayoutCommand.NONE -> Unit
-        }
+        requestHostAction(action)
     }
 
     private fun beginOwnedUsbTransportHandoff(
@@ -1427,6 +1471,8 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        dspHostExitActivityGeneration += 1
+        dspHostExitRequests.clear()
         SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
         SplitPerformanceTracer.endAsync("diplay.split.carplay_teardown", carPlayTeardownTraceCookie)
         finishCarPlayRestartTrace()
@@ -1696,6 +1742,8 @@ class CarPlayHostActivity : ComponentActivity() {
                         runtime = runtime,
                         presentation = DspPresentationMode.COMPACT_SPLIT,
                         isVisible = dspPaneVisible.value,
+                        hostExitRequest = dspHostExitRequests.requestState.value,
+                        onHostExitResolved = ::onDspHostExitResolved,
                         onBack = ::exitDspSplit,
                     )
                 }
@@ -1703,6 +1751,64 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         dspComposeView = view
         pane.addView(view, FrameLayout.LayoutParams(-1, -1))
+    }
+
+    private fun requestHostAction(action: String) {
+        if (hostLayoutState.mode == HostLayoutMode.CARPLAY_DSP_SPLIT &&
+            dspPaneVisible.value && CarPlayHostActions.requiresDspExitReview(action) &&
+            DspProfileRuntime.peekInstance()?.requiresStudioExitReview() == true
+        ) {
+            dspHostExitRequests.submit(
+                action,
+                dspHostExitActivityGeneration,
+                CarPlayBackgroundSession.ownerEpoch(),
+            )
+        } else {
+            applyHostAction(action)
+        }
+    }
+
+    private fun onDspHostExitResolved(request: DspHostExitRequest, resolution: DspHostExitResolution) {
+        val action = dspHostExitRequests.resolve(
+            request = request,
+            resolution = resolution,
+            activityGeneration = dspHostExitActivityGeneration,
+            sessionGeneration = CarPlayBackgroundSession.ownerEpoch(),
+        ) ?: return
+        if (!isDestroyed && !isFinishing) applyHostAction(action)
+    }
+
+    private fun applyHostAction(action: String) {
+        if (CarPlayHostActions.shouldClearRestartSuppression(action)) {
+            CarPlayBackgroundSession.clearRestartSuppression()
+        }
+        if (action == CarPlayHostActions.EXIT_DSP_SPLIT_BACK) {
+            exitDspSplit()
+            return
+        }
+        if (action == CarPlayHostActions.OPEN_CARPLAY) {
+            autoUsbLaunchIdentity = null
+            autoUsbLaunchBlocked = false
+            pendingSplitMode = null
+            returnToCarPlay()
+            maybeStartCarPlay()
+            return
+        }
+        when (CarPlayHostActions.command(action)) {
+            CarPlayHostLayoutCommand.ENTER_YOUTUBE_SPLIT -> {
+                pendingSplitMode = null
+                enterYoutubeSplit()
+            }
+            CarPlayHostLayoutCommand.ENTER_DSP_SPLIT -> {
+                pendingSplitMode = null
+                enterDspSplit()
+            }
+            CarPlayHostLayoutCommand.EXIT_SPLIT_TO_CARPLAY -> {
+                pendingSplitMode = null
+                returnToCarPlay()
+            }
+            CarPlayHostLayoutCommand.NONE -> Unit
+        }
     }
 
     private fun createDspMeasurementPane(): FrameLayout = object : FrameLayout(this) {

@@ -4,6 +4,40 @@ import android.media.MediaCodec
 import android.media.MediaFormat
 import android.util.Log
 import java.io.Closeable
+import java.nio.ByteBuffer
+
+internal interface OpusCodec : Closeable {
+    fun configure(format: MediaFormat)
+    fun start()
+    fun dequeueInputBuffer(timeoutUs: Long): Int
+    fun getInputBuffer(index: Int): ByteBuffer?
+    fun queueInputBuffer(index: Int, offset: Int, size: Int, presentationTimeUs: Long, flags: Int)
+    fun dequeueOutputBuffer(info: MediaCodec.BufferInfo, timeoutUs: Long): Int
+    fun getOutputBuffer(index: Int): ByteBuffer?
+    fun releaseOutputBuffer(index: Int, render: Boolean)
+    fun stop()
+}
+
+internal fun interface OpusCodecFactory {
+    fun create(): OpusCodec
+}
+
+private class AndroidOpusCodec(private val delegate: MediaCodec) : OpusCodec {
+    override fun configure(format: MediaFormat) =
+        delegate.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+
+    override fun start() = delegate.start()
+    override fun dequeueInputBuffer(timeoutUs: Long): Int = delegate.dequeueInputBuffer(timeoutUs)
+    override fun getInputBuffer(index: Int): ByteBuffer? = delegate.getInputBuffer(index)
+    override fun queueInputBuffer(index: Int, offset: Int, size: Int, presentationTimeUs: Long, flags: Int) =
+        delegate.queueInputBuffer(index, offset, size, presentationTimeUs, flags)
+    override fun dequeueOutputBuffer(info: MediaCodec.BufferInfo, timeoutUs: Long): Int =
+        delegate.dequeueOutputBuffer(info, timeoutUs)
+    override fun getOutputBuffer(index: Int): ByteBuffer? = delegate.getOutputBuffer(index)
+    override fun releaseOutputBuffer(index: Int, render: Boolean) = delegate.releaseOutputBuffer(index, render)
+    override fun stop() = delegate.stop()
+    override fun close() = delegate.release()
+}
 
 internal data class OpusEncoderConfiguration(
     val sampleRate: Int,
@@ -17,8 +51,13 @@ internal data class OpusEncoderConfiguration(
 }
 
 /** Encodes fixed-duration PCM frames at the negotiated rate into raw Opus access units. */
-internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) : Closeable {
-    private val codec: MediaCodec? = createCodec()
+internal class OpusEncoder(
+    private val configuration: OpusEncoderConfiguration,
+    private val codecFactory: OpusCodecFactory = OpusCodecFactory {
+        AndroidOpusCodec(MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS))
+    },
+) : Closeable {
+    private val codec: OpusCodec? = createCodec()
     private val bufferInfo = MediaCodec.BufferInfo()
     private var presentationTimeUs = 0L
     @Volatile private var closed = false
@@ -26,8 +65,8 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
     private var failureLogged = false
     private var outputPackets = 0
 
-    private fun createCodec(): MediaCodec? {
-        var created: MediaCodec? = null
+    private fun createCodec(): OpusCodec? {
+        var created: OpusCodec? = null
         var started = false
         return try {
             val format = MediaFormat.createAudioFormat(
@@ -38,9 +77,9 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
                 setInteger(MediaFormat.KEY_BIT_RATE, configuration.bitrate)
                 setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxOf(configuration.frameBytes, MAX_INPUT_BYTES))
             }
-            MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_OPUS).also { codec ->
+            codecFactory.create().also { codec ->
                 created = codec
-                codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+                codec.configure(format)
                 codec.start()
                 started = true
                 Log.i(
@@ -52,7 +91,7 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
         } catch (error: Exception) {
             created?.let { codec ->
                 if (started) runCatching { codec.stop() }
-                runCatching { codec.release() }
+                runCatching { codec.close() }
             }
             Log.w(TAG, "Opus microphone encoder unavailable error=${error.javaClass.simpleName}")
             null
@@ -60,6 +99,8 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
     }
 
     val available: Boolean get() = codec != null && !closed
+
+    val hasFailed: Boolean get() = failed
 
     /**
      * Queues one 20 ms PCM frame and returns all Opus access units made available by the codec.
@@ -156,7 +197,7 @@ internal class OpusEncoder(private val configuration: OpusEncoderConfiguration) 
             // Best effort.
         }
         try {
-            codec.release()
+            codec.close()
         } catch (_: Exception) {
             // Best effort.
         }

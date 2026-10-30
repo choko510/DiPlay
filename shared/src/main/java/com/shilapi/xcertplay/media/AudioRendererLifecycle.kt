@@ -46,18 +46,19 @@ internal class AudioRendererLifecycle(
         return started
     }
 
-    fun close(worker: Thread, beforeInterrupt: () -> Unit = {}) {
-        val shouldJoin = synchronized(lock) {
-            if (state == State.CLOSED) {
-                false
-            } else {
-                state = State.CLOSED
-                beforeInterrupt()
-                worker.interrupt()
-                worker.state != Thread.State.NEW
-            }
+    fun requestClose(worker: Thread, beforeInterrupt: () -> Unit = {}): Boolean = synchronized(lock) {
+        if (state == State.CLOSED) {
+            false
+        } else {
+            state = State.CLOSED
+            beforeInterrupt()
+            worker.interrupt()
+            worker.state != Thread.State.NEW
         }
-        if (shouldJoin) joinWorker(worker)
+    }
+
+    fun close(worker: Thread, beforeInterrupt: () -> Unit = {}) {
+        if (requestClose(worker, beforeInterrupt)) joinWorker(worker)
     }
 
     fun stopped() {
@@ -67,10 +68,12 @@ internal class AudioRendererLifecycle(
     fun awaitStopped(worker: Thread, timeoutMillis: Long): Boolean {
         if (worker === Thread.currentThread()) return false
         if (worker.state == Thread.State.NEW) return true
+        if (timeoutMillis <= 0L) return !worker.isAlive
         try {
-            worker.join(timeoutMillis.coerceAtLeast(0L))
+            worker.join(timeoutMillis)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
+            return false
         }
         return !worker.isAlive
     }

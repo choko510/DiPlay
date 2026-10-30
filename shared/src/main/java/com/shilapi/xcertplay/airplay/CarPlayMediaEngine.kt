@@ -39,6 +39,7 @@ interface MediaSink {
     fun onAudioStopped(token: AudioOwnerToken) {}
     fun onMicrophoneStarted(token: AudioOwnerToken, config: MicrophoneConfig): Boolean = false
     fun isMicrophoneActive(token: AudioOwnerToken): Boolean = true
+    fun isMicrophoneFailed(token: AudioOwnerToken): Boolean = false
     fun onMicrophoneStopped(token: AudioOwnerToken) {}
     fun onIapMessage(bytes: ByteArray) {}
 }
@@ -132,6 +133,12 @@ class CarPlayMediaEngine(
         @Volatile var microphoneStarted = false
         @Volatile var microphoneStarting = false
         @Volatile var nextMicrophoneAttemptNs = 0L
+        @Volatile var microphoneStartAttempts = 0
+        @Volatile var microphoneStartRetryExhausted = false
+        @Volatile var microphoneStartRetryExhaustionLogged = false
+        @Volatile var microphoneEncoderFailureRetries = 0
+        @Volatile var microphoneEncoderRetryExhausted = false
+        @Volatile var microphoneEncoderRetryExhaustionLogged = false
         @Volatile var lastFeedbackClockLogNs = 0L
     }
 
@@ -691,12 +698,39 @@ class CarPlayMediaEngine(
     ): MicrophoneConfig? {
         check(Thread.holdsLock(slot.lock))
         if (slot.owner !== state || !state.sinkStarted || state.microphoneStarting) return null
+        if (state.microphoneEncoderRetryExhausted || state.microphoneStartRetryExhausted) return null
         if (state.microphoneStarted) {
             if (sink.isMicrophoneActive(state.token)) return null
+            if (sink.isMicrophoneFailed(state.token)) {
+                if (state.microphoneEncoderFailureRetries >= MAX_MICROPHONE_ENCODER_FAILURE_RETRIES) {
+                    state.microphoneEncoderRetryExhausted = true
+                    if (!state.microphoneEncoderRetryExhaustionLogged) {
+                        state.microphoneEncoderRetryExhaustionLogged = true
+                        Log.w(
+                            TAG,
+                            "Microphone Opus retry limit reached type=${state.token.type}; uplink remains stopped",
+                        )
+                    }
+                    return null
+                }
+                state.microphoneEncoderFailureRetries++
+                state.nextMicrophoneAttemptNs = monotonicTimeNs() + MICROPHONE_RETRY_BACKOFF_NS
+            }
             state.microphoneStarted = false
         }
         val microphone = state.microphoneConfig ?: return null
         if (monotonicTimeNs() < state.nextMicrophoneAttemptNs) return null
+        if (state.microphoneStartAttempts >= MAX_MICROPHONE_START_ATTEMPTS) {
+            state.microphoneStartRetryExhausted = true
+            if (!state.microphoneStartRetryExhaustionLogged) {
+                state.microphoneStartRetryExhaustionLogged = true
+                state.key.session.logDebug(
+                    "Microphone start retry limit reached type=${state.token.type}; uplink remains stopped",
+                )
+            }
+            return null
+        }
+        state.microphoneStartAttempts++
         state.microphoneStarting = true
         return microphone
     }
@@ -920,6 +954,8 @@ class CarPlayMediaEngine(
         const val OPUS_48K = 0x40000000L
         const val FEEDBACK_CLOCK_LOG_INTERVAL_NS = 5_000_000_000L
         const val MICROPHONE_RETRY_BACKOFF_NS = 750_000_000L
+        const val MAX_MICROPHONE_START_ATTEMPTS = 5
+        const val MAX_MICROPHONE_ENCODER_FAILURE_RETRIES = 1
     }
 }
 

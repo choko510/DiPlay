@@ -52,6 +52,15 @@ Treat an uncommitted Studio preview as runtime-owned state. When a new runtime i
 - Retry USB deferred replay only for transient inventory/dispatch failures, with a bounded delay schedule and identity revalidation. Keep stale/disabled devices terminal.
 - Do not change the audio queue's drop-newest policy without same-device A/B evidence; preserve it and leave the audio behavior gate NOT_RUN.
 
+## PR #45 second re-review follow-up — 2026-10-30
+
+- Treat `Thread.join(0)` as an unbounded wait; zero/negative `awaitStopped` budgets are immediate liveness checks and positive sub-millisecond deadlines round up to 1 ms.
+- Register every AudioRenderer/Microphone retirement while holding its per-type owner lock. Retain it until the worker exits and its release path completes.
+- After three fast teardown attempts, keep the Controller/Sink/token behind the session barrier and expose a status tap plus Activity-resume retry. A retry clears the barrier only after Controller, Sink, and VPN/NCM completion are confirmed.
+- Preserve an unavailable USB inventory as transient at the attach Activity and let the existing bounded Dispatcher retry revalidate the event identity. A successfully-read empty inventory is terminal stale-device rejection.
+- Propagate runtime Opus failure into microphone activity state, stop silent capture, and cap both encoder recovery and total mic start attempts for that stream owner.
+- Keep bridge worker references and VPN descriptor ownership until the NCM/TUN close flags and both worker exits are confirmed; block service attachment while teardown remains unresolved.
+
 ## XCertPlay OPT-00–OPT-08 adaptation
 
 Use the application context for `UsbManager` without changing permission or USB lifecycle behavior. Keep one `BufferInfo` per decoder worker; use capped approximate pending-output tracking, FIFO job priority, bounded 8 ms output waits and a 500 ms last-input deadline while preserving input-pump draining. Route MAIN keyframe requests with empty params and ALT with its nonblank SETUP UUID; stale/unknown requests do not fall back to MAIN. Keep changed-Surface recovery disabled by default until target-device evidence exists. Do not batch Host log delivery without real startup/reconnect cost measurements; retain the existing forward Annex B path.

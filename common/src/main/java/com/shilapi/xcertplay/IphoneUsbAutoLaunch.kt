@@ -44,6 +44,12 @@ internal sealed interface IphoneUsbInventoryRead {
     data object Unavailable : IphoneUsbInventoryRead
 }
 
+internal sealed interface IphoneUsbAutoAttachEntryDecision {
+    data class Dispatch(val identity: UsbAttachDeviceIdentity) : IphoneUsbAutoAttachEntryDecision
+    data class Retry(val identity: UsbAttachDeviceIdentity) : IphoneUsbAutoAttachEntryDecision
+    data class Reject(val reason: IphoneUsbAutoAttachRejection) : IphoneUsbAutoAttachEntryDecision
+}
+
 internal object IphoneUsbAutoLaunchPolicy {
     const val APPLE_VENDOR_ID = 0x05ac
 
@@ -83,6 +89,36 @@ internal object IphoneUsbAutoLaunchPolicy {
             }
         }
         return IphoneUsbAutoAttachCandidate(device.toUsbAttachDeviceIdentity(), hasCarPlayConfiguration)
+    }
+}
+
+internal fun evaluateIphoneUsbAutoAttachEntry(
+    action: String?,
+    enabled: Boolean,
+    eventDevice: UsbAttachDeviceIdentity?,
+    inventoryAvailable: Boolean,
+    attachedDevices: Collection<IphoneUsbAutoAttachCandidate>,
+): IphoneUsbAutoAttachEntryDecision {
+    if (action != UsbManager.ACTION_USB_DEVICE_ATTACHED) {
+        return IphoneUsbAutoAttachEntryDecision.Reject(IphoneUsbAutoAttachRejection.WRONG_ACTION)
+    }
+    if (!enabled) return IphoneUsbAutoAttachEntryDecision.Reject(IphoneUsbAutoAttachRejection.DISABLED)
+    val supplied = eventDevice
+        ?: return IphoneUsbAutoAttachEntryDecision.Reject(IphoneUsbAutoAttachRejection.MISSING_DEVICE)
+    if (supplied.vendorId != IphoneUsbAutoLaunchPolicy.APPLE_VENDOR_ID) {
+        return IphoneUsbAutoAttachEntryDecision.Reject(IphoneUsbAutoAttachRejection.NOT_APPLE)
+    }
+    if (!inventoryAvailable) return IphoneUsbAutoAttachEntryDecision.Retry(supplied)
+    return when (
+        val validation = IphoneUsbAutoLaunchPolicy.evaluate(
+            action = action,
+            enabled = true,
+            eventDevice = supplied,
+            attachedDevices = attachedDevices,
+        )
+    ) {
+        is IphoneUsbAutoAttachValidation.Accepted -> IphoneUsbAutoAttachEntryDecision.Dispatch(validation.identity)
+        is IphoneUsbAutoAttachValidation.Rejected -> IphoneUsbAutoAttachEntryDecision.Reject(validation.reason)
     }
 }
 
@@ -647,28 +683,36 @@ class IphoneUsbAutoAttachActivity : Activity() {
         super.onCreate(savedInstanceState)
         val manager = getSystemService(Context.USB_SERVICE) as? UsbManager
         val eventDevice = intent.usbDeviceExtra()
-        val candidates = manager?.let(IphoneUsbAutoLaunchSettings::attachedDevices)
+        val inventory = manager?.let(IphoneUsbAutoLaunchSettings::readAttachedDevices)
+            ?: IphoneUsbInventoryRead.Unavailable
+        val candidates = (inventory as? IphoneUsbInventoryRead.Available)
+            ?.devices
             ?.map(IphoneUsbAutoLaunchPolicy::candidate)
             .orEmpty()
-        val validation = IphoneUsbAutoLaunchPolicy.evaluate(
+        val decision = evaluateIphoneUsbAutoAttachEntry(
             action = intent.action,
             enabled = IphoneUsbAutoLaunchSettings.isOperationallyEnabled(this),
             eventDevice = eventDevice?.toUsbAttachDeviceIdentity(),
+            inventoryAvailable = inventory is IphoneUsbInventoryRead.Available,
             attachedDevices = candidates,
         )
-        when (validation) {
-            is IphoneUsbAutoAttachValidation.Accepted -> {
-                if (IphoneUsbAutoLaunchSettings.isOperationallyEnabled(this)) {
-                    IphoneUsbAutoLaunchDispatcher.dispatch(
-                        this,
-                        validation.identity,
-                        IphoneUsbAutoLaunchSource.ATTACH,
-                    )
-                }
+        when (decision) {
+            is IphoneUsbAutoAttachEntryDecision.Dispatch -> IphoneUsbAutoLaunchDispatcher.dispatch(
+                this,
+                decision.identity,
+                IphoneUsbAutoLaunchSource.ATTACH,
+            )
+            is IphoneUsbAutoAttachEntryDecision.Retry -> {
+                Log.w(TAG, "event=APPLE_USB_AUTO_ATTACH source=attach result=inventory_unavailable_deferred")
+                IphoneUsbAutoLaunchDispatcher.dispatch(
+                    this,
+                    decision.identity,
+                    IphoneUsbAutoLaunchSource.ATTACH,
+                )
             }
-            is IphoneUsbAutoAttachValidation.Rejected -> Log.i(
+            is IphoneUsbAutoAttachEntryDecision.Reject -> Log.i(
                 TAG,
-                "event=APPLE_USB_AUTO_ATTACH source=attach result=${validation.reason.name.lowercase()}",
+                "event=APPLE_USB_AUTO_ATTACH source=attach result=${decision.reason.name.lowercase()}",
             )
         }
         finish()

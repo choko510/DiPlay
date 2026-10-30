@@ -18,10 +18,13 @@ import java.util.concurrent.CountDownLatch
 
 internal interface MicrophoneUplinkController : Closeable {
     val isActive: Boolean
+    val hasFailed: Boolean get() = false
 
     fun start(): Boolean
 
     fun activate()
+
+    fun requestClose() = close()
 
     fun awaitStopped(timeoutMillis: Long): Boolean = true
 }
@@ -42,15 +45,20 @@ internal class MicrophoneUplink(
     private val running = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val firstPacketLogged = AtomicBoolean(false)
+    private val opusFailureLogged = AtomicBoolean(false)
     private val activation = CountDownLatch(1)
     @Volatile private var activated = false
+    @Volatile private var encoderFailed = false
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var opusEncoder: OpusEncoder? = null
-    private var thread: Thread? = null
+    @Volatile private var thread: Thread? = null
 
     override val isActive: Boolean
-        get() = running.get() && activated && !closed.get()
+        get() = running.get() && activated && !closed.get() && !hasFailed
+
+    override val hasFailed: Boolean
+        get() = encoderFailed || opusEncoder?.hasFailed == true
 
     @Synchronized
     override fun start(): Boolean {
@@ -208,7 +216,17 @@ internal class MicrophoneUplink(
 
     private fun sendFrame(socket: DatagramSocket, counters: MicrophoneCounters, frame: ByteArray) {
         val bodies = if (config.codec == AudioCodecKind.OPUS) {
-            opusEncoder?.encode(frame).orEmpty()
+            val encoder = opusEncoder
+            if (encoder == null) {
+                stopAfterEncoderFailure("encoder unavailable")
+                return
+            }
+            val encoded = encoder.encode(frame)
+            if (encoder.hasFailed) {
+                stopAfterEncoderFailure("codec failed")
+                return
+            }
+            encoded
         } else {
             listOf(MicrophonePacketizer.toWirePcm(frame))
         }
@@ -219,6 +237,15 @@ internal class MicrophoneUplink(
                 body = body,
                 samples = config.samplesPerPacket,
             )
+        }
+    }
+
+    private fun stopAfterEncoderFailure(reason: String) {
+        encoderFailed = true
+        running.set(false)
+        activated = false
+        if (opusFailureLogged.compareAndSet(false, true)) {
+            Log.e(TAG, "microphone Opus capture stopped reason=$reason type=${config.audioType}")
         }
     }
 
@@ -251,28 +278,9 @@ internal class MicrophoneUplink(
     }
 
     override fun close() {
-        val worker = synchronized(this) {
-            activation.countDown()
-            closed.set(true)
-            running.set(false)
-            val currentWorker = thread
-            if (currentWorker == null) {
-                release()
-            } else {
-                try {
-                    recorder?.stop()
-                } catch (_: Exception) {
-                    // Best effort; the capture worker releases its resources when it exits.
-                }
-                try {
-                    socket?.close()
-                } catch (_: Exception) {
-                    // Best effort.
-                }
-            }
-            currentWorker
-        }
-        if (worker !== null && worker !== Thread.currentThread()) {
+        requestClose()
+        val worker = thread
+        if (worker != null && worker !== Thread.currentThread()) {
             try {
                 worker.join(CLOSE_JOIN_MILLIS)
             } catch (_: InterruptedException) {
@@ -283,13 +291,39 @@ internal class MicrophoneUplink(
         }
     }
 
+    @Synchronized
+    override fun requestClose() {
+        activation.countDown()
+        closed.set(true)
+        running.set(false)
+        val currentWorker = thread
+        if (currentWorker == null) {
+            release()
+        } else {
+            try {
+                recorder?.stop()
+            } catch (_: Exception) {
+                // Best effort; the capture worker releases its resources when it exits.
+            }
+            try {
+                socket?.close()
+            } catch (_: Exception) {
+                // Best effort.
+            }
+            currentWorker.interrupt()
+        }
+    }
+
     override fun awaitStopped(timeoutMillis: Long): Boolean {
         val worker = thread ?: return true
         if (worker === Thread.currentThread()) return false
+        if (worker.state == Thread.State.NEW) return true
+        if (timeoutMillis <= 0L) return !worker.isAlive
         try {
-            worker.join(timeoutMillis.coerceAtLeast(0L))
+            worker.join(timeoutMillis)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
+            return false
         }
         return !worker.isAlive
     }

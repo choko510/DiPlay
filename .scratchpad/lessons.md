@@ -686,3 +686,7 @@ For deferred USB launch work, distinguish a replay of the same queued request fr
 For teardown, a stop request is not a completion signal: keep resource ownership until the worker exits and its codec/surface release reports safe. A callback exception must not bypass sibling cleanup, and bounded retries must leave the session barrier intact when release cannot be confirmed.
 
 For async editor imports, compare the operation's captured draft revision before applying results; profile identity alone misses same-profile edits. For high-rate HID input, use bounded snapshot queues that merge only MOVE updates and release held slots on overflow.
+
+Treat `Thread.join(0)` as an infinite wait. Deadline APIs must return immediately for zero/negative budgets and round any positive remainder up so sub-millisecond time never becomes an unbounded join.
+
+Move workers into retirement tracking under the same owner lock that removes them from the active map. Keep teardown state process-local and make retries explicit after the short attempt budget; status and re-entry must not bypass the barrier.

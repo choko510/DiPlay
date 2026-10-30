@@ -1,5 +1,7 @@
 # PR #45 / PR #52 Pre-merge DSP Fix Report
 
+**Updated:** 2026-10-31 (JST)
+
 **PR:** [#45](https://github.com/choko510/DiPlay/pull/45) (`codex/step4-pr-00-test-baseline`)
 **Fixed base:** `main@95ba398f95ee104527812cd2b095977d71c51f98`
 **Implementation base:** `c6077a1509b662f6754b83ff0bc482ace2612afb` (the PR #52 integration commit)
@@ -39,7 +41,7 @@ For exit requests, a clean and idle Studio leaves immediately. A dirty Studio of
 | `:mobile:lintDebug :automotive:lintDebug` | `PASS`. |
 | `:mobile:assembleDebug :automotive:assembleDebug` | `PASS`. Existing NDK metadata/stripping warnings remain. |
 | P2-01 Compose interaction tests | `NOT_RUN` — instrumentation setup fails before the test methods because of the API 36.1/Espresso `InputManager.getInstance()` incompatibility. |
-| GitHub Actions for implementation HEAD | Pending push. Record the run URL and skipped jobs here after the Draft run completes. |
+| GitHub Actions | [`run #599`](https://github.com/choko510/DiPlay/actions/runs/41076939717) completed successfully on HEAD `91681cc931f1bbdfbb8ade7f5c6135c96b8c5746`. `changes`, EX-08/public-tree checks, Common Draft unit tests, `quick-baseline`, and Draft scope passed; the Shared unit task was `FROM-CACHE`. Host native, ASan/UBSan, JNI library build, lint/app builds, JNI/R8, `host-baseline`, and API 35 instrumentation were skipped by Draft scope. Test report artifact `12988441222` was uploaded. |
 | TS10/K706 + iPhone hardware acceptance and release-signed update/rollback | `NOT_RUN` / `BLOCKED_ENV`; no target device or authorized release signing material was available. |
 | Independent post-fix review | `NOT_RUN` per the existing direction. |
 

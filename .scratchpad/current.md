@@ -1,4 +1,4 @@
-# Current Status — PR #45 with PR #52 DSP Studio integration (2026-10-30)
+# Current Status — PR #45 with PR #52 DSP Studio integration (2026-10-31)
 
 ## Latest source and validation
 
@@ -19,5 +19,5 @@
 - Latest implementation base was PR #45 HEAD `c6077a1509b662f6754b83ff0bc482ace2612afb`; it contains the integrated PR #52 source tree. Code commit `4b2a4a4b41992bf5183da3a232e949e369bf49b8` implements P1-01, P1-02, and P2-01 without changing the fixed main base.
 - P1-01 Back routing, Activity visibility cycles, P1-02 custom Workspace/profile persistence, Draft isolation, FutureSchema/I/O/crash recovery and generation ordering, and P2-01 latest host exit requests/Controller identity have regression coverage.
 - Final local Common unit suite passes 374/374. P1 Activity instrumentation passes 2/2 on a temporary API 36.1 x86_64 AVD. AndroidTest Kotlin compilation, mobile/automotive Debug builds, and both app Debug lint tasks pass.
-- P2 Compose dialog interaction tests compile but local execution stops before test methods because the installed API 36.1 Espresso version reflects the missing `InputManager.getInstance()` method. No API 35 system image is installed locally. GitHub run for the new implementation HEAD is pending push.
+- P2 Compose dialog interaction tests compile but local execution stops before test methods because the installed API 36.1 Espresso version reflects the missing `InputManager.getInstance()` method. No API 35 system image is installed locally. GitHub Actions [run #599](https://github.com/choko510/DiPlay/actions/runs/41076939717) passed on head `91681cc9`: `changes`, EX-08/public-tree, Common Draft unit tests, quick-baseline, and Draft scope passed; Shared unit tests were `FROM-CACHE`; native/sanitizer/build/lint/JNI/R8/host-baseline/API 35 instrumentation were skipped. Test report artifact `12988441222` was uploaded.
 - TS10/K706/iPhone, signed update/rollback, and independent post-fix review remain `NOT_RUN` per the existing evidence gates and user direction. Keep PR #45 Draft and unmerged.

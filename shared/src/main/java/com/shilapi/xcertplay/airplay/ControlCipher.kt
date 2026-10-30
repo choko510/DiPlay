@@ -10,8 +10,60 @@ package com.shilapi.xcertplay.airplay
 class ControlCipher(private val readKey: ByteArray, private val writeKey: ByteArray) {
     data class Decrypted(val data: ByteArray, val rest: ByteArray)
 
+    class StreamDecoder internal constructor(private val cipher: ControlCipher) {
+        private val pending = ByteArray(MAX_FRAME_BYTES)
+        private var pendingSize = 0
+        private var expectedFrameBytes = 0
+
+        fun decrypt(bytes: ByteArray, offset: Int = 0, length: Int = bytes.size): ByteArray {
+            require(offset >= 0 && length >= 0 && offset <= bytes.size - length)
+            val output = ArrayList<ByteArray>()
+            var inputOffset = offset
+            val inputEnd = offset + length
+            while (inputOffset < inputEnd) {
+                if (pendingSize == HEADER_SIZE && expectedFrameBytes == 0) {
+                    val payloadBytes = readU16Le(pending, 0)
+                    expectedFrameBytes = HEADER_SIZE + payloadBytes + TAG_SIZE
+                }
+                val targetSize = when {
+                    pendingSize < HEADER_SIZE -> HEADER_SIZE
+                    expectedFrameBytes > 0 -> expectedFrameBytes
+                    else -> MAX_FRAME_BYTES
+                }
+                val copyBytes = minOf(targetSize - pendingSize, inputEnd - inputOffset)
+                bytes.copyInto(pending, pendingSize, inputOffset, inputOffset + copyBytes)
+                pendingSize += copyBytes
+                inputOffset += copyBytes
+
+                if (pendingSize == HEADER_SIZE && expectedFrameBytes == 0) {
+                    val payloadBytes = readU16Le(pending, 0)
+                    expectedFrameBytes = HEADER_SIZE + payloadBytes + TAG_SIZE
+                }
+                if (expectedFrameBytes > 0 && pendingSize == expectedFrameBytes) {
+                    val decrypted = cipher.decrypt(pending.copyOf(expectedFrameBytes))
+                    check(decrypted.rest.isEmpty()) { "Incomplete AirPlay control frame" }
+                    if (decrypted.data.isNotEmpty()) output.add(decrypted.data)
+                    pendingSize = 0
+                    expectedFrameBytes = 0
+                }
+            }
+            return concatBytes(*output.toTypedArray())
+        }
+
+        companion object {
+            private const val HEADER_SIZE = 2
+            private const val TAG_SIZE = 16
+            private const val MAX_FRAME_BYTES = HEADER_SIZE + 0xffff + TAG_SIZE
+
+            private fun readU16Le(source: ByteArray, offset: Int): Int =
+                (source[offset].toInt() and 0xff) or ((source[offset + 1].toInt() and 0xff) shl 8)
+        }
+    }
+
     private var readCounter = 0L
     private var writeCounter = 0L
+
+    fun newStreamDecoder(): StreamDecoder = StreamDecoder(this)
 
     fun decrypt(buffer: ByteArray): Decrypted {
         val output = ArrayList<ByteArray>()

@@ -1,5 +1,69 @@
 # Lessons
 
+- After a ramp is canceled, its previous target dB is not the effective gain. Regress same-target, lower-target, and higher-target Studio HOT updates after cancellation, including renderer rebind, module gating, PCM continuity, and final ACK.
+- A same-head API 35 p99 retry can pass after a wall-clock tail failure while the measured thread CPU p99 remains low. Preserve both samples and do not infer why the first wall-time tail occurred.
+- A protective HOT ramp can be in flight while the queue entry remains pending and there is no active ACK token. Test owner, PCM-format epoch, and generation retirement at block boundaries and verify stale work neither continues nor receives ACK/DEFER.
+
+- Do not infer audio restore success from a missing renderer status. Capture the owner when the Cancel restore starts; if that owned status disappears, wait for a current/replacement owner to confirm the committed generation or fail on timeout.
+- For a multi-sample gain ramp, keep a double-precision accumulator and snap to the validated target on the final frame. Repeated float additions can leave a long ramp slightly short of its target and make the completion boundary larger than the preceding sample steps.
+
+- A no-progress deadline test should advance an injected monotonic clock rather than depend on short real-time sleeps. Under the parallel suite, a 35 ms deadline test reached 53 ms before the next 100-byte chunk; the virtual clock keeps the “progress resets the deadline” assertion deterministic without changing production timing.
+
+- REM-10 evidence audit: assert that execution commands are copy-paste runnable; put task expansion in result/notes, and keep unrelated acceptance predicates open when a mapped test checks only neighboring state or resources.
+
+- A test that constructs a new runtime in the same JVM can verify persistence restoration and preview discard, but it does not prove Android process-death or Activity lifecycle behavior. Keep those acceptance rows partial until an OS-level test exists.
+
+- Compact navigation can expose five destinations in a narrow Split pane with a horizontally scrollable tab row; Compose UI tests should call `performScrollTo()` before clicking off-screen tabs. Compile Android-test Kotlin separately from connected instrumentation, since compilation alone is not interaction evidence.
+
+- Native gain-refund coverage must test both entry paths: an already-settled graph can start the ramp at command acceptance, while an unsettled graph must wait until stage ramps finish. Include exact endpoint assertions because repeated float increments can finish slightly below target. For restore ACKs, capture the owner before async work and test missing/replaced owner tokens independently from the explicit no-renderer case.
+
+For graph-level detector tests, vary upstream processing while feeding identical PCM, then compare detector state and audio output separately. The detector should remain stable even when the processed output changes.
+## Video review fixes — 2026-10-28
+
+- A codec-config or empty output is not evidence that an input picture drained; preserve the bounded output hint until a non-config picture arrives, then reset it on EOS.
+- Snapshot counters and the bounded latency sample under a short lock, then sort, format and log outside it. A blocked logger regression can prove producer progress without making a quantitative performance claim.
+- `releaseOutputBuffer(..., true)` returning marks a codec Surface-release request completion. It does not establish compositor/panel display time; publish correlation denominators and keep target-device values separate.
+- A permanent DSP retirement error must prevent later graph preparation in the same renderer. Preserve the previous latency duration when converting its frame count to a new sample rate.
+
+## Correlate decoder input and codec Surface release without per-frame allocations
+
+Correlate the MediaCodec output PTS with the original frame receive timestamp using bounded primitive arrays. The timer stops after `releaseOutputBuffer(..., true)` returns; it does not measure compositor or panel presentation. Report unmatched outputs and overwritten input slots as numerator/denominator counts. Use a bounded percentile window and keep thread/process allocation and PSS scopes explicit; emulator and synthetic output do not establish head-unit behavior.
+
+## Topic guide
+
+These cumulative lessons include general rules followed by individual incident findings. Check applicability to the current code.
+
+- For DSP Studio persistence, share the existing v7 profile codec for the embedded base snapshot instead of maintaining a second serializer. Keep editable preview state in memory until an explicit workspace save succeeds; preset application should map only the owning module's fields.
+
+- **USB / NCM:** [readiness proof](#require-bidirectional-proof-before-ncm-readiness), [request timeout](#treat-usb-request-wait-timeouts-as-pending-operations), [NDP](#separate-ndp-accounting-from-startup-retries).
+- **DSP / audio:** [DSP eligibility](#do-not-infer-dsp-eligibility-from-android-usage), [buffer validation](#validate-audio-buffers-with-frames-channels-and-encoding-together), [live DSP](#exercise-live-dsp-through-the-production-renderer-boundary).
+- **AirPlay / Split:** [IME resize](#keep-ime-resize-separate-from-negotiated-carplay-size), [phone identity](#revalidate-profile-identity-across-a-carplay-controller-restart).
+- **CI / release security:** [JNI symbol retention](#verify-jni-symbol-retention-from-the-optimized-mapping), [MFi identity](#bundle-local-mfi-identity-only-through-an-explicit-input), [APK signature](#verify-the-apk-signature-schemes-explicitly), [USB auto-launch](#verify-usb-device-identity-at-each-auto-launch-boundary).
+
+## General CI / review lessons
+
+For faster pull request feedback, keep public-tree and generated-ledger checks on every update, run a small native/unit-test lane on draft code, and compare it against a dedicated quick baseline. Keep lint, package builds, JNI verification, and emulator instrumentation in the full review-ready lane. Separate quick, host, and instrumentation baselines so skipped work never counts as a full pass; default unknown paths, missing baselines, and non-PR events to full verification.
+
+For long-lived draft PRs, run unit tests and host native checks on each code update, then defer the expensive lint/build/JNI/emulator matrix until `ready_for_review`. Explicitly include that pull-request activity type when restricting event types, and cancel superseded runs so stale commits do not hold the latest feedback behind them.
+
+Validate transport-specific settings only for the active transport. A wired runtime can carry saved wireless preferences, but must not require unused hotspot credentials; retain the wireless validation and test both configurations.
+
+When a repository tool only updates a reviewed inventory and its dedicated validator runs on every PR, an exact path allowlist can keep those review iterations off the Android build path. Do not generalize that exemption to other `scripts/` changes.
+
+For generated audit files, make CI compare the checked-in output with the rows rebuilt from review overrides; source-catalog validation alone does not catch a stale generated ledger.
+
+When using `gh api` query parameters with `-f`, pass `--method GET` explicitly; otherwise the CLI switches to POST. Keep this explicit for read-only pagination and filter requests so an HTTP 404 cannot silently route every PR through expensive fallback checks.
+
+The Gradle setup action defaults non-default branches to read-only caching. Inspect its run summary; when repeated same-PR builds need task outputs, allow writes only to that PR's merge-ref cache and keep fork PRs read-only.
+
+When measuring a CI scheduling change, compare runs with similar task-cache hit counts. A warm-cache pass can make a build much faster while obscuring whether parallel scheduling helped.
+
+For optional physical-control patches, verify the fixed-main key-event owner and every call site before assessing only the mapping logic. Unit tests for key codes cannot prove OEM delivery, vehicle pass-through, or coexistence with TV remotes and Android MediaSession.
+
+Permission-refusal text should derive from the exact required-permission set for the active transport and refresh after the user returns from Settings. Test partial grants and the transition back to a neutral stage; do not infer a new runtime permission from copy-only guidance.
+
+An upstream retry-state type is not evidence that fixed main needs the same state machine. Reproduce a terminal-stage overwrite on the active baseline before importing retry flags, budgets, or typed failure owners.
+
 ## Parallelize slow emulator checks in CI
 
 When connected Android tests run after unit tests, lint, and app builds in the same job, their setup and execution extend the PR's critical path. Run the emulator job independently, keep SDK image installation with that job, and use unique artifact names; compare whole-workflow elapsed time from Action logs to verify the gain.
@@ -265,6 +329,8 @@ For diagnostic classification, resolve ICMPv6 through bounded extension-header p
 
 Use the external `DIPLAY_AUTH_ASSETS_DIR` input for a local-only debug build, and gate packaging with an exact two-file allowlist. Generated APKs may contain those user-requested assets; keep them out of source, commits, and logs.
 
+If the input arrives inside an APK, verify that each allowlisted ZIP entry occurs exactly once before extracting it. After packaging, verify the asset entries and v1/v2 signatures in every ABI APK, then remove the temporary extracted copies.
+
 ## Verify the APK signature schemes explicitly
 
 Use `apksigner verify --verbose --min-sdk-version 23` when confirming v1 compatibility on an APK whose manifest minSdk is 28 or higher; the default report can show v1 as not applicable while v2 remains valid. Check the exact final APK file rather than assuming Gradle's successful package task alone resolved an installer error.
@@ -278,3 +344,353 @@ The NCM readiness phase can be advanced by an AirPlay control milestone, so `NCM
 The 2026-10-09 trace recorded both `NETWORK_CONNECTION` connected and disconnected values while successful screen startup also occurred during intervals with no new status packet. Poll/drain the endpoint when present, but do not wait for a connected notification before NCM or AirPlay startup. In the same report, request queue/wait errors coincided with physical USB disconnects; only add request-level recovery if the error reproduces while the device remains present.
 
 When Gecko reports paint-status reset during `setActive(false)`, retain it through profile-resolution timeout and warm reopen. Associate it with a suspension generation instead of clearing a boolean on measurement end; a later suspension must observe its own reset before primary paint is accepted.
+
+For NCM integration tests, pure `Ntb16Codec` tests do not exercise `NcmUsbBridge.recv()` buffering or `requestWait` ownership. Use test-only Robolectric shadows for the real connection/endpoint/request boundary and a scripted completion dispatcher; label known-defect characterization so its green result is not mistaken for functional acceptance.
+
+For packet diagnostics, have a pure parser return a packed classification value and keep address/port validation states distinct from “not checked.” Exercise raw-IP and Ethernet entry points with boundary cases plus a fixed-seed arbitrary-buffer loop; use a recorder test for concurrent increments, generation fencing, saturation and sealing. Keep TUN I/O outcome tests on the real bridge with injected streams so Robolectric socket descriptors do not determine the test result.
+
+For NCM receive framing, resolve optional short-pad length from the actual Bulk IN endpoint packet size, deliver a complete block without waiting for a pad byte, and preserve the next NTH16 signature. Validate candidate NTH/NDP structures before resync and cap discarded garbage so corrupt input cannot trigger an unbounded scan.
+
+For delayed Host recovery, track restart, connection, background-owner, and loss epochs separately. A recovered session consumes only its matching pending ticket; a later loss gets a new ticket, while ownership transfer, active sessions, resize/menu, shutdown, and controller-managed recovery fence old work.
+
+For AirPlay microphone setup, distinguish advertised input capability from an actual MainAudio capture request. Treat explicit `input=false` as authoritative, validate the peer port without narrowing overflow, and keep capture mono to match the advertised input formats; leave normal downlink setup intact when capture is declined.
+
+For local CarPlay pane resizing, resize the view that owns the SurfaceTexture and its gesture overlay together while preserving the remote aspect ratio. Child-local touch coordinates then match the rendered area, letterbox taps never enter CarPlay, and the background Controller keeps its original negotiated dimensions.
+
+For multi-area `/info` changes, keep the legacy single-area serializer as the default and model each area's view/safe geometry against the full display coordinate space. Scale every area's insets with the display canvas, preserve display UUID/physical dimensions, and keep dynamic switch commands separate from declaration support.
+
+For DSP graph extensions, keep the disabled MEDIA path as a byte-for-byte PCM16 bypass with zero added latency. Prepare scratch buffers, delay lines, filters and interpolation tables before audio processing; the render thread should only operate on preallocated state.
+
+For a stereo seat-alignment delay, the selected near channel receives the distance-derived delay while the far channel remains at zero; report the maximum relative delay for the playback clock and sum it with downstream graph latency. Defer replacing an active delay ring until a track-generation boundary so the new buffer does not start without history.
+
+For USBMUX reads, a timed `requestWait` can leave the same `UsbRequest` pending. Reusing that owner for the next wait preserves a late completion without the cancel/drain race; keep cancellation in the close/failure path and test the lifecycle state separately from NCM.
+
+For two-band M/S processing, use matched cascaded Butterworth LP4/HP4 filters so the bands recombine with flat magnitude. Apply the same crossover state to Mid and Side, treat Mid as all center-panned content, and include the maximum positive band gain plus width in Auto Headroom; skip the old Width/Mono Bass stage only while the new module is active.
+
+For imported cabin correction, persist only a digest and measurement summary with the user-approved PEQ cuts, not the raw measurement file. Combine enabled cabin cuts with active PEQ bands before preparing the existing coefficient array, enforce the shared 15-band limit, and classify missing or poor-quality measurements as `CALIBRATION_UNAVAILABLE`.
+
+For 2× harmonic processing, zero-stuff each input into a fixed even-sized phase ring, use matched normalized half-band FIRs around the waveshaper, and keep a separate preallocated state per channel/branch. The two linear-phase FIR group delays sum to `(tapCount - 1) / 2` input frames; use that same delay for the dry path and add it to the playback-clock latency.
+
+For long STEP4 audits, group related upstream commits by subsystem and update their review overrides, generated CSV, and count summaries together. Keep unresolved physical or protocol requirements explicit instead of reopening the same implementation or CI loop for each inventory row.
+
+For a multi-area upstream commit, review the actual patch and fixed-main gate separately from its individual component candidates. It can be rejected as an aggregate without treating a useful constituent patch as disproven; keep that constituent's own row `NEED_EVIDENCE` until its target-specific gate passes.
+
+For privacy review, check both the formatter and redactor behavior. A test showing `redact(log) == log` confirms the device identifiers or paths remain in the emitted diagnostic; do not infer that calling the redactor makes those fields safe.
+
+For EX-08 content rows, compare the archived patch with fixed-main locale registration, resource keys, and runtime support. A translation or release note does not prove the described feature; finalize clear scope mismatches while keeping generic device claims pending without target evidence.
+
+For a fixed upstream range containing merges, classify every merge from its parent topology and first-parent patch, then link source-integration duplicates to source indexes. A complete SHA inventory is not a semantic review unless every row also records the fixed-main owner, concrete disposition reason, and the evidence needed for any pending decision.
+
+When an upstream runtime patch also edits repository configuration, inspect dependency-source changes as part of the aggregate. A later commit that removes an unapproved mirror can support rejecting the earlier aggregate without claiming the separate runtime behavior is disproven.
+
+For a commit that combines USB re-enumeration and audio PCM processing, classify the actual patch as a cross-gate aggregate. Preserve each narrow candidate's separate device, audio-quality, and rollback evidence requirements.
+
+Before porting an upstream UI fix, verify that the modified view builder has a call site in fixed main. An upstream test for an unreachable activity panel is not evidence that the active settings screen needs the same fix.
+
+When a BYD-only adapter contributes a generic helper, review the actual call chain before classifying the helper as independently portable. If the only producer/consumer is an OEM ADB or cluster path that fixed main removed, the aggregate remains `SKIP_OEM`.
+
+For BYD cluster/HUD source rows, inspect the adapter's actual sink (ADB autoservice, SOME/IP HUD, or BYD instrument device). A generic state parser under a `Byd*` consumer does not establish support for generic CarPlay, MEDIA DSP, microphone, or local Split features.
+
+For DiLink projection changes, identify the vendor command/service, display lifetime, and projection surface from the source patch. ADB success or UI tests do not transfer that OEM-specific display contract to the fork's generic Android pane or iPhone ViewArea path.
+
+Documentation and test-only commits can receive a final `SKIP_OEM` decision when they solely describe or test a removed BYD integration; they do not need to remain heuristic-only once the product path and fixed-main exclusion are confirmed.
+
+Classify user-facing video claims against fixed-main entry points and the PR-07 acceptance gate. If only upstream documentation changes, keep the unsupported playback claim out until the decoder/surface path is implemented and tested.
+
+When release-note commits collect several upstream fixes, inspect every claim against fixed-main code and its target gate. A pending acceptance note or an upstream PR link does not establish that the fork implements the behavior.
+
+Link-only edits to upstream release notes still change user-facing claims. Validate the referenced behavior and release scope before carrying the link into the fork; a source PR URL is not parity evidence.
+
+For upstream release-note bundles, the changed path and linked PR list can cover many unrelated features; inspect the claims, then keep device, consent, and release gates separate rather than treating the notes as an implementation batch.
+
+Source-repository safety reviews or build docs can contain imperative wording, but that does not make them instructions for the fork. Record only conclusions supported by the pinned tree and the user's requested scope.
+
+For wireless source audits, preserve the target model, Android API, permission path, and radio behavior that produced the evidence. A successful test on another head unit or phone does not close a fixed-main TS10/K706 gate.
+
+For a feature that changes transport, focus, routing, or persisted network state, inspect its default value as well as its opt-in control. A visible toggle does not make a default-on behavior a safe opt-in rollout.
+
+For microphone requests, distinguish `audioType` classification from an actual capture request: check the main stream, explicit `input=false`, and a typed valid data port. Unit coverage does not establish voice-message, Siri, call, AEC, or RTP behavior on a supported head unit.
+
+Keep Android camera-window resizing, same-session in-app Split, and iPhone ViewArea changes as separate test cases. A local Activity resize or simulator response does not prove the phone accepted multiple ViewAreas or that the GeckoView Split lifecycle is stable.
+
+For startup recovery, distinguish saved ADB authorization rechecks from new grants, and distinguish the dynamic wireless AirPlay port from wired TCP7000. A recovery path that needs hidden-API exemptions or changes the wired listener must stay out until its own failure and consent case is reproduced.
+
+For diagnostics, validate queue bounds and shutdown flush order as well as each field's sensitivity. A local phone-page endpoint or visible Downloads fallback changes who can reach a report, even when payloads and credentials are excluded.
+
+For media-performance candidates, separate packet arrival pacing, decoder backlog, playback-clock trim, and Android audio-focus behavior. Synthetic drift results or another car's measurements do not establish target pitch, DSP, or A/V behavior.
+
+For Wi-Fi candidates, separate mDNS address publication, hotspot readiness, Wi-Fi Direct channel choice, and Bluetooth handoff. A BYD-only scan-pause result or another head unit's hotspot setup does not establish TS10/K706 behavior.
+
+For decoder fallbacks, distinguish codec-list size support from an actual configure/output success. Verify the selected format, Surface handoff, first frame, queue lifetime, and target CPU/A/V behavior before changing codec or thread policy.
+
+A screen stream's reader thread can already be processing a message when the stream is replaced. Check ownership for each codec/config/frame/close callback, not only for recovery requests; a stale close must not close the AirPlaySession now owned by its replacement.
+
+For video overlays that retain a last frame or mask corners, test Surface destruction/recreation and bitmap release separately from visible geometry. A screenshot or Robolectric layout does not prove that the target decoder releases frames without stale content or memory growth.
+
+Treat artifact signing as a release invariant: if the configured release key is missing, failing the release build is safer than silently substituting a debug signer.
+
+In multi-lane CI, discover only the baselines consumed by the active lane. Draft runs do not use host or emulator baselines, so scanning old commits for those checks adds API latency on every iteration; defer that search until the full lane can consume it.
+
+Use the dependency direction when scoping draft tests: `common` depends on `shared`, so a `common`-only source change needs the common suite while a shared production change can affect both suites. Keep the full cross-module checks on review-ready runs.
+
+For microphone input, verify accepted `audioType` values through the media-engine start callback as well as in the policy unit test; compare the normalized value delivered downstream, not the caller's original casing.
+
+For AirPlay display geometry, validate relationships between rectangles as well as each rectangle's bounds. Safe-area insets must be at least the corresponding view-area insets on all four edges; a non-overlapping Split safe region cannot be serialized as valid.
+
+For explicit encoded ViewAreas, keep every display edge even-aligned through Split rounding and resolution scaling; clamp the scaled safe rectangle back inside its rounded view rectangle. Keep the legacy implicit one-area `/info` path unchanged, and use wide arithmetic to reject inset overflow.
+
+An identity check followed by a sink callback still has a replacement race between the check and delivery. Serialize the ownership check with callback handoff and stream replacement; use a blocked in-flight callback regression to verify the sink cannot receive old media after the new stream becomes current.
+
+When a downstream media sink is keyed by stream type, per-session ownership alone is insufficient. Track the current session's stream for that sink type so a former session's late teardown cannot clear the replacement decoder.
+
+For media handoff, test both the engine's ownership gate and the sink's decoder-state reset. A fake sink's inactive/active events alone do not prove the Android sink discarded its old decoder/config.
+
+Separate fixed main's generic codec-capability-gated low-latency request from vendor-specific tuning proposals. Preserve the baseline path; require target capability and performance evidence before adding device overrides.
+
+For lifecycle/layout regression tests, use the production view hierarchy when validating parent/child resize invariants. A replacement test frame cannot prove that the TextureView and touch layer actually share the host's fitted content bounds.
+When auditing real-time logging, trace the callback through to its storage destination. A lightweight `report(...)` call can synchronously perform locked file I/O on the audio worker even when the logging site does not show that work.
+
+Treat microphone-source measurements as OEM- and route-specific. A cleaner signal on one head unit does not establish that another unit's AEC, AGC, echo reference, speakerphone, or route restore behaves the same way.
+
+When an OEM callback is missing, first establish that fixed main owns that callback path. A proposal that adds a new media-focus manager is a new subsystem and requires target evidence for its lifecycle and interactions.
+
+Treat an explicit “connect anyway” choice as a one-attempt bypass when the requested network never appears. Reset it only for the typed no-interface failure and a still-off platform report; preserve it when platform state is unknown or the failure is unrelated.
+
+Separate credentials for joining a running AP from provisioning the AP itself. Read-only link diagnostics do not authorize importing or changing system-owned SSID/password settings; those are a separate, consented feature and must preserve other connected devices.
+
+Treat Android logcat as a separate diagnostic destination from the app's redacted session file. Omit Bluetooth device names and MAC addresses before calling `Log`, since the session redactor cannot protect the platform log buffer.
+
+For conditional display rotation, validate the square canvas, safe-area transform, HID coordinates, and iPhone screenshot framing as one target scenario. A screenshot note alone does not establish that the control is supported.
+
+When an upstream patch changes only a localized string, confirm that fixed main contains the referenced setting and feature before porting it; otherwise the text can claim behavior the app cannot perform.
+
+For generated inventories that need historical Git files, pin and fetch the immutable commit SHA rather than a source branch that may later be deleted. Validate the fetch in a fresh shallow repository so a warm local object database cannot mask a broken CI fallback.
+
+Android pointer indices are event-local and can change after `ACTION_POINTER_UP`; HID identity must come from `getPointerId()` and be mapped to a fixed slot at the session boundary. Make this mapping transactional around the HID send so a dropped up cannot free a still-held remote slot.
+
+An accepted socket can outlive the listener attachment that returned it. A deterministic blocked-accept fixture should switch both generation and server identity before unblocking, then verify that the stale socket closes without a new-session callback.
+
+When embedding an existing Compose editor in a persistent View host, keep its `ComposeView` attached and set it `GONE` while another pane is active so scroll and editor state survive mode switches. Give the view a stable resource ID for saved-state restoration, share the application editor session with the standalone Activity, and guard async UI results with both operation generation and draft revision.
+
+For media ownership races, exercise the old callback after the new owner is installed and assert both the old session and current session receive no stale first-frame notification. For lock-order regressions, hold opposite MAIN/ALT lifecycle locks through a barrier and require both close paths to finish.
+
+When a numeric DSP bug is reported, add an adversarial sweep around the actual fold-back frequencies instead of relying on one high-quality/tap configuration. For instrumentation log evidence, clear logcat before the run and assert every required format explicitly; line counts do not prove unique measurements.
+
+When a runtime invariant can be exceeded through multiple UI editing orders, centralize one profile predicate and call it from edit, save/load, and apply paths. Reject before replacing the active pipeline so a bad draft cannot turn off unrelated DSP modules.
+
+API 35 hosted emulator p99 failures can move between DSP benchmark cases across runs; record each case and its threshold, and keep the result separate from source-level correctness and API 36.1 emulator timing. A local pass on another API level does not clear the hosted gate.
+
+When a real-time microbenchmark runs on an ordinary instrumentation thread, scheduler preemption can dominate wall-time p99. Compare per-run histograms and match the test thread's priority to the production audio worker before changing DSP math or relaxing its deadline.
+
+When callbacks from two independently closing streams race, assert each stream's required open/close events and the no-deadlock condition without imposing a relative order on their concurrent close callbacks.
+
+For imports that persist data before returning to the UI, retain operation ownership until the callback resolves; reject conflicting operations, then delete the imported object if the active screen did not adopt it and no saved profile references it.
+
+For NCM stream recovery, a valid next-sequence header inside an incomplete NTB's unused gap is not a block boundary. Recover a length-corrupt block only from a validated payload end; reject frames outside the VPN MTU and require a consecutive-block pair when the datagram-length field is invalid.
+
+Wired-path counters and first-event timestamps are separate atomics, so an unsealed snapshot can observe the count before its timestamp. Preserve that partial report with `first_ms=none`; a sealed snapshot can still enforce complete timestamps after waiting for writers.
+
+Split `TextureView` measurements are local pane geometry. Configuration changes during Split should retain that local cause while the Surface is absent; only Full-mode physical resizes should read the host root and participate in remote display renegotiation.
+
+An additive harmonic exciter should add the band-limited nonlinear component to a latency-matched dry signal. Subtracting the input identity inside the nonlinear branch silently turns the amount control into a dry/wet crossfade and removes high-frequency fundamentals. Include the DSP's internal level-match multiplier in the Auto Headroom peak bound.
+
+Latency-preserving DSP fallback has two independent settings: track-generation common latency and the accepted graph's relative Seat delay. Prepare fallback state off the render worker, feed it during crossfade, and swap only when that graph generation becomes active. Send retired pipelines to a prestarted lock-free reaper instead of scheduling or locking on the audio worker.
+
+DSP master OFF has two valid contracts: a fresh disabled track is byte-exact PCM16, while live OFF retains the old common latency for that track to protect A/V alignment. Compare it with the exact path only after the next track generation.
+
+When converting a legacy DSP preset into a new filter topology, label it as a seeded starting configuration unless a frequency sweep proves transfer-function equivalence.
+
+Configuration acceptance and renderer adoption are separate events: preserve the prepared graph and expose its generation until the output path activates it. A USB transfer terminator must use the negotiated endpoint packet size, not a bus-speed assumption; zero-length blocking audio reads need bounded backoff without inventing samples. Redact data at the Logcat sink itself because later UI/report filtering cannot retract system logs.
+
+Test the incomplete-NCM boundary with a staged receive: deliver the first 200 bytes, require no frame or resync, then deliver the declared remainder and require only the original frame. For a damaged length with one valid following block, inject repeated USB timeouts and verify `recv()` returns promptly and close still releases the connection.
+
+Keep incremental resync scan position across USB completions and instrument candidate checks. A bytewise 8 KiB fixture is a useful regression for quadratic rescanning; bounded memory alone does not bound CPU work.
+
+When an Android Activity must remain externally launchable for system USB attach, move app commands to a non-exported Activity and check both the currently attached device identity and `UsbManager.hasPermission()` before acting on the exported entry point.
+
+For privacy audits, search every app-owned direct `Log.*` sink for Throwable arguments, then verify the replacement retains useful error classes without retaining exception messages, stack traces, or media payload bytes.
+
+When a USB header is structurally incomplete, do not treat two plausible sequence headers in its unused region as a boundary. If the declared maximum length makes the boundary ambiguous, a bounded explicit failure is safer than silently delivering payload bytes as separate Ethernet frames.
+
+Test late audio-owner state after a successful microphone start, not only initial start failure. The `AudioRecord` worker can die independently while downlink RTP continues; retry should inspect the current token's active uplink and honor the same backoff as startup retries.
+
+Test notification actions by reusing the same `PendingIntent`, not by creating a new token for every click. A foreground notification can outlive its process, so its safe open action must not depend on an in-memory token map.
+
+For MediaCodec replacement, fence callbacks and serialize decoder ownership separately: a generation check prevents stale UI/keyframe callbacks, while a stop ACK after codec release prevents a replacement worker from becoming current too early. SurfaceTexture destruction remains a device-level lifetime test.
+
+For local MFi APK packaging, point `DIPLAY_AUTH_ASSETS_DIR` at the parent of `offline-mfi`; build ABI splits with `:mobile:assembleDebug`, then check each APK for only the expected identity/certificate assets and verify Android signing with `apksigner`.
+
+For SurfaceTexture teardown, an asynchronous `SurfaceChanged(null)` enqueue is not a detach acknowledgement. Keep the texture app-owned (`onSurfaceTextureDestroyed` returns false) until both screen decoder owners finish; preserve a blocked lease if native codec release reports failure.
+
+When a native DSP process fails after its fallback state has advanced for the current block, apply only the missing Seat gain/polarity to that already-delayed fallback output, then apply it once per subsequent block. Precompute gains off the audio callback and keep master OFF on a separate dry path.
+
+For lock-free worker retirement failures, decrement only the in-flight count in `finally` and keep a separate failure state; otherwise a failed native close can falsely reopen the pipeline-adoption gate. Test post-inspection getters and callback publication as well as the primary preparer exception.
+
+When Compose scroll crashes with an infinite maximum height in a local split pane, a current-window configuration cap can provide a finite dynamic upper bound without hard-coded display dimensions. Verify the originating Android measure path and real pane rendering on target hardware before claiming the crash fixed.
+
+For a connection-enabled APK build, verify both packaging layers independently: expected MFi asset entry names inside every ABI APK and the Android APK signature schemes. Successful packaging and signature checks do not prove a new physical head-unit connection.
+
+For a valid but incomplete NCM header, sequence and block length are enough to start bounded no-progress tracking; a later incomplete NDP must not bypass the deadline. For protocol traces, persist a strict stage/byte schema rather than attempting to redact raw serialized headers or bodies.
+
+When DSP candidates retire through a background reaper, observe completion with a latch or other explicit signal in tests. For fallback audio, headroom/limiting should activate only on the failed-output path so normal and low-level delayed fallback samples remain unchanged.
+
+For Compose scroll exceptions, bound the scroll node's incoming constraints directly; a finite cap on its higher-level Scaffold may not be sufficient on OEM measure paths. Capture both Android View MeasureSpecs and the Compose body's incoming maxHeight, then verify the rendered flow on the affected device.
+
+Do not retry `DspRuntimeConfig.prepare()` to calculate an audio-failure fallback: the invalid profile that caused preparation to fail can throw again, and the full path scans EQ response and copies convolution data. The failure path only needs a conservative scalar gain bound and its existing output limiter.
+
+When coalescing queue control jobs, keep required resource-release callbacks in a separate FIFO and coalesce only the latest control state. This avoids quadratic list copying without treating an unacknowledged Surface as safe to release; a hard cap needs an explicit safe overflow policy.
+
+For asynchronous DSP teardown, carry the configuration generation with the pipeline into the reaper failure callback. Report an old graph's release failure beside the active generation and blocked-update state so the UI does not conflate retirement with candidate preparation.
+
+When tests share an executor with asynchronous retirement or preparation, do not infer completion from a callback that only schedules the work. Wait for an explicit completion latch, and assert only status states that remain valid when the worker advances before the test thread resumes.
+
+Pipeline close callbacks precede the reaper's retirement-count decrement, so a close latch alone does not prove that another update is adoptable. Wait for the exposed adoption gate when that is the behavior under test.
+
+For concurrent route ownership, test selection and publication together while one callback is held at a latch; final owner state alone does not catch an older callback publishing after a newer removal.
+
+For persisted workspace identity, validate the external source ID against the decoded embedded profile ID at the repository boundary. Validation only during later edits allows invalid state to be applied at startup first.
+
+When initial hardware state and an asynchronous change listener can race, serialize validation and publication and fetch the current hardware state inside that serialized section; gating only by owner generation does not order two callbacks from the same track.
+
+For Compose measurement diagnostics, `ComposeView` is final and its `onMeasure()` cannot be overridden. Capture the exact specs at the existing pane's `measureChildWithMargins` call, pass those specs to `child.measure()`, and record the child result afterward; do not report a reconstructed probe value or a parent's pre-measure size.
+
+For decoder retirement, a throwing `MediaCodec.release()` does not prove the old Surface is safe to reuse. Retain the old decoder/Surface owner and deny replacement until a later release retry succeeds; inject the release boundary with a callback that delegates directly to `codec.release()` by default so the ownership failure path is deterministic in Robolectric.
+
+For repeated UI diagnostics, a string-based dedupe API still allocates the candidate string before it can reject a duplicate. Compare primitive signature fields first, then allocate the retained signature and formatted log only when the value is new.
+
+For microphone zero-read coverage, inject a scripted initialized `AudioRecord` through the existing Builder shadow and exercise the real capture worker plus a loopback UDP receiver. Hold the recorder before its first positive frame so a timeout proves zero reads never synthesize or transmit silence; then assert exactly one packet follows the positive frame.
+
+Keep log-volume limits separate from bounded recent-history storage: an evicted signature can otherwise be emitted again indefinitely. A process-wide emission counter provides a hard cap while retaining the rolling history for diagnostics.
+
+CI evidence tests should assert the meaning of a historical status record rather than an exact phrase that later becomes stale. Keep the run SHA and skipped job scope explicit when updating those records.
+
+For CI change classification, treat an empty or malformed compare-file list as incomplete evidence, not as an empty/docs-only diff. Exercise baseline lookup, file-count limits, unknown paths, Draft skips, and docs-after-source cases through the same helper used by the workflow.
+
+2026-10-26: A successful docs-only workflow run validates only its static checks. Record the workflow HEAD and each job/step's `success`, `failure`, or `skipped` result separately from the last passing source-test SHA; also exercise representative production paths through the current classifier.
+
+When a test latch runs inside a worker that is deliberately interrupted during shutdown, `await()` can throw before the test releases the gate. Make the test gate interruption-tolerant and rely on explicit cleanup to release it; allow enough time for a separately scheduled assertion thread to run in CI.
+
+Smart Loudness route calibration should use two trusted readings from the same route in increasing volume order. Failed, untrusted, reversed, or cross-route samples must leave the previous calibration intact.
+
+For playback volume monitoring, use the renderer's actual `AudioTrack.routedDevice` callback and reset route-bound samples when the route changes. A route label and Android MUSIC index—even when the index changes—do not prove that an OEM volume control follows it; keep AUTO unavailable until that correspondence is validated on supported hardware.
+
+## Keep screen instrumentation isolated and classify execution precisely
+
+Give standalone screen tests their own files directory and preference name, and assert draft edits do not change runtime configuration before Preview. Android-test Kotlin compilation proves source/build validity only; a test that cannot run on a connected device remains `BLOCKED_ENV`, and CarPlay host geometry/session/Surface acceptance remains `NOT_RUN` until measured there.
+
+For Compose graph drag tests, compute touch points from the node's measured Canvas bounds and then inject in node-local coordinates; separately assert the emitted editor model so a successful pointer dispatch cannot mask a mapping error.
+When a Compose drag can begin with a single movement beyond touch slop, retain the original down position for target selection and use post-slop positions only for editing; selecting from the detector's simple drag-start position may miss the handle.
+For wired startup, state-helper tests do not prove callback routing: exercise the real AirPlay session listener with MAIN and ALT SETUP, then close the control socket before RECORD and assert the active attempt requests recovery. Also verify RECORD closure follows the normal active-session end path.
+
+For semaphore-limited socket handlers, test both rejection at capacity and permit return after session close/detach; a cap-only test misses leaked permits that prevent later valid reconnects.
+
+For Surface churn, gate new Surface creation before handing a wrapper to decoder workers. Include the current live Surface in the outstanding budget, keep one latest generation pending, and never release a Surface or Texture until its specific decoder ownership ACKs have completed.
+
+For drag tests that cross touch slop in one movement, band hit-testing must use the original pointer-down coordinate; the detector's drag-start coordinate is only valid for the post-slop edit position.
+
+If a benchmark threshold miss is rerun, keep the threshold fixed and record both the first failure and the same-revision retry outcome. Final CI evidence must name the exact head SHA.
+
+For Compose A/B regression tests, assert the displayed side, renderer configuration, editor draft, and unrelated module values. Include deleting the selected preset while A/B is active so a UI fallback cannot leave the renderer playing a stale comparison snapshot. Seed an already-synchronized editor draft before composition when the test starts from preexisting runtime state.
+
+For an upstream range with many merge commits, keep source and merge decisions separate. Use parent topology to label PR integration duplicates versus branch-sync merges, and make each pending source row name the exact evidence that would change its disposition. Keep the old ledger population frozen when adding a new overlay.
+
+For wired startup timing, use one monotonic origin per attempt and exact successful full-size NCM transfers. Generation-fence callbacks, retain only bounded numeric milestones, and keep packet diagnostics independently opt-in; model tests do not replace CPU/heap measurements or device traces.
+
+For a receive-path performance comparison, warm each mode, interleave the measurement order, and use per-thread CPU/allocation counters over enough iterations to rise above timer resolution. Record the host architecture/JDK and keep the result distinct from Android target-device profiling.
+
+Treat performance instrumentation as a distribution gate: retain both passing and failing runs at the exact SHA, do not average away a p99 breach, and do not claim a Draft workflow passed jobs it skipped. On macOS, run Android tests directly when the helper's GNU `timeout` dependency is unavailable, then capture the required filtered logcat separately.
+
+For USB re-entry on an existing Host, test `onNewIntent` directly after the one-use internal token is consumed. Set up a non-finishing Host in Robolectric first; the private-beta bootstrap can otherwise finish the test Activity before the event arrives. Test readiness blocking and controller-present guards separately so a no-op event is not mistaken for a successful resume.
+
+When a verified attach arrives during teardown, queue at most one continuation behind the teardown completion callback. Running it immediately can launch a second controller while the prior sink is still closing; a recurring timer is unnecessary.
+
+For asynchronous native close measurements, separate audio-owner detach/enqueue duration from actual reaper destroy duration. Emit format-transition timing once at first PCM write and capture the native close duration on the reaper thread; do not add per-block diagnostic work.
+
+Keep MediaCodec release attempts keyed by codec object identity and perform the bounded retry on its existing worker. A persistent failure must keep the decoder and Surface owner retained and leave replacement blocked; timeout or a later session callback is not an ACK.
+
+2026-10-27 B09: an API 35 Shared p99 failure can be followed by a full 19/19 pass on the same code/test head without source changes. Preserve both; a repeat establishes the current run result, not the cause or stability of the earlier outlier.
+
+2026-10-27 B09: verify CI report artifacts by opening the uploaded ZIP and checking that expected JUnit XML files and suite counts are present; a passing job alone does not prove reports needed to diagnose future failures were retained. Run #490 confirmed 865 unit-test and 20 connected-instrumentation results were archived.
+
+2026-10-27 B09: a median-of-three p99 gate can pass while individual runs exceed the ceiling. Preserve all per-run samples and report both the gate statistic and largest tail; do not treat a green instrumentation job as proof that every measured run stayed under budget.
+
+2026-10-27 B09: when API 35 wall p99 exceeds budget, compare per-block `Debug.threadCpuTimeNanos()` p99 with wall p99. A lower thread CPU p99 indicates time spent outside the measuring thread, but it does not establish real-device playback safety or excuse a wall-deadline breach.
+
+2026-10-27 B09: preserve benchmark results by ABI and exact run. A passing x86_64 CI median does not override a failing arm64 emulator wall-p99 assertion; thread-CPU measurements help characterize the gap but do not identify its cause.
+
+2026-10-27: If API 35 p99 failures overlap a CPU-heavy R8 build from another worktree, record the overlap and rerun the same benchmark alone at a named source SHA. A passing isolated run describes that run only; it does not retroactively prove why the concurrent samples failed.
+
+2026-10-27: When an internal DSP stage is folded into a shared filter chain, update tests to assert both contracts: the existing user-visible capacity remains fixed, and the internal graph capacity grows only by the explicitly reserved stage slot. Feed native warm-history tests in chunks no larger than the production processing block limit.
+
+2026-10-27: Audio-render callbacks should request a rejected-update retry by signaling the control worker. Do not acquire the configuration listener's monitor from the render path, even when the retry only re-prepares the latest generation.
+
+2026-10-27: AtomicFile safety checks must include both the primary file and `.bak`, reject dangling and live symlinks without following them, and preserve a future-schema backup before starting a new write. Capturing rollback state before mutating the active workspace prevents failed persistence from restoring the failed candidate.
+
+2026-10-28 REM-05 Native helper: Test HOT state preservation before processing the next frame, then separately exercise Compressor curve slew, makeup ramp, and lowered Limiter ceiling. Comparing the whole state struct before/after invalid and deferred commands detects partial commits; ACK-pending duration should be tied to a fixed frame budget, not convergence to a signal-dependent compressor target.
+For native audio-control ramps, prepare and validate the dB/linear pair off the render callback, then pass a tagged command through the existing bounded HOT mailbox. Advance one ramp step per PCM frame, not per channel sample, so stereo channels stay matched. ACK only after the full ramp, preserve compatible Studio HOT, defer an incompatible Studio gain while the ramp runs, and fence HOT/LOCAL_WARM with one generation order.
+
+2026-10-28: The Studio HOT gain-refund path is also render-thread work. Carry its prepared linear target into the graph and retain it while refunding headroom; calling the dB setter there reintroduces `pow` despite the separate Preamp ramp being precomputed.
+
+2026-10-27: Evidence ledgers should validate both directions of ID coverage against the canonical catalog, and status rules should be machine-checked. Historical suite summaries are not per-ID evidence unless each row links its exact method, command, result, source SHA, and artifact.
+
+2026-10-27: Evidence validation should resolve local artifact and runbook links within the repository boundary and compare acceptance wording with the canonical predicate, so plausible-looking but stale links or rewritten criteria cannot pass by ID alone.
+
+2026-10-28: When a populated evidence ledger uses a newly verified Actions run, update the checker fixture registry too; target fixture mutations at a still-unmapped blank row so PASS-contract tests continue to exercise missing evidence.
+
+2026-10-28 REM-07: If the hosted per-method XML is not available locally, state only that the source method is included in its successful Gradle task and preserve the per-method artifact/reviewer limitation. Do not label the acceptance PASS from suite success alone.
+
+2026-10-28 REM-04: A generation check before persistence can race with Cancel, while holding a monitor through disk I/O can block the UI. Use AtomicFile's temporary write and perform a nonblocking generation check immediately before `finishWrite`; Cancel before that check aborts and preserves the prior file, while Cancel after it is ordered after Save and restores the committed snapshot.
+
+2026-10-28 REM-04: Make Windows Robolectric runtime-race tests use an injected deterministic workspace writer, then separately exercise AtomicFile `failWrite` rollback on Android instrumentation. This keeps the ordering test stable without mistaking the host's rename limitation for a persistence regression.
+2026-10-27: For tabbed Compose content that is replaced on selection, use a distinct saveable `ScrollState` per tab; a single shared scroll state leaks the prior tab's viewport position into the next tab.
+
+2026-10-28: For exact live transfer compatibility, retain the peak-filter coefficients prepared from the active configured cap. A HOT reduction can retarget mix against that stored ceiling; a higher cap must defer until a filter covering that range is prepared. Clear only the control-tick countdown so the next frame recomputes the target while the current mix ramps continuously. Precompute sample-rate-dependent envelope coefficients before handing the command to the audio callback and test off-center magnitude/phase as well as retained state.
+
+2026-10-27: A descendant's `rememberSaveable` value is forgotten when its conditional tab pane leaves composition. Wrap the pane in `SaveableStateProvider(tabKey)` when selection must survive tab changes.
+
+2026-10-28 REM-04: For a combined HOT snapshot, a pure preflight per stateful stage must run before any Studio, Dynamics, Dynamic EQ, or gain mutation. Keep the command in the existing mailbox while protective attenuation ramps; refund headroom and ACK only after every affected bounded transition settles. Dynamic EQ ACK timing must use its own fixed processed-frame countdown, not detector convergence or the continually moving control-tick counter.
+
+2026-10-28 REM-04 JNI: A fingerprint only detects post-validation tampering; it does not establish coefficient/config consistency when the JNI bridge constructs a payload. Validate the complete relationship before enqueue, and verify rejection through ACK/deferred tokens plus an output comparison against a reference engine.
+
+2026-10-28 REM-04 JNI: Validate boolean doubles before any cast to `int`; comparison/finite checks after conversion cannot make NaN or out-of-range floating conversion defined. Exercise malformed flags in instrumentation and process a block before checking that rejection had no effect.
+
+2026-10-28 T-LOUD: Separate the resolver's calibration rules from the renderer's latency behavior. A trusted Auto volume change should update only Smart Loudness through HOT; simulated OEM knob movement without an Android stream-index change stays untrusted and must not apply compensation.
+
+2026-10-28 T-SAFE-07: A synthetic Native full-chain sample-peak test can verify finite output and limiter sample ceiling over several input levels; it does not establish true-peak, THD, or listening quality, which remain separate evidence.
+
+2026-10-28 REM-03: A spatial field can use whole-pipeline WARM only when current and target latency match and no stateful history needs preservation. Keep legacy Width inactive under Advanced M/S and defer asymmetric Seat trim when center-image preservation is required; do not let these guards override the dedicated DSP-off crossfade path.
+
+2026-10-28 REM-03 renderer test: WARM apply status remains PREPARED until the full PCM crossfade has consumed enough frames. Drive the test through the fade window before expecting ACTIVE; a single decoded block is not enough evidence.
+
+2026-10-28 PH02-T07: Record UI-switch elapsed time and allocation deltas alongside the 100-transition assertions. Emulator numbers support software regressions but are not physical CarPlay performance evidence.
+
+2026-10-28 PH02-T04: Compose tests should use `performImeAction()` only when the TextField exposes a non-default IME action; default single-line fields accept `performTextInput()` but have no IME action semantic. Re-report renderer status with the current config generation after a sequence of draft previews before asserting the displayed status.
+
+2026-10-28 PH02-T04: A full screen may contain a background `Save` action and a dialog `Save` action simultaneously. Prefer asserting the entered text and the scoped dialog state instead of matching an ambiguous label globally.
+
+2026-10-28 T-SAFE-08: When the current signal path has no True Peak or gain-reduction telemetry, disclose that limitation beside the Limiter control rather than implying a measurement or warning exists.
+
+2026-10-28 PR #52 review follow-up: use a single immutable AtomicReference value for related renderer owner/status data. A monitor around a short status update can still block the PCM processing path; CAS lets the owner and phase advance as one state transition.
+
+2026-10-28 PR #52 evidence: a validator should compare the per-ID disposition in both the detailed matrix and tracker, and its write/initialize mode must refuse to replace an existing populated evidence file.
+2026-10-27 B09: preserve benchmark results by ABI, build variant, and exact run. A passing x86_64 CI median does not override failing arm64 Debug emulator assertions. Compare thread-CPU p99 before attributing wall tails to scheduling; a later run can also show CPU p99 over budget. Debug `-O0` versus Release `-O2` is a relevant variant difference, not proof of cause.
+
+## Verify USB device identity at each auto-launch boundary
+
+Android's attach chooser can grant temporary USB permission when the user selects an app. An entry Activity should validate the event action and currently attached device, then hand access to the existing USB Controller; it should not send USB control requests or request a second permission itself. Re-enumeration can change `deviceId` and `deviceName`, so reject stale identities and allow a new current attach to replace a stale launch. During session teardown, retain one latest validated USB request and process it after the owner transition; never adopt a Controller whose transport differs from the Host's requested transport. Emulator tests do not establish physical attach routing.
+
+For asynchronous USB read tests, do not model a timeout with a 1–2 ms real-time sleep when the assertion depends on the queued-request state being observable first. Use a scripted delay longer than the test's internal timeout and a larger external wait bound; verify timeout and request state separately. Hosted scheduling exposed the race even when local runs passed.
+
+For deferred USB launch work, distinguish a replay of the same queued request from a new attach event: the replay must retain the original request and bypass physical-event debounce after revalidation, while explicit user retries also bypass it. For codecs, pending input/output counts are only hints; retain a short output-drain grace after the estimate reaches zero, and name latency metrics by the event they actually observe.
+
+For teardown, a stop request is not a completion signal: keep resource ownership until the worker exits and its codec/surface release reports safe. A callback exception must not bypass sibling cleanup, and bounded retries must leave the session barrier intact when release cannot be confirmed.
+
+For async editor imports, compare the operation's captured draft revision before applying results; profile identity alone misses same-profile edits. For high-rate HID input, use bounded snapshot queues that merge only MOVE updates and release held slots on overflow.
+
+Treat `Thread.join(0)` as an infinite wait. Deadline APIs must return immediately for zero/negative budgets and round any positive remainder up so sub-millisecond time never becomes an unbounded join.
+
+Move workers into retirement tracking under the same owner lock that removes them from the active map. Keep teardown state process-local and make retries explicit after the short attempt budget; status and re-entry must not bypass the barrier.
+
+For an explicit save that must update two AtomicFiles, use a journal with a defined forward-recovery point and rollback state; preflight FutureSchema on both files before writing. Derive the new durable aggregate from the previous committed aggregate, not the active preview, then rebase the editor session separately so a save in another editor cannot persist the unsaved draft.
+
+When a Compose pane is hidden but remains composed, disable its `BackHandler` with the host visibility state. Host-originated exits need the same decision callback as screen Back/close, and a newer request must replace the queued destination while an async save/restore is pending.

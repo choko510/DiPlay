@@ -1,6 +1,7 @@
 <resources>
     <string name="menu_return_carplay">CarPlayに戻る</string>
     <string name="menu_carplay_youtube">CarPlay + YouTube</string>
+    <string name="menu_carplay_dsp">CarPlay + DSP</string>
     <string name="menu_vehicle_home">車のホーム</string>
     <string name="menu_settings">DiPlay設定</string>
     <string name="menu_status_connected">接続中</string>
@@ -12,6 +13,7 @@
     <string name="menu_vehicle_home_unavailable">車のホーム画面を開けませんでした。</string>
     <string name="menu_return_failed">CarPlay画面を開けませんでした。</string>
     <string name="menu_youtube_split_failed">CarPlay + YouTubeを開けませんでした。</string>
+    <string name="menu_dsp_split_failed">CarPlay + DSPを開けませんでした。</string>
     <string name="youtube_waiting_for_iphone_profile">iPhoneを識別しています…</string>
     <string name="youtube_identity_error">接続中のiPhoneを識別できませんでした。</string>
     <string name="youtube_loading">YouTubeを読み込んでいます…</string>
@@ -19,6 +21,7 @@
     <string name="youtube_reload">再読み込み</string>
     <string name="youtube_back">戻る</string>
     <string name="youtube_close">YouTubeを閉じる</string>
+    <string name="host_split_waiting">CarPlayの準備が整うと分割表示を開きます。</string>
     <string name="ui_car_home">車の画面へ</string>
     <string name="ui_back">戻る</string>
     <string name="ui_home_eyebrow">あなたのスマホと、いつものドライブ。</string>
@@ -56,6 +59,24 @@
     <string name="ui_connect_on_open_description">前回の接続方法と選択したiPhoneを使います。</string>
     <string name="ui_start_with_car">車の起動時に開く</string>
     <string name="ui_start_with_car_description">利用できるかどうかは、車載機の起動設定によります。</string>
+    <string name="ui_iphone_usb_autolaunch_title">USB接続時に自動起動</string>
+    <string name="ui_iphone_usb_autolaunch_description">iPhoneをUSB接続すると、DiPlayを開いて有線CarPlayに自動接続します。初回はUSBアクセスの許可が必要な場合があります。</string>
+    <string name="ui_iphone_usb_autolaunch_confirmation_title">USB自動起動を有効にしますか？</string>
+    <string name="ui_iphone_usb_autolaunch_confirmation_message">AndroidのUSB使用許可が必要になることがあります。バックグラウンド起動や車載機の省電力設定により、タップして開く操作が必要な場合があります。</string>
+    <string name="ui_iphone_usb_autolaunch_enabled">iPhone USB自動起動は有効です。</string>
+    <string name="ui_iphone_usb_autolaunch_disabled">iPhone USB自動起動は無効です。</string>
+    <string name="ui_iphone_usb_autolaunch_unavailable">AndroidがUSB Host機能を宣言していません。車載機の実機対応を確認してください。</string>
+    <string name="ui_iphone_usb_autolaunch_connected">CarPlay対応iPhoneが接続されています。</string>
+    <string name="ui_iphone_usb_autolaunch_permission_needed">接続時にAndroidのUSB許可が必要になる場合があります。</string>
+    <string name="ui_iphone_usb_autolaunch_open_connected">接続中のiPhoneでCarPlayを開く</string>
+    <string name="ui_iphone_usb_autolaunch_notification_channel">iPhone USB接続</string>
+    <string name="ui_iphone_usb_autolaunch_notification_title">iPhoneが接続されています</string>
+    <string name="ui_iphone_usb_autolaunch_notification_body">タップしてDiPlayで有線CarPlayを開きます。</string>
+    <string name="ui_iphone_usb_autolaunch_enable_failed">USB自動起動の設定を適用できませんでした。</string>
+    <string name="ui_iphone_usb_autolaunch_not_found">CarPlay対応iPhoneが見つかりません。</string>
+    <string name="ui_iphone_usb_autolaunch_ambiguous">接続中のiPhoneを1台だけにしてから、もう一度お試しください。</string>
+    <string name="ui_iphone_usb_autolaunch_open_failed">CarPlay画面を開けませんでした。</string>
+    <string name="ui_enable">有効にする</string>
     <string name="ui_choose_iphone_named">iPhoneを選択 · %1$s</string>
     <string name="ui_wireless_connection">ワイヤレス接続</string>
     <string name="ui_carplay_identity">CarPlayの識別情報</string>

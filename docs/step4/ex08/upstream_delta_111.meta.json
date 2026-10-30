@@ -1,0 +1,32 @@
+{
+  "base_sha": "6d3b8a8ce927cb4b115b8c3881f17619433e93b1",
+  "capture_git_version": "git version 2.50.1 (Apple Git-155)",
+  "commits_jsonl": "upstream_delta_111.commits.jsonl",
+  "commits_jsonl_sha256": "5b059e0fb563c2efba0b870bf7056cf338bae1c9fae509d91fa3d8205e12b6f3",
+  "compare_url": "https://github.com/shihabal3amri/DiPlay/compare/6d3b8a8ce927cb4b115b8c3881f17619433e93b1...143f4674b60b564a16baae5110b3b90fb7277631",
+  "final_tree_additions": 4357,
+  "final_tree_changed_path_count": 117,
+  "final_tree_deletions": 376,
+  "github_compare": {
+    "ahead_by": 111,
+    "behind_by": 0,
+    "final_tree_changed_path_count": 117,
+    "source": "GitHub compare API checked against the fixed source range on 2026-10-26",
+    "status": "ahead",
+    "total_commits": 111
+  },
+  "head_sha": "143f4674b60b564a16baae5110b3b90fb7277631",
+  "merge_commit_count": 51,
+  "merge_role_policy": "B07 classifies all merges as source-feature/PR integration duplicates or branch-sync-only; no merge wrapper is independently adopted.",
+  "non_merge_commit_count": 60,
+  "patch_archive": "upstream_delta_111_patches.tar.gz",
+  "patch_archive_sha256": "110d3cd84f5f902c5f5ec7b9b9b61ebda1908038c2b7283314f1e9c6fc900398",
+  "patch_sha256_method": "SHA-256 of exact stdout bytes from git -c core.quotePath=false -c diff.indentHeuristic=false -c diff.algorithm=myers diff --binary --full-index --no-ext-diff --no-renames --no-color --unified=3 --src-prefix=a/ --dst-prefix=b/ <first-parent> <commit> --; merge commits use first parent only",
+  "range_method": "git rev-list --reverse <base>..<head>",
+  "review_overrides_file": "review_overrides_111.json",
+  "review_overrides_sha256": "001c7562dce9a631c14560f44dcf3143dfea97c2c1238448a0d97405e9a9cc45",
+  "review_state_policy": "B07 per-SHA fixed-main review recorded; NEED_EVIDENCE rows identify concrete next evidence.",
+  "schema_version": 1,
+  "source_commit_count": 111,
+  "source_repository": "shihabal3amri/DiPlay"
+}

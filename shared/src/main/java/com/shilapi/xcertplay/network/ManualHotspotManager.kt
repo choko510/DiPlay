@@ -21,6 +21,8 @@ import java.net.SocketException
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 
+internal class ManualHotspotNotReadyException(message: String) : IOException(message)
+
 /**
  * Attaches to a hotspot that is already running on this device.
  *
@@ -142,7 +144,7 @@ class ManualHotspotManager(
 
             val remainingNanos = remainingNanos(deadlineNanos)
             if (remainingNanos <= 0) {
-                throw IOException(
+                throw ManualHotspotNotReadyException(
                     "Timed out after ${timeoutMillis}ms waiting for the manual hotspot: " +
                         lastReason,
                 )

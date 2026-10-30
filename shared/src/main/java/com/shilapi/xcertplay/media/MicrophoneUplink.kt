@@ -8,7 +8,6 @@ import com.shilapi.xcertplay.airplay.AudioCodecKind
 import com.shilapi.xcertplay.airplay.MicrophoneConfig
 import com.shilapi.xcertplay.airplay.MicrophoneCounters
 import com.shilapi.xcertplay.airplay.MicrophonePacketizer
-import com.shilapi.xcertplay.airplay.toHexString
 import java.io.Closeable
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -19,11 +18,19 @@ import java.util.concurrent.CountDownLatch
 
 internal interface MicrophoneUplinkController : Closeable {
     val isActive: Boolean
+    val hasFailed: Boolean get() = false
 
     fun start(): Boolean
 
     fun activate()
+
+    fun requestClose() = close()
+
+    fun awaitStopped(timeoutMillis: Long): Boolean = true
 }
+
+internal fun microphoneZeroReadBackoffMs(consecutiveEmptyReads: Int): Long =
+    consecutiveEmptyReads.coerceIn(1, 10) * 5L
 
 /**
  * Captures one PCM microphone stream and sends it back to the phone as sealed CarPlay RTP.
@@ -38,15 +45,20 @@ internal class MicrophoneUplink(
     private val running = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
     private val firstPacketLogged = AtomicBoolean(false)
+    private val opusFailureLogged = AtomicBoolean(false)
     private val activation = CountDownLatch(1)
     @Volatile private var activated = false
+    @Volatile private var encoderFailed = false
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var socket: DatagramSocket? = null
     @Volatile private var opusEncoder: OpusEncoder? = null
-    private var thread: Thread? = null
+    @Volatile private var thread: Thread? = null
 
     override val isActive: Boolean
-        get() = running.get() && activated && !closed.get()
+        get() = running.get() && activated && !closed.get() && !hasFailed
+
+    override val hasFailed: Boolean
+        get() = encoderFailed || opusEncoder?.hasFailed == true
 
     @Synchronized
     override fun start(): Boolean {
@@ -105,7 +117,7 @@ internal class MicrophoneUplink(
                 .setBufferSizeInBytes(bufferSize)
                 .build()
         } catch (error: Exception) {
-            Log.e(TAG, "microphone recorder creation failed", error)
+            Log.e(TAG, "microphone recorder creation failed error=${error.javaClass.simpleName}")
             nextEncoder?.close()
             running.set(false)
             return false
@@ -124,7 +136,7 @@ internal class MicrophoneUplink(
                 bind(InetSocketAddress(InetAddress.getByName("::"), 0))
             }
         } catch (error: Exception) {
-            Log.e(TAG, "microphone socket creation failed", error)
+            Log.e(TAG, "microphone socket creation failed error=${error.javaClass.simpleName}")
             nextRecorder.release()
             nextEncoder?.close()
             running.set(false)
@@ -148,7 +160,7 @@ internal class MicrophoneUplink(
             )
             true
         } catch (error: Exception) {
-            Log.e(TAG, "microphone recording failed", error)
+            Log.e(TAG, "microphone recording failed error=${error.javaClass.simpleName}")
             release()
             false
         }
@@ -164,6 +176,7 @@ internal class MicrophoneUplink(
         val readBuffer = ByteArray(maxOf(frame.size, MIN_READ_BYTES))
         val counters = MicrophoneCounters()
         var filled = 0
+        var consecutiveEmptyReads = 0
         try {
             activation.await()
             while (running.get() && isCurrentOwner()) {
@@ -173,8 +186,11 @@ internal class MicrophoneUplink(
                     return
                 }
                 if (count == 0) {
+                    consecutiveEmptyReads = (consecutiveEmptyReads + 1).coerceAtMost(10)
+                    Thread.sleep(microphoneZeroReadBackoffMs(consecutiveEmptyReads))
                     continue
                 }
+                consecutiveEmptyReads = 0
                 var offset = 0
                 while (offset < count && running.get()) {
                     val copied = minOf(frame.size - filled, count - offset)
@@ -189,7 +205,9 @@ internal class MicrophoneUplink(
                 }
             }
         } catch (error: Exception) {
-            if (running.get()) Log.e(TAG, "microphone capture failed", error)
+            if (running.get()) {
+                Log.e(TAG, "microphone capture failed error=${error.javaClass.simpleName}")
+            }
         } finally {
             running.set(false)
             release()
@@ -198,7 +216,17 @@ internal class MicrophoneUplink(
 
     private fun sendFrame(socket: DatagramSocket, counters: MicrophoneCounters, frame: ByteArray) {
         val bodies = if (config.codec == AudioCodecKind.OPUS) {
-            opusEncoder?.encode(frame).orEmpty()
+            val encoder = opusEncoder
+            if (encoder == null) {
+                stopAfterEncoderFailure("encoder unavailable")
+                return
+            }
+            val encoded = encoder.encode(frame)
+            if (encoder.hasFailed) {
+                stopAfterEncoderFailure("codec failed")
+                return
+            }
+            encoded
         } else {
             listOf(MicrophonePacketizer.toWirePcm(frame))
         }
@@ -209,6 +237,15 @@ internal class MicrophoneUplink(
                 body = body,
                 samples = config.samplesPerPacket,
             )
+        }
+    }
+
+    private fun stopAfterEncoderFailure(reason: String) {
+        encoderFailed = true
+        running.set(false)
+        activated = false
+        if (opusFailureLogged.compareAndSet(false, true)) {
+            Log.e(TAG, "microphone Opus capture stopped reason=$reason type=${config.audioType}")
         }
     }
 
@@ -232,7 +269,6 @@ internal class MicrophoneUplink(
                 Log.i(
                     TAG,
                     "microphone first packet bytes=${packet.size} body=${body.size} " +
-                        "head=${packet.copyOf(minOf(packet.size, 16)).toHexString()} " +
                         "port=${config.port}",
                 )
             }
@@ -242,34 +278,54 @@ internal class MicrophoneUplink(
     }
 
     override fun close() {
-        val worker = synchronized(this) {
-            activation.countDown()
-            if (!closed.compareAndSet(false, true) || !running.compareAndSet(true, false)) {
-                release()
-                null
-            } else {
-                try {
-                    recorder?.stop()
-                } catch (_: Exception) {
-                    // Best effort; release below is authoritative.
-                }
-                try {
-                    socket?.close()
-                } catch (_: Exception) {
-                    // Best effort.
-                }
-                thread
-            }
-        }
-        if (worker !== null && worker !== Thread.currentThread()) {
+        requestClose()
+        val worker = thread
+        if (worker != null && worker !== Thread.currentThread()) {
             try {
                 worker.join(CLOSE_JOIN_MILLIS)
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             }
             if (worker.isAlive) worker.interrupt()
+            if (!worker.isAlive) release()
         }
-        release()
+    }
+
+    @Synchronized
+    override fun requestClose() {
+        activation.countDown()
+        closed.set(true)
+        running.set(false)
+        val currentWorker = thread
+        if (currentWorker == null) {
+            release()
+        } else {
+            try {
+                recorder?.stop()
+            } catch (_: Exception) {
+                // Best effort; the capture worker releases its resources when it exits.
+            }
+            try {
+                socket?.close()
+            } catch (_: Exception) {
+                // Best effort.
+            }
+            currentWorker.interrupt()
+        }
+    }
+
+    override fun awaitStopped(timeoutMillis: Long): Boolean {
+        val worker = thread ?: return true
+        if (worker === Thread.currentThread()) return false
+        if (worker.state == Thread.State.NEW) return true
+        if (timeoutMillis <= 0L) return !worker.isAlive
+        try {
+            worker.join(timeoutMillis)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            return false
+        }
+        return !worker.isAlive
     }
 
     @Synchronized

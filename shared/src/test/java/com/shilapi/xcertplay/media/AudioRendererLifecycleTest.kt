@@ -64,6 +64,37 @@ class AudioRendererLifecycleTest {
     }
 
     @Test
+    fun awaitStoppedDoesNotConfirmWhileWorkerStillOwnsResources() {
+        val lifecycle = AudioRendererLifecycle(closeJoinMillis = 10)
+        val workerEntered = CountDownLatch(1)
+        val releaseWorker = CountDownLatch(1)
+        val worker = Thread {
+            workerEntered.countDown()
+            while (releaseWorker.count > 0) {
+                try {
+                    releaseWorker.await()
+                } catch (_: InterruptedException) {
+                    // Keep the fixture alive until its resource-release gate is opened.
+                }
+            }
+        }
+        try {
+            assertTrue(lifecycle.start(worker))
+            assertTrue(workerEntered.await(1, TimeUnit.SECONDS))
+            lifecycle.close(worker)
+
+            assertFalse(lifecycle.awaitStopped(worker, 0L))
+            assertFalse(lifecycle.awaitStopped(worker, -1L))
+            assertFalse(lifecycle.awaitStopped(worker, 10))
+            releaseWorker.countDown()
+            assertTrue(lifecycle.awaitStopped(worker, 1_000))
+        } finally {
+            releaseWorker.countDown()
+            worker.join(1_000)
+        }
+    }
+
+    @Test
     fun concurrentStartAndCloseNeverStartsTwice() {
         repeat(20) {
             val lifecycle = AudioRendererLifecycle()

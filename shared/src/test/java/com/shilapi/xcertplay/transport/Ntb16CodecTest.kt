@@ -41,6 +41,18 @@ class Ntb16CodecTest {
         assertEquals(true, blockLength <= 32_764)
     }
 
+    @Test
+    fun shortPacketPadUsesTheSelectedBulkOutPacketSize() {
+        val frame = ByteArray(100)
+        val block64 = Ntb16Codec.build(frame, sequence = 1, usbPacketSize = 64)
+        val block512 = Ntb16Codec.build(frame, sequence = 1, usbPacketSize = 512)
+
+        assertEquals(129, block64.size)
+        assertEquals(128, readU16(block64, 8))
+        assertEquals(128, block512.size)
+        assertArrayEquals(frame, Ntb16Codec.parse(block64).single())
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun datagramThatWouldOverflowBlockLengthIsRejected() {
         Ntb16Codec.build(ByteArray(65_508), 0x1234)

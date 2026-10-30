@@ -17,9 +17,17 @@ object CarPlayDisplayScale {
 
     fun apply(display: AirPlayDisplayConfig, tenths: Int): AirPlayDisplayConfig {
         val value = sanitize(tenths)
+        val width = scalePixels(display.widthPixels, value)
+        val height = scalePixels(display.heightPixels, value)
         return display.copy(
-            widthPixels = scalePixels(display.widthPixels, value),
-            heightPixels = scalePixels(display.heightPixels, value),
+            widthPixels = width,
+            heightPixels = height,
+            viewAreas = display.viewAreas?.scaled(
+                sourceWidthPixels = display.widthPixels,
+                sourceHeightPixels = display.heightPixels,
+                targetWidthPixels = width,
+                targetHeightPixels = height,
+            ),
         )
     }
 

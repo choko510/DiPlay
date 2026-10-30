@@ -1,5 +1,138 @@
 # Decisions
 
+## Use effective linear gain for live HOT ordering
+
+The gain graph stores effective current linear gain and a separate ramp target linear value. Protective attenuation and Studio refund ordering compare those values; they do not infer current gain from a requested dB value after cancellation. This keeps safety checks accurate without log10/pow work in the audio callback.
+
+## Fence queued protective ramps by owner and generation
+
+A protective Studio ramp may start before its HOT command gets an active ACK token, while the command remains queued. Track the full owner/format/context tuple and generation for that ramp; cancel it at its current linear gain if stale, then let a fresh current command decide whether to resecure headroom.
+
+## Publish queue generation before its write index
+
+Release-store the latest HOT/LOCAL_WARM generation before release-publishing the corresponding queue slot index. A consumer that observes the new index then also observes the generation fence.
+
+## Ramp Studio headroom refunds only after module gains settle
+
+Keep the protective headroom reduction immediate, but treat a later gain refund as a 20 ms sample ramp. Wait until Macro, Smart Loudness, Dynamic Bass, Compressor, and Dynamic EQ transitions are settled before starting the refund. The graph's HOT-completion predicate includes both a queued refund and its active gain ramp, so no generation is ACTIVE before the final sample.
+
+## Cancel restore requires owner and generation evidence
+
+Treat `rendererOwnerToken == null` as proof that no renderer owned the request at its start. If an owned request later loses status or owner identity, wait for a valid report and reject on timeout; do not mark the draft Saved. A newer owner can satisfy the request only after it reports the committed generation ACTIVE and the runtime confirms the committed workspace.
+
+## Sync the stacked PR base without moving the parent PR ref
+
+For the PR #52 completion pass, merge the current `codex/step4-pr-00-test-baseline` tip into `codex/dsp-studio-final` so GitHub evaluates #52 against its current stacked base. Resolve the DSP overlap by retaining PR #52's PCM-format epoch/HOT preparers and PR #45's retirement failure fence/timing callbacks. Push only the PR #52 branch; keep PR #45 and `main` unchanged.
+
+## Keep per-ID evidence claims at the assertion boundary
+
+For REM-10 rows, name only assertions the mapped method executes. A test that resolves a selected-state resource string does not prove selected `StateDescription` semantics; stored undo/redo snapshot references do not prove redo interaction; and tab scroll restoration does not prove a Macro control is reachable. Keep these subpredicates explicitly open and keep PARTIAL status.
+
+## Restore only committed Studio state when a runtime is reconstructed
+
+Treat an uncommitted Studio preview as runtime-owned state. When a new runtime is created, restore the persisted workspace and rebuild its effective DSP configuration rather than carrying over the preview. Runtime-reconstruction unit coverage is useful but does not substitute for Android process-death or Activity recreation evidence.
+
+## Keep the five DSP Studio tabs aligned with their editing domains
+
+- **Decision:** Use Studio for macros and legacy profile/basic controls, EQ for PEQ, Spatial for legacy width/mono bass plus Seat and M/S, Dynamics for Smart Loudness/Dynamic Bass and compressor-family stages, and Advanced for headroom, cabin, Harmonic, Convolver, and diagnostics.
+- **Reason:** This satisfies the product tab contract while keeping every existing editor reachable and all edits bound to the screen's existing profile/editor and studio session owners.
+- **Status:** Implemented on the PR #52 Phase 02 child branch; connected host geometry and session continuity remain unverified.
+## Independent code-review remediation — 2026-10-28
+
+- Fail closed after a DSP retirement error: on the audio owner, retire active/fading graphs, keep PCM fallback safe, and rescale saved algorithmic latency duration when the decoder sample rate changes. Never prepare or publish another graph in the failed renderer.
+- Serialize MAIN/ALT owner validation through keyframe command dispatch with a separate per-screen ownership lock. Release the event-write lock before session teardown callbacks so the lock order stays acyclic.
+- Treat codec-config/empty buffers as non-pictures; only valid pictures consume pending output hints or count as Surface submissions. Keep the Surface recovery default off.
+- Report PTS-correlation latency through codec Surface-release call completion, including unmatched/overwritten fractions. Do not describe it as compositor or panel presentation latency.
+
+## PR #45 re-review remediation — 2026-10-30
+
+- Treat screen-state callbacks as best-effort notifications during sink close; retain decoder and worker ownership until worker exit and successful MediaCodec/Surface release are confirmed. Keep the Host teardown barrier closed on timeout and cap each retry cycle at three attempts.
+- For bounded touch dispatch, coalesce only continuous movement snapshots. Preserve edge snapshots while capacity is available; on edge saturation replace pending transitions with an all-contact cancellation so no touch remains held.
+- Keep built-in DSP preset edits session-only and make that behavior visible; custom profiles remain the persistence path. Accept async DSP imports only when the originating operation, draft revision, profile, and screen are still current.
+- Retry USB deferred replay only for transient inventory/dispatch failures, with a bounded delay schedule and identity revalidation. Keep stale/disabled devices terminal.
+- Do not change the audio queue's drop-newest policy without same-device A/B evidence; preserve it and leave the audio behavior gate NOT_RUN.
+
+## PR #45 second re-review follow-up — 2026-10-30
+
+- Treat `Thread.join(0)` as an unbounded wait; zero/negative `awaitStopped` budgets are immediate liveness checks and positive sub-millisecond deadlines round up to 1 ms.
+- Register every AudioRenderer/Microphone retirement while holding its per-type owner lock. Retain it until the worker exits and its release path completes.
+- After three fast teardown attempts, keep the Controller/Sink/token behind the session barrier and expose a status tap plus Activity-resume retry. A retry clears the barrier only after Controller, Sink, and VPN/NCM completion are confirmed.
+- Preserve an unavailable USB inventory as transient at the attach Activity and let the existing bounded Dispatcher retry revalidate the event identity. A successfully-read empty inventory is terminal stale-device rejection.
+- Propagate runtime Opus failure into microphone activity state, stop silent capture, and cap both encoder recovery and total mic start attempts for that stream owner.
+- Keep bridge worker references and VPN descriptor ownership until the NCM/TUN close flags and both worker exits are confirmed; block service attachment while teardown remains unresolved.
+
+## XCertPlay OPT-00–OPT-08 adaptation
+
+Use the application context for `UsbManager` without changing permission or USB lifecycle behavior. Keep one `BufferInfo` per decoder worker; use capped approximate pending-output tracking, FIFO job priority, bounded 8 ms output waits and a 500 ms last-input deadline while preserving input-pump draining. Route MAIN keyframe requests with empty params and ALT with its nonblank SETUP UUID; stale/unknown requests do not fall back to MAIN. Keep changed-Surface recovery disabled by default until target-device evidence exists. Do not batch Host log delivery without real startup/reconnect cost measurements; retain the existing forward Annex B path.
+
+## Topic guide
+
+The decisions below are retained with their full rationale; earlier choices may require validation against a newer PR head.
+
+## Keep DSP Studio workspace persistence separate from schema-v7 profiles
+
+Store committed workspace state in its own schema-v1 AtomicFile under `files/dsp/workspace/current.json`. The workspace embeds the complete v7-compatible base profile snapshot and the new enhancement/module-selection settings; this preserves `custom1`/`custom2` semantics and lets old app versions continue using the untouched v7 repository. Unknown future workspace schemas must fail closed on writes.
+
+- **Scope / EX-08:** [pinned baseline](#freeze-main-behavior-before-step4-corrections), [provenance](#keep-ex-08-provenance-separate-from-current-decisions), [PR #45 batching](#batch-remaining-step4-work-in-the-existing-pr).
+- **Wired NCM / USBMUX:** [persistent NCM IN](#keep-ncm-bulk-in-persistent-and-drain-an-available-status-endpoint), [USBMUX recovery](#keep-one-usbmux-in-request-and-use-bounded-recovery), [teardown](#fence-and-serialize-wired-teardown).
+- **AirPlay / host split:** [LOCAL Split](#keep-local-split-resizing-inside-android), [ViewAreas](#keep-multiple-viewareas-explicit-and-wire-switching-disabled), [DSP Split](#add-dsp-as-a-mutually-exclusive-host-split-mode).
+- **DSP:** [OFF baseline](#preserve-the-dsp-off-baseline-before-extending-the-graph), [Seat](#align-seat-timing-by-explicit-near-speaker-and-preserve-graph-history), [Cabin](#cabin-correction-requires-external-measurements-and-explicit-approval), [Harmonic](#harmonic-effects-use-bounded-2-fir-oversampling-and-report-the-dry-matched-latency).
+- **CI / security:** [draft gates](#defer-emulator-instrumentation-while-a-pr-is-draft), [privacy](#keep-connection-traces-opt-in-and-app-owned), [MFi local identity](#keep-local-mfi-identity-outside-tracked-source), [USB auto-launch](#keep-usb-auto-launch-as-a-validated-entry-to-the-existing-controller).
+
+## Keep Dynamic Bass detection on the sanitized raw-input tap
+
+Capture finite-checked PCM before gain or graph stages and pass it separately to the detector, while leaving Dynamic Bass at its existing output position. This makes detector gain independent of compressor/IR processing without changing the established audio-stage order or disabled path.
+
+## Preserve the configured Dynamic EQ transfer when adding HOT limits
+
+Prepare each enabled Dynamic EQ peak filter with its configured boost/cut cap, matching the existing transfer function exactly. A Native HOT update may lower the active cap while retaining that filter and its detector delay, envelope, and current mix; it schedules target recalculation on the next frame and ramps from the retained mix. A cap above the prepared filter's range returns `DEFERRED` without mutation. This adds only a Native helper; renderer/JNI mailbox wiring must remain a separate integration step.
+
+## Keep Dynamics and Dynamic EQ HOT on the existing fenced mailbox
+
+Use one versioned field mask in the bounded Native HOT mailbox for Studio, Dynamics, and Dynamic EQ payloads. The graph preflights the complete command—including both stateful helpers and current topology—before any stage mutation; a gain-lowering protective ramp completes first, and a gain refund waits for all affected parameter/mix transitions. Compressor/Limiter enable changes, Limiter threshold increases, Dynamic EQ topology changes, and cap increases beyond the prepared filter ceiling remain deferred.
+
+## Make every Studio gain refund sample-continuous and ACK after the ramp
+
+Apply the same 20 ms linear sample ramp whether a headroom refund can begin immediately or must wait for module ramps to settle. Accumulate the ramp in double precision, land exactly on the requested linear endpoint, and let the graph transition fence hold the Native ACK through its final sample. Keep zero/unknown renderer ownership distinct from an owned restore whose status temporarily disappeared; retain the owner observed when the request starts, and only allow a same/new owner to prove the committed generation ACTIVE or fail at timeout.
+
+## Keep EX-08 provenance separate from current decisions
+
+Preserve the upstream catalog original source_review_state as provenance. Treat generated current_review_state and disposition as the present decision layer; NEED_EVIDENCE means a documented requirement remains unresolved, not semantic proof or parity. Report current totals from the generated ledger, never from stale catalog-state counts.
+
+## Review each delta-111 SHA before adoption
+
+The 111-commit overlay is a fixed, separate population from the frozen legacy 1,289 rows. Record one semantic decision per SHA and classify each merge from its parent topology as source integration or branch synchronization. Keep `ADAPT` behind a missing-required-behavior check, a failing fixed-main regression, and a narrow safe fix; send unsupported runtime claims to an explicit evidence gate.
+
+## Keep documentation-only and workflow-only PR checks lightweight
+
+For pull requests, always run public-tree and EX-08 inventory checks. Compare host verification against the latest successful `host-baseline` marker and emulator instrumentation against the latest successful full `check` plus `android-instrumentation` run. Changes limited to `docs/`, `.scratchpad/`, `.github/workflows/`, Markdown files, or the exact audit-only `scripts/generate_step4_ex08_inventory.py` may skip product runtime checks; the inventory `--check` still runs on every PR. Unknown paths, missing/failed baselines, large diffs, and API errors require the relevant verification path. Pushes and manual runs use the full suite.
+
+Keep changed-path classification in a directly fixture-tested helper. A successful compare response with an empty or malformed file list is not evidence of a docs-only diff; select the full verification scope, and require workflow-sensitive changes to complete host and instrumentation gates even while the PR is Draft.
+
+## Cache Gradle task outputs only within the same pull request
+
+Allow Gradle's local build cache to be written for same-repository pull requests, where GitHub scopes those cache entries to the PR merge ref. Keep cache writes disabled for fork pull requests, and enable `--build-cache` in both Android Gradle invocations so unchanged task outputs can be reused on later commits.
+
+## Enable Gradle parallel execution in full CI checks
+
+Pass `--parallel` only to the full CI Gradle task set. The previous no-flag full multi-project run spent 8m58s in Gradle; keep the option out of global developer settings, and separate its benefit from warmed task-cache hits when comparing runs.
+
+## Defer emulator instrumentation while a PR is draft
+
+Keep public-tree and EX-08 checks on every PR update. For code-changing draft updates, always run shared/common unit tests; run native DSP and ASan/UBSan only when DSP C, KissFFT, native test files, or their test script changed since the latest successful quick baseline. Defer lint, app builds, JNI, and connected instrumentation until `ready_for_review`. A successful draft quick-check marker is separate from the full host baseline, so documentation-only follow-ups can skip it without satisfying the full-review gate. Pushes, manual runs, and review-ready source updates run the full suite; unknown paths, missing baselines, large diffs, and API errors also fall back to full verification.
+
+## Use the minimal Android SDK for draft unit tests
+
+Draft unit tests require API 37.0/37.1 and Build Tools 36.0.0, but their task graph has no external native build or ADB task. Omit platform-tools and NDK 27 from this path; full host and emulator verification continue to install their full SDK packages.
+
+## Verify profile migration with Android AtomicFile
+
+Keep the JVM schema-migration tests for broad version coverage and exercise a schema-v3 profile through the platform `AtomicFile` in `common` instrumentation. This establishes Android file-write/read behavior and default-off fields; it does not establish an installed-release rollback or production-signed APK upgrade.
+
+## Validate manual-hotspot settings only for wireless transport
+
+`CarPlayRuntimeConfig` carries saved wireless settings into both transports. Require a manual hotspot SSID only for `WIRELESS`; a wired session does not start that hotspot. Keep the wireless credentials, route, and hotspot-manager behavior unchanged, and cover both sides of the validation boundary in a pure unit test.
+
 ## Run emulator instrumentation beside host verification
 
 Keep native/unit/lint/build verification and Android instrumentation in independent GitHub Actions jobs so emulator boot and connected tests overlap the longer host Gradle job. Install the API 35 system image only in the instrumentation job and give each job a distinct report-artifact name; keep every existing gate enabled.
@@ -23,6 +156,50 @@ If `createGroup(null)` succeeds but Android omits the system-generated passphras
 ## Keep connection traces opt-in and app-owned
 
 The debug setting applies from the next connection attempt and writes structured elapsed-time events to bounded app storage. This keeps tracing independent of the foreground activity lifecycle; existing session logs continue to supply throughput and media diagnostics in the same exported report.
+
+## Keep WIRED_PATH_V1 separate from ConnectionTraceEvent
+
+Use the existing debug-log opt-in for one wired-attempt recorder. Store only fixed atomic counters and first monotonic timestamps; keep `wiredStartupAttempt`, random controller run ID, and VPN `attachGeneration` distinct. Append the fixed `WIRED_PATH_V1` line through the bounded trace writer without adding stages/details to the existing trace-event schema. Sealing drops late events; a generation mismatch increments only `stale_callback`.
+
+## Keep all remaining STEP4 stages in PR #45
+
+Per the user's latest instruction, fold every remaining STEP4 stage into the existing PR #45. Preserve the specification's dependency order through sequential commits and validation records; do not open additional STEP4 PRs. The second independent review remains `NOT_RUN` by user direction.
+
+## Keep conditional transport changes evidence-gated
+
+Do not alter watchdog deadlines/completion, USB queue fallback, initial NCM OUT timing, StartSession retry, status polling, or IPv4/scope/listener behavior without the corresponding device evidence in the v3 plan. EX-01 already records the needed per-stage wired milestones; this run has no TS10/iPhone trigger trace, so record the conditional branches as `NO_GO_THIS_RUN` or `NOT_RUN` and preserve existing behavior.
+
+## Gate microphone capture on an explicit request policy
+
+Keep `input=false` as a hard microphone veto while allowing the audio downlink to continue. Accept capture only on MainAudio with an advertised voice input type, valid peer port, enabled microphone permission, and mono negotiated format; reuse the existing owner-scoped uplink so an active recorder is not started twice.
+
+## Keep LOCAL Split resizing inside Android
+
+While the current owner has a Controller, valid Surface, and known remote dimensions, preserve the negotiated AirPlay display size and fit a centered content frame into the current pane. Put the TextureView and touch overlay in the same fitted frame so overlay-local coordinates remain normalized to the rendered content and the letterbox bars receive no CarPlay touches. Keep the existing restart path when the local-session preconditions fail or an explicit settings change requests a new controller.
+
+## Add DSP as a mutually exclusive Host Split mode
+
+Keep Full, YouTube Split, and DSP Split in the existing `CarPlayHostActivity` with one 55% CarPlay pane and one exclusive 45% right pane. DSP layout changes are local viewport causes and must never enter remote resize/restart handling; when an active session cannot be fitted safely, keep the requested mode pending over Full. Share one `DspEditorSession` from the application `DspProfileRuntime` so the Activity and Host ComposeView do not fork draft or runtime ownership.
+
+## Fetch the EX-08 source by immutable commit
+
+The inventory uses the pinned audit tree at `a69a4acb6d50116f4855bebbb94b16047c36c466`; fetch that SHA directly in shallow CI checkouts and verify the fetched SHA. Do not depend on a mutable audit branch name remaining on the remote.
+
+## Keep multiple ViewAreas explicit and wire-switching disabled
+
+Preserve the legacy one-area `/info` output when `AirPlayDisplayConfig.viewAreas` is null. A pure validated Full/Split model may serialize two areas under the same main display only when explicitly supplied; each safe rectangle must be contained in its view rectangle, explicit view-area boundaries must align to even pixels, and Split creation rejects a safe rectangle with no overlap. The application leaves the model unset until the target iPhone accepts the declaration. Do not add unknown `updateViewArea`/`requestViewArea` commands without captured acceptance and frame-size evidence.
+
+## Keep DYNAMIC ViewArea and vendor codec changes gated
+
+PR-06 DYNAMIC requires a phone-accepted command/acknowledgement and same-session frame-size evidence; without it keep LOCAL as the split path and send no guessed command. Preserve fixed main's generic Android R+ `KEY_LOW_LATENCY` request when the selected codec reports support; add no PR-07 vendor/device-specific codec or Surface tuning until a TS10/K706 capability or failure trace identifies a tested change.
+
+## Preserve the DSP-OFF baseline before extending the graph
+
+Keep `DspProfileRepository` schema v3 and its migration/future-schema behavior, the single global DSP master as the runtime enable source, MEDIA-only full processing, and the byte-for-byte PCM16 OFF path with zero track latency. New nodes must remain disabled by default and prepare all buffers/coefficients outside the audio thread.
+
+## Align seat timing by explicit near speaker and preserve graph history
+
+Convert the measured distance difference (cm) to at most 5 ms of delay on the user-selected near channel; never infer left/right from RHD. Keep independent L/R trim and polarity in the same preallocated native stage. Include the maximum seat delay in reported graph latency, Auto Headroom for positive trim, and defer changes to active stateful delay graphs until a new track generation.
 
 ## Keep one USBMUX IN request and use bounded recovery
 
@@ -296,6 +473,10 @@ Tag each primary-session `onPaintStatusReset()` with the current suspension gene
 
 Persist one NCM diagnostic profile only in debuggable builds. `AUTO` polls the status endpoint when available and keeps the 100 ms pre-ready OUT timeout; `NO_STATUS_POLLING` isolates the previous off behavior. Timeout, sync Bulk IN and forced function selection profiles inherit status polling so future timeout comparisons keep it enabled. Do not combine profiles or add CDC-NCM control requests without new A/B evidence.
 
+## Keep USBMUX request ownership through a timed wait
+
+Treat `requestWait(timeout)` as a wait expiry, not a completed or cancelled request. Keep the same queued request and buffer for the next wait; cancel only when the session closes or a terminal failure takes ownership. The current `PersistentUsbReadRequestState` and `Iap2UsbSession.read` already deliver a late completion through that owner.
+
 ## Keep local MFi identity outside tracked source
 
 Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Allow only the expected identity and certificate assets, and reject every other key-like file from APK asset inputs. Never copy those local assets into the worktree.
@@ -303,3 +484,442 @@ Let debug builds receive accessory identity through `DIPLAY_AUTH_ASSETS_DIR`. Al
 ## Include both APK signing schemes for mobile debug distribution
 
 Explicitly configure the mobile debug signing config for v1 and v2 so OEM installers that depend on JAR signatures can parse the APK. Verify the resulting artifact with `apksigner`; the manifest minSdk can affect which scheme is reported as applicable.
+
+## Freeze main behavior before STEP4 corrections
+
+PR-00 changes only tests and baseline/ownership/decision documentation. Keep the observed 512-byte no-pad NCM stall as a passing characterization until PR-01 changes the parser and flips the expected result; do not silently convert a failing behavior into an accepted baseline.
+
+## Integrate Advanced M/S by replacing legacy width controls only when enabled
+
+Keep the existing Stereo Width/Mono Bass path unchanged while Advanced M/S is off. On explicit first enable, fold those persisted settings into the new low/high Side-width values, then use one LR4 Mid/Side stage; v4 profiles migrate to schema v5 with Advanced M/S off. Defer stateful crossover and Side-compressor changes to the next track generation.
+
+## Cabin correction requires external measurements and explicit approval
+
+Accept only CSV responses with declared noise-floor/clipping metadata, 20–300 Hz coverage, near-1/6-octave spacing, and at least 12 dB margin above the floor. Suggest at most three bounded static PEQ cuts, keep them off until user approval, and reuse existing PEQ slots; do not estimate the cabin from program audio or add a dynamic tracking stage without calibrated continuous input.
+
+## Harmonic effects use bounded 2× FIR oversampling and report the dry-matched latency
+
+Share one 2× oversampled waveshaper across the Exciter and Virtual Bass branches, use fixed 9/17/33-tap Blackman FIR presets, and delay dry audio by the matching 4/8/16 frames. Add the ADAA-shaped component to the dry signal; never subtract the input identity from the shaped branch. Keep the effects off by default and bound each branch to 0.5. Calculate Auto Headroom from the internally level-matched dry gain plus the maximum additive branches so the level-match gain is not budgeted twice. Retain the final limiter and defer active filter-state changes until the next track generation.
+
+For native DSP failure, keep Seat-only fallback active even when track common latency is zero. When a live graph crossfade completes, switch to a control-thread-prepared fallback using the newly accepted Seat configuration and the immutable track-generation common latency. Retire old pipelines through a prestarted lock-free reaper so the audio caller does not take locks or schedule cleanup work.
+
+Distinguish `OFF_INITIAL` from `OFF_LIVE_LATENCY_PRESERVED`: a new track with the DSP master off uses the byte-exact legacy PCM16 path; disabling DSP during a track retains its common latency through a float/dither bypass until the next track generation. This preserves the clock and should not be described as bit-exact live OFF.
+
+Treat `DspAdvancedMsConfig.fromLegacy` as a starting-value migration only. The LR4 crossover response differs from the legacy second-order Mono Bass filter; state that in the enable description and lock the frequency difference in a characterization sweep.
+
+## Batch remaining STEP4 work in the existing PR
+
+Keep all remaining STEP4 stages in PR #45 and update related EX-08 decisions, generated inventory counts, and documentation in one batch. When an upstream commit mixes features with independent gates, reject that aggregate as supplied while leaving its narrow constituent candidates pending until their own evidence is available. Use the draft quick lane for iterative code feedback and reserve the full host/emulator lane for `ready_for_review`; missing hardware/protocol evidence remains `NOT_RUN` or `NEED_EVIDENCE`. The second independent review stays `NOT_RUN` per the user's direction.
+
+For the Wi-Fi source batch, reject mixed hotspot/BYD and wireless/USBMUX commits at the commit boundary. Keep isolated wireless location, security fallback, diagnostics, local-ADB, address-family, and Android 9 channel candidates at `NEED_EVIDENCE` until their consent, permission, API, and supported-head-unit gates are established; upstream device results are not substitutes for TS10/K706 evidence.
+
+Reject upstream `origin/main` integration commits independently of their WIFI heuristic label. Review PR-164 BYD ADB/automatic-hotspot integrations as mixed-gate aggregates and evaluate any generic wireless constituent only from an isolated source commit.
+
+Reject wireless diagnostics/recovery aggregates when they combine behavior changes and logging with independent rollback gates. Reject default-on call audio-focus yielding under the v3 default-off policy; leave Same-LAN, Wi-Fi scan pause, Bluetooth suspension/audio, and hotspot repair candidates at `NEED_EVIDENCE` until their network, privacy, permission, and call-path gates close.
+
+Reject upstream `main` merges into the upstream main or a review branch even when the inventory heuristic labels them WIFI. Their changed paths are not a semantic implementation batch; inspect constituent feature commits separately.
+
+Classify BYD dashboard-map, battery, wheel-speed, cluster-song, DiLink overlay, and DiLink4 projection source rows as `SKIP_OEM` when their actual consumer is a BYD/DiLink output. Keep shared day/night polling as `NEED_EVIDENCE` until its lifecycle is reproduced on the supported head unit, and reject the 52-path launcher/map integration as an aggregate.
+
+Keep DiLink cluster Activity, ADB mirroring, turn-card, dashboard-map, and HUD media-line changes at `SKIP_OEM`; reject origin/main and conflict-resolution merges that bundle those paths with unrelated upstream settings. Do not map vendor cluster stream ownership to PR-05/06 generic display acceptance.
+
+Reject broad upstream release merges that bundle wireless, Android TV/platform, HUD, and map-scaling changes. Keep isolated BYD casting, picture-control, virtual-cluster, and dashboard-content rows at `SKIP_OEM` when their sink is the DiLink surface.
+
+Keep ADB wheel-service restoration and call-write cleanup at `NEED_EVIDENCE` until system authorization and iAP2 call refusal/hangup traces are recorded. Keep shared cluster waiting/fade and decoder-scale changes at `NEED_EVIDENCE`; reject the review merge that combines those display changes with wireless turn-card retention.
+
+Keep default-off DiLink call controls, wheel-service restoration, and generic artwork scaling at `NEED_EVIDENCE` when they affect call/input/media paths without target behavior traces. Skip BYD projection geometry, cluster-song return codes, marker sliders, and DiLink setup guidance; reject mixed review-branch and upstream integration merges.
+
+Skip DiLink small-window navigation and independent instrument-task routes when their sink is the vendor cluster. Keep Bluetooth pause/recovery and small-window overlay geometry at `NEED_EVIDENCE` until ADB authorization, restore, touch, resize, and same-session evidence is recorded; reject marker/consent and multi-PR integration bundles.
+
+Treat ambient-light following, DiLink-version detection, BYD call-popup handling, and FCE cluster guidance as OEM outputs. Keep Telecom call routing, VoIP watcher, wheel-key restoration, and track-key call control at `NEED_EVIDENCE` until system permission and call-path evidence are available; reject the 75-path remaining-PR integration.
+
+Keep DiLink navigation-channel defaults at `NEED_EVIDENCE` until first-setup behavior preserves current/legacy user choices and target audio routing is tested. Skip BYD cluster music cards, focus-launch behavior, music rhythm, and settings-decoy routing; reject the large reports/main integration and retain diagnostics pending payload privacy review.
+
+Skip BYD battery protocol, vehicle-probe telemetry, dashboard song/turn-card, DiLink focus/zoom, and controller-version paths. Keep home-screen dashboard sync and route-scoped wheel-key behavior pending; reject the review safety aggregate and upstream HUD/main merge.
+
+Skip the BYD dashboard-song and map-zoom paths; keep generic wheel joystick, boot-repair authorization, and side-panel/TPMS behavior out of the implementation until their target and privacy gates are clear. Reject main/review merges that bundle these concerns.
+
+Do not add Android's full USB device inventory to EX-01 logs. VID:PID and `/dev/bus/usb` node paths are outside the aggregate `WIRED_PATH_V1` schema and are not changed by the source diagnostic redactor.
+
+## Exclude upstream-only locale and OEM copy from STEP4
+
+Classify content patches from their actual source diff and the pinned main resource/feature surface. Keep DiLink/BYD-only key and guide copy at `SKIP_OEM`; reject partial Italian resource batches and release notes that advertise settings or retry behavior absent from fixed main. Treat release text as claims, not runtime evidence, and leave applicable hardware gates `NOT_RUN`.
+
+## Reject Bluetooth changes bundled with dependency-source changes
+
+Do not import the upstream Bluetooth adapter/diagnostic aggregate because it adds an Aliyun Maven repository to the fixed Google/Maven Central source list. Review later isolated Bluetooth changes only after the target-specific wireless A/B gate passes.
+
+## Reject wired and audio changes combined across independent gates
+
+Reject the upstream 10-second USB mode recheck plus navigation PCM attenuation as one aggregate. Keep same-node USB re-enumeration under EX-04 and navigation gain under its audio-quality gate; do not treat rejection of the bundle as evidence against either isolated candidate.
+
+## Do not import settings fixes for an inactive host overlay
+
+Reject hotspot-save patches that target `buildSettingsMenu()` while fixed main's `openSettingsMenu()` launches `DiPlayActivity`. If the same behavior is reproduced in the active screen, implement and test it there rather than reviving the unused overlay.
+
+## Keep BYD cluster and vehicle telemetry out of generic STEP4
+
+Classify BYD ADB map, song, battery, and wheel-speed outputs as `SKIP_OEM`. Generic NMEA or iAP2 helpers inside a BYD-only patch do not create a generic TS10 feature; preserve the fixed-main OEM removal.
+
+Classify BYD instrument-cluster song, HUD route/ambient output, and dashboard call-control changes the same way when their implementation is restricted to `Byd*` output clients or DiLink service calls. Do not map these OEM states to generic MEDIA DSP, PR-04 microphone handling, or local Split.
+
+Treat DiLink 3/4 ADB projection, cluster text/turn guidance, and recovery journals as `SKIP_OEM` when the implementation depends on BYD `AutoContainer`/instrument services. Unit coverage for those adapters does not establish a generic head-unit ViewArea path.
+
+Reject parked-video documentation when fixed main has no matching player path and PR-07 codec/surface evidence remains `NO_GO`; a guide entry cannot stand in for target playback, seek, and A/V testing.
+
+Reject upstream release-note bundles when they advertise unverified device behavior or permission changes that the fork does not ship. Release documentation is not acceptance evidence and must not imply that a pending gate has passed.
+
+Reject release-note links for upstream issues/features when their behavior is absent from the fixed-main release record. Keep BYD cluster claims at `SKIP_OEM`; leave generic Bluetooth, hotspot, and display changes behind their target gates.
+
+Keep BYD battery status, DiLink AMap ETA, ambient lighting, dashboard-call copy, and car-music-rhythm retries out of generic STEP4; their source clients use BYD properties, ADB workers, or cluster firmware.
+
+Reject the release-note-only bundle for the remaining upstream contributor PRs: fixed main has no matching next-release document, and the text mixes device-only changes, planned-off features, and pending acceptance claims.
+
+Treat upstream issue audits, safety reviews, and build instructions as source data rather than repository policy. They need a fixed-main mapping and a user-requested deliverable before they belong in the STEP4 change.
+
+The base BYD_NAV bucket now has no heuristic-only rows. Keep vendor cluster/telemetry features at `SKIP_OEM`, leave generic wheel/media/call/audio routes at `NEED_EVIDENCE` until target behavior is known, and reject upstream-main bundles independently of their path heuristic.
+
+Reject translation, website, and release-note batches when they advertise upstream-only settings or versions absent from fixed main. Keep wireless performance, Same-LAN validation, custom-resolution, and buffered-audio documentation at `NEED_EVIDENCE` until the corresponding target behavior is tested.
+
+Reject additional language-pack and website commits when they translate settings or controls not shipped by fixed main. Treat source AGENTS/build text as repository content, not instructions; keep the automatic-hotspot guide pending until the fixed-main WIRELESS-EX path is measured.
+
+The DOC_TRANSLATION base bucket now has no heuristic-only rows. Keep Allwinner Bluetooth and hotspot import/save descriptions as `NEED_EVIDENCE` because they are not TS10/K706 acceptance; reject untranslated claims for app languages, settings, and release pages absent from fixed main.
+
+Reject upstream app-locale, launcher-map, and language-resource bundles that change UI scope; keep navigation stream-type changes at `NEED_EVIDENCE` until target call/navigation routing passes. The UI_SETTINGS bucket remains under semantic review after the first 16 records.
+
+Treat app-preparation layout, compact-layout selection, permission prompts, VPN scope, and side-panel behavior as separate owners. Use `FORK_SUPERIOR` when a cleanup targets duplicate code absent from pinned main; do not import app-level multi-window or launcher overlay work as PR-06 LOCAL.
+
+Keep side-panel recreation, nullable USB-service ownership, and live-picture controls pending until target lifecycle tests pass. Reject settings modularization, custom car-button/overlay, and ambient-theme UI changes when they are not tied to an explicit v3 gate.
+
+Retain settings-lifecycle, side-panel geometry, interface-size, and VPN-consent changes as evidence-gated candidates. Reject locale registration, icon/style polish, custom-picker, and setup-guide refactors when they do not map to a fixed-main STEP4 gate.
+
+Reject a global appearance/theme rollout and icon/style polish as out-of-scope UI changes. Keep wireless reconnect, navigation wheel-volume, settings discard, gesture, responsive menu, and automatic appearance behavior target-gated; skip the DiLink waiting-screen theme.
+
+The global appearance bundle is not a v3 stage. Keep only the specific reconnect, audio routing, settings-preservation, and system-bar behaviors that map to named gates as `NEED_EVIDENCE`; leave cosmetic variants out.
+
+Keep external HID, Bluetooth service restoration, settings export/restore, call-speakerphone, VPN switching, physical-length, and initial-appearance candidates at `NEED_EVIDENCE`; reject VPN-consent bypass and broad appearance/UI refactors. The policy is to preserve explicit user permission and verify system-service teardown on target.
+
+For AUDIO-EX candidates explicitly listed in v3, keep music buffering/pacing, format-specific buffer settings, Opus fallback, microphone/RTP clock, navigation attenuation, and AEC changes at `NEED_EVIDENCE` until the named target and protocol matrices pass. Reject default-on experimental call processing and bundled review merges; skip Geely/BYD-specific wheel-key integrations from generic STEP4.
+
+Keep PR-04 microphone classification narrow: main audio stream, recognized voice type, explicit `input=false` veto, and a validated numeric `dataPort`. Do not add dynamic stream-key logging when typed diagnostics suffice.
+
+Keep iPhone ViewArea/dock/square-canvas changes disabled until target ACK and same-session geometry pass; camera-window resize is a separate Android lifecycle case, not GeckoView Split acceptance. Treat wireless dynamic AirPlay port fallback separately from wired TCP7000, and do not restore the explicitly reverted wired stream-only fast restart.
+
+Keep Bluetooth auto-launch, saved connection-mode, ADB repair, updater, and MFi CH341-selection candidates behind their own consent/security gates. Reject unrequested background update and boot/doze repair features.
+
+Keep iAP2 older-iOS message retry, Android 17 local-network permission, and wireless hotspot start/port fallback conditional until the supported API/vehicle behavior is observed. Never use hidden TetheringManager exemptions or ADB shell hotspot mutation as a generic recovery path.
+
+Keep diagnostics user-triggered and bounded: redact before queueing, retain only app-owned crash/audio/USB metadata, and do not require public report uploads or expose reports through an unverified phone-page server. Android storage/location permission fallbacks stay target- and API-gated.
+
+Keep unrequested Now Playing artwork and ambient-light output out of fixed main. Automatic playback-rate clock trim is rejected unless a separate implementation is explicitly off by default and passes target pitch, DSP, and A/V measurements; audio focus, frame pacing, and codec-thread candidates remain separately gated.
+
+For WIRELESS-EX, keep Same-LAN/P2P, dual-stack address selection, public hotspot start, Bluetooth readiness, and Android 17 local-network permission conditional until the exact API/firmware paths pass. Skip BYD scan-pause controls and reject root-ADB/hidden-API hotspot credential writes.
+
+For PR-07 decoder candidates, keep size probing, operating-rate hints, MediaTek/FFmpeg paths, frame-at-once output, SurfaceView frame retention, and teardown synchronization behind codec-capability and target resource tests. Reject unconditional stream restarts and do not treat a BYD/Raspberry Pi codec result as TS10/K706 acceptance.
+
+Fence every CarPlay screen callback (codec, config, frame, close) by the registered `(AirPlaySession, stream type, ScreenStream)` identity, and track one current sink owner per screen type because `AndroidMediaSink` keys its decoder by type. Serialize each callback's identity check and sink handoff with replacement/teardown; reset the sink decoder before activating its replacement. A former session's teardown must not deactivate the current session's screen. Close an AirPlaySession only when its exact current ScreenStream is removed. Do not import the upstream Smooth-video parking/MediaCodec design, which is absent from fixed main and still lacks target evidence.
+
+For VIDEO_DISPLAY candidates, reject Android OS multi-window and unrequested resolution/safe-area disabling; keep corner masks, system bars, square rotation, and safe-area mapping behind target geometry/touch checks. Preserve the fixed canvas for PR-06 LOCAL.
+
+For TEST_BUILD, keep the default CI lane limited to supported product modules and reject any release-signing fallback to a debug key. Test-only helpers require a demonstrated flaky/blocked gate before they enter PR-45.
+
+EX-08 is semantically reviewed across all 1,232 base and 57 delta rows. Keep `NEED_EVIDENCE` as explicit pending target/protocol/content proof, not an adoption or parity claim; no candidate becomes product code by appearing in the ledger.
+
+## Keep draft unit feedback proportional to test-only changes
+
+When a draft update changes only JVM unit-test sources in `shared` or `common`, run that module's unit suite. Common Java/Kotlin production-only changes also run only the common suite because `common` depends on `shared`, not the reverse. Shared production, mixed, unknown, or unsafe paths still run both quick suites; `ready_for_review` still runs full host and emulator gates. This shortens feedback without treating a focused draft run as final verification.
+
+## Defer baseline searches for lanes that do not run
+
+Draft changes use only the quick-test baseline; host and instrumentation baselines affect review-ready checks, whose events still search for them. Avoiding those searches on every draft update cuts repeated GitHub API calls without weakening the quick lane or its ready-for-review gates.
+
+For PR-04, exercise all four advertised voice-input request types through `CarPlayMediaEngine` to the existing microphone uplink; policy-only acceptance tests do not establish end-to-end routing. Assert the normalized audio type passed to the uplink (`speechRecognition` becomes `speechrecognition`) while keeping device-only Siri/call behavior pending.
+Keep per-event audio queue/rebuffer diagnostics out of the renderer until shared state is synchronized and reports leave the audio worker through a bounded nonblocking handoff. Fixed main already records one queue-full event and aggregates dropped-packet/rebuffer counts every five seconds; any event-level replacement still needs a useful failure-window and audio-timing measurement.
+
+Do not change telephony `AudioRecord` source based on another OEM's phone-audio state or clipping result. Keep the fixed-main `VOICE_COMMUNICATION` route until TS10/K706 call capture, AEC/AGC, echo, speakerphone, and route restoration are measured.
+
+Keep BYD custom wheel-key/Siri behavior out of fixed main when the fork has no corresponding input service or invocation call site. A BYD-specific event-pairing fix does not establish a generic CarPlay key path.
+
+Classify an OEM feature and its integration merge separately: keep the source feature `SKIP_OEM`, and reject a merge that only reintroduces that same feature across the same paths.
+
+Treat BYD wheel-key follow-ups as the same OEM-specific input surface when they only amend `WheelKeyService` custom voice-key handling; no generic CarPlay Siri key path exists in fixed main.
+
+Keep the car's own hotspot separate from the head unit's `LocalOnlyHotspot`. The fixed-main manual car-hotspot path only checks state and opens settings; adding WRITE_SETTINGS-driven tethering and resume retries requires explicit target consent and tethering-owner evidence.
+
+When the user explicitly taps Connect despite an Android-reported car-hotspot-off state, remember that choice for the manual hotspot path and clear it once Android reports the AP on. Apply the same guard in Home and the controller; leave default behavior unchanged.
+
+Do not export the full Android USB device list in an MFi failure report. VID:PID and `/dev/bus/usb` node paths pass the current redactor, reveal an unrelated hardware inventory, and are outside the EX-01 aggregate report schema.
+
+Do not move PHONE audio to the loudspeaker without reproducing an earpiece route on a supported head unit. Fixed main retains its current `USAGE_VOICE_COMMUNICATION` route until call/Siri/navigation and post-call restoration pass on TS10/K706.
+
+Keep sustained RTP-age eviction separate from audio-clock correction. Fixed main drops newest packets only when its bounded queue fills; stale-packet eviction must preserve short Wi-Fi catch-up bursts and must not train a later track's playback rate from temporary decoder backpressure.
+
+Do not add steering-wheel Siri or media remapping as a microphone adaptation. Fixed main has no `KeyEvent` dispatcher or wheel-key service; require target proof of event delivery, vehicle/TV-remote pass-through, call/session cancellation, and MediaSession routing before adding that new input owner.
+
+After an explicit wireless permission refusal, show guidance from the current missing required permissions, re-check it when the host resumes, and clear it after all requested access is granted. Do not expand the fixed-main request set to an unplanned Android permission merely to reuse upstream wording.
+
+Do not import an upstream wireless retry-exhaustion model solely to preserve its terminal message. First reproduce the overwritten stage in fixed main's existing status/retry path; keep the current retry owner and timings intact meanwhile.
+
+Do not add audio-focus acquisition or retry state when fixed main has no focus owner. Reproduce transient call loss without a gain callback on a supported target and verify focus denial and competing audio before introducing a new owner.
+
+Clear an explicit car-hotspot-off override after a manual hotspot no-interface timeout only when Android still reports the AP off. Preserve the override for unknown state, unrelated configuration failures, and successful starts; this makes the next attempt show the setup warning again.
+
+Keep the car-owned hotspot configuration read/write boundary closed in STEP4. The fixed-main MANUAL path accepts user-provided credentials to join an existing AP; importing or changing the car's stored SSID/password is a separate feature with system and paired-device effects.
+
+Do not put the iPhone's Bluetooth name or either endpoint's Bluetooth MAC in controller debug messages. Keep selection and failure diagnostics to state/counts; the file redactor does not sanitize Android logcat.
+
+Do not add localized rotation copy for a feature that fixed main does not expose. Keep square-canvas rotation gated until screen orientation, safe-area, HID coordinates, and iPhone screenshot framing pass as one supported-target scenario.
+
+For PR #45 multitouch, keep Android pointer IDs in normalized contacts, then map them to the protocol's two fixed HID slots inside each AirPlay session. Advance slot state only after the HID command succeeds; a failed release must be sent before its slot can be reused. This preserves index-independent contacts and the last delivered up coordinate without changing viewport scaling or the three-finger gesture owner.
+
+For AirPlay accepts, require the accepting ServerSocket and captured attachment generation to still be current before using the attachment. Close the accepted socket immediately on a stale listener return. Background session lookup also filters closed sessions so Activity recreation cannot adopt a dead connection.
+
+For plausible incomplete NTH16 recovery, preserve the declared block and do not scan its unused gaps. A corrupt block length may resync only at the exact end of validated NDP/datagram extents (or one endpoint-boundary short pad) to a complete next block with the contiguous sequence number. Reject datagrams larger than the VPN's supported untagged Ethernet MTU; for that invalid-header case, require two complete consecutive NTBs before discarding the prefix. Do not enable NTB32 or recover from a payload signature alone.
+
+For wired-path diagnostic snapshots, allow an unsealed report to retain a positive count with `first_ms=none` when the snapshot races first-timestamp publication. Keep zero-count timestamps absent and reject the same inconsistency in a sealed final report.
+
+Preserve the existing wired-startup watchdog policy: an accepted MAIN or ALT screen SETUP emits the generic `SCREEN_STREAM_OPENED` completion signal, while typed MAIN/ALT diagnostics and MAIN first-frame timing remain separate. MAIN-only completion or new deadlines stay unaccepted until target UX/timing evidence exists.
+
+While CarPlay is in either Split mode, treat pane geometry changes and rotation as local viewport changes even if the Surface is temporarily absent. Use the host root dimensions for physical resize decisions in Full mode; never feed the 55% CarPlay pane width into the remote canvas.
+
+Seat Focus adds interchannel-relative timing, not common transport delay. Keep its fractional allpass delay outside PlaybackClock compensation, report it separately, and preserve the same near-channel timing in the latency-preserving bypass.
+
+Use first-order antiderivative anti-aliasing around the existing harmonic oversampler; preserve the quality choices and their latency while measuring the folded tone for every mode, tap count, and supported sample rate.
+
+Validate active PEQ plus Cabin Correction against the shared 15-band limit before UI state, storage, or runtime publication can replace the active DSP graph. Retire DSP maintenance polling once the last retired graph has closed.
+
+Treat CI's selected/static result separately from release verification. Workflow changes require full host and Android instrumentation; `Android.mk` changes require native tests and an Android ABI link, including draft PRs where selected.
+
+Do not relax the API 35 emulator p99 gate based on inconsistent hosted failures or a different API 36.1 local pass. Runs #366/#367 failed different 48 kHz stereo cases; after matching the production audio worker and benchmark thread priority, hosted run #368 passed at 3.28 ms FullHeavyChain and 4.92 ms Convolver64k against the unchanged 21.332 ms ceiling.
+
+Run the app's PCM/DSP renderer and its CI microbenchmark at `THREAD_PRIORITY_AUDIO`. Measure the same production block under the audio scheduling priority, preserve the 2× block p99 ceiling, and keep target-device xrun/soak evidence as a separate release gate.
+
+Serialize `DspEditorSession` async operations rather than letting a later master/save/apply action invalidate an import token. Disable conflicting controls while an operation is pending, and delete an imported IR on completion only when no active or saved profile references it. Treat `OPEN_CARPLAY` as an explicit request to return from any Split mode before attempting startup.
+DSP editor status reports the MEDIA renderer's requested, preparing, prepared, deferred, active, or failed graph generation separately from the configured profile. Keep a latency-changing candidate prepared through the current track and adopt it before the next generation commits content; do not drop it or move its latency mid-track.
+
+Build the NCM short-packet terminator from the selected bulk-OUT endpoint max-packet size. For microphone `READ_BLOCKING` zero-byte returns, back off only after an empty read, cap delay at 50 ms, reset on positive input, and send no synthetic silence. Apply the existing diagnostic redactor before writing messages or exception details to Logcat.
+
+For the 2026-10-23 third PR-45 re-audit, preserve incomplete NTH16 blocks at their declared boundary; only recover from validated payload ends or a fixed allowed zero-pad length. Corrupt datagram-length recovery requires two consecutive valid sequence blocks, keeps bounded pending candidates, and scans only newly received offsets. A lone candidate times out and remains closeable rather than being accepted early.
+
+Keep `CarPlayHostActivity` non-exported and route its UI commands through one-use in-process tokens. The exported USB attach trampoline must validate the current CH341 device and Android USB permission before it changes the saved transport preference.
+
+For live DSP OFF with zero common latency, fade toward dry PCM instead of carrying the old Seat fallback into the disabled graph. Advance latency-preserving Float state without quantizing PCM16 on healthy DSP blocks. Bind each retirement counter when its pipeline is retired, and distribute close work over independent reaper workers.
+
+Treat DSP status as the last adopted graph and identify format-incompatible modules such as Convolver separately. Keep the Harmonic upper-band alias guard and adversarial native sweep together; target THD/listening and Seat phase acceptance remain device gates.
+
+Logcat is an independent sink from the app's redacted session trace. Log exception class names at direct `Log` sites instead of Throwable stacks/messages; remove microphone packet and decrypted video previews before logging.
+
+For the fourth PR-45 audit, do not resynchronize a plausible incomplete NTH16 from a two-block sequence pair inside its unused gap. A max-length `0xffff` header with a validated following pair is ambiguous, so fail the NCM session closed instead of delivering possibly misframed packets. Bound NDP tables and per-block datagrams, then recover malformed NDP metadata only from a consecutive valid pair.
+
+After a microphone uplink has started, re-check its owner-scoped active state on downlink RTP; only a current owner may retry a dead capture, and it must use the existing retry backoff. Video recovery requests carry the screen generation and execute on a bounded two-worker pool. A replacement decoder is not created until the prior worker acknowledges codec release; a bounded timeout drops the new config/frame until another input retries.
+
+Keep the foreground notification's open PendingIntent reusable and process-death safe with a dedicated explicit action to the non-exported Host Activity. The exported USB attach trampoline requires Android's privileged `MANAGE_USB` caller permission in addition to validating the actual attached CH341.
+
+Treat pipeline-preparer exceptions as a terminal FAILED result for that generation rather than rescheduling the same failing candidate. Controller epochs fence callbacks across format replacement even when the audio format later returns to an equal value.
+
+The native DSP engine has mutable graph state and remains a single-writer API: callers serialize `process`/`reset` per processor. Keep same-engine concurrent-process behavior outside the supported contract unless a separate real-time-safe guard is designed.
+
+For a local CarPlay-authenticated mobile build, source `identity.pk8` and `certificate.p7b` through `DIPLAY_AUTH_ASSETS_DIR` outside the worktree. When no release keystore is configured, build the installable Debug variant with Android's debug key; keep this distinct from production signing.
+
+Declare `CarPlayVpnService` as a protected exported VpnService for Android's system action, while returning its local Binder for app-owned binds. Handle revoke cleanup on a generation-checked worker, notify only the revoked attachment, and opt out of always-on VPN.
+
+Treat an apparent consecutive NTH16 pair inside the unprotected tail of any declared block length as ambiguous and fail closed; never resynchronize into that tail. For a complete but incomplete-length NTB, fail the bridge after 30 seconds without new bytes while resetting the timer on progress.
+
+Keep TextureView SurfaceTexture ownership until each MAIN/ALT decoder worker acknowledges its surface transition. Release only after all owners acknowledge; if MediaCodec release fails, retain the old surface and prevent decoder replacement until safe release. Do not wait for a retiring decoder on the screen receive path. VIDEO-02 injects a release exception and verifies retention/replacement blocking before retrying cleanup.
+
+Keep video control/recovery work bounded and coalesce superseded surface/config jobs while carrying every surface-retirement callback forward. Scope one in-flight keyframe recovery request per stream type and bound the executor to two workers plus 16 queued jobs.
+
+Treat one DSP preparation generation as a single ownership scope: getter/publish exceptions close an untransferred candidate and report FAILED once. Serialize renderer-owner checks with pending publication; a failed native close remains a failed retirement and blocks further adoption. Preserve Seat trim/polarity only in the native-failure fallback; the user-selected DSP OFF path remains dry.
+
+For the DSP Split crash, cap the compact Scaffold with the current window's `screenHeightDp` before constructing a vertical scroll viewport. This is dynamic across orientation/window changes and leaves any smaller finite parent constraints in effect; keep parent MeasureSpec capture and SH-M27 acceptance open rather than treating the guard as device proof.
+
+For failed DSP fallback, keep the legacy delayed output unchanged for low-level/no-Seat cases. Apply the prepared auto-headroom preamp when positive Seat trim is active and auto-headroom is enabled; use a soft limiter as the failure-only guard when the user disabled auto-headroom. Reaper-backed candidate closure is asynchronous, so tests must synchronize on close completion instead of asserting immediately.
+
+For a locally installable CarPlay build without configured release signing, use the Android Debug signing config and package external MFi identity/certificate files as separate runtime-auth assets. The MFi files enable protocol authentication; they do not constitute the Android APK signer or release approval.
+
+## Extract only allowlisted MFi assets from a supplied APK
+
+When an existing APK is the user-supplied source, inspect its ZIP entries and extract only one copy each of `assets/offline-mfi/identity.pk8` and `assets/offline-mfi/certificate.p7b` to a permission-restricted temporary directory outside the worktree. Keep the embedded CarPlay identity distinct from Android signing and use the existing Debug signing config for a local build.
+
+For sixth-review source fixes, start no-progress tracking as soon as a valid NTH16 sequence and declared length are known, even when its NDP structure is incomplete; keep VPN revoke scoped to the attachment's transport kind/generation. If a codec candidate cannot release, retain it and stop fallback codec attempts. Native DSP retirement failures must flow to the reaper's FAILED path, while protocol diagnostics retain only allowlisted stage/byte counts and never payload bytes.
+
+For the DSP Split infinity-height crash, cap the scroll body itself before `verticalScroll` and record the incoming Compose constraints plus the Android ComposeView MeasureSpec path. A Scaffold-level cap alone was insufficient according to the user's device result; keep device acceptance open until measured on SH-M27.
+
+For DSP failure fallback, do not call full graph `prepare()` from the AudioTrack worker. Use a bounded conservative gain estimate from configured positive boosts, Seat trim, and margin; keep the soft limiter on the failed-output path and leave the DSP-OFF path unchanged. This avoids retrying an invalid PEQ and avoids EQ scans or impulse-response copies during track-generation changes.
+
+For AirPlay listener startup, keep the newly created ServerSocket locally owned through bind and diagnostics setup, then transfer ownership to the service fields before starting the accept thread. A failure before transfer closes the local socket; failures after transfer are cleaned through the normal attachment release path.
+
+For Surface retirement, keep every release acknowledgement until decoder ownership is safe, but store callbacks separately from coalesced surface-control jobs so rapid surface changes do not repeatedly copy the accumulated callback list. Emit bounded count/age diagnostics; do not invent a cap that would discard required acknowledgements or force unsafe Surface release.
+
+For DSP Split measurement diagnostics, retain the most recent 64 distinct measurement signatures, include the latest 16 in the unbounded-body diagnostic, and cap emitted measurement logs at 64 per process. Compare primitive MeasureSpec and Compose constraint fields before formatting log strings. Because this dependency's `ComposeView` is final, capture the exact child specs at the existing pane's `measureChildWithMargins` call and pass those same values to `child.measure()`; keep SH-M27 rendering/scroll acceptance as a separate device gate.
+
+For a retired DSP pipeline close failure, bind the failure to that pipeline's configuration generation and identity. Keep the status phase ACTIVE for the current graph, attach the old pipeline failure as separate metadata, and report that further updates are blocked; never mark the latest configured generation as a preparation failure for an older pipeline.
+
+Serialize active playback-route selection and monitor publication as one operation. Otherwise concurrent renderer callbacks can publish a stale route after a later owner removal.
+
+Treat persisted Studio workspaces whose source profile ID differs from their embedded snapshot ID as Invalid at repository load, and reject the same mismatch on save. Runtime startup then falls back to the selected profile instead of applying an internally inconsistent draft.
+
+Only MEDIA renderers publish the active playback sample rate used for EQ frequency validation. Route callbacks read the current routed device inside the listener generation gate immediately before publishing so delayed initial callbacks cannot restore an earlier route.
+
+When separating Surface retirement callbacks from coalesced jobs, preserve the original `SurfaceChanged` job if its callback list is empty. Tests for background DSP teardown must wait on an explicit close signal, and tests observing transient apply status must allow preparation to advance to deferred before reading it.
+
+The reaper's close callback can signal before its `finally` decrements the retired-pipeline count. Tests of controller adoption must wait for `canAdoptUpdate()` after close notification instead of reading it immediately.
+
+Keep the wired startup watchdog's existing completion signal on an accepted MAIN or ALT screen SETUP. After that point, treat control TCP closure before RECORD as a separate startup failure and route it through the existing transport teardown/retry policy. Bound RTSP headers to 64 KiB, bodies to 4 MiB, and simultaneous control sessions to four; verify these limits against supported-device traffic before treating hardware acceptance as complete.
+
+2026-10-26 B00: treat C-00 as `USER_CONFIRMED_RESOLVED` for product behavior, while preserving any older `NOT_RUN` device measurements as such. Freeze the full current 1,289-row EX-08 CSV bytes and SHA-256 before building a separate 111-commit overlay; generated inventory consistency is not semantic review or device evidence.
+
+2026-10-26 B01: preserve the fixed EX-08 111-commit range as a separate metadata/patch overlay and keep every new row `NEED_EVIDENCE` until per-SHA semantic review. Protect the existing 1,289 CSV rows as a byte-identical prefix; do not treat compare stats, patch digests, or inventory checks as adoption or parity proof.
+
+2026-10-26 B07: classify each SHA independently against fixed main. `ADAPT` requires a fixed-main failing test and a narrow safe implementation; source commits already integrated by a merge are classified through their source rows, while branch-sync merges are never independent feature candidates. Keep `NEED_EVIDENCE` rows actionable with the exact target measurement or log needed to advance.
+
+2026-10-26 B08: keep Stage3 timestamps in a fixed-size attempt-local monotonic state and fence attachment callbacks by generation. Record only exact successful full-size NCM OUT; keep reports validated and bounded in memory, separate from debug packet diagnostics. Do not add a resend or timer without target-device causal evidence.
+
+2026-10-27 B08 performance evidence: measure the added allocation-free classifier/timing hot path with per-thread CPU/allocation counters and a fixed packet/iteration matrix. Host measurements do not substitute for TS10/K706 profiling; preserve `0x4301` retry as zero until the device trace proves its cause.
+
+2026-10-27 B09/B11: keep the 21.332 ms API 35 p99 limit unchanged after local reruns fail; a passing first run does not erase later failed evidence. Keep additional StartSession sends and all other conditional features off without the specified device reproduction and A/B proof.
+
+2026-10-27 B09 follow-up: the focused 48 kHz stereo case and full API 35 Shared suite subsequently passed 19/19 below the unchanged budget. At that point the full hosted lane was still skipped under Draft scope, so B09 remained partial. Later workflow-sensitive run #486 passed the full host and API 35 gates; retain the earlier p99 failure/crash and passing repeats separately because the transient cause is unknown.
+
+2026-10-27 B09 distribution: the current acceptance check uses the median of three per-configuration p99 samples. Run #490's API 35 x86_64 artifact and a local API 35 arm64-v8a repeat passed that gate, yet single-run p99s reached 41.636 ms and 84.009 ms respectively; the local maximum median was 20.020 ms against the unchanged 21.332 ms ceiling. Report the per-run distribution alongside the CI result and do not relax the ceiling or infer that the tails are harmless.
+
+## Pair wall p99 with per-block thread CPU timing
+
+2026-10-27 B09: retain the wall-clock p99 as the deadline gate, because audio delivery depends on elapsed time. Add per-block thread CPU timing only to the instrumentation benchmark so high wall p99 with lower CPU p99 can indicate time not charged to the measuring thread; this diagnostic does not prove the target audio path is safe and cannot replace TS10/K706 measurements or justify relaxing the limit.
+
+2026-10-27 B09 follow-up: run #495 passes all 56 median wall-p99 gates on x86_64, while the focused local arm64 class fails four wall-p99 assertions with lower thread-CPU p99. Keep the ABI results separate, retain the existing thresholds, and leave G4 partial until the local timing cause and target-device behavior are understood.
+
+2026-10-27 B09 Release instrumentation: make the Shared p99 harness opt into the optimized Release JNI variant (`NDK_DEBUG=0`) while keeping Debug as the default for other tasks. Run Shared Release and Common Debug in separate Gradle invocations to avoid overlapping instrumentation with build work. Preserve the earlier combined-run failures and all thresholds; Release emulator passes do not replace TS10/K706 acceptance.
+
+## Retain Gradle test result XML in CI artifacts
+
+2026-10-27 B09: upload unit-test XML and connected AndroidTest XML/HTML with `if: always()` so a failed test remains diagnosable from the run artifact. Run #490 verified that the configured paths produce 865 unit-test and 20 instrumentation-test results; artifact retention itself does not change test scope or release status.
+
+2026-10-26 B02: cover NCM parser recovery and persistent USB request teardown with focused fixtures; source behavior already satisfies the inspected cases, so keep this batch test-only except for bounded DSP measurement log formatting. Retain hardware endpoint behavior as `BLOCKED_DEVICE`.
+
+2026-10-26 B03: validate generation, attachment and server identity together before accepting sessions or processing VPN revocation; keep ownership validation and the session start atomic under the service monitor. Serialize wired release/error callbacks with replacement and reject stale attempts.
+
+2026-10-26 B04: keep the existing F8 source fixes and add state-path regressions through actual `AirPlaySession` SETUP/RECORD handling. A control socket close after accepted MAIN/ALT SETUP and before RECORD is a recovery trigger; after RECORD it ends only the active session. Retain bounded four-session permits and verify release/reuse.
+
+The decoder-retirement test must keep its stop gate closed until the assertion completes even though `VideoDecoder.close()` interrupts the worker to wake its queue. The test hook absorbs that expected interrupt while waiting, then restores the thread interrupt flag after explicit release.
+
+Smart Loudness AUTO trusts only explicit route-bound readings supplied by a platform adapter and user-captured quiet/reference points. The common module does not infer Android stream volume as physical playback volume; MANUAL and FIXED remain independent fallbacks.
+
+Production Android AUTO readings remain untrusted until supported-device evidence proves the hardware volume control follows Android's MUSIC index. Track the active `AudioTrack` route, index and fixed-volume status, but do not infer OEM/MCU correspondence from index changes alone. Keep the raw route address transient; only a SHA-256-derived route token reaches calibration storage.
+
+## Keep DSP Studio rollback claims tied to production wiring (superseded 2026-10-27)
+
+At the earlier source revision, `DspStudioFeatureFlags` had no production call sites and was not an operational kill switch. That observation is superseded by the integrated runtime wiring at `fe083f4f`: `DspProfileRuntime` now persists the flags, initializes renderer gates, applies supported feature changes, and restores the prior active workspace if persistence fails. Keep rollback claims tied to those production call sites and their tests.
+
+## Exercise the production EQ graph in Compose instrumentation
+
+Host `DspEqEditorPane` directly and inject touch coordinates relative to the graph Canvas bounds so the test covers the production pointer handlers, callback mapping, and filter-specific gain behavior without adding test-only production APIs.
+Select a draggable band from the original pointer-down coordinate; Compose's simple drag-start position is at touch-slop recognition and can be too far from the small handle hit target after a single large movement.
+
+2026-10-26 B05: bound TextureView surface ownership at the generation boundary, where new Surface wrappers can still be deferred safely. Count pending retirements plus the current Surface against an eight-pair ceiling; keep only the newest deferred Texture and resume it after ACKs. Retire same-Texture Surface wrappers only after decoder ACK and release the Texture only after its destroyed generation's owners complete.
+
+2026-10-26 B06: keep the microphone zero-read backoff and send-only-after-positive-read behavior unchanged because the production capture loop already implements the contract; exercise it end-to-end with a scripted AudioRecord and loopback UDP receiver. Extend only the OFF_INITIAL regression matrix to the four supported rate/channel combinations; do not change sample-clock or live-OFF latency behavior.
+
+2026-10-26: Integrate the latest PR #45 base through a merge commit on the PR #52 branch, preserving both branches' Working Memory history. Keep PR #45 and main unchanged, and keep PR #52 open pending user approval.
+
+## Keep module A/B previews separate from the editor draft
+
+Compare a single module by overlaying its frozen A/B fields onto the current draft workspace and keep the rest of the draft unchanged. If the selected User preset is deleted while a comparison side is audible, return the renderer to the current draft before resetting the UI side to Draft; the visible side and audible configuration must stay aligned.
+
+## Keep Static Bass inside the EQ warm path without changing the user band limit
+
+Represent Static Bass as one internal graph filter after the combined 15-slot PEQ/Cabin capacity, then prepare and warm the EQ candidate from the existing bounded pre-EQ history. This preserves the public band limit and stage latency while allowing only PEQ and Static Bass to use opt-in LOCAL_WARM; Cabin Correction and IR remain deferred. Allocate renderer-status owner tokens process-wide because the runtime status store can outlive a sink, and make render-thread retry requests signal the control worker rather than wait on the config-listener lock.
+
+Smart Loudness headroom must bound the transient response of `sample - lowpass(sample)`, not only its steady-state sine gain; use the residual filter's impulse-gain bound before calculating preamp reduction.
+# Preamp HOT uses its own fenced command path
+
+Keep the versioned preamp-only payload kind separate from the existing Macro/Loudness/Dynamic Bass payload while reusing the same bounded Native HOT mailbox and generation fence. Require Auto Headroom, at least 6 dB of applied preamp reserve, and a current MEDIA owner/format tuple; ramp native linear gain over 20 ms and ACK only after the ramp finishes. On rebind, cancel an active ramp at its last-good value.
+
+2026-10-28 REM-01 follow-up: Prepare the linear gain for Studio HOT alongside the dB value and carry both through JNI. Use the linear value for immediate gain changes and deferred headroom refunds so PCM processing does not call `pow`; preserve the existing safe gain deferral while a Preamp ramp is active.
+
+2026-10-27 REM-07: Do not inherit PASS from historical test-matrix rows into the per-ID evidence ledger. A row can be PASS only when method, exact command, result, full source SHA, and artifact are attached to that row; until then retain PARTIAL or NOT_RUN.
+
+2026-10-27 REM-07 validator: Resolve artifact paths within the repository and permit only direct GitHub Actions run URLs as remote artifacts. Resolve runbooks relative to the tracker directory, reject paths outside the repository, and compare each acceptance predicate against the canonical matrix text.
+
+2026-10-27 REM-07 validator: Accept a remote Actions run artifact only when the URL points to this repository (`github.com/choko510/DiPlay/actions/runs/<id>`); a syntactically valid URL for another repository is not evidence for this tree.
+
+2026-10-27 REM-07: Keep `Missing fields` limited to absent evidence inputs and use a separate `What missing` column to identify the unproven acceptance subcase. This allows a PARTIAL row to contain complete execution metadata while still stating the requirement that remains unverified.
+
+2026-10-27 REM-07: Keep work-package execution tracking separate from the per-ID acceptance ledger. Use explicit `Not recorded` values for unavailable owners, dependencies, commits, commands, and reviews; only associate commits and tests where the project records provide a direct match.
+
+2026-10-27 REM-07: PKG-R11 is PARTIAL because a device runbook exists but its hardware gates have not run; PKG-R12 is PARTIAL because integration, independent reviews, and rollback evidence are recorded while per-ID/hardware and merge gates remain open.
+
+2026-10-27 REM-07: Use the completion spec's REM-01..12 and PKG-R00..12 scopes verbatim as tracker keys; do not substitute REQ-001..012 for REM IDs or reuse the earlier package-summary grouping. REM-07 is the 170-ID evidence package; REM-12 is the full code-head CI package.
+
+2026-10-28 REM-07: Run `check_dsp_studio_evidence.py` in the Android `check` job after checkout/static checks and before Gradle setup, so every PR check enforces evidence ledger contracts. Workflow changes are classified workflow-sensitive and select full host plus instrumentation verification.
+
+2026-10-28 REM-07: Keep each §12.2 evidence dimension in its own column. PARTIAL's `Missing evidence` enumerates exactly blank evidence fields while `Unproven predicate` identifies the acceptance criterion still open; a PARTIAL row may have all execution metadata populated if the acceptance remains incomplete.
+
+2026-10-28 REM-07 PH mapping: Associate run #40625689851 only with test methods present at its exact source SHA and tasks that its workflow actually ran. Keep the row `PARTIAL` when mapped assertions cover only a subpredicate, a reviewer is unrecorded, or native/physical evidence is still open; a successful aggregate must not promote acceptance status.
+
+2026-10-28 REM-10 T-UI/T-PRE mapping: Reuse a successful Actions run only for methods present at its source SHA and in a completed matching task. Keep API 35 screen evidence separate from physical CarPlay acceptance, and leave reviewer blank unless a reviewer was recorded.
+
+2026-10-28 REM-05 Native helper: Prepare and fully verify Compressor/Limiter coefficients on the control side; the render-side apply checks a sealed payload fingerprint without recomputing pow/exp. Preserve compressor envelope and limiter gain, defer enable/topology changes and Limiter threshold increases, slew Compressor curve/output gain plus makeup within bounded per-frame steps, and end ACK-pending after the configured frame count regardless of program-level variation.
+
+2026-10-28 REM-04 Save/Cancel: Advance request generations atomically without waiting on persistence. Write the workspace to AtomicFile's temporary path, then check the generation immediately before `finishWrite` as the linearization point: an earlier Cancel aborts via `failWrite`; a later Cancel restores the workspace that committed first. Do not hold a monitor across workspace file I/O on the UI path.
+
+2026-10-28 REM-04 JNI follow-up: Run the full Dynamics HOT validator before enqueuing at the JNI boundary. The prepared-only validator is insufficient there because it accepts finite, in-range coefficients without proving they match the config and sample rate.
+
+2026-10-28 REM-04 JNI review follow-up: Validate the raw Dynamics and Dynamic EQ enable fields before constructing typed configs; C floating-to-integer conversion is undefined for NaN and out-of-range values.
+
+2026-10-28 T-LOUD: Automatic correction remains unavailable unless a route-bound Android stream-volume reading is trustworthy and matches calibration. An unchanged stream index does not infer an OEM/MCU knob change; untrusted or mismatched readings produce zero Auto correction. Smart Loudness parameter toggles remain HOT and preserve the active pipeline's latency.
+
+2026-10-28 REM-03: While DSP remains enabled on a committed track, treat symmetric Seat trim and Legacy Width as same-latency whole-pipeline WARM only when no stateful stage requires continuity. Defer asymmetric Seat trims, Seat delay/polarity/near-speaker/enable changes, Legacy Width while Advanced M/S is active, and width/trim changes while stateful graphs are active; preserve the separate DSP-off crossfade path and do not report these spatial changes as Native HOT.
+
+2026-10-28 T-SAFE-08: Display Limiter threshold as a sample-peak ceiling and explicitly state that True Peak and continuous gain-reduction measurements are unavailable until those measurements are implemented; never label sample peak as True Peak.
+
+REM-05 keeps one `rememberScrollState()` per `DspStudioTab` and selects the active state for the existing body. The EQ pane uses a keyed `SaveableStateHolder` so its selected band survives when tab selection removes the pane from composition. This leaves tab navigation, draft/session state, and the compact split height cap unchanged.
+
+2026-10-28 PR #52 final follow-up: publish renderer status as one atomic owner/status pair so a PCM-path status report never waits on a monitor while still fencing owner, generation, and phase together.
+
+2026-10-28 PR #52 evidence: detailed matrix and evidence tracker status must match exactly; keep emulator/host subcases PARTIAL when a physical clause remains, and reject evidence regeneration over an existing populated tracker.
+
+2026-10-28 PR #52 Preamp: a Preamp HOT update may alter only the shared gain ramp; test the active Compressor/Limiter state, Convolver history, and reported latency before/after applying the command.
+## Keep USB auto-launch as a validated entry to the existing Controller
+
+Keep the Apple attach component disabled by default and enable it only with the independent user setting. Require the exact current USB device plus the existing CarPlay USBMUX/NCM configuration before launching; keep permission requests, USB opens, and re-enumeration with `IphoneUsbHost` and `CarPlayController`. Gate background-session adoption on the requested transport. During a wireless-to-wired handoff, retain only the latest validated attach identity, revalidate after teardown, fence stale callbacks, and preserve the Host split snapshot. Keep boot recovery user-initiated with a notification when background launch is unavailable. Use `MANAGE_USB` only as an Activity caller restriction; do not request it for the app.
+
+## Do not hand off a Controller before close is confirmed
+
+On a shutdown or full-stack restart, keep a process-local teardown barrier until `CarPlayController.awaitClosed()` succeeds and the old sink close call returns. A timeout or failure is diagnostic and triggers bounded retries; callbacks that start a new Host receive `CLOSED` only after the barrier is cleared. Deferred USB requests resume after that point. Never clear ownership and then treat a timeout as successful completion.
+
+## Label video latency by its actual endpoint
+
+The PTS-correlated diagnostic ends after `releaseOutputBuffer(..., true)` returns. Name it `receivedToCodecSurfaceReleaseMs`; do not describe it as frame display time. Keep display-presentation timing as a separate device measurement and include unmatched/overwritten correlation fractions.
+
+## Resume verified USB attaches only after the current teardown owner completes
+
+For an existing wired Host, a verified single-use USB attach is a new start-condition event and must call `maybeStartCarPlay()` without bypassing its controller, background-owner, VPN, display, permission, menu, and shutdown guards. If a non-process shutdown is already active, coalesce one wired resume or wireless-to-wired switch callback and run it only after the old controller and sink have closed; process-exit shutdown remains a hard stop.
+
+## Detach DSP ownership before asynchronous native destruction
+
+On a decoder format change, the audio owner first removes the old graph from all processing/fade/pending references, then queues its one-time close on the existing DSP reaper. Keep the new-format initial graph preparation synchronous where the first decoded PCM requires its state. A failed old close stays sticky for that renderer, reports `updatesBlocked`, and can be cleared only by a new renderer publishing its own active graph.
+
+## Bound codec release retries to the owning video worker
+
+Retry a throwing `MediaCodec.release()` only on its decoder worker, at most twice for the same codec owner. Keep the Surface ACK blocked and retain old references after the retry budget is exhausted; report restart-required rather than creating a replacement against uncertain ownership.
+
+## Keep custom profile selection and Studio Workspace restart state consistent
+
+For explicit `custom1`/`custom2` save, derive the persistent Workspace from the last committed Workspace and replace only its base profile. Keep active Studio preview values separate; rebase the in-memory Studio session onto the new committed base while retaining unsaved module edits and undo history. Use a write-ahead journal to commit Workspace first, then the legacy custom-profile file; roll back Workspace on an explicit file-write failure and replay a committed journal before runtime startup after process death. Reject FutureSchema data before writing. Keep the DSP master flag in its existing separate preference.
+
+## Route user exits through one DSP Studio decision
+
+Keep Back/close and Host `OPEN_CARPLAY`/YouTube exits on the same Studio Save/Discard/Continue path. Hold only the latest Host exit request while the visible DSP editor is dirty or an operation is pending; bind it to Activity and session-owner generations so stale requests cannot navigate. System lifecycle teardown clears queued requests without opening a prompt. Keep Controller, AirPlay Session, Surface, and AudioTrack ownership outside the layout-only transition.
+
+## Resume verified USB attaches only after the current teardown owner completes
+
+For an existing wired Host, a verified single-use USB attach is a new start-condition event and must call `maybeStartCarPlay()` without bypassing its controller, background-owner, VPN, display, permission, menu, and shutdown guards. If a non-process shutdown is already active, coalesce one wired resume or wireless-to-wired switch callback and run it only after the old controller and sink have closed; process-exit shutdown remains a hard stop.
+
+## Detach DSP ownership before asynchronous native destruction
+
+On a decoder format change, the audio owner first removes the old graph from all processing/fade/pending references, then queues its one-time close on the existing DSP reaper. Keep the new-format initial graph preparation synchronous where the first decoded PCM requires its state. A failed old close stays sticky for that renderer, reports `updatesBlocked`, and can be cleared only by a new renderer publishing its own active graph.
+
+## Bound codec release retries to the owning video worker
+
+Retry a throwing `MediaCodec.release()` only on its decoder worker, at most twice for the same codec owner. Keep the Surface ACK blocked and retain old references after the retry budget is exhausted; report restart-required rather than creating a replacement against uncertain ownership.

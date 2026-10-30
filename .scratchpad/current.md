@@ -1,1 +1,23 @@
-# Current Wor
+# Current Status — PR #45 with PR #52 DSP Studio integration (2026-10-31)
+
+## Latest source and validation
+
+- This PR #52 merge commit `471d025aa501b2d37f3e6cfd8cb8f9e44c80af82` syncs base `9ea41f8e5f5f9a0bc11eede5d2bac1adce3efd7c`; the PR head before sync was `47bd73df2ec7b961d44fd9753612bdfb1f8b759c`. The prior source/test head `2a6c04399012aff2b42c0d77f2675930104a2084` includes R-01 fix `14537700afdfdd1a8b128734942fbb1b9b9eb332`.
+- After conflict resolution, Shared/Common unit tests pass 1120/1120; mobile and automotive Benchmark assembles and JNI mapping verification pass. Local Native DSP rerun was unavailable because no C compiler is installed; hosted run #596 passed Native and ASan/UBSan on the synced head.
+- R-01 pending protective gain ramps now retain generation/owner/format/context and stop at the effective linear gain when stale; fresh commands resecure headroom. R-02 Surface recovery remains test-only/default-off; R-03 Runbook live-preview wording and R-04 queue-generation publication order are corrected.
+- Before this base sync, local `scripts/test_dsp_native.sh` passed Native DSP and Dynamic EQ HOT suites. The synced head's evidence checker/fixtures pass: 170 IDs / 25 packages, validator 24/24; hosted run #596 passed Native/ASan/UBSan; ledger PASS 2 / PARTIAL 162 / NOT_RUN 6.
+- Hosted PR run [#592](https://github.com/choko510/DiPlay/actions/runs/40937236189) passed Native/ASan/UBSan, Shared/Common, lint/build/JNI/R8, API 35 instrumentation, host-baseline, and Release verification at integrated HEAD 2a6c0439. API 35 passed Shared Release 23/23 and Common Debug 29/29.
+- G-01: at source/test head 00ac7453, three API 35 Shared Release attempts had one wall-clock p99 failure (63.232 ms vs. 21.332 ms; thread CPU p99 1.640 ms) and two passes. Runs #592 and #596 passed their respective integrated heads; cause remains unproven and there is no hardware comparison.
+
+## Remaining acceptance
+
+- TS10/K706/iPhone audio, USB/video/touch, route-volume, A/V, CPU/RSS/thermal, reconnect and soak remain `NOT_RUN`. No post-R-01 independent review has run.
+- PR #52 remains open and unmerged pending hardware evidence and user approval. The current implementation task is on PR #45's fixed-base branch; neither PR has been merged.
+
+## Active batch — PR #45 pre-merge fixes
+
+- Latest implementation base was PR #45 HEAD `c6077a1509b662f6754b83ff0bc482ace2612afb`; it contains the integrated PR #52 source tree. Code commit `4b2a4a4b41992bf5183da3a232e949e369bf49b8` implements P1-01, P1-02, and P2-01 without changing the fixed main base.
+- P1-01 Back routing, Activity visibility cycles, P1-02 custom Workspace/profile persistence, Draft isolation, FutureSchema/I/O/crash recovery and generation ordering, and P2-01 latest host exit requests/Controller identity have regression coverage.
+- Final local Common unit suite passes 374/374. P1 Activity instrumentation passes 2/2 on a temporary API 36.1 x86_64 AVD. AndroidTest Kotlin compilation, mobile/automotive Debug builds, and both app Debug lint tasks pass.
+- P2 Compose dialog interaction tests compile but local execution stops before test methods because the installed API 36.1 Espresso version reflects the missing `InputManager.getInstance()` method. No API 35 system image is installed locally. GitHub Actions [run #599](https://github.com/choko510/DiPlay/actions/runs/41076939717) passed on head `91681cc9`: `changes`, EX-08/public-tree, Common Draft unit tests, quick-baseline, and Draft scope passed; Shared unit tests were `FROM-CACHE`; native/sanitizer/build/lint/JNI/R8/host-baseline/API 35 instrumentation were skipped. Test report artifact `12988441222` was uploaded.
+- TS10/K706/iPhone, signed update/rollback, and independent post-fix review remain `NOT_RUN` per the existing evidence gates and user direction. Keep PR #45 Draft and unmerged.

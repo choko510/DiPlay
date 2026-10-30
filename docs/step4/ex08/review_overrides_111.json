@@ -1,0 +1,2336 @@
+[
+  {
+    "commit_sha": "83a397c666f70baff518efb171c3d47b3d191b9e",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #1 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This is a Geely/Lynk cluster projection and handoff. Fixed main has no compatible vehicle-specific cluster sink; generic CarPlay display and local Split are separate.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "GEELY_CLUSTER",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/83a397c666f70baff518efb171c3d47b3d191b9e)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; geely cluster",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "5506897e0c210b474d5ffbf32df16d299f294445",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #2 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This is a Geely/Lynk cluster projection and handoff. Fixed main has no compatible vehicle-specific cluster sink; generic CarPlay display and local Split are separate.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "GEELY_CLUSTER",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/5506897e0c210b474d5ffbf32df16d299f294445)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; geely cluster",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "7d09d82347037ac9086204c6dd32c0916fe6685d",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #3 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This is a Geely/Lynk cluster projection and handoff. Fixed main has no compatible vehicle-specific cluster sink; generic CarPlay display and local Split are separate.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "GEELY_CLUSTER",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/7d09d82347037ac9086204c6dd32c0916fe6685d)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; geely cluster",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "48c971711f2413403121c11f573490c84ef976f6",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #4 and its pinned first-parent patch; selected FORK_SUPERIOR under the B07 evidence policy.",
+    "disposition": "FORK_SUPERIOR",
+    "fixed_main_summary": "Fixed main already has stable pointer-to-HID slot mapping, last-coordinate release, and failed-UP retry before slot reuse.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayTouchSlots.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "HID_TOUCH",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/48c971711f2413403121c11f573490c84ef976f6)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayTouchSlots.kt](../../shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayTouchSlots.kt)",
+      "[AirPlayTouchSlots regression](../../shared/src/test/java/com/shilapi/xcertplay/airplay/AirPlayTouchSlotsTest.kt)",
+      "[Android pointer-ID regression](../../shared/src/test/java/com/shilapi/xcertplay/media/CarPlayTouchMapperTest.kt)"
+    ],
+    "related_step4": "F-01/F-02; fixed-main HID touch ownership",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_LOCAL: shared suite 646/646 at 686516f5; stable slot mapping, last-coordinate lift, pointer-index changes, and failed-UP resend are asserted."
+  },
+  {
+    "commit_sha": "40236083afc6b8bc94771708521fd93bc9e818e4",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #5 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Retry at once when Bluetooth turns on; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "On TS10/K706 API 28+ capture adapter state transitions and prove one retry after TURNING_ON without overlap; add a retry-generation regression."
+    ],
+    "primary_category": "WIRELESS_BLUETOOTH",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/40236083afc6b8bc94771708521fd93bc9e818e4)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt](../../shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt)"
+    ],
+    "related_step4": "EX-08 B07; wireless bluetooth",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "798f1b6d14d73de8c1ad70eb55e72c27ff8a5624",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #6 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Wait for the group info answer while reclaiming a retained group; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Test delayed, failed, and post-cancel requestGroupInfo callbacks during retained-group reclaim on API 28/29/35."
+    ],
+    "primary_category": "WIRELESS_P2P",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/798f1b6d14d73de8c1ad70eb55e72c27ff8a5624)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt](../../shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt)"
+    ],
+    "related_step4": "EX-08 B07; wireless p2p",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "7d860fd2b2162cc12bf76ba83d3266e488604a74",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #7 and its pinned first-parent patch; selected REJECT_UNSAFE under the B07 evidence policy.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Adds ADB-backed import for the car-owned hotspot configuration. Fixed main only supports user-entered credentials for joining; import is a separate permission and credential owner.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "WIRELESS_CAR_AP_CREDENTIALS",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/7d860fd2b2162cc12bf76ba83d3266e488604a74)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt](../../shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt)"
+    ],
+    "related_step4": "EX-08 B07; wireless car ap credentials",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "cea03ba70ec73e6fca614fc34d17d19bcdc73e7f",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #8 and its pinned first-parent patch; selected REJECT_UNSAFE under the B07 evidence policy.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Suppresses the warning before writing imported hotspot details back to the car; this couples readback to a write and can disrupt other devices.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "WIRELESS_CAR_AP_CREDENTIALS",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/cea03ba70ec73e6fca614fc34d17d19bcdc73e7f)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt](../../shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt)"
+    ],
+    "related_step4": "EX-08 B07; wireless car ap credentials",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "0a0bb8ae906d7e1cebd58c8365d333daa84796de",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #9 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Keep a new touch back until the settings swipe can no longer start; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Reproduce a Settings swipe over CarPlay and assert pointer ownership plus exactly one terminal UP/CANCEL."
+    ],
+    "primary_category": "UI_TOUCH_ARBITRATION",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/0a0bb8ae906d7e1cebd58c8365d333daa84796de)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui touch arbitration",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "1c88f20e6fa00f1ca44a0165f7381d73df40bdd3",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #10 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Keep the hotspot details in the quick menu after the screen is recreated; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Test menu close/reopen and Activity recreation after a hotspot change; assert current SSID/status."
+    ],
+    "primary_category": "UI_HOTSPOT_STATE",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/1c88f20e6fa00f1ca44a0165f7381d73df40bdd3)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui hotspot state",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "7f2a01277e649263cc72114b4cf92014fcc38a12",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #11 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Show the phone page in Italian; the adjacent fixed-main owner is common/src/main/assets/settings-backup.html. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/assets/settings-backup.html",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Confirm the locale is supported and render backup/code pages including translations and fallbacks."
+    ],
+    "primary_category": "UI_LOCALIZATION",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/7f2a01277e649263cc72114b4cf92014fcc38a12)",
+      "[owner at reviewed upstream SHA: common/src/main/assets/settings-backup.html](https://github.com/shihabal3amri/DiPlay/commit/7f2a01277e649263cc72114b4cf92014fcc38a12)"
+    ],
+    "related_step4": "EX-08 B07; ui localization",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "9448b9ed651258221eece4d810c742831cecfcba",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #12 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Show the requested size and the menu's language in the display summary; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Add localized summary assertions for display, requested size, and saved value after recreation."
+    ],
+    "primary_category": "UI_DISPLAY_SUMMARY",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/9448b9ed651258221eece4d810c742831cecfcba)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui display summary",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "d0fc8d9a3a16183f2ded59f5c9065b8d9cff99c1",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #13 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Keep the hotspot details when the quick menu closes; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Test menu close/reopen and Activity recreation after a hotspot change; assert current SSID/status."
+    ],
+    "primary_category": "UI_HOTSPOT_STATE",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/d0fc8d9a3a16183f2ded59f5c9065b8d9cff99c1)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui hotspot state",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "d0a67cea820845c6032307dfb3425f3f5a053e6e",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #14 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Back up the resolution percentage and the settings added since the backup list; the adjacent fixed-main owner is common/src/main/assets/settings-backup.html. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/assets/settings-backup.html",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Round-trip supported settings and verify secrets/pairing data remain excluded."
+    ],
+    "primary_category": "SETTINGS_BACKUP",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/d0a67cea820845c6032307dfb3425f3f5a053e6e)",
+      "[owner at reviewed upstream SHA: common/src/main/assets/settings-backup.html](https://github.com/shihabal3amri/DiPlay/commit/d0a67cea820845c6032307dfb3425f3f5a053e6e)"
+    ],
+    "related_step4": "EX-08 B07; settings backup",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "7e13365550b40caee1609bb7feda4bfd0f1920e2",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #15 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Leave the unknown car out of the setup guide's features line; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Add an unknown-vehicle fixture and assert only advertised capabilities appear across supported locales."
+    ],
+    "primary_category": "UI_SETUP_GUIDE",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/7e13365550b40caee1609bb7feda4bfd0f1920e2)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui setup guide",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "12c612cd0d9f5e174cdbee9459228b1fd13af9de",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #16 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Keep the home-screen bubble where a touch can reach it; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Measure bubble bounds at supported resolutions/densities with system insets and add a positioning regression."
+    ],
+    "primary_category": "UI_LAUNCHER_BUBBLE",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/12c612cd0d9f5e174cdbee9459228b1fd13af9de)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui launcher bubble",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "3b4ba7362b5af76e8a91c66207ff19cb01d81f39",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #17 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Offer Wi-Fi Direct in the CarPlay menu before Android 10; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Run API 28/29 permission, connection, and teardown tests on target hardware without replacing the local-hotspot path."
+    ],
+    "primary_category": "WIRELESS_API28_P2P",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/3b4ba7362b5af76e8a91c66207ff19cb01d81f39)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt](../../shared/src/main/java/com/shilapi/xcertplay/network/WifiP2pGroupManager.kt)"
+    ],
+    "related_step4": "EX-08 B07; wireless api28 p2p",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "119aa8671718272d0f0f8281b04e091ffc9d99dc",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #18 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This depends on BYD car-rhythm output/signatures. Fixed main has no BYD rhythm owner or generic signal for this behavior.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_RHYTHM",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/119aa8671718272d0f0f8281b04e091ffc9d99dc)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd rhythm",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "0f7b17897762dc4533b1d2c27fc313d687c47d50",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #19 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This depends on BYD car-rhythm output/signatures. Fixed main has no BYD rhythm owner or generic signal for this behavior.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_RHYTHM",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/0f7b17897762dc4533b1d2c27fc313d687c47d50)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd rhythm",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "364d41cb0f38570c9a169f8fd70e713de4cdf7d8",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #20 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "A frame-rate control and maxFPS serialization exist; the Settings presentation lacks a dedicated UI assertion.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Test Settings rendering/persistence and verify reopened value matches phone-advertised maxFPS."
+    ],
+    "primary_category": "UI_FRAME_RATE",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/364d41cb0f38570c9a169f8fd70e713de4cdf7d8)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui frame rate",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "ee96bcbbe1283690acd1542ce99c5978a46a83c4",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #21 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Keep an unobservable tether set unobservable; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Test unknown, denied, off, and on states on API 28/29/35; prove manual join never maps unknown to false-off."
+    ],
+    "primary_category": "WIRELESS_TETHER_STATE",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/ee96bcbbe1283690acd1542ce99c5978a46a83c4)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt](../../shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt)"
+    ],
+    "related_step4": "EX-08 B07; wireless tether state",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "5438e80f3f1da17497e438c9ecba83b3d0008f69",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #22 and its pinned first-parent patch; selected FORK_SUPERIOR under the B07 evidence policy.",
+    "disposition": "FORK_SUPERIOR",
+    "fixed_main_summary": "The Activity restores the live background session; currentAirPlaySession filters a closed controller/session.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "SESSION_RECREATION",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/5438e80f3f1da17497e438c9ecba83b3d0008f69)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt](../../shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt)",
+      "[Activity/session regression](../../common/src/test/java/com/shilapi/xcertplay/CarPlayHostActivityLocalScaleTest.kt)"
+    ],
+    "related_step4": "F-09; fixed-main Activity/session ownership",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_LOCAL: common/shared 849/849 at ae63a365; Activity retains the live session and currentAirPlaySession() returns null after close."
+  },
+  {
+    "commit_sha": "4288b0e7a1fdf0b8f4fe23b2194721b59f32a9a0",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #23 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Let the phone page's listener be gone when stop() returns; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Reproduce fixed-main shutdown ordering; test listener/socket close, worker termination, and late callback rejection without blocking UI."
+    ],
+    "primary_category": "SETTINGS_SERVER_LIFECYCLE",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/4288b0e7a1fdf0b8f4fe23b2194721b59f32a9a0)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; settings server lifecycle",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "1a52868e36590ffaaa6249b7333c90f6bcfd2885",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #24 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Let Settings search find slider rows; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Test actual Settings search/index behavior for slider titles and localized labels."
+    ],
+    "primary_category": "UI_SETTINGS_SEARCH",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/1a52868e36590ffaaa6249b7333c90f6bcfd2885)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui settings search",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "42fe9277657e216a65f0cefcc4018049fc2799d4",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #25 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Show an update the background check found when Home comes back; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Test background update completion, resume, dismissal, and repeated resume without duplicate notices."
+    ],
+    "primary_category": "UI_UPDATE_RESUME",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/42fe9277657e216a65f0cefcc4018049fc2799d4)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui update resume",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "d7a113681bf120146cb7048f35e4ed69ab146bd9",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #26 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The local-hotspot interface filter selects the head-unit AP, not the manual carrier-search owner.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Add mobile/VPN/Wi-Fi Direct/hotspot interface fixtures; confirm chosen route on TS10/K706."
+    ],
+    "primary_category": "WIRELESS_INTERFACE_SELECTION",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/d7a113681bf120146cb7048f35e4ed69ab146bd9)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt](../../shared/src/main/java/com/shilapi/xcertplay/network/ManualHotspotManager.kt)"
+    ],
+    "related_step4": "EX-08 B07; wireless interface selection",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "bb10c8d4e808a85fee2307cbe9649479c0f71356",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #27 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This targets the DiLink 3 dashboard-map stream/layout. Fixed main has no DiLink cluster owner; local Split is a different surface.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_DILINK_CLUSTER",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/bb10c8d4e808a85fee2307cbe9649479c0f71356)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd dilink cluster",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "2ba83a04153a8b6aedff5529b951a8598a7dc0e8",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #28 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This depends on BYD car-rhythm output/signatures. Fixed main has no BYD rhythm owner or generic signal for this behavior.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_RHYTHM",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/2ba83a04153a8b6aedff5529b951a8598a7dc0e8)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd rhythm",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "e63b7b3d27cdde7944aee8273fa63b3be310be21",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #29 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "Existing generation-owned startup recovery and the 15 s hard watchdog remain authoritative; NCM distinguishes full Sent from NotReady/Failed.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "B08 must correlate same-attempt StartSession, exact full NCM OUT, SYN, SYN-ACK TUN/OUT, accept, RECORD, SETUP, first frame, and teardown on TS10/K706; no extra 0x4301 before evidence and watchdog design."
+    ],
+    "primary_category": "WIRED_STARTSESSION",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/e63b7b3d27cdde7944aee8273fa63b3be310be21)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt](../../shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt)"
+    ],
+    "related_step4": "F-03/F-04; observation-only B08 gate",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "3000daa8e8c0a0818e597973ef0e7963e52a57ee",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #30 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "Existing generation-owned startup recovery and the 15 s hard watchdog remain authoritative; NCM distinguishes full Sent from NotReady/Failed.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "B08 must correlate same-attempt StartSession, exact full NCM OUT, SYN, SYN-ACK TUN/OUT, accept, RECORD, SETUP, first frame, and teardown on TS10/K706; no extra 0x4301 before evidence and watchdog design."
+    ],
+    "primary_category": "WIRED_STARTSESSION",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/3000daa8e8c0a0818e597973ef0e7963e52a57ee)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt](../../shared/src/main/java/com/shilapi/xcertplay/orchestration/CarPlayController.kt)"
+    ],
+    "related_step4": "F-03/F-04; observation-only B08 gate",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "79eeec9df752f6ec316b2df5dface3ae9736882b",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #31 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Report the clock the microphone timestamps count in; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Add payload-free monotonic capture/read/write/RTP timestamps and validate clock domain/drift on TS10/K706 without changing RTP increments."
+    ],
+    "primary_category": "AUDIO_MIC_CLOCK",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/79eeec9df752f6ec316b2df5dface3ae9736882b)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt](../../shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt)"
+    ],
+    "related_step4": "B06/F-12; microphone capture/RTP clock",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "63764597e19c3c4564ec5627d5e84f5276ed2cb8",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #32 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The fixed-main codec option already says HEVC (H.265); a search-title regression is absent.",
+    "fork_owner_file": "common/src/main/res/values-en/host_strings.xml",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "If search discoverability is required, add HEVC/H.265 search/localization tests; do not change codec negotiation for a title-only patch."
+    ],
+    "primary_category": "UI_HEVC_LABEL",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/63764597e19c3c4564ec5627d5e84f5276ed2cb8)",
+      "[fixed-main owner: common/src/main/res/values-en/host_strings.xml](../../common/src/main/res/values-en/host_strings.xml)"
+    ],
+    "related_step4": "EX-08 B07; ui hevc label",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "83d629a09556b378f5bac1f15b26e702be82fa55",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #33 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Report media buttons that CarPlay does not use; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Define diagnostic value, consent, retention, and redaction excluding key content/device identity."
+    ],
+    "primary_category": "AUDIO_MEDIA_KEY_DIAGNOSTIC",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/83d629a09556b378f5bac1f15b26e702be82fa55)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt](../../shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt)"
+    ],
+    "related_step4": "EX-08 B07; audio media key diagnostic",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "88e847ec865f7d8b4ad2cf36e0a4999fd00c8aed",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #34 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "Fixed main uses numeric hostAddress on Bonjour startup; no target measurement shows a remaining reverse-DNS delay.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/network/CarPlayBonjour.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Measure Bonjour discovery-to-probe on target; if delayed, test formatting without hostname lookup."
+    ],
+    "primary_category": "WIRELESS_BONJOUR_DNS",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/88e847ec865f7d8b4ad2cf36e0a4999fd00c8aed)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/network/CarPlayBonjour.kt](../../shared/src/main/java/com/shilapi/xcertplay/network/CarPlayBonjour.kt)"
+    ],
+    "related_step4": "EX-08 B07; wireless bonjour dns",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "f05bca3c4b8d70daa38daeb5964288b6f1e98b4f",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #35 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Simulate the iPhone's wireless bursts in the music clock trim test; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Approve a clock-trim requirement and provide sustained/short-burst A/V evidence before testing an unadopted controller."
+    ],
+    "primary_category": "AUDIO_CLOCK_TRIM_TEST",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/f05bca3c4b8d70daa38daeb5964288b6f1e98b4f)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt](../../shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt)"
+    ],
+    "related_step4": "EX-08 B07; audio clock trim test",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "6e9c530b234d5ac3d86539e66cde6ac4b6e270c9",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #36 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Average the music level over time in the clock trim; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Measure drift, burst recovery, pitch, and A/V sync on TS10/K706 before considering an opt-in controller."
+    ],
+    "primary_category": "AUDIO_CLOCK_TRIM",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/6e9c530b234d5ac3d86539e66cde6ac4b6e270c9)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt](../../shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt)"
+    ],
+    "related_step4": "EX-08 B07; audio clock trim",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "da94865ee8736f9603311b16f58c6c2ed073d650",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #37 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Name the microphone's real source, and what else records while it is silent; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Use payload-free target capture tests and document consent/retention; prove bounded fields contain no samples or identifiers."
+    ],
+    "primary_category": "AUDIO_MIC_DIAGNOSTICS",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/da94865ee8736f9603311b16f58c6c2ed073d650)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt](../../shared/src/main/java/com/shilapi/xcertplay/media/MicrophoneUplink.kt)"
+    ],
+    "related_step4": "B06/F-12; microphone silence diagnostics",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "fafa2d8ce54aec1d70e605d76dc93a06a567ea01",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #38 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Withdraw DiPlay's audio mode request when a call ends; the adjacent fixed-main owner is shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Measure mode/route before/during/after call, Siri, navigation; prove teardown removes only DiPlay's request."
+    ],
+    "primary_category": "AUDIO_MODE_OWNERSHIP",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/fafa2d8ce54aec1d70e605d76dc93a06a567ea01)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt](../../shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt)"
+    ],
+    "related_step4": "EX-08 B07; audio mode ownership",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "f541dd07f65082cc1c9df1372052e932ec91150f",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #39 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This reports car wheel-speed telemetry. Fixed main has no generic vehicle-data service or wheel-speed input.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_VEHICLE_TELEMETRY",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/f541dd07f65082cc1c9df1372052e932ec91150f)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd vehicle telemetry",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "fe939547ce93c9203e7eddc6622e1da57ac52625",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #40 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This is a Geely/Lynk cluster projection and handoff. Fixed main has no compatible vehicle-specific cluster sink; generic CarPlay display and local Split are separate.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "GEELY_CLUSTER",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/fe939547ce93c9203e7eddc6622e1da57ac52625)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; geely cluster",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "afbfefbb1240f63288f61564ba240e0634ee3c3f",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #41 is branch synchronization (Merge remote-tracking branch 'upstream/main' into feat/geely-cluster-map); its first-parent patch imports broad history, not one isolated behavior.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology classifies this as branch-sync-only. First-parent patch: 846722 bytes, SHA-256 afe83c37a03a8c4ac9cd4a3485f419b8d355068d1a76a06691751f573382ad83.",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "BRANCH_SYNC_ONLY",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MERGE_BRANCH_SYNC",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/afbfefbb1240f63288f61564ba240e0634ee3c3f)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; branch synchronization only",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=BRANCH_SYNC_ONLY. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "f9d104c897daaa22610b33b3ee6946e4ddcf079c",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #42 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "These strings label an OEM dashboard-map shape control that is absent from fixed main's generic display and local Split settings.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "OEM_CLUSTER_LOCALIZATION",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/f9d104c897daaa22610b33b3ee6946e4ddcf079c)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; oem cluster localization",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "0f48b9459152e466d7db657fcc50cd391136370e",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #43 is branch synchronization (Merge remote-tracking branch 'origin/main' into main-lrc); its first-parent patch imports broad history, not one isolated behavior.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology classifies this as branch-sync-only. First-parent patch: 643235 bytes, SHA-256 6d10f62191b8dbd48c8d200c737ac2fef2056cdc8e306c59612dc95d580652d9.",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "BRANCH_SYNC_ONLY",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MERGE_BRANCH_SYNC",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/0f48b9459152e466d7db657fcc50cd391136370e)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; branch synchronization only",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=BRANCH_SYNC_ONLY. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "c60ad8309d3d943553c9a2b59d63280d5339f3f0",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #44 is branch synchronization (Merge branch 'main' into main-lrc); its first-parent patch imports broad history, not one isolated behavior.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology classifies this as branch-sync-only. First-parent patch: 733065 bytes, SHA-256 8f9c0d68f3d5c87f32147036e2d89d61490666461e134855bdaed92c0c518362.",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "BRANCH_SYNC_ONLY",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MERGE_BRANCH_SYNC",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/c60ad8309d3d943553c9a2b59d63280d5339f3f0)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; branch synchronization only",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=BRANCH_SYNC_ONLY. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "0eeae53faa844ded1d718f1e62803acf8b6321e3",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #45 is branch synchronization (Merge branch 'main' into main-lrc); its first-parent patch imports broad history, not one isolated behavior.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology classifies this as branch-sync-only. First-parent patch: 1318816 bytes, SHA-256 385043af49a41fb2719fb2a653546e5936740404d8225c2ee2bc03255993a02c.",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "BRANCH_SYNC_ONLY",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MERGE_BRANCH_SYNC",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/0eeae53faa844ded1d718f1e62803acf8b6321e3)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; branch synchronization only",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=BRANCH_SYNC_ONLY. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "db7e04cd93c3bceffda1be26a50b442876891a74",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #46 is branch synchronization (Merge branch 'main' into main-lrc); its first-parent patch imports broad history, not one isolated behavior.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology classifies this as branch-sync-only. First-parent patch: 2075124 bytes, SHA-256 e4a0d2373fb284fe008c86b40e211da4419080190947e3e0706f280afc2d303b.",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "BRANCH_SYNC_ONLY",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MERGE_BRANCH_SYNC",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/db7e04cd93c3bceffda1be26a50b442876891a74)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; branch synchronization only",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=BRANCH_SYNC_ONLY. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "dc744381121d67132448e684af40720ecb9a5627",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #47 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This changes the BYD cluster music card. Fixed main has no BYD cluster-music sink.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_CLUSTER_MUSIC",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/dc744381121d67132448e684af40720ecb9a5627)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd cluster music",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "d67a29aa96c963b0831f707f2eb8ce150669320a",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #48 is branch synchronization (Merge branch 'main' into main-lrc); its first-parent patch imports broad history, not one isolated behavior.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology classifies this as branch-sync-only. First-parent patch: 846722 bytes, SHA-256 9f0d00159adcc5279a1b0168b6e5f3c04b6962886a6b68332c96e8f7525dab2c.",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "BRANCH_SYNC_ONLY",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MERGE_BRANCH_SYNC",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/d67a29aa96c963b0831f707f2eb8ce150669320a)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; branch synchronization only",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=BRANCH_SYNC_ONLY. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "bd540390f73ce8e7c155e075776657179bc4d46f",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #49 and its pinned first-parent patch; selected REJECT_UNSAFE under the B07 evidence policy.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Mixes BYD cluster-music defaults, Italian strings, and an ensureGateOpen Activity-owner change; separate owners make the aggregate unsafe to import.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MIXED_BUNDLE_BYD_CLUSTER_AND_UI",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/bd540390f73ce8e7c155e075776657179bc4d46f)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; mixed bundle byd cluster and ui",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "ea220bbc6e1548f03350aa0ddf3b8cb508c30e4e",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #50 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This test covers a BYD cluster-song gate, not an existing fixed-main CarPlay behavior.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_CLUSTER_MUSIC_TEST",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/ea220bbc6e1548f03350aa0ddf3b8cb508c30e4e)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd cluster music test",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "84d52f2b3c989f2d11a918c4245bc65179720eb2",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #51 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds test(backup): ask whether the page answers after the server stops; the adjacent fixed-main owner is common/src/main/assets/settings-backup.html. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/assets/settings-backup.html",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Show a fixed-main reproduction or requirement; test stop closes listener/socket and rejects late callbacks."
+    ],
+    "primary_category": "SETTINGS_BACKUP_LIFECYCLE",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/84d52f2b3c989f2d11a918c4245bc65179720eb2)",
+      "[owner at reviewed upstream SHA: common/src/main/assets/settings-backup.html](https://github.com/shihabal3amri/DiPlay/commit/84d52f2b3c989f2d11a918c4245bc65179720eb2)"
+    ],
+    "related_step4": "EX-08 B07; settings backup lifecycle",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "3c1b04f25ae42f20ac2dd8a9d92aced7d362efa7",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #52 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Test that a key only the settings window sees is learnt while the service runs; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Confirm requirement and test input delivery, pass-through, lifecycle, privacy, and TV-remote coexistence on TS10/K706."
+    ],
+    "primary_category": "VEHICLE_KEY_LEARNING",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/3c1b04f25ae42f20ac2dd8a9d92aced7d362efa7)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; vehicle key learning",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "497190772a2e89e61d5d60377908c01c473af667",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #53 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds Learn the Siri and play/pause keys in the window while the service runs; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Confirm requirement and test input delivery, pass-through, lifecycle, privacy, and TV-remote coexistence on TS10/K706."
+    ],
+    "primary_category": "VEHICLE_KEY_LEARNING",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/497190772a2e89e61d5d60377908c01c473af667)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; vehicle key learning",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "4f65778cdebc9770ab34d7612dd8be12de07cf0d",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #54 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "Physical width persists and model tests exist, but fixed main uses 50 mm steps while the source requests 5 mm.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayDisplaySettings.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Confirm 5 mm precision requirement; test snap/persistence and supported-iPhone physical size/safeArea."
+    ],
+    "primary_category": "UI_PHYSICAL_SIZE_STEPS",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/4f65778cdebc9770ab34d7612dd8be12de07cf0d)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayDisplaySettings.kt](../../shared/src/main/java/com/shilapi/xcertplay/airplay/AirPlayDisplaySettings.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui physical size steps",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "d1ebfcb206f95619fc7f120361d9bf885f8b1933",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #55 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "Fixed main persists selected CarPlay size; localized screen restoration is not tested.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Test saved-size display/restoration in supported locales without changing physical-width or Split behavior."
+    ],
+    "primary_category": "UI_PHYSICAL_SIZE_SUMMARY",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/d1ebfcb206f95619fc7f120361d9bf885f8b1933)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui physical size summary",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "d335b666b0bd315ec2d35e55e258e5ba2e2e9448",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #56 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "A physical-length slider and persistence already exist in the host; equivalence with the upstream screen owner is unproven.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Test range, snap, persistence, and advertised AirPlay value before moving settings ownership."
+    ],
+    "primary_category": "UI_PHYSICAL_SIZE_SLIDER",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/d335b666b0bd315ec2d35e55e258e5ba2e2e9448)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui physical size slider",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "ecdaffd934d33bb8a8fbd6de2293aa50fb9cfc3d",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #57 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "TcpLiveness returns before descriptor tuning below API 29, but no local API 28 regression pins this boundary.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/network/TcpLiveness.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Add API 28 coverage proving only Socket.keepAlive is enabled and AirPlaySession retains the socket; test API 29+ separately."
+    ],
+    "primary_category": "TCP_LIVENESS_API28_TEST",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/ecdaffd934d33bb8a8fbd6de2293aa50fb9cfc3d)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/network/TcpLiveness.kt](../../shared/src/main/java/com/shilapi/xcertplay/network/TcpLiveness.kt)"
+    ],
+    "related_step4": "F-13; API 28 public-API boundary",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "1bfd23a918b07e5104139cd5cd2bdc2cf6eb39d9",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #58 and its pinned first-parent patch; selected REJECT_UNSAFE under the B07 evidence policy.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Uses reflection on a non-SDK socket file-descriptor method; fixed main returns before descriptor access below API 29 and uses public APIs above it.",
+    "fork_owner_file": "shared/src/main/java/com/shilapi/xcertplay/network/TcpLiveness.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "TCP_LIVENESS_PRIVATE_API",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/1bfd23a918b07e5104139cd5cd2bdc2cf6eb39d9)",
+      "[fixed-main owner: shared/src/main/java/com/shilapi/xcertplay/network/TcpLiveness.kt](../../shared/src/main/java/com/shilapi/xcertplay/network/TcpLiveness.kt)"
+    ],
+    "related_step4": "F-13; private API reflection rejected",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "d0e5eb424e5833f2fd32e2a1dcd340cffaf7c570",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #59 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "Fixed main has no generic cluster music-card owner; this is separate from CarPlay Split and DSP.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Identify a supported generic cluster output owner; then test artwork ordering, late results, and fade lifecycle."
+    ],
+    "primary_category": "CLUSTER_MUSIC_ARTWORK",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/d0e5eb424e5833f2fd32e2a1dcd340cffaf7c570)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/CarPlayHostActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; cluster music artwork",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "b0b44faa1cc8cb8a4362c0bf7bb9abfe3508ccab",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #60 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This changes an OEM speedometer/album card. Fixed main has no matching cluster canvas or vehicle-speed owner.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_CLUSTER_SPEED_CARD",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/b0b44faa1cc8cb8a4362c0bf7bb9abfe3508ccab)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd cluster speed card",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "fa69dfd18727da04514a195d08e9177426fde236",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #61 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds fix(settings): give the launcher bubble its own line icon; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Confirm requested icon treatment and render contrast across densities and light/dark backgrounds."
+    ],
+    "primary_category": "UI_LAUNCHER_BUBBLE_ICON",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/fa69dfd18727da04514a195d08e9177426fde236)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui launcher bubble icon",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "860282d87e2b61b0c5a48799299bf3f20715fd7a",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #62 and its pinned first-parent patch; selected NEED_EVIDENCE under the B07 evidence policy.",
+    "disposition": "NEED_EVIDENCE",
+    "fixed_main_summary": "The source adds fix(settings): align the ambient note with its control; the adjacent fixed-main owner is common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt. No fixed-main failure or approved requirement is established for this behavior.",
+    "fork_owner_file": "common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [
+      "Provide a screenshot/accessibility-boundary reproduction and deterministic layout assertion."
+    ],
+    "primary_category": "UI_AMBIENT_NOTE_LAYOUT",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/860282d87e2b61b0c5a48799299bf3f20715fd7a)",
+      "[fixed-main owner: common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt](../../common/src/main/java/com/shilapi/xcertplay/DiPlayActivity.kt)"
+    ],
+    "related_step4": "EX-08 B07; ui ambient note layout",
+    "rollback_plan": "No upstream patch imported. If later evidence justifies adaptation, isolate it in one PR #45 commit with a regression test and revert that commit.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "a311c7e8a48c1758a1f0749142a49fd2aa4b4366",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #63 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This changes an OEM speedometer/album card. Fixed main has no matching cluster canvas or vehicle-speed owner.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_CLUSTER_SPEED_CARD",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/a311c7e8a48c1758a1f0749142a49fd2aa4b4366)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd cluster speed card",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "e6f66cba118154ba1af8af4a83009e36d783781b",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #64 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This belongs to BYD vehicle-data/network-ADB settings, which are absent from fixed main.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_NETWORK_ADB_STATUS",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/e6f66cba118154ba1af8af4a83009e36d783781b)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd network adb status",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "bb146f1f0e045637e35f695f97431f5487e05211",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #65 and its pinned first-parent patch; selected SKIP_OEM under the B07 evidence policy.",
+    "disposition": "SKIP_OEM",
+    "fixed_main_summary": "This belongs to BYD vehicle-data/network-ADB settings, which are absent from fixed main.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "BYD_NETWORK_ADB_STATUS",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/bb146f1f0e045637e35f695f97431f5487e05211)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; byd network adb status",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "288dd6620b68134b45336f15729f12b214bfd7a2",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #66 integrates source commit(s) #21 Keep an unobservable tether set unobservable; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (4401 bytes; SHA-256 b2450eb52da9b6751fdbe9cf833680f25d246b39bf6707db3d7707035021ca88).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      21
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/288dd6620b68134b45336f15729f12b214bfd7a2)",
+      "[source #21: ee96bcbbe128](https://github.com/shihabal3amri/DiPlay/commit/ee96bcbbe1283690acd1542ce99c5978a46a83c4)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 21",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "cb0da602d336971c7a016aeb9165770665244983",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #67 integrates source commit(s) #26 Leave mobile-data interfaces out of the hotspot carrier search; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (5178 bytes; SHA-256 e354fa2d34d112d505ad796dcda74dc3ce743368b27f745decdd345ec70c19bc).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      26
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/cb0da602d336971c7a016aeb9165770665244983)",
+      "[source #26: d7a113681bf1](https://github.com/shihabal3amri/DiPlay/commit/d7a113681bf120146cb7048f35e4ed69ab146bd9)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 26",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "e321203c31dee7722521aea431e3a96e141cfbb5",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #68 integrates source commit(s) #36 Average the music level over time in the clock trim; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (7107 bytes; SHA-256 5a0f203a2f01c5878ca85bf86ed08b8b08d97df6d1980418961094f11583a2d8).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      36
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/e321203c31dee7722521aea431e3a96e141cfbb5)",
+      "[source #36: 6e9c530b234d](https://github.com/shihabal3amri/DiPlay/commit/6e9c530b234d5ac3d86539e66cde6ac4b6e270c9)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 36",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "6cce97d96137e8df3f8d19f7589616e3e2f4046b",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #69 integrates source commit(s) #31 Report the clock the microphone timestamps count in; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (3316 bytes; SHA-256 9180bf7787b8ec556489a4a2b32167de7fdf00627c7472839c04afbaf0279eaa).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      31
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/6cce97d96137e8df3f8d19f7589616e3e2f4046b)",
+      "[source #31: 79eeec9df752](https://github.com/shihabal3amri/DiPlay/commit/79eeec9df752f6ec316b2df5dface3ae9736882b)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 31",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "4cc932909ed245ba66bbe972911955c799568418",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #70 integrates source commit(s) #19 Leave the car's rhythm off when its switch went off during the check; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (2314 bytes; SHA-256 16c69a4e8b93193d46e8f278cd3c36cbc784dee1c7629e2125b5fe0460aea7d2).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      19
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/4cc932909ed245ba66bbe972911955c799568418)",
+      "[source #19: 0f7b17897762](https://github.com/shihabal3amri/DiPlay/commit/0f7b17897762dc4533b1d2c27fc313d687c47d50)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 19",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "7751882617949723ac06598cc15bce12926096d2",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #71 integrates source commit(s) #24 Let Settings search find slider rows; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (2459 bytes; SHA-256 edad262ec0617bd908d4146673a2af9d6b617f297e06e5113f45421d5213c11d).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      24
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/7751882617949723ac06598cc15bce12926096d2)",
+      "[source #24: 1a52868e3659](https://github.com/shihabal3amri/DiPlay/commit/1a52868e36590ffaaa6249b7333c90f6bcfd2885)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 24",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "3731a06fbdd8c458d9630160bffe053f682ec3e6",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #72 integrates source commit(s) #25 Show an update the background check found when Home comes back; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (2770 bytes; SHA-256 f9b10ea5e16c3e82843a72d9640cb7d58d56bb104da3aaf160433cdeee6e7c07).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      25
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/3731a06fbdd8c458d9630160bffe053f682ec3e6)",
+      "[source #25: 42fe9277657e](https://github.com/shihabal3amri/DiPlay/commit/42fe9277657e216a65f0cefcc4018049fc2799d4)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 25",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "cdbf51417f86ab7b55a511277e4980a061feca97",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #73 integrates source commit(s) #23 Let the phone page's listener be gone when stop() returns; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (2872 bytes; SHA-256 185867d7ddc561a6ff05e57df3da6b60706c273b2e42b3ad62acea3e8fa5f32e).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      23
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/cdbf51417f86ab7b55a511277e4980a061feca97)",
+      "[source #23: 4288b0e7a1fd](https://github.com/shihabal3amri/DiPlay/commit/4288b0e7a1fdf0b8f4fe23b2194721b59f32a9a0)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 23",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "bad21129d68a9fa17d3df1c87a7fbb73327fda94",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #74 integrates source commit(s) #11 Show the phone page in Italian; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (4431 bytes; SHA-256 d3715114fad271bcc7a0f6d6848f78a171f2020a59afdfaf94271d52cffae2d3).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      11
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/bad21129d68a9fa17d3df1c87a7fbb73327fda94)",
+      "[source #11: 7f2a01277e64](https://github.com/shihabal3amri/DiPlay/commit/7f2a01277e649263cc72114b4cf92014fcc38a12)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 11",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "a99618e2f60e31b51b15e7433c8493544045de8a",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #75 integrates source commit(s) #14 Back up the resolution percentage and the settings added since the backup list; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (4949 bytes; SHA-256 4b81fe3a31bb806c80f80b7d98020c38cae507bb6148389d95bddd925ef6575b).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      14
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/a99618e2f60e31b51b15e7433c8493544045de8a)",
+      "[source #14: d0a67cea8208](https://github.com/shihabal3amri/DiPlay/commit/d0a67cea820845c6032307dfb3425f3f5a053e6e)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 14",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "ca2f8a8f4887a8ed28a86622cb51fba797d8fae4",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #76 integrates source commit(s) #22 Give a recreated CarPlay screen the running AirPlay session; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (5358 bytes; SHA-256 4f1cb2dd42a335ad2dc4d340319154d20e1ee9b1043ace91b7c357d9cce3d99b).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      22
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/ca2f8a8f4887a8ed28a86622cb51fba797d8fae4)",
+      "[source #22: 5438e80f3f1d](https://github.com/shihabal3amri/DiPlay/commit/5438e80f3f1da17497e438c9ecba83b3d0008f69)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 22",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "f306a78b0799d4ca0d4c89f83eda2fb6be202ab9",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #77 integrates source commit(s) #6 Wait for the group info answer while reclaiming a retained group; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (5051 bytes; SHA-256 318e3651a107e908d76862730bde0a43b2624ecf78b2fbb16090fc6d51cf99d7).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      6
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/f306a78b0799d4ca0d4c89f83eda2fb6be202ab9)",
+      "[source #6: 798f1b6d14d7](https://github.com/shihabal3amri/DiPlay/commit/798f1b6d14d73de8c1ad70eb55e72c27ff8a5624)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 6",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "dc2f870d748e73bf86331cf0c421439da0668a66",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #78 integrates source commit(s) #16 Keep the home-screen bubble where a touch can reach it; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (6413 bytes; SHA-256 c60e29c675a43a9840a10eaa2f6b022f52aed522b52af836205aedc292a1bdb5).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      16
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/dc2f870d748e73bf86331cf0c421439da0668a66)",
+      "[source #16: 12c612cd0d9f](https://github.com/shihabal3amri/DiPlay/commit/12c612cd0d9f5e174cdbee9459228b1fd13af9de)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 16",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "70ee46e2e84c5d55ef2f966b00904c6944257d50",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #79 integrates source commit(s) #20 Show a frame rate set in the CarPlay menu in Settings; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (5481 bytes; SHA-256 1f64b6dcb9ec0762c22261bd323d4902650ea6578a84474da6a6087da8c50716).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      20
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/70ee46e2e84c5d55ef2f966b00904c6944257d50)",
+      "[source #20: 364d41cb0f38](https://github.com/shihabal3amri/DiPlay/commit/364d41cb0f38570c9a169f8fd70e713de4cdf7d8)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 20",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "4d157711cf69421b1e2b86276414e0627068f918",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #80 integrates source commit(s) #18 Keep the bands played between two rhythm sends; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (5879 bytes; SHA-256 5fdb1de145971e62a48e24af5911a8ad701461bbd3fa67357df50cae6f23dcc1).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      18
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/4d157711cf69421b1e2b86276414e0627068f918)",
+      "[source #18: 119aa8671718](https://github.com/shihabal3amri/DiPlay/commit/119aa8671718272d0f0f8281b04e091ffc9d99dc)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 18",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "3afd528b3e33b6b862652a886d8d8e80fbc158c4",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #81 integrates source commit(s) #13 Keep the hotspot details when the quick menu closes; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (9462 bytes; SHA-256 0bf9d779c63bf36a1d2089218ffcbebb5d6b913acf05b90f5562273e0562bd2b).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      13
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/3afd528b3e33b6b862652a886d8d8e80fbc158c4)",
+      "[source #13: d0fc8d9a3a16](https://github.com/shihabal3amri/DiPlay/commit/d0fc8d9a3a16183f2ded59f5c9065b8d9cff99c1)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 13",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "16f04c203f86abb8eab36e705e18e3090e81fdf2",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #82 integrates source commit(s) #17 Offer Wi-Fi Direct in the CarPlay menu before Android 10; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (16174 bytes; SHA-256 3c9fec402bb50dc9c519c69ef04cccdc30cc41a8f81cc7c7d98f768e4df59440).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      17
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/16f04c203f86abb8eab36e705e18e3090e81fdf2)",
+      "[source #17: 3b4ba7362b5a](https://github.com/shihabal3amri/DiPlay/commit/3b4ba7362b5af76e8a91c66207ff19cb01d81f39)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 17",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "a04f69f060fc7e31c21791218ce3bf40b591a7f5",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #83 integrates source commit(s) #5 Retry at once when Bluetooth turns on; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (9066 bytes; SHA-256 9d5642f6e7dac154bfcba961213020ad6064a93cce68b1178bc1dc07d024eec9).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      5
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/a04f69f060fc7e31c21791218ce3bf40b591a7f5)",
+      "[source #5: 40236083afc6](https://github.com/shihabal3amri/DiPlay/commit/40236083afc6b8bc94771708521fd93bc9e818e4)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 5",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "bf4fcfb2a1979f04bb9616791af50ab12591efc7",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #84 integrates source commit(s) #15 Leave the unknown car out of the setup guide's features line; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (15058 bytes; SHA-256 1ddbd31b5394b80598bcf36094696bb4c395f5d479bb969d2d77195ed00f180c).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      15
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/bf4fcfb2a1979f04bb9616791af50ab12591efc7)",
+      "[source #15: 7e13365550b4](https://github.com/shihabal3amri/DiPlay/commit/7e13365550b40caee1609bb7feda4bfd0f1920e2)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 15",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "dd2e8d0f9b10a7a4d5490bf568254e885c69907a",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #85 integrates source commit(s) #12 Show the requested size and the menu's language in the display summary; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (14413 bytes; SHA-256 22a02aa72357d184afc821e003449e398ba29791db39e2b7cdeb8c8399a79c02).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      12
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/dd2e8d0f9b10a7a4d5490bf568254e885c69907a)",
+      "[source #12: 9448b9ed6512](https://github.com/shihabal3amri/DiPlay/commit/9448b9ed651258221eece4d810c742831cecfcba)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 12",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "4bf5216572b5ff75b6c03666b6f0ed2bf893a15a",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #86 integrates source commit(s) #9 Keep a new touch back until the settings swipe can no longer start; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (12621 bytes; SHA-256 1ba8d5edaff1b3fb61429509ce8fe3366d0fa19df5c416f37ee5e3a4597db82b).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      9
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/4bf5216572b5ff75b6c03666b6f0ed2bf893a15a)",
+      "[source #9: 0a0bb8ae906d](https://github.com/shihabal3amri/DiPlay/commit/0a0bb8ae906d7e1cebd58c8365d333daa84796de)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 9",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "ee952b6d85f4eb72541857182146bb30991c53ca",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #87 integrates source commit(s) #4 Keep each finger in its touch slot and release it where it was; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (14269 bytes; SHA-256 d1e6d9f7b5df9d6c79eb5c5a4ecd17ed9085b330fa9c792e2fc155881937d335).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      4
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/ee952b6d85f4eb72541857182146bb30991c53ca)",
+      "[source #4: 48c971711f24](https://github.com/shihabal3amri/DiPlay/commit/48c971711f2413403121c11f573490c84ef976f6)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 4",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "fc03524bc49a3f81b5727e69050f0ec47bdc63db",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #88 integrates source commit(s) #8 Do not warn about overwriting the car with details just read from it; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (25081 bytes; SHA-256 1e2e3241f0c707d047262fe874c993b0f7cdf84fb9a5c6e4ee17e3e71eb637a5).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      8
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/fc03524bc49a3f81b5727e69050f0ec47bdc63db)",
+      "[source #8: cea03ba70ec7](https://github.com/shihabal3amri/DiPlay/commit/cea03ba70ec73e6fca614fc34d17d19bcdc73e7f)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 8",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "078ee0d7799095b0addd78be693aa5aec99f4224",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #89 integrates source commit(s) #30 Keep the first start request when the link was already open; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (21371 bytes; SHA-256 2bb1e07c4038d540621927aa3d71aac51da6f4e2bb31de03aacd0d959f07c44a).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      30
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/078ee0d7799095b0addd78be693aa5aec99f4224)",
+      "[source #30: 3000daa8e8c0](https://github.com/shihabal3amri/DiPlay/commit/3000daa8e8c0a0818e597973ef0e7963e52a57ee)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 30",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "5f5543ee6137728d1ec3d143797831494607659e",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #90 integrates source commit(s) #28 Support the 2023 Han's stopAudioOutput(String) for the car's own music rhythm; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (6214 bytes; SHA-256 abfffb169dc3ab54bb6dc399b18e87ae608942008ea8e63d4a1b7aff3b4a50b7).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      28
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/5f5543ee6137728d1ec3d143797831494607659e)",
+      "[source #28: 2ba83a04153a](https://github.com/shihabal3amri/DiPlay/commit/2ba83a04153a8b6aedff5529b951a8598a7dc0e8)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 28",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "1d1cb7f7c76dbdc841b53c99306fde429e5128f5",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #91 integrates source commit(s) #38 Withdraw DiPlay's audio mode request when a call ends; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (14999 bytes; SHA-256 6ab32f21199056029190653f30fa4f1e92d5cd2dcdfdebc4565165466fbdd31c).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      38
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/1d1cb7f7c76dbdc841b53c99306fde429e5128f5)",
+      "[source #38: fafa2d8ce54a](https://github.com/shihabal3amri/DiPlay/commit/fafa2d8ce54aec1d70e605d76dc93a06a567ea01)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 38",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "09e987bb325caa89df9e80894bbf0dc14dde1683",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #92 integrates source commit(s) #32 Name HEVC in the Efficient video title so Settings search finds it; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (16489 bytes; SHA-256 c3af83655c027c42776d382a3bf15525ced6cc2b139458d48f95e16b99d18050).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      32
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/09e987bb325caa89df9e80894bbf0dc14dde1683)",
+      "[source #32: 63764597e19c](https://github.com/shihabal3amri/DiPlay/commit/63764597e19c3c4564ec5627d5e84f5276ed2cb8)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 32",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "b482ed2bf18f60859c30e1303c729449df317bc9",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #93 integrates source commit(s) #33 Report media buttons that CarPlay does not use; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (4553 bytes; SHA-256 90b225e12b7c8523b86521ee5e419d2d9b069bb13dd06ffbfef3f955392eebd6).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      33
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/b482ed2bf18f60859c30e1303c729449df317bc9)",
+      "[source #33: 83d629a09556](https://github.com/shihabal3amri/DiPlay/commit/83d629a09556b378f5bac1f15b26e702be82fa55)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 33",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "e3ce4fb8408aef210064669fe0af583a5ef77fab",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #94 integrates source commit(s) #34 Avoid reverse DNS lookups during wireless Bonjour startup; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (3373 bytes; SHA-256 71af677558a1345a8c4a62d93eadc7eca90674386dcb5674f4ef42fdc75d4954).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      34
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/e3ce4fb8408aef210064669fe0af583a5ef77fab)",
+      "[source #34: 88e847ec865f](https://github.com/shihabal3amri/DiPlay/commit/88e847ec865f7d8b4ad2cf36e0a4999fd00c8aed)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 34",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "ce807ca98ce3648f6ca2222a9d98e67d5e32e8d1",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #95 integrates source commit(s) #37 Name the microphone's real source, and what else records while it is silent; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (17855 bytes; SHA-256 c7daf1ef97fc8a06d7fec1f9668b97b71b43e85773964ce43d26e02a73114e03).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      37
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/ce807ca98ce3648f6ca2222a9d98e67d5e32e8d1)",
+      "[source #37: da94865ee873](https://github.com/shihabal3amri/DiPlay/commit/da94865ee8736f9603311b16f58c6c2ed073d650)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 37",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "68c9af6490ae9465f992462d5beed0ccea7ef88b",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #96 integrates source commit(s) #39 Say what the wheel-speed reads returned when a minute sent no speed; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (9892 bytes; SHA-256 5ac568f33e168fdc3eabc29042cd483bc6c8f9c74e0cfea35b855f423256ffb2).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      39
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/68c9af6490ae9465f992462d5beed0ccea7ef88b)",
+      "[source #39: f541dd07f650](https://github.com/shihabal3amri/DiPlay/commit/f541dd07f65082cc1c9df1372052e932ec91150f)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 39",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "2f3a0f51c81d82a142e794f26dce313ac6ee64f6",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #97 integrates source commit(s) #52 Test that a key only the settings window sees is learnt while the service runs, #53 Learn the Siri and play/pause keys in the window while the service runs; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (13899 bytes; SHA-256 3985a652932276e902988d441cbbeebd90ea3ab921f9cdd59ae406ac626bc7a7).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      52,
+      53
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/2f3a0f51c81d82a142e794f26dce313ac6ee64f6)",
+      "[source #52: 3c1b04f25ae4](https://github.com/shihabal3amri/DiPlay/commit/3c1b04f25ae42f20ac2dd8a9d92aced7d362efa7)",
+      "[source #53: 497190772a2e](https://github.com/shihabal3amri/DiPlay/commit/497190772a2e89e61d5d60377908c01c473af667)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 52, 53",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "591c931046199a13c81f34ae2401cc9fb7d2b24b",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #98 integrates source commit(s) #58 Tune TCP peer health on Android 8 and 9 head units; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (4369 bytes; SHA-256 caadf7cddb201e2bc16b9733d6ce2e5661e4f122a902bf9389bc01f18770085d).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      58
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/591c931046199a13c81f34ae2401cc9fb7d2b24b)",
+      "[source #58: 1bfd23a918b0](https://github.com/shihabal3amri/DiPlay/commit/1bfd23a918b07e5104139cd5cd2bdc2cf6eb39d9)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 58",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "dc01240c619ae277aab0aa03b7da4395db56aefc",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #99 integrates source commit(s) #65 Say network ADB does not answer when USB debugging is already on; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (17363 bytes; SHA-256 b1db5c4451745983ee7a743bb63a6b65bb43a3e689eac883a2bfad91bd40b556).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      65
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/dc01240c619ae277aab0aa03b7da4395db56aefc)",
+      "[source #65: bb146f1f0e04](https://github.com/shihabal3amri/DiPlay/commit/bb146f1f0e045637e35f695f97431f5487e05211)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 65",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "2c30f65e63b2bea2f3fa94beea3ab8f0c19b6511",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #100 integrates source commit(s) #42 Add the Italian strings for the dashboard map shape; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (25409 bytes; SHA-256 0111938f7080313119b00a319c71be81bd0bbce01336c7fad17cfd135df7a834).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      42
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/2c30f65e63b2bea2f3fa94beea3ab8f0c19b6511)",
+      "[source #42: f9d104c897da](https://github.com/shihabal3amri/DiPlay/commit/f9d104c897daaa22610b33b3ee6946e4ddcf079c)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 42",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "0f4dabadc104243fb14e297cb62bf8fb270d3957",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #101 integrates source commit(s) #61 fix(settings): give the launcher bubble its own line icon; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (2162 bytes; SHA-256 d6eb9981f19008cd9e020c840292485760a349380d3bba33d2e75680493ab6ba).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      61
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/0f4dabadc104243fb14e297cb62bf8fb270d3957)",
+      "[source #61: fa69dfd18727](https://github.com/shihabal3amri/DiPlay/commit/fa69dfd18727da04514a195d08e9177426fde236)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 61",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "827b3dfff2eab101f067bdefc240a74408cd702a",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #102 integrates source commit(s) #62 fix(settings): align the ambient note with its control; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (3095 bytes; SHA-256 9b1b62b5cabf82c5c5d3b6229e9983e87872d0a51ad92eb7be832681d20537fc).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      62
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/827b3dfff2eab101f067bdefc240a74408cd702a)",
+      "[source #62: 860282d87e2b](https://github.com/shihabal3amri/DiPlay/commit/860282d87e2b61b0c5a48799299bf3f20715fd7a)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 62",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "555352d87b81a602687942fb2f8b69e763b741cc",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #103 integrates source commit(s) #47 [add] Auto-activate music card,fix BydClusterSong, #49 1、自动激活音乐卡片 默认值设置为false 2、多语言：意大利语修复 3、ensureGateOpen 优先返回CarPlayHostActivity界面（触发写歌词一定连接上了carplay，并且车机确实api无法获取到当前的活动画面）, #50 单元测试gateSwitchShowsOnlyWhenClusterSongIsOn; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (28054 bytes; SHA-256 4c7fda2cf5d06c0d0973ea30db45c159e13b050baf3b56c3b3229fa2dc6860e8).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      47,
+      49,
+      50
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/555352d87b81a602687942fb2f8b69e763b741cc)",
+      "[source #47: dc744381121d](https://github.com/shihabal3amri/DiPlay/commit/dc744381121d67132448e684af40720ecb9a5627)",
+      "[source #49: bd540390f73c](https://github.com/shihabal3amri/DiPlay/commit/bd540390f73ce8e7c155e075776657179bc4d46f)",
+      "[source #50: ea220bbc6e15](https://github.com/shihabal3amri/DiPlay/commit/ea220bbc6e1548f03350aa0ddf3b8cb508c30e4e)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 47, 49, 50",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "8416909cb5dec8d41549f23321d19491be17c255",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #104 is branch synchronization (Merge main into physical-size-in-settings); its first-parent patch imports broad history, not one isolated behavior.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology classifies this as branch-sync-only. First-parent patch: 345479 bytes, SHA-256 81d318f327195e33acebd7afd0f9d0d96f9e5a9cba4f86e28e992c1543924927.",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "BRANCH_SYNC_ONLY",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MERGE_BRANCH_SYNC",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/8416909cb5dec8d41549f23321d19491be17c255)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; branch synchronization only",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=BRANCH_SYNC_ONLY. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "e5ece65232554f5bc9257303bc7c833e0ea23730",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #105 integrates source commit(s) #54 Move the physical length in 5 mm steps, #55 Show the saved CarPlay size as it is in Settings, #56 Set the CarPlay length in Settings with a slider; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (33047 bytes; SHA-256 63bcab99335dc6f5481330c0cd66b5ce9941b44a5dd47d82bcb4fe59d6feafde).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      54,
+      55,
+      56
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/e5ece65232554f5bc9257303bc7c833e0ea23730)",
+      "[source #54: 4f65778cdebc](https://github.com/shihabal3amri/DiPlay/commit/4f65778cdebc9770ab34d7612dd8be12de07cf0d)",
+      "[source #55: d1ebfcb206f9](https://github.com/shihabal3amri/DiPlay/commit/d1ebfcb206f95619fc7f120361d9bf885f8b1933)",
+      "[source #56: d335b666b0bd](https://github.com/shihabal3amri/DiPlay/commit/d335b666b0bd315ec2d35e55e258e5ba2e2e9448)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 54, 55, 56",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "4b5fd21e58fb9fbb3ad7de7e6a0864a1adb30cec",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #106 is branch synchronization (Merge main into fix/cluster-artwork-stability-021); its first-parent patch imports broad history, not one isolated behavior.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology classifies this as branch-sync-only. First-parent patch: 376900 bytes, SHA-256 10cc64be24f0b72ce37502a526bc2c50495092d3249f72e52952b202608e1c73.",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "BRANCH_SYNC_ONLY",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MERGE_BRANCH_SYNC",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/4b5fd21e58fb9fbb3ad7de7e6a0864a1adb30cec)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; branch synchronization only",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=BRANCH_SYNC_ONLY. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "6f20a5cf14f0793a4f19a36c3439d932bd497935",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #107 integrates source commit(s) #59 Keep cluster artwork stable and fade music card updates, #60 Tint a slimmer album frame and make the speed card square, #63 Add opt-in album color for the speedometer background; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (66143 bytes; SHA-256 727894834d27ac21325cc0d9d3b022a50f1537f0be2b1c24d72642f497446600).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      59,
+      60,
+      63
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/6f20a5cf14f0793a4f19a36c3439d932bd497935)",
+      "[source #59: d0e5eb424e58](https://github.com/shihabal3amri/DiPlay/commit/d0e5eb424e5833f2fd32e2a1dcd340cffaf7c570)",
+      "[source #60: b0b44faa1cc8](https://github.com/shihabal3amri/DiPlay/commit/b0b44faa1cc8cb8a4362c0bf7bb9abfe3508ccab)",
+      "[source #63: a311c7e8a48c](https://github.com/shihabal3amri/DiPlay/commit/a311c7e8a48c1758a1f0749142a49fd2aa4b4366)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 59, 60, 63",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "d7f247a7cc3e2febf08eb02d9bbf26401beb08c8",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #108 is branch synchronization (Merge main into feat/geely-cluster-map); its first-parent patch imports broad history, not one isolated behavior.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology classifies this as branch-sync-only. First-parent patch: 431303 bytes, SHA-256 a3d4a7a48094340e220f46eb2e72e198c2c4b0814540ed735edbd8a67422832d.",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "BRANCH_SYNC_ONLY",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "MERGE_BRANCH_SYNC",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/d7f247a7cc3e2febf08eb02d9bbf26401beb08c8)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; branch synchronization only",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=BRANCH_SYNC_ONLY. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "5948f8baa901bc63320d4f48df5a42295b54bceb",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #109 integrates source commit(s) #1 feat(vehicle): Geely/Lynk instrument cluster map on the geely_fx11 head unit, #2 feat(vehicle): keep the Geely cluster projection when the stock map takes it over, #3 fix(vehicle): gate the Geely cluster route on the car and hand the projection back only when DiPlay holds it, #40 fix(vehicle): hand back a Geely cluster projection a killed run left on, #42 Add the Italian strings for the dashboard map shape; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (53361 bytes; SHA-256 6bd81bbfa4084ed7495c1cb70306243d555ad2d93af9f7b309e421dc3cec8a9c).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_FEATURE_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      1,
+      2,
+      3,
+      40,
+      42
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/5948f8baa901bc63320d4f48df5a42295b54bceb)",
+      "[source #1: 83a397c666f7](https://github.com/shihabal3amri/DiPlay/commit/83a397c666f70baff518efb171c3d47b3d191b9e)",
+      "[source #2: 5506897e0c21](https://github.com/shihabal3amri/DiPlay/commit/5506897e0c210b474d5ffbf32df16d299f294445)",
+      "[source #3: 7d09d8234703](https://github.com/shihabal3amri/DiPlay/commit/7d09d82347037ac9086204c6dd32c0916fe6685d)",
+      "[source #40: fe939547ce93](https://github.com/shihabal3amri/DiPlay/commit/fe939547ce93c9203e7eddc6622e1da57ac52625)",
+      "[source #42: f9d104c897da](https://github.com/shihabal3amri/DiPlay/commit/f9d104c897daaa22610b33b3ee6946e4ddcf079c)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 1, 2, 3, 40, 42",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_FEATURE_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  },
+  {
+    "commit_sha": "91083d196ddf528897bd3ce7d9d03cbab5f05dba",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Reviewed source #110 and its pinned first-parent patch; selected REJECT_UNSAFE under the B07 evidence policy.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Upstream release notes do not describe the fixed-main fork or PR #45; reuse would claim changes not adopted or verified here.",
+    "fork_owner_file": "docs/step4/UPSTREAM_DECISION_REGISTER.md",
+    "merge_relationship": "",
+    "merge_source_indexes": [],
+    "missing_evidence": [],
+    "primary_category": "UPSTREAM_RELEASE_NOTES",
+    "proof": [
+      "[upstream commit and first-parent patch](https://github.com/shihabal3amri/DiPlay/commit/91083d196ddf528897bd3ce7d9d03cbab5f05dba)",
+      "[fixed-main owner: docs/step4/UPSTREAM_DECISION_REGISTER.md](../../docs/step4/UPSTREAM_DECISION_REGISTER.md)"
+    ],
+    "related_step4": "EX-08 B07; upstream release notes",
+    "rollback_plan": "No upstream patch imported; preserve fixed-main behavior and the v3 OEM exclusion.",
+    "test_evidence": "PASS_STATIC: fixed-main owner and pinned first-parent patch reviewed; no fixed-main failing test is claimed."
+  },
+  {
+    "commit_sha": "143f4674b60b564a16baae5110b3b90fb7277631",
+    "current_review_state": "REVIEWED",
+    "decision_reason": "Merge #111 integrates source commit(s) #110 Release notes for the 2026-10-21 merges; the wrapper is not an independent change and must not be cherry-picked with its source.",
+    "disposition": "REJECT_UNSAFE",
+    "fixed_main_summary": "Parent topology and first-parent patch classify this as an integration duplicate (13195 bytes; SHA-256 25983ed1d8e6dad85ccb0b29756a29fcb01ec69f6c8a0a701436703cee51888b).",
+    "fork_owner_file": "docs/step4/ex08/upstream_delta_111.commits.jsonl",
+    "merge_relationship": "SOURCE_DOCS_INTEGRATION_DUPLICATE",
+    "merge_source_indexes": [
+      110
+    ],
+    "missing_evidence": [],
+    "primary_category": "MERGE_SOURCE_INTEGRATION",
+    "proof": [
+      "[upstream merge](https://github.com/shihabal3amri/DiPlay/commit/143f4674b60b564a16baae5110b3b90fb7277631)",
+      "[source #110: 91083d196ddf](https://github.com/shihabal3amri/DiPlay/commit/91083d196ddf528897bd3ce7d9d03cbab5f05dba)",
+      "[pinned parent/patch manifest](../../docs/step4/ex08/upstream_delta_111.commits.jsonl)"
+    ],
+    "related_step4": "EX-08 B07; duplicate integration of source index 110",
+    "rollback_plan": "No upstream patch imported; retain fixed-main behavior. Do not cherry-pick this merge wrapper.",
+    "test_evidence": "PASS_STATIC: parent list and first-parent patch hash pinned; merge fate=SOURCE_DOCS_INTEGRATION_DUPLICATE. No merge-specific runtime behavior is claimed."
+  }
+]

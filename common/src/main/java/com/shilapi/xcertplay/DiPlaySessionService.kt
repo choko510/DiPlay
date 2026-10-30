@@ -35,7 +35,7 @@ class DiPlaySessionService : Service() {
         val open = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, CarPlayHostActivity::class.java).setAction(CarPlayHostActions.OPEN_CARPLAY),
+            CarPlayHostActions.createNotificationOpenIntent(this),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val stop = PendingIntent.getService(this, 1, Intent(this, DiPlaySessionService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)

@@ -9,8 +9,11 @@ package com.shilapi.xcertplay.transport
 object EthernetIpv6Codec {
     const val ETHERTYPE_IPV6 = 0x86dd
     const val MAC_BYTES = 6
+    const val ETHERNET_HEADER_BYTES = 14
+    const val IPV6_MTU_BYTES = 1500
+    const val MAX_UNTAGGED_ETHERNET_FRAME_BYTES = ETHERNET_HEADER_BYTES + IPV6_MTU_BYTES
 
-    private const val HEADER_BYTES = 14
+    private const val HEADER_BYTES = ETHERNET_HEADER_BYTES
 
     data class Ipv6Frame(
         val sourceMac: ByteArray,

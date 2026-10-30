@@ -85,6 +85,32 @@ class DspAutoHeadroomTest {
     }
 
     @Test
+    fun studioToneHeadroomUsesConservativeNativeStageBounds() {
+        val macro = DspMacroToneConfig(enabled = true, bassGainDb = 4.0, vocalGainDb = 2.5, airGainDb = 2.0)
+        val loudness = DspSmartLoudnessRuntimeConfig(enabled = true, lowGainDb = 3.0, highGainDb = 1.5)
+        val config = DspRuntimeConfig(enabled = true, macroTone = macro, smartLoudness = loudness)
+
+        val prepared = config.prepare(DspAudioFormat(48_000, 2))
+        val expected = 1.0 + macro.conservativeBoostDb() + loudness.conservativeBoostDb()
+
+        assertEquals(expected, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-expected, prepared.appliedPreampDb, 0.02)
+        assertTrue(macro.conservativeBoostDb() > macro.bassGainDb + macro.vocalGainDb + macro.airGainDb)
+    }
+
+    @Test
+    fun smartLoudnessHighPassTransientUsesItsWorstCaseImpulseGainForHeadroom() {
+        val loudness = DspSmartLoudnessRuntimeConfig(enabled = true, highGainDb = 1.5)
+
+        assertEquals(
+            20.0 * kotlin.math.log10(1.0 + 2.0 * (StrictMath.pow(10.0, 1.5 / 20.0) - 1.0)),
+            loudness.conservativeBoostDb(),
+            0.0001,
+        )
+        assertTrue(loudness.conservativeBoostDb() > loudness.highGainDb)
+    }
+
+    @Test
     fun enabledMultibandMakeupUsesTheLargestPositiveBandGainForHeadroom() {
         val config = DspRuntimeConfig(
             enabled = true,
@@ -129,5 +155,74 @@ class DspAutoHeadroomTest {
 
         assertTrue(result.filterPeakDb.isFinite())
         assertEquals(0.0, result.filterPeakDb, 0.02)
+    }
+
+    @Test
+    fun measuredCabinCutsReusePeqSlotsAndRejectMoreThanFifteenActiveFilters() {
+        val cabinCorrection = DspCabinCorrectionConfig(
+            enabled = true,
+            notches = listOf(
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 70.0, gainDb = -6.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 120.0, gainDb = -4.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 210.0, gainDb = -3.0),
+            ),
+        )
+        val existingBands = (0 until 12).map { index ->
+            DspEqBand(DspEqType.PEAK, 300.0 + index * 100.0, gainDb = 0.0, enabled = true)
+        }
+
+        val prepared = DspRuntimeConfig(
+            enabled = true,
+            peqBands = existingBands,
+            cabinCorrection = cabinCorrection,
+        ).prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals(DspEqDesigner.MAX_BANDS * DspEqDesigner.COEFFICIENTS_PER_BAND, prepared.eqCoefficients.size)
+        assertTrue(
+            runCatching {
+                DspRuntimeConfig(
+                    enabled = true,
+                    peqBands = existingBands + DspEqBand(DspEqType.PEAK, 1_600.0, enabled = true),
+                    cabinCorrection = cabinCorrection,
+                ).prepare(DspAudioFormat(48_000, 2))
+            }.isFailure,
+        )
+    }
+
+    @Test
+    fun staticBassShelfUsesASeparateGraphFilterWithoutConsumingTheFifteenPeqSlots() {
+        val config = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            peqBands = (0 until DspEqDesigner.MAX_BANDS).map { index ->
+                DspEqBand(DspEqType.PEAK, 100.0 + index * 100.0)
+            },
+            bass = DspBassConfig(enabled = true, gainDb = 3.0, frequencyHz = 90.0),
+        )
+
+        val prepared = config.prepare(DspAudioFormat(48_000, 2))
+
+        assertEquals((DspEqDesigner.MAX_BANDS + 1) * DspEqDesigner.COEFFICIENTS_PER_BAND, prepared.eqCoefficients.size)
+        assertEquals(0, prepared.bassCoefficients.size)
+        assertEquals(DspEqDesigner.MAX_BANDS, config.peqBands.size)
+    }
+
+    @Test
+    fun activeHarmonicBranchesAddTheirWorstCaseBoostToAutoHeadroom() {
+        val config = DspRuntimeConfig(
+            enabled = true,
+            harmonic = DspHarmonicConfig(
+                enabled = true,
+                exciterEnabled = true,
+                exciterAmount = 0.5,
+                virtualBassEnabled = true,
+                virtualBassAmount = 0.25,
+            ),
+        )
+
+        val prepared = config.prepare(DspAudioFormat(48_000, 2))
+        val expectedBoostDb = config.harmonic.worstCaseBoostDb
+        assertEquals(expectedBoostDb + 1.0, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-expectedBoostDb - 1.0, prepared.appliedPreampDb, 0.02)
     }
 }

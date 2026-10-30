@@ -74,6 +74,22 @@ class WiredStartupWatchdogTest {
     }
 
     @Test
+    fun controlDisconnectAfterScreenSetupTriggersRecoveryUntilRecordArrives() {
+        assertEquals(
+            WiredAirPlayCloseAction.WAIT_FOR_STARTUP_WATCHDOG,
+            wiredAirPlayCloseAction(screenStreamOpened = false, recordReceived = false),
+        )
+        assertEquals(
+            WiredAirPlayCloseAction.RECOVER_PRE_RECORD,
+            wiredAirPlayCloseAction(screenStreamOpened = true, recordReceived = false),
+        )
+        assertEquals(
+            WiredAirPlayCloseAction.END_ACTIVE_SESSION,
+            wiredAirPlayCloseAction(screenStreamOpened = true, recordReceived = true),
+        )
+    }
+
+    @Test
     fun oldSoftAndHardCallbacksCannotAffectTheNextAttempt() {
         val watchdog = WiredStartupWatchdog()
         val old = watchdog.arm(attempt = 31)!!

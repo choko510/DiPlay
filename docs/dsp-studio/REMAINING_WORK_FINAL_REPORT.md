@@ -3,9 +3,9 @@
 ## Scope and repository state
 
 - Repository: [choko510/DiPlay](https://github.com/choko510/DiPlay).
-- PR: [#52](https://github.com/choko510/DiPlay/pull/52), branch `codex/dsp-studio-final`, base `codex/step4-pr-00-test-baseline` at `2f60aa9ac3034bcf68f61ed534772adb24999585`.
-- Final integrated source/test head: `2a6c04399012aff2b42c0d77f2675930104a2084`. Hosted pull-request run #40937236189 (#592) passed at this exact head after synchronizing the externally advanced base into PR #52 only.
-- PR #52 is open, unmerged, and clean against the current base. PR #45 remains at `2f60aa9a`; `main` remains at `95ba398f`. Neither was pushed by this task. Do not merge before hardware acceptance and the user's approval.
+- PR: [#52](https://github.com/choko510/DiPlay/pull/52), branch `codex/dsp-studio-final`, base `codex/step4-pr-00-test-baseline` at `9ea41f8e5f5f9a0bc11eede5d2bac1adce3efd7c`.
+- Prior integrated source/test head: `2a6c04399012aff2b42c0d77f2675930104a2084`, verified by hosted run #40937236189 (#592). The base advanced again externally and was merged into PR #52 at `471d025aa501b2d37f3e6cfd8cb8f9e44c80af82`.
+- GitHub reports PR #52 open, unmerged, and mergeable. Locally, the synced head passes Shared/Common unit tests 1120/1120, mobile/automotive Benchmark builds, and JNI mapping verification. Hosted run [#41007508604](https://github.com/choko510/DiPlay/actions/runs/41007508604) (#596) passed Native/ASan/UBSan, Shared/Common, lint/build, JNI/R8, Android instrumentation, host-baseline, and Release verification at exact head `471d025aa501b2d37f3e6cfd8cb8f9e44c80af82`. PR #45 and `main` were not pushed by this task. Do not merge before hardware acceptance and the user's approval.
 - Previously integrated feature child PRs remain in `SUBAGENT_PR_LEDGER.md`; the final follow-up changes were implemented directly by Codex after the user's instruction. Read-only review contexts did not write code.
 - Notable integrated PRs for this remaining-work scope: [#68 Preamp HOT](https://github.com/choko510/DiPlay/pull/68), [#76 evidence map](https://github.com/choko510/DiPlay/pull/76), [#77 Dynamics/Dynamic EQ HOT](https://github.com/choko510/DiPlay/pull/77), and [#78 Save/Cancel race](https://github.com/choko510/DiPlay/pull/78). All target the PR #52 branch and are integrated there.
 

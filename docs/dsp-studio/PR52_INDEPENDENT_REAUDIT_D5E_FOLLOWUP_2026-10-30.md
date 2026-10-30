@@ -6,6 +6,17 @@
 - PR #45's base branch advanced externally to 2f60aa9ac3034bcf68f61ed534772adb24999585. That tip was merged into PR #52 only; the PR #45 branch and main ref were not written by this task.
 - Current integrated PR #52 source/test head is 2a6c04399012aff2b42c0d77f2675930104a2084, with R-01 code/test changes in 14537700afdfdd1a8b128734942fbb1b9b9eb332.
 
+## Follow-up base conflict sync — 2026-10-30
+
+After this audit response, the PR base branch advanced again to `9ea41f8e5f5f9a0bc11eede5d2bac1adce3efd7c`, and GitHub reported PR #52 as not mergeable. I merged that base into the PR #52 head with merge commit `471d025aa501b2d37f3e6cfd8cb8f9e44c80af82`; no writes were made to PR #45 or `main`.
+
+The two conflicts were resolved as follows:
+
+- `.scratchpad/current.md`: kept the active PR #52 status and carried forward the updated base SHA and new validation state.
+- `shared/src/main/java/com/shilapi/xcertplay/media/AndroidMediaSink.kt`: retained PR #52's playback-route/renderer owner tokens and retry count together with the base's bounded close-wait and nanosecond timing constants.
+
+GitHub now reports `mergeable=true`. Local Shared/Common tests pass 1120/1120; `:mobile:assembleBenchmark` and `:automotive:assembleBenchmark` pass; `scripts/check_jni_mapping.py` passes. The local Native runner could not locate a C compiler, so hosted run [#41007508604](https://github.com/choko510/DiPlay/actions/runs/41007508604) (#596) is the authoritative Native/ASan/UBSan check for this head. It completed successfully at `471d025aa501b2d37f3e6cfd8cb8f9e44c80af82`, including Shared/Common unit tests, lint, Debug/Benchmark builds, JNI/R8, Android instrumentation, host-baseline, and Release verification. Artifacts: [unit/build checks](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12956512138), [Android instrumentation](https://api.github.com/repos/choko510/DiPlay/actions/artifacts/12955977749). The PR remains open and unmerged; the 170-ID evidence ledger and hardware-only NOT_RUN items are unchanged.
+
 ## R-01 / P2 — Retire a pending protective ramp with its owner and generation
 
 The supplied re-audit identified that a Studio HOT command can start a protective attenuation ramp and leave the HOT command queued, before any active ACK token is set. The prior owner-change cancellation only examined active ACKs, so the pending ramp could continue after its queue entry was discarded.

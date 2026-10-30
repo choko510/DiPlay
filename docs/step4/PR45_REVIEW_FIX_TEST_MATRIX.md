@@ -123,3 +123,19 @@ Run [#568](https://github.com/choko510/DiPlay/actions/runs/40675349338) passed a
 | TS10/K706 + supported iPhone acceptance | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-01–HW-10/HW-12/HW-13 | BLOCKED_DEVICE |
 | Release-signed update and installed rollback | [B10_DEVICE_ACCEPTANCE.md](B10_DEVICE_ACCEPTANCE.md), HW-11 | BLOCKED_ENV |
 | Independent review | Kept `NOT_RUN` per prior user direction | NOT_RUN |
+
+## PR #45 + PR #52 pre-merge fixes — 2026-10-30
+
+The implementation and save contract are documented in [PR45_PR52_PREMERGE_FIX_REPORT_2026-10-30.md](PR45_PR52_PREMERGE_FIX_REPORT_2026-10-30.md).
+
+| Finding | Regression / verification | Result |
+|---|---|---|
+| P1-01 hidden Back | `DspSettingsBackHandlerActivityTest.hiddenDspLeavesBackWithHostAndPreservesDraft`; `CarPlayHostActivityReconnectTest.dspPaneVisibilityTracksTwentyHostLayoutCycles` | PASS on API 36.1 Activity test; PASS in Common unit tests |
+| P1-01 visible Back | `DspSettingsBackHandlerActivityTest.visibleDspRestoresBackHandlingAfterActivityRecreation` | PASS on API 36.1 Activity test |
+| P1-02 restart restore | `DspProfileRuntimeTest.savingCustomProfileUpdatesPersistedStudioBaseAndSurvivesRuntimeRecreation` | PASS; failed before fix because Workspace restored `flat` instead of `custom1` |
+| P1-02 Draft isolation | `customSaveDoesNotPersistUncommittedStudioModules` | PASS |
+| P1-02 FutureSchema and I/O failure | `customSavePreservesFutureWorkspaceWithoutSavingProfile`; `customSaveWorkspaceFailureKeepsCommittedFilesAndActiveProfile` | PASS |
+| P1-02 crash recovery and generation order | `interruptedCustomSaveCompletesFromJournalBeforeRuntimeRecreation`; `newerStudioPreviewSupersedesCustomSaveBeforeWorkspaceCommit` | PASS |
+| P2-01 action mapping and latest request | `CarPlayHostActionsTest.userCommandsThatLeaveDspSplitShareTheStudioExitReview`; `latestDspExitRequestReplacesOlderCommandsAndRejectsLateResolution`; `dspExitResolutionRequiresUserProceedAndCurrentActivityAndSession` | PASS |
+| P2-01 Controller continuity | `CarPlayHostActivityReconnectTest.externalDspExitWaitsForTheLatestDecisionWithoutReplacingCarPlayController` | PASS |
+| P2-01 Save/Discard/Continue dialog interactions | `DspSettingsScreenTest.externalOpenAndYoutubeRequestsUseTheSharedContinueAndDiscardChoices`; `externalYoutubeRequestLeavesOnlyAfterWorkspaceSaveSucceeds` | AndroidTest sources compile; local API 36.1 execution blocked before test methods by Espresso's missing `InputManager.getInstance()` method |

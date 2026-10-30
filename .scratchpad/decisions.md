@@ -904,6 +904,14 @@ On a decoder format change, the audio owner first removes the old graph from all
 
 Retry a throwing `MediaCodec.release()` only on its decoder worker, at most twice for the same codec owner. Keep the Surface ACK blocked and retain old references after the retry budget is exhausted; report restart-required rather than creating a replacement against uncertain ownership.
 
+## Keep custom profile selection and Studio Workspace restart state consistent
+
+For explicit `custom1`/`custom2` save, derive the persistent Workspace from the last committed Workspace and replace only its base profile. Keep active Studio preview values separate; rebase the in-memory Studio session onto the new committed base while retaining unsaved module edits and undo history. Use a write-ahead journal to commit Workspace first, then the legacy custom-profile file; roll back Workspace on an explicit file-write failure and replay a committed journal before runtime startup after process death. Reject FutureSchema data before writing. Keep the DSP master flag in its existing separate preference.
+
+## Route user exits through one DSP Studio decision
+
+Keep Back/close and Host `OPEN_CARPLAY`/YouTube exits on the same Studio Save/Discard/Continue path. Hold only the latest Host exit request while the visible DSP editor is dirty or an operation is pending; bind it to Activity and session-owner generations so stale requests cannot navigate. System lifecycle teardown clears queued requests without opening a prompt. Keep Controller, AirPlay Session, Surface, and AudioTrack ownership outside the layout-only transition.
+
 ## Resume verified USB attaches only after the current teardown owner completes
 
 For an existing wired Host, a verified single-use USB attach is a new start-condition event and must call `maybeStartCarPlay()` without bypassing its controller, background-owner, VPN, display, permission, menu, and shutdown guards. If a non-process shutdown is already active, coalesce one wired resume or wireless-to-wired switch callback and run it only after the old controller and sink have closed; process-exit shutdown remains a hard stop.

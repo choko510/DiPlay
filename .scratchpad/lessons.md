@@ -690,3 +690,7 @@ For async editor imports, compare the operation's captured draft revision before
 Treat `Thread.join(0)` as an infinite wait. Deadline APIs must return immediately for zero/negative budgets and round any positive remainder up so sub-millisecond time never becomes an unbounded join.
 
 Move workers into retirement tracking under the same owner lock that removes them from the active map. Keep teardown state process-local and make retries explicit after the short attempt budget; status and re-entry must not bypass the barrier.
+
+For an explicit save that must update two AtomicFiles, use a journal with a defined forward-recovery point and rollback state; preflight FutureSchema on both files before writing. Derive the new durable aggregate from the previous committed aggregate, not the active preview, then rebase the editor session separately so a save in another editor cannot persist the unsaved draft.
+
+When a Compose pane is hidden but remains composed, disable its `BackHandler` with the host visibility state. Host-originated exits need the same decision callback as screen Back/close, and a newer request must replace the queued destination while an async save/restore is pending.

@@ -1,6 +1,6 @@
 # Persistent Working Memory
 
-## Quick navigation — PR #45
+## Quick navigation
 
 | Question | File |
 | --- | --- |
@@ -11,9 +11,8 @@
 | What failed or was learned? | [lessons.md](lessons.md) |
 | Which local/CI issues need a workaround? | [quirks.md](quirks.md) |
 | What was measured and optimized? | [optimization.md](optimization.md) |
-| Where is the original session history? | [archive/2026-10-23-current-before-consolidation.md](archive/2026-10-23-current-before-consolidation.md) |
 
-**Edit PR #45, not main.** Active status should remain concise; preserve history and distinguish audit-only/draft CI checks from release acceptance. Use the generated EX-08 inventory for current decision counts.
+Track work on the intended branch rather than pushing directly to `main`. Keep active status concise and distinguish audit-only/draft CI checks from release acceptance. Use the generated EX-08 inventory for current decision counts.
 
 The `.scratchpad/` directory contains persistent working memory for AI agents across sessions. It is committed to Git, but it is not a replacement for Git history.
 

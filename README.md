@@ -25,7 +25,6 @@ The release changes were tested on the development DiLink5.1 car: Car hotspot st
 - [Compatibility and troubleshooting](docs/COMPATIBILITY.md)
 - [Privacy and diagnostic reports](docs/PRIVACY.md)
 - [Build from source](docs/BUILD.md)
-- [Validation](docs/VALIDATION.md)
 - [Release notes](CHANGELOG.md)
 - [Credits and licenses](docs/THIRD_PARTY_NOTICES.md)
 

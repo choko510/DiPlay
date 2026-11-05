@@ -18,12 +18,11 @@
 - [ ] Same-device NCM `AUTO` vs `NO_STATUS_POLLING` A/B with first-frame, `SCREEN_STREAM_OPENED`, and timeout evidence; do not change status behavior or add control requests without cause.
 - [ ] Reproduce `queue()==false` / `requestWait()==null` while the USB device is present; preserve persistent USB-request ownership otherwise.
 - [ ] Keep Stage3 diagnostics timing-only and EX05 second StartSession retry disabled until target packet timing proves the need.
-- [ ] Recompute source patch hashes only for EX-08 candidates selected for adoption; inventory `--check` alone is not semantic review or patch provenance.
 
 ## P2 — Conditional candidates
 
 - [ ] Review Pass15 delta rows 4, 24, 28 and 44 only with their target-specific evidence.
 - [ ] Keep `ROTATION_SQUARE_CANVAS`, dynamic ViewArea, vendor codec overrides, and unconditional extra StartSession attempts `NO_GO_THIS_RUN` until their specific prerequisites are measured.
-- [ ] Preserve all existing `NEED_EVIDENCE` EX-08 rows; do not bulk-import upstream, BYD OEM code, root/appops writes, or cross-gate aggregate commits.
+- [ ] Do not bulk-import upstream, BYD OEM code, root/appops writes, or cross-gate aggregate commits; re-evaluate any individual candidate against hardware evidence.
 
 Historical notes: [completed](completed.md), [decisions](decisions.md), [lessons](lessons.md), [quirks](quirks.md), [optimization](optimization.md).

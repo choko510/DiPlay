@@ -2,9 +2,7 @@
 
 is_ci_docs_only_path() {
     case "$1" in
-        docs/*|.scratchpad/*|scripts/generate_step4_ex08_inventory.py|\
-        scripts/generate_step4_ex08_delta111_source.py|scripts/step4_ex08_delta111.py|\
-        scripts/test_step4_ex08_delta111.py|*.md) return 0 ;;
+        docs/*|.scratchpad/*|*.md) return 0 ;;
         *) return 1 ;;
     esac
 }

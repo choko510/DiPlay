@@ -12,7 +12,7 @@
 | Which local/CI issues need a workaround? | [quirks.md](quirks.md) |
 | What was measured and optimized? | [optimization.md](optimization.md) |
 
-Track work on the intended branch rather than pushing directly to `main`. Keep active status concise and distinguish audit-only/draft CI checks from release acceptance. Use the generated EX-08 inventory for current decision counts.
+Track work on the intended branch rather than pushing directly to `main`. Keep active status concise and distinguish draft CI checks from release acceptance. Historical audit data remains accessible through Git history.
 
 The `.scratchpad/` directory contains persistent working memory for AI agents across sessions. It is committed to Git, but it is not a replacement for Git history.
 

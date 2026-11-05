@@ -16,10 +16,7 @@ assert_classification() {
 }
 
 # CI-01: docs-only paths run the static lane without product runtime work.
-assert_classification 'false false none none false false' $'docs/step4/TEST_MATRIX.md\tmodified\n.scratchpad/current.md\tmodified'
-is_ci_docs_only_path "scripts/generate_step4_ex08_delta111_source.py"
-is_ci_docs_only_path "scripts/step4_ex08_delta111.py"
-is_ci_docs_only_path "scripts/test_step4_ex08_delta111.py"
+assert_classification 'false false none none false false' $'docs/PRIVACY.md\tmodified\n.scratchpad/current.md\tmodified'
 ! is_ci_docs_only_path "scripts/test_android_ci_classifier.sh"
 
 # CI-02/03: source changes choose the affected modules; standalone tests may be class-filtered.
@@ -90,7 +87,7 @@ ci_baseline_not_found_requires_full ""
 
 # CI-09: a docs-only commit after source work is not a source-test result; classify the full diff.
 assert_classification 'true false both all false false' \
-    $'docs/step4/REMAINING_GATES.md\tmodified\nshared/src/main/java/com/shilapi/xcertplay/airplay/AirPlaySession.kt\tmodified'
+    $'docs/BUILD.md\tmodified\nshared/src/main/java/com/shilapi/xcertplay/airplay/AirPlaySession.kt\tmodified'
 
 # CI-10: a successful Draft check/quick-baseline is not a full Android baseline or release verification.
 is_ci_full_android_baseline "check,android-instrumentation,host-baseline"

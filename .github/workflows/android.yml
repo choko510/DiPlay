@@ -34,8 +34,6 @@ jobs:
         run: bash scripts/test_android_ci_classifier.sh
       - name: Test instrumentation evidence validator
         run: bash scripts/test_android_instrumentation_evidence.sh
-      - name: Test EX-08 delta-111 inventory
-        run: python3 scripts/test_step4_ex08_delta111.py
       - name: Classify changed files
         id: classify
         env:
@@ -220,10 +218,6 @@ jobs:
       - uses: actions/checkout@v4
       - name: Reject credential files in public source
         run: python3 scripts/check_public_tree.py
-      - name: Verify EX-08 commit inventory
-        run: python3 scripts/generate_step4_ex08_inventory.py --check
-      - name: Validate DSP Studio evidence ledger
-        run: python3 scripts/check_dsp_studio_evidence.py
       - uses: actions/setup-java@v4
         if: needs.changes.outputs.full_host == 'true' || needs.changes.outputs.quick == 'true'
         with:

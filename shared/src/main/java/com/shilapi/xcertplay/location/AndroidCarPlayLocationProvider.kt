@@ -67,7 +67,11 @@ class AndroidCarPlayLocationProvider(
                     )
                     subscribedProviders++
                 } catch (error: Exception) {
-                    Log.w(TAG, "Could not subscribe to Android location provider $provider", error)
+                    Log.w(
+                        TAG,
+                        "Could not subscribe to Android location provider $provider " +
+                            "error=${error.javaClass.simpleName}",
+                    )
                 }
             }
             started = subscribedProviders > 0
@@ -84,7 +88,10 @@ class AndroidCarPlayLocationProvider(
             val location = try {
                 locationManager.getLastKnownLocation(provider)
             } catch (error: Exception) {
-                Log.w(TAG, "Could not read last known location from $provider", error)
+                Log.w(
+                    TAG,
+                    "Could not read last known location from $provider error=${error.javaClass.simpleName}",
+                )
                 null
             } ?: continue
             latestFixes[provider] = location
@@ -124,7 +131,7 @@ class AndroidCarPlayLocationProvider(
                 ),
             )
         } catch (error: Throwable) {
-            Log.w(TAG, "Could not encode Android location as NMEA", error)
+            Log.w(TAG, "Could not encode Android location as NMEA error=${error.javaClass.simpleName}")
             null
         }
     }

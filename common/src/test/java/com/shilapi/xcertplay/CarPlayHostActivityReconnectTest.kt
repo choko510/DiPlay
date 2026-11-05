@@ -1,0 +1,918 @@
+package com.shilapi.xcertplay
+
+import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import com.shilapi.xcertplay.airplay.AirPlayConfig
+import com.shilapi.xcertplay.airplay.AirPlayDisplayConfig
+import com.shilapi.xcertplay.airplay.AirPlayIdentity
+import com.shilapi.xcertplay.airplay.AirPlayMediaHandler
+import com.shilapi.xcertplay.airplay.AirPlaySession
+import com.shilapi.xcertplay.airplay.AirPlaySessionListener
+import com.shilapi.xcertplay.airplay.PairingStore
+import com.shilapi.xcertplay.orchestration.CarPlayStatus
+import com.shilapi.xcertplay.orchestration.CarPlayController
+import com.shilapi.xcertplay.orchestration.CarPlayRuntimeConfig
+import com.shilapi.xcertplay.orchestration.CarPlayTransport
+import com.shilapi.xcertplay.orchestration.MfiTarget
+import com.shilapi.xcertplay.media.AndroidMediaSink
+import com.shilapi.xcertplay.transport.Iap2IdentificationConfig
+import com.shilapi.xcertplay.dsp.DspProfileRuntime
+import com.shilapi.xcertplay.youtube.DisplaySize
+import com.shilapi.xcertplay.youtube.HostLayoutMode
+import com.shilapi.xcertplay.youtube.HostLayoutState
+import java.lang.reflect.Field
+import java.net.ServerSocket
+import java.net.Socket
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.annotation.Config
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class CarPlayHostActivityReconnectTest {
+    @Test
+    fun destroyingHostStopsActivityOwnedExecutors() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val lifecycle = Robolectric.buildActivity(CarPlayHostActivity::class.java).create()
+        val activity = lifecycle.get()
+        val teardown = field(activity, "teardownExecutor").get(activity) as java.util.concurrent.ExecutorService
+        val commands = field(activity, "airPlayCommandExecutor").get(activity) as java.util.concurrent.ExecutorService
+        try {
+            lifecycle.destroy()
+
+            assertTrue(teardown.isShutdown)
+            assertTrue(commands.isShutdown)
+        } finally {
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun shutdownTeardownRetriesAreBoundedAndRetainTheSessionBarrier() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val controller = allocateControllerPlaceholder()
+        val sink = AndroidMediaSink()
+        val attempts = AtomicInteger()
+        try {
+            CarPlayBackgroundSession.store(controller, sink, 800, 480, activity) { done -> done() }
+            activity.awaitControllerClosedForTest = { _, _ ->
+                attempts.incrementAndGet()
+                false
+            }
+            val awaitClosed = activity.javaClass.getDeclaredMethod(
+                "awaitControllerClosedForShutdown",
+                CarPlayController::class.java,
+            ).apply { isAccessible = true }
+            val result = awaitClosed.invoke(activity, controller) as Boolean
+
+            assertFalse(result)
+            assertEquals(3, attempts.get())
+            assertTrue(CarPlayBackgroundSession.hasSession())
+        } finally {
+            activity.awaitControllerClosedForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun retainedTeardownRecoveryClearsTheBarrierAfterResourcesBecomeAvailable() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val controller = allocateControllerPlaceholder()
+        val sink = AndroidMediaSink()
+        field(controller, "closed").setBoolean(controller, true)
+        val attempts = AtomicInteger()
+        val callbackResults = CopyOnWriteArrayList<CarPlayHostShutdownResult>()
+        val completed = CountDownLatch(1)
+        try {
+            field(activity, "controller").set(activity, controller)
+            field(activity, "sink").set(activity, sink)
+            CarPlayBackgroundSession.store(controller, sink, 800, 480, activity) { done -> done() }
+            activity.awaitControllerClosedForTest = { _, _ -> attempts.incrementAndGet() > 3 }
+            dispatchShutdown(activity) { result ->
+                callbackResults += result
+                if (result == CarPlayHostShutdownResult.CLOSED) completed.countDown()
+            }
+
+            val recoveryDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (!CarPlayBackgroundSession.hasPendingTeardownRecovery() && System.nanoTime() < recoveryDeadline) {
+                Thread.sleep(5)
+            }
+            assertTrue(CarPlayBackgroundSession.hasPendingTeardown())
+            assertTrue(CarPlayBackgroundSession.hasPendingTeardownRecovery())
+
+            activity.javaClass.getDeclaredMethod("retryPendingTeardownRecovery").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+            val completionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (completed.count > 0L && System.nanoTime() < completionDeadline) {
+                shadowOf(Looper.getMainLooper()).idle()
+                Thread.sleep(5)
+            }
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertEquals(0L, completed.count)
+            assertEquals(4, attempts.get())
+            assertFalse(CarPlayBackgroundSession.hasPendingTeardown())
+            assertFalse(CarPlayBackgroundSession.hasPendingTeardownRecovery())
+            assertTrue(callbackResults.contains(CarPlayHostShutdownResult.TIMED_OUT))
+            assertTrue(callbackResults.contains(CarPlayHostShutdownResult.CLOSED))
+        } finally {
+            activity.awaitControllerClosedForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun shutdownTimeoutKeepsTheTeardownBarrierUntilTheControllerCloses() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val controller = allocateControllerPlaceholder()
+        val sink = AndroidMediaSink()
+        val attempts = AtomicInteger()
+        val firstWait = CountDownLatch(1)
+        val closeConfirmed = CountDownLatch(1)
+        val allowClose = CountDownLatch(1)
+        val callbackResults = CopyOnWriteArrayList<CarPlayHostShutdownResult>()
+        val startRequests = mutableListOf<DisplaySize>()
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, true)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "activeDisplaySize").set(activity, DisplaySize(800, 480))
+            activity.startCarPlayForTest = startRequests::add
+            field(activity, "controller").set(activity, controller)
+            field(activity, "sink").set(activity, sink)
+            CarPlayBackgroundSession.store(controller, sink, 800, 480, activity) { done -> done() }
+            activity.awaitControllerClosedForTest = { _, _ ->
+                if (attempts.incrementAndGet() == 1) {
+                    firstWait.countDown()
+                    false
+                } else {
+                    closeConfirmed.countDown()
+                    allowClose.await(2, TimeUnit.SECONDS)
+                    true
+                }
+            }
+            dispatchShutdown(activity) { result ->
+                callbackResults += result
+            }
+
+            assertTrue(firstWait.await(2, TimeUnit.SECONDS))
+            shadowOf(Looper.getMainLooper()).idle()
+            assertTrue(CarPlayBackgroundSession.hasSession())
+            assertFalse(callbackResults.contains(CarPlayHostShutdownResult.CLOSED))
+            activity.javaClass.getDeclaredMethod("maybeStartCarPlay").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+            assertTrue(startRequests.isEmpty())
+            assertTrue(closeConfirmed.await(2, TimeUnit.SECONDS))
+            allowClose.countDown()
+            val completionDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+            while (CarPlayBackgroundSession.hasSession() && System.nanoTime() < completionDeadline) {
+                shadowOf(Looper.getMainLooper()).idle()
+                if (CarPlayBackgroundSession.hasSession()) Thread.sleep(10)
+            }
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertFalse(CarPlayBackgroundSession.hasSession())
+            assertTrue(callbackResults.contains(CarPlayHostShutdownResult.TIMED_OUT))
+            assertTrue(callbackResults.contains(CarPlayHostShutdownResult.CLOSED))
+        } finally {
+            allowClose.countDown()
+            activity.awaitControllerClosedForTest = null
+            activity.startCarPlayForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun verifiedUsbAttachReevaluatesStartForAnExistingWiredHost() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val startRequests = mutableListOf<DisplaySize>()
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, true)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "menuOpen").setBoolean(activity, false)
+            field(activity, "activeDisplaySize").set(activity, DisplaySize(800, 480))
+            activity.startCarPlayForTest = startRequests::add
+            assertFalse(activity.isFinishing)
+            assertFalse(activity.isDestroyed)
+            assertFalse(
+                (field(activity, "shuttingDown").get(activity) as java.util.concurrent.atomic.AtomicBoolean).get(),
+            )
+            assertFalse(CarPlayBackgroundSession.isRestartSuppressed())
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+            assertFalse(CarPlayBackgroundSession.hasSession())
+            assertNull(field(activity, "controller").get(activity))
+
+            val attach = CarPlayHostActions.createInternalIntent(
+                activity,
+                CarPlayHostActions.USB_DEVICE_ATTACHED,
+            )
+            dispatchOnNewIntent(activity, attach)
+
+            assertEquals(listOf(DisplaySize(800, 480)), startRequests)
+            assertNull(CarPlayHostActions.consumeInternalAction(attach))
+        } finally {
+            activity.startCarPlayForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun twentyVerifiedWiredAttachesKeepTheExistingControllerAndDoNotStartAnother() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val startRequests = mutableListOf<DisplaySize>()
+        val existingController = allocateControllerPlaceholder()
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, true)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "menuOpen").setBoolean(activity, false)
+            field(activity, "activeDisplaySize").set(activity, DisplaySize(800, 480))
+            field(activity, "controller").set(activity, existingController)
+            activity.startCarPlayForTest = { size -> startRequests.add(size) }
+
+            repeat(20) {
+                dispatchOnNewIntent(
+                    activity,
+                    CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.USB_DEVICE_ATTACHED),
+                )
+            }
+
+            assertTrue(startRequests.isEmpty())
+            assertTrue(field(activity, "controller").get(activity) === existingController)
+        } finally {
+            activity.startCarPlayForTest = null
+            field(activity, "controller").set(activity, null)
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun verifiedWiredAttachAdoptsTheExistingBackgroundOwner() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val startRequests = mutableListOf<DisplaySize>()
+        val existingController = allocateControllerPlaceholder().apply {
+            field(this, "lifecycleLock").set(this, Any())
+            field(this, "mainHandler").set(this, Handler(Looper.getMainLooper()))
+        }
+        val existingSink = com.shilapi.xcertplay.media.AndroidMediaSink()
+        val previousOwner = Any()
+
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, true)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "menuOpen").setBoolean(activity, false)
+            activity.startCarPlayForTest = { size -> startRequests.add(size) }
+            CarPlayBackgroundSession.store(existingController, existingSink, 800, 480, previousOwner) { done -> done() }
+
+            dispatchOnNewIntent(
+                activity,
+                CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.USB_DEVICE_ATTACHED),
+            )
+
+            assertTrue(startRequests.isEmpty())
+            assertTrue(field(activity, "controller").get(activity) === existingController)
+            assertTrue(CarPlayBackgroundSession.isOwner(activity))
+        } finally {
+            activity.startCarPlayForTest = null
+            CarPlayBackgroundSession.clear()
+            existingSink.close()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun verifiedUsbAttachWaitsForVpnReadinessBeforeStarting() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val startRequests = mutableListOf<DisplaySize>()
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            field(activity, "vpnReady").setBoolean(activity, false)
+            field(activity, "microphonePermissionResolved").setBoolean(activity, true)
+            field(activity, "locationReportingEnabled").setBoolean(activity, false)
+            field(activity, "menuOpen").setBoolean(activity, false)
+            field(activity, "activeDisplaySize").set(activity, DisplaySize(800, 480))
+            activity.startCarPlayForTest = startRequests::add
+
+            dispatchOnNewIntent(
+                activity,
+                CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.USB_DEVICE_ATTACHED),
+            )
+            assertTrue(startRequests.isEmpty())
+
+            field(activity, "vpnReady").setBoolean(activity, true)
+            activity.javaClass.getDeclaredMethod("maybeStartCarPlay").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+            assertEquals(listOf(DisplaySize(800, 480)), startRequests)
+        } finally {
+            activity.startCarPlayForTest = null
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun wiredUsbAttachDuringShutdownQueuesOneResumeAfterTeardown() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        clearStartedActivities(activity)
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, false)
+            (field(activity, "shuttingDown").get(activity) as java.util.concurrent.atomic.AtomicBoolean).set(true)
+            val firstAttach = CarPlayHostActions.createInternalIntent(
+                activity,
+                CarPlayHostActions.USB_DEVICE_ATTACHED,
+            )
+            val secondAttach = CarPlayHostActions.createInternalIntent(
+                activity,
+                CarPlayHostActions.USB_DEVICE_ATTACHED,
+            )
+            dispatchOnNewIntent(activity, firstAttach)
+            dispatchOnNewIntent(activity, secondAttach)
+
+            val pending = field(activity, "shutdownCompletionCallbacks").get(activity) as List<*>
+            assertEquals(1, pending.size)
+            assertNull(shadowOf(activity.application).nextStartedActivity)
+
+            activity.javaClass.getDeclaredMethod(
+                "completeShutdownCallbacks",
+                CarPlayHostShutdownResult::class.java,
+            ).apply {
+                isAccessible = true
+                invoke(activity, CarPlayHostShutdownResult.CLOSED)
+            }
+            val resumedHost = shadowOf(activity.application).nextStartedActivity
+            assertNotNull(resumedHost)
+            assertEquals(CarPlayHostActions.OPEN_CARPLAY, CarPlayHostActions.consumeInternalAction(resumedHost))
+            assertNull(shadowOf(activity.application).nextStartedActivity)
+        } finally {
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun wirelessUsbAttachDuringShutdownSwitchesToWiredOnlyOnceAfterTeardown() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).create().get()
+        val persistedWireless = AirPlayPersistence.loadWirelessEnabled(activity)
+        clearStartedActivities(activity)
+        try {
+            field(activity, "wirelessEnabled").setBoolean(activity, true)
+            AirPlayPersistence.saveWirelessEnabled(activity, true)
+            (field(activity, "shuttingDown").get(activity) as java.util.concurrent.atomic.AtomicBoolean).set(true)
+            repeat(2) {
+                dispatchOnNewIntent(
+                    activity,
+                    CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.USB_DEVICE_ATTACHED),
+                )
+            }
+
+            assertTrue(AirPlayPersistence.loadWirelessEnabled(activity))
+            assertEquals(1, (field(activity, "shutdownCompletionCallbacks").get(activity) as List<*>).size)
+            activity.javaClass.getDeclaredMethod(
+                "completeShutdownCallbacks",
+                CarPlayHostShutdownResult::class.java,
+            ).apply {
+                isAccessible = true
+                invoke(activity, CarPlayHostShutdownResult.CLOSED)
+            }
+
+            assertFalse(AirPlayPersistence.loadWirelessEnabled(activity))
+            val resumedHost = shadowOf(activity.application).nextStartedActivity
+            assertNotNull(resumedHost)
+            assertEquals(CarPlayHostActions.OPEN_CARPLAY, CarPlayHostActions.consumeInternalAction(resumedHost))
+            assertNull(shadowOf(activity.application).nextStartedActivity)
+        } finally {
+            AirPlayPersistence.saveWirelessEnabled(activity, persistedWireless)
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun externalDspExitWaitsForTheLatestDecisionWithoutReplacingCarPlayController() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        CarPlayBackgroundSession.clear()
+        val activityController = Robolectric.buildActivity(CarPlayHostActivity::class.java).create()
+        val activity = activityController.get()
+        val existingController = allocateControllerPlaceholder()
+        field(activity, "controller").set(activity, existingController)
+        val runtime = DspProfileRuntime.get(activity.applicationContext)
+        runtime.createStudioSessionCoordinator().edit { it.copy(macros = it.macros.copy(enabled = true, bassImpact = 12)) }
+
+        try {
+            field(activity, "hostLayoutState").set(activity, HostLayoutState().enterDspSplit())
+            activity.javaClass.getDeclaredMethod("updateHostLayout").apply {
+                isAccessible = true
+                invoke(activity)
+            }
+            dispatchOnNewIntent(
+                activity,
+                CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.OPEN_CARPLAY),
+            )
+            val firstRequest = (field(activity, "dspHostExitRequests").get(activity) as DspHostExitRequestQueue)
+                .requestState.value
+            assertNotNull(firstRequest)
+            assertEquals(CarPlayHostActions.OPEN_CARPLAY, firstRequest?.action)
+            assertEquals(HostLayoutMode.CARPLAY_DSP_SPLIT, (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode)
+            assertSame(existingController, field(activity, "controller").get(activity))
+
+            dispatchOnNewIntent(
+                activity,
+                CarPlayHostActions.createInternalIntent(activity, CarPlayHostActions.ENTER_YOUTUBE_SPLIT),
+            )
+            val latestRequest = (field(activity, "dspHostExitRequests").get(activity) as DspHostExitRequestQueue)
+                .requestState.value
+            assertNotNull(latestRequest)
+            assertEquals(CarPlayHostActions.ENTER_YOUTUBE_SPLIT, latestRequest?.action)
+            invokeDspHostExitResolution(activity, requireNotNull(firstRequest), DspHostExitResolution.PROCEED)
+            assertEquals(HostLayoutMode.CARPLAY_DSP_SPLIT, (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode)
+            assertSame(existingController, field(activity, "controller").get(activity))
+
+            invokeDspHostExitResolution(activity, requireNotNull(latestRequest), DspHostExitResolution.PROCEED)
+            assertEquals(HostLayoutMode.CARPLAY_YOUTUBE_SPLIT, (field(activity, "hostLayoutState").get(activity) as HostLayoutState).mode)
+            assertSame(existingController, field(activity, "controller").get(activity))
+        } finally {
+            field(activity, "controller").set(activity, null)
+            activityController.destroy()
+            CarPlayBackgroundSession.clear()
+            DspProfileRuntime.resetForTesting()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun dspPaneVisibilityTracksTwentyHostLayoutCycles() {
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        CarPlayBackgroundSession.clear()
+        val activityController = Robolectric.buildActivity(CarPlayHostActivity::class.java).create()
+        val activity = activityController.get()
+        val visible = field(activity, "dspPaneVisible").get(activity) as androidx.compose.runtime.MutableState<*>
+        val updateLayout = activity.javaClass.getDeclaredMethod("updateHostLayout").apply { isAccessible = true }
+
+        try {
+            field(activity, "pendingSplitMode").set(activity, null)
+            repeat(20) {
+                field(activity, "hostLayoutState").set(activity, HostLayoutState().enterDspSplit())
+                updateLayout.invoke(activity)
+                assertEquals(true, visible.value)
+
+                field(activity, "hostLayoutState").set(activity, HostLayoutState().enterYoutubeSplit())
+                updateLayout.invoke(activity)
+                assertEquals(false, visible.value)
+
+                field(activity, "hostLayoutState").set(activity, HostLayoutState())
+                updateLayout.invoke(activity)
+                assertEquals(false, visible.value)
+            }
+            assertNull(field(activity, "controller").get(activity))
+        } finally {
+            activityController.destroy()
+            CarPlayBackgroundSession.clear()
+            DspProfileRuntime.resetForTesting()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
+    fun altOnlyScreenDoesNotHideTheMainConnectionPanel() {
+        assertFalse(mainScreenStreamIsActive(setOf(111), 110))
+        assertTrue(mainScreenStreamIsActive(setOf(110), 110))
+        assertTrue(mainScreenStreamIsActive(setOf(110, 111), 110))
+    }
+
+    @Test
+    fun replacementLossTicketDoesNotRunAtTheFirstLossDeadline() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+            activity.javaClass.getDeclaredMethod("reconnectAfterLoss", String::class.java).apply {
+                isAccessible = true
+                invoke(activity, "first connection loss")
+            }
+            val firstTicket = field(activity, "scheduledReconnectTicket").get(activity) as? ReconnectAfterLossTicket
+            assertNotNull(firstTicket)
+
+            ownerEpochField.setLong(CarPlayBackgroundSession, requireNotNull(firstTicket).ownerEpoch + 1)
+            activity.javaClass.getDeclaredMethod("reconnectAfterLoss", String::class.java).apply {
+                isAccessible = true
+                invoke(activity, "AirPlay iAP tunnel failed")
+            }
+            val replacementTicket = field(activity, "scheduledReconnectTicket").get(activity)
+            assertNotNull(replacementTicket)
+            assertFalse(firstTicket == replacementTicket)
+
+            shadowOf(Looper.getMainLooper()).idleFor(2_000, TimeUnit.MILLISECONDS)
+
+            assertEquals(replacementTicket, field(activity, "scheduledReconnectTicket").get(activity))
+            assertEquals("AirPlay iAP tunnel failed", field(activity, "scheduledReconnectReason").get(activity))
+            assertNull(field(activity, "restartHandoffToken").get(activity))
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
+    @Test
+    fun staleOwnerEpochTicketIsRejectedByTheActivityDelayRunnable() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+
+        try {
+            assertNull(CarPlayBackgroundSession.snapshot())
+            assertFalse(CarPlayBackgroundSession.hasSession())
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+            field(activity, "activeDisplaySize").set(activity, DisplaySize(1920, 1080))
+
+            activity.javaClass.getDeclaredMethod("reconnectAfterLoss", String::class.java).apply {
+                isAccessible = true
+                invoke(activity, "test connection loss")
+            }
+            val ticket = field(activity, "scheduledReconnectTicket").get(activity) as? ReconnectAfterLossTicket
+            assertNotNull(ticket)
+
+            ownerEpochField.setLong(CarPlayBackgroundSession, requireNotNull(ticket).ownerEpoch + 1)
+            reconnectRunnable.run()
+
+            assertNull(field(activity, "restartHandoffToken").get(activity))
+            assertNull(field(activity, "scheduledReconnectTicket").get(activity))
+            assertNull(field(activity, "scheduledReconnectReason").get(activity))
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+            assertTrue(CarPlayBackgroundSession.isOwner(activity))
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
+    @Test
+    fun staleConnectionEpochTransportCallbackCannotScheduleAHostRetry() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+        val restartGeneration = field(activity, "restartGeneration").getInt(activity)
+        val connectionEpochField = field(activity, "connectionEpoch")
+        val connectionEpoch = connectionEpochField.getLong(activity)
+        val listener = activity.javaClass.getDeclaredMethod(
+            "createSessionListener",
+            Int::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+            .invoke(activity, restartGeneration, connectionEpoch) as AirPlaySessionListener
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+
+            val callback = Thread { listener.onTransportError("late old connection error") }.apply {
+                isDaemon = true
+                start()
+            }
+            callback.join(1_000)
+            assertFalse(callback.isAlive)
+            connectionEpochField.setLong(activity, connectionEpoch + 1)
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertNull(field(activity, "scheduledReconnectTicket").get(activity))
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            field(activity, "scheduledReconnectTicket").set(activity, null)
+            field(activity, "scheduledReconnectReason").set(activity, null)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
+    @Test
+    fun staleConnectionEpochStatusCallbackCannotScheduleAHostRetry() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+        val restartGeneration = field(activity, "restartGeneration").getInt(activity)
+        val connectionEpochField = field(activity, "connectionEpoch")
+        val connectionEpoch = connectionEpochField.getLong(activity)
+        val reporter = activity.javaClass.getDeclaredMethod(
+            "createStatusReporter",
+            Int::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+            .invoke(activity, restartGeneration, connectionEpoch)
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+            connectionEpochField.setLong(activity, connectionEpoch + 1)
+
+            invokeStatusReporter(reporter, CarPlayStatus.Failed("late old connection status"))
+
+            assertNull(field(activity, "scheduledReconnectTicket").get(activity))
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            field(activity, "scheduledReconnectTicket").set(activity, null)
+            field(activity, "scheduledReconnectReason").set(activity, null)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
+    @Test
+    fun queuedOldOwnerTransportCallbackCannotChangeTheNewHostStage() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+        val restartGeneration = field(activity, "restartGeneration").getInt(activity)
+        val connectionEpoch = field(activity, "connectionEpoch").getLong(activity)
+        val initialStage = field(activity, "latestStage").get(activity)
+        val listener = activity.javaClass.getDeclaredMethod(
+            "createSessionListener",
+            Int::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+            .invoke(activity, restartGeneration, connectionEpoch) as AirPlaySessionListener
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+
+            val callback = Thread { listener.onTransportError("callback queued before owner handoff") }.apply {
+                isDaemon = true
+                start()
+            }
+            callback.join(1_000)
+            assertFalse(callback.isAlive)
+            ownerField.set(CarPlayBackgroundSession, Any())
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 2)
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertEquals(initialStage, field(activity, "latestStage").get(activity))
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            field(activity, "scheduledReconnectTicket").set(activity, null)
+            field(activity, "scheduledReconnectReason").set(activity, null)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
+    @Test
+    fun staleOldSessionEndCannotClearOrReconnectTheNewActiveSession() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val ownerEpochField = field(CarPlayBackgroundSession, "ownershipEpoch")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousOwnerEpoch = ownerEpochField.getLong(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val activeSessionField = field(activity, "activeAirPlaySession")
+        val previousActiveSession = activeSessionField.get(activity)
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+        val restartGeneration = field(activity, "restartGeneration").getInt(activity)
+        val connectionEpoch = field(activity, "connectionEpoch").getLong(activity)
+        val oldSession = createSession()
+        val newSession = createSession()
+        val listener = activity.javaClass.getDeclaredMethod(
+            "createSessionListener",
+            Int::class.javaPrimitiveType,
+            Long::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+            .invoke(activity, restartGeneration, connectionEpoch) as AirPlaySessionListener
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch + 1)
+            ownerField.set(CarPlayBackgroundSession, activity)
+            CarPlayBackgroundSession.active = true
+            activeSessionField.set(activity, newSession)
+
+            listener.onSessionEnded(oldSession)
+            shadowOf(Looper.getMainLooper()).idle()
+
+            assertTrue(activeSessionField.get(activity) === newSession)
+            assertFalse(newSession.isClosed)
+            assertTrue(CarPlayBackgroundSession.active)
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+            assertNull(field(activity, "scheduledReconnectTicket").get(activity))
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            ownerEpochField.setLong(CarPlayBackgroundSession, previousOwnerEpoch)
+            CarPlayBackgroundSession.active = previousActive
+            activeSessionField.set(activity, previousActiveSession)
+            oldSession.close()
+            newSession.close()
+        }
+    }
+
+    private fun createSession(): AirPlaySession {
+        val server = ServerSocket(0)
+        val socket = try {
+            Socket("127.0.0.1", server.localPort).use { server.accept() }
+        } finally {
+            server.close()
+        }
+        return AirPlaySession(
+            socket = socket,
+            config = AirPlayConfig(
+                deviceName = "test",
+                deviceId = "02:00:00:00:00:02",
+                btMac = "02:00:00:00:00:01",
+                sourceVersion = "1.0",
+                main = AirPlayDisplayConfig(widthPixels = 800, heightPixels = 480),
+            ),
+            identity = AirPlayIdentity.generate(),
+            pairings = PairingStore(),
+            mfi = null,
+            listener = object : AirPlaySessionListener {},
+            media = object : AirPlayMediaHandler {},
+        )
+    }
+
+    private fun field(instance: Any, name: String): Field = instance.javaClass.getDeclaredField(name).apply {
+        isAccessible = true
+    }
+
+    private fun dispatchOnNewIntent(activity: CarPlayHostActivity, intent: Intent) {
+        activity.javaClass.getDeclaredMethod("onNewIntent", Intent::class.java).apply {
+            isAccessible = true
+            invoke(activity, intent)
+        }
+    }
+
+    private fun invokeDspHostExitResolution(
+        activity: CarPlayHostActivity,
+        request: DspHostExitRequest,
+        resolution: DspHostExitResolution,
+    ) {
+        activity.javaClass.getDeclaredMethod(
+            "onDspHostExitResolved",
+            DspHostExitRequest::class.java,
+            DspHostExitResolution::class.java,
+        ).apply {
+            isAccessible = true
+            invoke(activity, request, resolution)
+        }
+    }
+
+    private fun dispatchShutdown(
+        activity: CarPlayHostActivity,
+        completion: (CarPlayHostShutdownResult) -> Unit,
+    ) {
+        activity.javaClass.declaredMethods.single { it.name == "shutdown" && it.parameterCount == 3 }.apply {
+            isAccessible = true
+            invoke(activity, false, "test shutdown timeout", completion)
+        }
+    }
+
+    private fun clearStartedActivities(activity: CarPlayHostActivity) {
+        while (shadowOf(activity.application).nextStartedActivity != null) { }
+    }
+
+    private fun allocateControllerPlaceholder(): CarPlayController {
+        val unsafeClass = Class.forName("sun.misc.Unsafe")
+        val unsafe = unsafeClass.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null)
+        val controller = unsafeClass.getMethod("allocateInstance", Class::class.java)
+            .invoke(unsafe, CarPlayController::class.java) as CarPlayController
+        field(controller, "config").set(
+            controller,
+            CarPlayRuntimeConfig(
+                mfiTarget = MfiTarget.LOCAL,
+                transport = CarPlayTransport.WIRED,
+                identification = Iap2IdentificationConfig(
+                    name = "test",
+                    modelIdentifier = "test",
+                    manufacturer = "test",
+                    serialNumber = "test",
+                    firmwareVersion = "1.0",
+                    hardwareVersion = "1.0",
+                    carPlayUsbInterfaceNumber = 0,
+                ),
+            ),
+        )
+        return controller
+    }
+
+    private fun invokeStatusReporter(reporter: Any?, status: CarPlayStatus) {
+        requireNotNull(reporter).javaClass.getMethod("invoke", Any::class.java).invoke(reporter, status)
+    }
+}

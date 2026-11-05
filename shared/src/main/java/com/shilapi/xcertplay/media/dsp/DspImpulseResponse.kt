@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
 import kotlin.math.abs
+import kotlin.math.log10
 
 class DspImpulseResponse(
     val id: String,
@@ -9,6 +10,7 @@ class DspImpulseResponse(
     samples: FloatArray,
 ) {
     private val sampleData: FloatArray
+    private val maximumChannelAbsoluteSum: Double
     val frameCount: Int
 
     fun sampleAt(frame: Int, channel: Int): Float {
@@ -24,16 +26,26 @@ class DspImpulseResponse(
         val frames = samples.size / channels
         require(frames <= MAX_FRAMES)
         var absoluteSum = 0.0
-        samples.forEach { sample ->
+        val channelAbsoluteSums = DoubleArray(channels)
+        samples.forEachIndexed { index, sample ->
             require(sample.isFinite() && abs(sample) <= MAX_ABSOLUTE_SAMPLE)
-            absoluteSum += abs(sample).toDouble()
+            val magnitude = abs(sample).toDouble()
+            absoluteSum += magnitude
+            channelAbsoluteSums[index % channels] += magnitude
             require(absoluteSum <= MAX_ABSOLUTE_SUM)
         }
         frameCount = frames
+        maximumChannelAbsoluteSum = channelAbsoluteSums.maxOrNull() ?: 0.0
         sampleData = samples.copyOf()
     }
 
     internal fun copySamples(): FloatArray = sampleData.copyOf()
+
+    internal fun conservativePeakGainDb(wet: Double): Double {
+        require(wet.isFinite() && wet in 0.0..1.0)
+        val peakGain = (1.0 - wet) + wet * maximumChannelAbsoluteSum
+        return if (peakGain > 1.0) 20.0 * log10(peakGain) else 0.0
+    }
 
     companion object {
         const val MAX_FRAMES = 65_536

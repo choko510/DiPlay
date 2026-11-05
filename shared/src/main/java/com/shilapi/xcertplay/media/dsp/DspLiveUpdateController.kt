@@ -1,14 +1,11 @@
 package com.shilapi.xcertplay.media.dsp
 
 import java.io.Closeable
-import java.util.concurrent.Executors
-import java.util.concurrent.ScheduledExecutorService
-import java.util.concurrent.ScheduledFuture
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.atomic.AtomicReferenceArray
+import java.util.concurrent.locks.LockSupport
 
 internal data class DspPreparedUpdate(
     val generation: Long,
@@ -16,9 +13,19 @@ internal data class DspPreparedUpdate(
     val config: DspRuntimeConfig,
     val pipeline: DspPcmPipeline?,
     val latencyFrames: Int,
+    val hotUpdate: DspPreparedHotUpdate? = null,
+    val preampHotUpdate: DspPreparedPreampHotUpdate? = null,
+    val localPeqWarmUpdate: DspPreparedLocalPeqWarmUpdate? = null,
+    val localWarmFailureReason: String? = null,
+)
+
+internal data class DspLocalPeqWarmPreparation(
+    val update: DspPreparedLocalPeqWarmUpdate? = null,
+    val unavailableReason: String? = null,
 )
 
 internal typealias DspPipelinePreparer = (DspAudioFormat, DspRuntimeConfig) -> DspPcmPipeline?
+internal typealias DspLocalPeqWarmPreparer = (DspAudioFormat, DspConfigSnapshot) -> DspLocalPeqWarmPreparation?
 
 internal class DspLiveUpdateController(
     private val format: DspAudioFormat,
@@ -28,23 +35,34 @@ internal class DspLiveUpdateController(
     private val activeLatencyFrames: () -> Int,
     private val onPrepared: (DspPreparedUpdate) -> Unit,
     private val onPreparing: (DspConfigSnapshot) -> Unit = { },
-    private val onDeferred: (Long) -> Unit = { },
+    private val onFailed: (DspConfigSnapshot, Throwable) -> Unit = { _, _ -> },
+    private val onDeferred: (Long, String) -> Unit = { _, _ -> },
     private val canAdoptLatencyChange: () -> Boolean = { false },
     private val pipelinePreparer: DspPipelinePreparer =
         { targetFormat, config -> createNativePipeline(role, targetFormat, config) },
     private val preparedLatencyFrames: (DspPcmPipeline?) -> Int = { it?.algorithmicLatencyFrames ?: 0 },
+    private val onPreparedResult: ((DspPreparedUpdate) -> Boolean)? = null,
+    private val onRetirementFailed: (DspPcmPipeline, Throwable) -> Unit = { _, _ -> },
+    private val hotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedHotUpdate?)? = null,
+    private val preampHotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedPreampHotUpdate?)? = null,
+    private val localPeqWarmPreparer: DspLocalPeqWarmPreparer? = null,
+    private val onRetirementCompleted: (DspPcmPipeline, Long) -> Unit = { _, _ -> },
 ) : Closeable {
-    private val controlExecutor: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { task ->
-        Thread(task, "dsp-live-control").apply { isDaemon = true }
-    }
     private val closed = AtomicBoolean(false)
-    private val preparing = AtomicBoolean(false)
+    private val workRequested = AtomicBoolean(false)
     private val lastHandledGeneration = AtomicLong(initialGeneration)
     private val desired = AtomicReference<DspConfigSnapshot?>(null)
+    private val reprepareRequestedGeneration = AtomicLong(-1L)
     private val generationLock = Any()
-    private val retiredPipelines = AtomicReferenceArray<DspPcmPipeline?>(MAX_RETIRED_PIPELINES)
-    private val overflowRetiredPipeline = AtomicReference<DspPcmPipeline?>(null)
-    @Volatile private var maintenance: ScheduledFuture<*>? = null
+    private val retiredPipelineCount = AtomicInteger()
+    private val failedRetirementCount = AtomicInteger()
+    private val controlThread = Thread(::runControlLoop, "dsp-live-control").apply { isDaemon = true }
+
+    init {
+        DspPipelineReaper.start()
+        controlThread.start()
+    }
+
     private val subscription = provider.addListener(::onConfigChanged)
 
     private fun onConfigChanged(snapshot: DspConfigSnapshot) {
@@ -59,97 +77,145 @@ internal class DspLiveUpdateController(
             true
         }
         if (!accepted) return
-        ensureMaintenance()
         schedulePreparation()
     }
 
-    private fun ensureMaintenance() {
-        if (maintenance != null) return
-        synchronized(this) {
-            if (maintenance == null && !closed.get()) {
-                maintenance = controlExecutor.scheduleWithFixedDelay(
-                    ::closeRetiredPipeline,
-                    MAINTENANCE_INTERVAL_MS,
-                    MAINTENANCE_INTERVAL_MS,
-                    TimeUnit.MILLISECONDS,
-                )
-            }
-        }
+    private fun schedulePreparation() {
+        if (closed.get()) return
+        workRequested.set(true)
+        LockSupport.unpark(controlThread)
     }
 
-    private fun schedulePreparation() {
-        if (!preparing.compareAndSet(false, true)) return
-        runCatching { controlExecutor.execute(::prepareLatest) }.onFailure { preparing.set(false) }
+    private fun runControlLoop() {
+        while (!closed.get()) {
+            if (!workRequested.getAndSet(false)) {
+                LockSupport.park()
+                continue
+            }
+            prepareLatest()
+        }
     }
 
     private fun prepareLatest() {
         try {
             while (!closed.get()) {
                 val snapshot = desired.get() ?: return
-                if (snapshot.generation <= lastHandledGeneration.get()) return
-                val pipeline = pipelinePreparer(format, snapshot.config)
-                if (pipeline != null && pipeline.format != format) {
-                    runCatching { pipeline.close() }
+                val reprepareRequested = reprepareRequestedGeneration.compareAndSet(snapshot.generation, -1L)
+                if (snapshot.generation <= lastHandledGeneration.get() && !reprepareRequested) return
+                var candidate: DspPcmPipeline? = null
+                try {
+                    val hotUpdate = hotUpdatePreparer?.invoke(format, snapshot)
+                    val preampHotUpdate = if (hotUpdate == null) preampHotUpdatePreparer?.invoke(format, snapshot) else null
+                    val localPeqWarm = if (hotUpdate == null && preampHotUpdate == null) localPeqWarmPreparer?.invoke(format, snapshot) else null
+                    if (hotUpdate == null && preampHotUpdate == null && localPeqWarm?.update == null) {
+                        candidate = pipelinePreparer(format, snapshot.config)
+                    }
+                    candidate?.configGeneration = snapshot.generation
+                    if (candidate != null && candidate.format != format) {
+                        retire(candidate)
+                        candidate = null
+                        lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
+                        runCatching {
+                            onDeferred(
+                                snapshot.generation,
+                                "prepared DSP pipeline format does not match the active PCM format",
+                            )
+                        }
+                        continue
+                    }
+                    val latencyFrames = if (hotUpdate != null || preampHotUpdate != null || localPeqWarm?.update != null) {
+                        activeLatencyFrames().coerceAtLeast(0)
+                    }
+                    else preparedLatencyFrames(candidate).coerceAtLeast(0)
+                    val deferLatencyChange = latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()
+                    if (desired.get()?.generation != snapshot.generation) {
+                        retire(candidate)
+                        candidate = null
+                        continue
+                    }
+                    if (closed.get()) {
+                        retire(candidate)
+                        candidate = null
+                        return
+                    }
                     lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
-                    runCatching { onDeferred(snapshot.generation) }
-                    continue
-                }
-                val latencyFrames = preparedLatencyFrames(pipeline).coerceAtLeast(0)
-                if (latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()) {
-                    runCatching { pipeline?.close() }
+                    val update = DspPreparedUpdate(
+                        snapshot.generation,
+                        format,
+                        snapshot.config,
+                        candidate,
+                        latencyFrames,
+                        hotUpdate,
+                        preampHotUpdate,
+                        localPeqWarm?.update,
+                        localPeqWarm?.unavailableReason,
+                    )
+                    val transferred = onPreparedResult?.invoke(update) ?: run {
+                        onPrepared(update)
+                        true
+                    }
+                    if (transferred) {
+                        candidate = null
+                    } else {
+                        retire(candidate)
+                        candidate = null
+                    }
+                    if (transferred && deferLatencyChange) {
+                        runCatching {
+                            onDeferred(
+                                snapshot.generation,
+                                "DSP latency change is deferred until the next AudioTrack generation",
+                            )
+                        }
+                    }
+                } catch (error: Throwable) {
+                    val failedCandidate = candidate
+                    candidate = null
+                    retire(failedCandidate)
                     lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
-                    runCatching { onDeferred(snapshot.generation) }
-                    continue
+                    runCatching { onFailed(snapshot, error) }
+                    if (error is VirtualMachineError || error is ThreadDeath) throw error
                 }
-                if (desired.get()?.generation != snapshot.generation) {
-                    runCatching { pipeline?.close() }
-                    continue
-                }
-                if (closed.get()) {
-                    runCatching { pipeline?.close() }
-                    return
-                }
-                lastHandledGeneration.updateAndGet { maxOf(it, snapshot.generation) }
-                runCatching { onPrepared(DspPreparedUpdate(snapshot.generation, format, snapshot.config, pipeline, latencyFrames)) }
-                    .onFailure { runCatching { pipeline?.close() } }
             }
         } finally {
-            preparing.set(false)
-            if (!closed.get() && (desired.get()?.generation ?: 0L) > lastHandledGeneration.get()) {
-                schedulePreparation()
+            val latestGeneration = desired.get()?.generation ?: 0L
+            if (!closed.get() && (latestGeneration > lastHandledGeneration.get() ||
+                    reprepareRequestedGeneration.get() == latestGeneration)
+            ) {
+                workRequested.set(true)
             }
         }
     }
 
-    fun canAdoptUpdate(): Boolean = !closed.get() && overflowRetiredPipeline.get() == null &&
-        (0 until MAX_RETIRED_PIPELINES).all { retiredPipelines.get(it) == null }
+    fun canAdoptUpdate(): Boolean = !closed.get() && retiredPipelineCount.get() == 0 && failedRetirementCount.get() == 0
+
+    fun reprepareLatest(generation: Long) {
+        if (closed.get() || desired.get()?.generation != generation) return
+        reprepareRequestedGeneration.updateAndGet { previous -> maxOf(previous, generation) }
+        schedulePreparation()
+    }
 
     fun retire(pipeline: DspPcmPipeline?) {
         if (pipeline == null) return
-        for (slot in 0 until MAX_RETIRED_PIPELINES) {
-            if (retiredPipelines.compareAndSet(slot, null, pipeline)) return
-        }
-        overflowRetiredPipeline.compareAndSet(null, pipeline)
-    }
-
-    private fun closeRetiredPipeline() {
-        for (slot in 0 until MAX_RETIRED_PIPELINES) {
-            runCatching { retiredPipelines.getAndSet(slot, null)?.close() }
-        }
-        runCatching { overflowRetiredPipeline.getAndSet(null)?.close() }
+        val claimed = pipeline.claimRetirement(
+            counter = retiredPipelineCount,
+            onCloseFailure = { error ->
+                failedRetirementCount.incrementAndGet()
+                runCatching { onRetirementFailed(pipeline, error) }
+            },
+            onCloseComplete = { runCatching { onRetirementCompleted(pipeline, pipeline.closeDurationNs) } },
+        )
+        if (!claimed) return
+        retiredPipelineCount.incrementAndGet()
+        DspPipelineReaper.enqueue(pipeline)
     }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
         subscription.close()
-        maintenance?.cancel(false)
-        closeRetiredPipeline()
-        controlExecutor.shutdown()
+        LockSupport.unpark(controlThread)
     }
 }
-
-private const val MAINTENANCE_INTERVAL_MS = 10L
-private const val MAX_RETIRED_PIPELINES = 8
 
 internal fun createNativePipeline(
     role: DspStreamRole,

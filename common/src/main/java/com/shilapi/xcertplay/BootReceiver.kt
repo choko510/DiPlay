@@ -9,6 +9,7 @@ import android.util.Log
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+        IphoneUsbBootReconciler.reconcile(context)
         if (!AirPlayPersistence.loadAutoStartOnBoot(context)) return
 
         val launch = Intent(context, DiPlayActivity::class.java).apply {
@@ -21,7 +22,7 @@ class BootReceiver : BroadcastReceiver() {
         try {
             context.startActivity(launch)
         } catch (error: RuntimeException) {
-            Log.w(TAG, "Boot auto-start could not launch CarPlayHostActivity", error)
+            Log.w(TAG, "Boot auto-start could not launch CarPlayHostActivity error=${error.javaClass.simpleName}")
         }
     }
 

@@ -1,10 +1,14 @@
 package com.shilapi.xcertplay
 
 import android.content.Intent
+import android.content.ComponentName
+import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.Switch
 import android.widget.TextView
 import com.shilapi.xcertplay.host.R
 import org.junit.Assert.assertEquals
@@ -49,6 +53,43 @@ class DiPlayActivityNavigationTest {
 
         findButton(activity, activity.getString(R.string.ui_back)).performClick()
         assertTrue(activity.isFinishing)
+    }
+
+    @Test
+    fun iphoneUsbAutoLaunchSettingIsVisibleAndDefaultsOff() {
+        val application = RuntimeEnvironment.getApplication()
+        val preferences = application.getSharedPreferences("xcertplay_airplay", Context.MODE_PRIVATE)
+        val component = ComponentName(application, IphoneUsbAutoAttachActivity::class.java)
+        val hadSavedValue = preferences.contains("auto_launch_on_iphone_usb_attach")
+        val savedValue = preferences.getBoolean("auto_launch_on_iphone_usb_attach", false)
+        val previousComponentState = application.packageManager.getComponentEnabledSetting(component)
+
+        try {
+            preferences.edit().remove("auto_launch_on_iphone_usb_attach").commit()
+            application.packageManager.setComponentEnabledSetting(
+                component,
+                PackageManager.COMPONENT_ENABLED_STATE_DEFAULT,
+                PackageManager.DONT_KILL_APP,
+            )
+            val activity = launchMenuOriginSettings()
+            val control = findSwitch(activity, activity.getString(R.string.ui_iphone_usb_autolaunch_title))
+
+            assertTrue(hasText(activity, activity.getString(R.string.ui_iphone_usb_autolaunch_description)))
+            assertNotNull(control)
+            assertFalse(control!!.isChecked)
+            assertTrue(control.isEnabled)
+            activity.finish()
+        } finally {
+            val editor = preferences.edit()
+            if (hadSavedValue) editor.putBoolean("auto_launch_on_iphone_usb_attach", savedValue)
+            else editor.remove("auto_launch_on_iphone_usb_attach")
+            editor.commit()
+            application.packageManager.setComponentEnabledSetting(
+                component,
+                previousComponentState,
+                PackageManager.DONT_KILL_APP,
+            )
+        }
     }
 
     @Test
@@ -102,6 +143,19 @@ class DiPlayActivityNavigationTest {
 
     private fun findButton(activity: DiPlayActivity, text: String): Button =
         findButtonIn(activity.window.decorView, text).also { assertNotNull("Button '$text' was not found", it) }!!
+
+    private fun findSwitch(activity: DiPlayActivity, title: String): Switch? =
+        findSwitchIn(activity.window.decorView, title)
+
+    private fun findSwitchIn(view: View, title: String): Switch? {
+        if (view is Switch && view.contentDescription == title) return view
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                findSwitchIn(view.getChildAt(index), title)?.let { return it }
+            }
+        }
+        return null
+    }
 
     private fun findButtonIn(view: View, text: String): Button? {
         if (view is Button && view.text.toString() == text) return view

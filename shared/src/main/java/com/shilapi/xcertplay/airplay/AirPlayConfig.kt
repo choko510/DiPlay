@@ -20,6 +20,7 @@ data class AirPlayDisplayConfig(
     val safeArea: AirPlayInsets? = null,
     val safeAreaDrawOutside: Boolean? = null,
     val initialUrl: String? = null,
+    val viewAreas: CarPlayViewAreas? = null,
 )
 
 /** One OEM homescreen icon. */

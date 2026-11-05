@@ -30,6 +30,13 @@ class DiagnosticRedactorTest {
         assertTrue(line.contains("connected"))
         assertFalse(line.contains("C0:A6")); assertFalse(line.contains("192.168")); assertFalse(line.contains("012345")); assertFalse(line.contains("fe80"))
     }
+    @Test fun logcatFallbackNeverReturnsSensitiveDiagnosticText() {
+        val safe = DiagnosticRedactor.redactForLogcat("connected peer=C0:A6:00:29:58:0A ip=192.168.31.71")
+        assertTrue(safe.contains("connected"))
+        assertFalse(safe.contains("C0:A6"))
+        assertFalse(safe.contains("192.168"))
+        assertEquals("sensitive diagnostic omitted", DiagnosticRedactor.redactForLogcat("wireless SSID=Home"))
+    }
     @Test fun logRotationIsBoundedAndRedactionHappensBeforeDisk() {
         val folder = Files.createTempDirectory("diplay-log-test").toFile()
         try {

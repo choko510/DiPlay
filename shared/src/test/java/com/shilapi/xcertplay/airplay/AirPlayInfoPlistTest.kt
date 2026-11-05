@@ -1,5 +1,6 @@
 package com.shilapi.xcertplay.airplay
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -7,6 +8,59 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AirPlayInfoPlistTest {
+    @Test
+    fun implicitSingleAreaDisplayEncodingMatchesTheFixedMainWireShape() {
+        val displays = listOf(
+            AirPlayDisplayConfig(widthPixels = 1280, heightPixels = 720),
+            AirPlayDisplayConfig(
+                widthPixels = 1280,
+                heightPixels = 720,
+                viewArea = AirPlayInsets(top = 6, bottom = 12, left = 18, right = 24),
+                safeArea = AirPlayInsets(top = 30, bottom = 60, left = 90, right = 120),
+                safeAreaDrawOutside = false,
+            ),
+        )
+
+        displays.forEach { display ->
+            val config = AirPlayConfig(
+                deviceName = "test",
+                deviceId = "02:00:00:00:00:02",
+                btMac = "02:00:00:00:00:02",
+                sourceVersion = "366.0",
+                main = display,
+            )
+            val actual = AirPlayInfoPlist.build(config)
+            val expected = LinkedHashMap(actual)
+            val actualDisplays = actual["displays"] as List<*>
+            expected["displays"] = actualDisplays.map { value ->
+                val entry = LinkedHashMap<String, Any?>().apply {
+                    (value as Map<*, *>).forEach { (key, item) -> put(key as String, item) }
+                }
+                // Reconstruct fixed main's single-area displayEntry/areaDict serialization.
+                val view = display.viewArea ?: AirPlayInsets()
+                val safe = display.safeArea ?: AirPlayInsets()
+                val legacyArea = linkedMapOf<String, Any?>(
+                    "widthPixels" to (display.widthPixels - view.left - view.right),
+                    "heightPixels" to (display.heightPixels - view.top - view.bottom),
+                    "originXPixels" to view.left,
+                    "originYPixels" to view.top,
+                    "safeArea" to linkedMapOf(
+                        "widthPixels" to (display.widthPixels - safe.left - safe.right),
+                        "heightPixels" to (display.heightPixels - safe.top - safe.bottom),
+                        "originXPixels" to safe.left,
+                        "originYPixels" to safe.top,
+                        "drawUIOutsideSafeArea" to (display.safeAreaDrawOutside ?: true),
+                    ),
+                )
+                entry["viewAreas"] = listOf(legacyArea)
+                entry["initialViewArea"] = 0
+                entry
+            }
+
+            assertArrayEquals(BplistCodec.encode(expected), BplistCodec.encode(actual))
+        }
+    }
+
     @Test
     fun defaultDisplayIncludesFullViewAndSafeAreas() {
         val info = AirPlayInfoPlist.build(

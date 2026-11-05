@@ -357,7 +357,10 @@ class AudioStream private constructor(
             } catch (error: Exception) {
                 if (!rtpCallbackFailureLogged) {
                     rtpCallbackFailureLogged = true
-                    android.util.Log.w(TAG, "audio callback failed type=$streamType", error)
+                    android.util.Log.w(
+                        TAG,
+                        "audio callback failed type=$streamType error=${error.javaClass.simpleName}",
+                    )
                     onDiagnostic("Audio RTP callback failed type=$streamType error=${error.javaClass.simpleName}")
                 }
             }

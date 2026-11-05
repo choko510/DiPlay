@@ -1,9 +1,11 @@
 plugins {
     id 'com.android.library'
 }
+def sharedAndroidTestBuildType = providers.gradleProperty('sharedAndroidTestBuildType').getOrElse('debug')
 android {
     namespace = 'com.shilapi.xcertplay.shared'
     compileSdk = 37
+    testBuildType = sharedAndroidTestBuildType
 
     defaultConfig {
         minSdk = 28

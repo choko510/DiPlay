@@ -17,9 +17,13 @@ internal fun videoDecoderAttemptPlan(softwareDecoderName: String?): List<Decoder
 
 internal fun <T : Any> firstSuccessfulDecoderAttempt(
     attempts: List<DecoderAttempt>,
+    canContinueAfterFailure: () -> Boolean = { true },
     configure: (DecoderAttempt) -> T?,
 ): T? {
-    for (attempt in attempts) configure(attempt)?.let { return it }
+    for (attempt in attempts) {
+        configure(attempt)?.let { return it }
+        if (!canContinueAfterFailure()) return null
+    }
     return null
 }
 

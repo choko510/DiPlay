@@ -6,11 +6,38 @@ import org.junit.Test
 import com.shilapi.xcertplay.airplay.VideoCodec
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 
 class MediaCodecSupportTest {
     @Test fun truncatedAccessUnitIsRejectedInsteadOfSubmittingItsValidPrefix() {
         assertEquals(0, MediaCodecSupport.toAnnexB(byteArrayOf(0, 0, 0, 2, 0x41, 1, 0, 0, 0, 9, 0x41)).size)
         assertEquals(0, MediaCodecSupport.toAnnexB(byteArrayOf(0, 0, 0, 2, 0x41, 1, 0)).size)
+    }
+
+    @Test fun zeroAndUnrepresentableNalLengthsAreRejectedWithoutPartialOutput() {
+        assertEquals(0, MediaCodecSupport.toAnnexB(byteArrayOf(0, 0, 0, 0)).size)
+        assertEquals(0, MediaCodecSupport.toAnnexB(byteArrayOf(0x7f, -1, -1, -1, 0x65)).size)
+        assertEquals(0, MediaCodecSupport.toAnnexB(byteArrayOf(-128, 0, 0, 0, 0x65)).size)
+    }
+
+    @Test fun annexBConversionIsByteExactAndLeavesItsInputUnchanged() {
+        val first = byteArrayOf(0x65, 0x11)
+        val second = byteArrayOf(0x41, 0x22, 0x33)
+        val input = byteArrayOf(0, 0, 0, first.size.toByte()) + first +
+            byteArrayOf(0, 0, 0, second.size.toByte()) + second
+        val original = input.copyOf()
+
+        assertArrayEquals(
+            byteArrayOf(0, 0, 0, 1) + first + byteArrayOf(0, 0, 0, 1) + second,
+            MediaCodecSupport.toAnnexB(input),
+        )
+        assertArrayEquals(original, input)
+    }
+
+    @Test fun existingAnnexBInputIsReturnedByteExactWithoutASecondCopy() {
+        val input = byteArrayOf(0, 0, 0, 1, 0x65, 0x11, 0, 0, 1, 0x41, 0x22)
+
+        assertSame(input, MediaCodecSupport.toAnnexB(input))
     }
 
     @Test fun findsRandomAccessAfterParameterSetsButNeverOnInterframes() {
@@ -19,6 +46,10 @@ class MediaCodecSupportTest {
         assertFalse(MediaCodecSupport.isRandomAccess(sps + byteArrayOf(0, 0, 1, 0x41, 20), VideoCodec.H264))
         for (type in 16..21) assertTrue(MediaCodecSupport.isRandomAccess(byteArrayOf(0, 0, 0, 1, (type shl 1).toByte(), 1, 20), VideoCodec.H265))
         assertFalse(MediaCodecSupport.isRandomAccess(byteArrayOf(0, 0, 0, 1, 2, 1, 20), VideoCodec.H265))
+    }
+
+    @Test fun h265RandomAccessIsRecognizedAfterThreeByteAnnexBPrefix() {
+        assertTrue(MediaCodecSupport.isRandomAccess(byteArrayOf(0, 0, 1, 0x26, 1, 20), VideoCodec.H265))
     }
 
     @Test

@@ -51,9 +51,12 @@ internal class DspProcessResult {
     }
 }
 
+/** Each processor owns mutable graph state; callers serialize processing and reset for an instance. */
 internal interface DspProcessor : Closeable {
     val format: DspAudioFormat
     val latencyFrames: Int
+    val interchannelRelativeDelayFrames: Double
+        get() = 0.0
 
     fun process(
         input: ByteBuffer,
@@ -62,6 +65,46 @@ internal interface DspProcessor : Closeable {
     ): DspProcessResult
 
     fun reset()
+
+    fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = false
+
+    fun enqueuePreampHotUpdate(update: DspPreparedPreampHotUpdate): Boolean = false
+
+    fun prepareLocalPeqWarmUpdate(
+        coefficients: DoubleArray,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): DspPreparedLocalPeqWarmUpdate? = null
+
+    fun enqueueLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int = -1
+
+    fun cancelLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int = -1
+
+    fun localPeqWarmAcknowledgedToken(): Int = 0
+
+    fun localPeqWarmRejectedToken(): Int = 0
+
+    fun bindHotUpdateContext(
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): Boolean = false
+
+    fun invalidateHotUpdateContext() {}
+
+    fun hotUpdateContextToken(): Int = 0
+
+    fun hotAcknowledgedToken(): Int = 0
+    fun hotDeferredToken(): Int = 0
+    fun hotDeferredReason(): Int = 0
+
+    fun preampHotAcknowledgedToken(): Int = 0
 
     fun diagnostics(): DspDiagnosticsSnapshot
 }

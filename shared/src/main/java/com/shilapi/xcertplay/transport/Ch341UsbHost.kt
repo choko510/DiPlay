@@ -307,7 +307,11 @@ class Ch341UsbSession internal constructor(
                 RECOVERY_TIMEOUT_MILLIS,
             )
         } catch (error: RuntimeException) {
-            Log.w(TAG, "halt clear on endpoint ${endpoint.address} threw after failed bulk $operation", error)
+            Log.w(
+                TAG,
+                "halt clear on endpoint ${endpoint.address} threw after failed bulk $operation " +
+                    "error=${error.javaClass.simpleName}",
+            )
             -1
         }
         Log.w(TAG, "bulk $operation failed; halt clear on endpoint ${endpoint.address} returned $result")

@@ -34,6 +34,12 @@ object CarPlayUiScale {
             )
         }
         return display.copy(widthPixels = width, heightPixels = height,
-            viewArea = insets(display.viewArea), safeArea = insets(display.safeArea))
+            viewArea = insets(display.viewArea), safeArea = insets(display.safeArea),
+            viewAreas = display.viewAreas?.scaled(
+                sourceWidthPixels = display.widthPixels,
+                sourceHeightPixels = display.heightPixels,
+                targetWidthPixels = width,
+                targetHeightPixels = height,
+            ))
     }
 }

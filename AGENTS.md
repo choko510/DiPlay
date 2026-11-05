@@ -2,27 +2,14 @@
 
 ## Working Memory
 
-`.scratchpad/` は、AIエージェントがセッションをまたいで作業状況、設計判断、失敗事例、実行環境固有の問題を引き継ぐための永続的なWorking Memoryです。Git管理対象であり、作業ログやGit履歴の代わりではありません。
+`.scratchpad/` は作業ログでなく、セッションをまたいで必要な**現行情報**を残す場所です。実質的な作業の前に `.scratchpad/current.md` を読み、関連するファイルだけ参照します。
 
-実質的な作業を始める前に、必ず `.scratchpad/current.md` を読みます。次のファイルは、現在のタスクに関係する場合のみ読みます。毎回すべてを無条件に読み込まないでください。
+- `.scratchpad/backlog.md` — 未完了の受入れ条件
+- `.scratchpad/decisions.md` — 守るべき設計判断
+- `.scratchpad/quirks.md` — 再利用可能な環境上の注意
+- `.scratchpad/README.md` — 運用方法と整理前履歴
 
-- `.scratchpad/decisions.md`
-- `.scratchpad/lessons.md`
-- `.scratchpad/quirks.md`
-- `.scratchpad/backlog.md`
-- `.scratchpad/optimization.md`（性能最適化に関する作業の場合）
-
-`optimization.md` は性能最適化専用のWorking Memoryです。性能に関して「何を最適化したか」という完了内容と、後続の作業でも再利用できる性能上の知見を一緒に蓄積します。通常の機能追加、バグ修正、一般的な設計判断は記録しません。
-
-作業完了時は、Working Memoryを次のように整理します。
-
-1. `completed.md` が存在しなければ作成し、完了内容を一行または二行で記録する。
-2. 設計上の理由を `decisions.md` に残す。
-3. 再利用可能な知見を `lessons.md` に残す。
-4. 性能最適化を行った場合は、実施した最適化と性能面で再利用できる知見を `optimization.md` に残す。
-5. 実行環境固有の問題や回避策を `quirks.md` に残す。
-6. 完了した内容を `current.md` から削除する。
-7. 対応済みの項目を `backlog.md` から削除する。
+作業完了時には `current.md` を更新し、解決した `backlog.md` 項目を削除します。重要な理由は `decisions.md`、再発する環境差分は `quirks.md` にだけ残します。完了作業やCI結果の時系列追記はGit/PR/Actionsを参照してください。旧 `completed.md`・`lessons.md`・`optimization.md` は整理前のGit履歴から確認できます。性能の制約は判断、未測定項目はbacklogに記録します。
 
 ---
 

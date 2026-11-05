@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
 import android.os.Debug
+import android.os.Process
 import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlin.math.PI
@@ -50,6 +51,18 @@ class DspPipelineBenchmarkInstrumentedTest {
     fun benchmarks48000Stereo() = benchmarkMatrix(sampleRate = 48_000, channels = 2)
 
     private fun benchmarkMatrix(sampleRate: Int, channels: Int) {
+        val threadId = Process.myTid()
+        val originalPriority = Process.getThreadPriority(threadId)
+        Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
+        try {
+            assertEquals(Process.THREAD_PRIORITY_AUDIO, Process.getThreadPriority(threadId))
+            benchmarkMatrixAtAudioPriority(sampleRate, channels)
+        } finally {
+            Process.setThreadPriority(originalPriority)
+        }
+    }
+
+    private fun benchmarkMatrixAtAudioPriority(sampleRate: Int, channels: Int) {
         assertTrue(NativeDspLibrary.ensureLoaded())
         val format = DspAudioFormat(sampleRate, channels)
         val source = inputBlock(format)
@@ -73,11 +86,16 @@ class DspPipelineBenchmarkInstrumentedTest {
                 assertNoSteadyStateAllocations(pipeline, latencyBypass, source)
                 val pipelineRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
                 val productionRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
+                val threadCpuRuns = ArrayList<DspTimingSummary>(MEASURED_RUNS)
                 repeat(MEASURED_RUNS) { runIndex ->
                     pipeline.resetTimingMetrics()
                     val productionTiming = latencyBypass?.let { DspFixedHistogram() }
+                    val threadCpuTiming = DspFixedHistogram()
+                    val loopStartWallNs = System.nanoTime()
+                    val loopStartThreadCpuNs = Debug.threadCpuTimeNanos()
                     block = 0
                     while (block < MEASURED_BLOCKS) {
+                        val threadCpuStartedNs = Debug.threadCpuTimeNanos()
                         val startedNs = if (productionTiming != null) System.nanoTime() else 0L
                         val bypass = latencyBypass
                         if (bypass != null && bypass.process(source, 0, source.size, DspPcmEncoding.PCM16) != source.size) {
@@ -85,8 +103,27 @@ class DspPipelineBenchmarkInstrumentedTest {
                         }
                         val outputLength = pipeline.process(source, 0, source.size, DspPcmEncoding.PCM16)
                         if (outputLength != source.size) throw AssertionError("DSP pipeline rejected block $block")
-                        productionTiming?.record(System.nanoTime() - startedNs)
+                        val endedNs = if (productionTiming != null) System.nanoTime() else 0L
+                        val threadCpuEndedNs = Debug.threadCpuTimeNanos()
+                        if (threadCpuStartedNs >= 0L && threadCpuEndedNs >= threadCpuStartedNs) {
+                            threadCpuTiming.record(threadCpuEndedNs - threadCpuStartedNs)
+                        }
+                        productionTiming?.record(endedNs - startedNs)
                         block++
+                    }
+                    val loopWallUs = (System.nanoTime() - loopStartWallNs) / NANOS_PER_MICROSECOND
+                    val loopEndThreadCpuNs = Debug.threadCpuTimeNanos()
+                    val loopThreadCpuUs = if (
+                        loopStartThreadCpuNs >= 0L && loopEndThreadCpuNs >= loopStartThreadCpuNs
+                    ) {
+                        (loopEndThreadCpuNs - loopStartThreadCpuNs) / NANOS_PER_MICROSECOND
+                    } else {
+                        -1L
+                    }
+                    val loopWallMinusThreadCpuUs = if (loopThreadCpuUs >= 0L) {
+                        (loopWallUs - loopThreadCpuUs).coerceAtLeast(0L)
+                    } else {
+                        -1L
                     }
                     val diagnostics = pipeline.diagnostics()
                     val native = diagnostics.nativeProcessUs
@@ -95,12 +132,17 @@ class DspPipelineBenchmarkInstrumentedTest {
                     assertEquals(MEASURED_BLOCKS.toLong(), fullPipeline.sampleCount)
                     pipelineRuns += fullPipeline
                     productionTiming?.snapshot()?.let(productionRuns::add)
+                    threadCpuRuns += threadCpuTiming.snapshot()
                     val production = productionTiming?.snapshot()?.toMetricString()
                         ?: "not-applicable"
                     Log.i(
                         TAG,
                         "DSP_BENCHMARK case=${benchmarkCase.name} sampleRate=$sampleRate channels=$channels " +
-                            "run=${runIndex + 1} blocks=$MEASURED_BLOCKS nativeProcessUs=${native.toMetricString()} " +
+                            "run=${runIndex + 1} blocks=$MEASURED_BLOCKS loopWallUs=$loopWallUs " +
+                            "loopThreadCpuUs=$loopThreadCpuUs " +
+                            "loopWallMinusThreadCpuUs=$loopWallMinusThreadCpuUs " +
+                            "threadCpuProcessUs=${threadCpuTiming.snapshot().toMetricString()} " +
+                            "nativeProcessUs=${native.toMetricString()} " +
                             "pipelineProcessUs=${fullPipeline.toMetricString()} " +
                             "latencyPreservingBypass=${latencyBypass != null} productionProcessUs=$production",
                     )
@@ -110,9 +152,16 @@ class DspPipelineBenchmarkInstrumentedTest {
                 val p99CeilingUs = blockDurationUs * 200L / 100L
                 val gateRuns = productionRuns.ifEmpty { pipelineRuns }
                 val medianPipelineP99Us = gateRuns.map(DspTimingSummary::p99Us).sorted()[MEASURED_RUNS / 2]
+                val validThreadCpuRuns = threadCpuRuns.filter { it.sampleCount == MEASURED_BLOCKS.toLong() }
+                val medianThreadCpuP99Us = if (validThreadCpuRuns.size == MEASURED_RUNS) {
+                    validThreadCpuRuns.map(DspTimingSummary::p99Us).sorted()[MEASURED_RUNS / 2]
+                } else {
+                    -1L
+                }
                 val metricName = if (productionRuns.isEmpty()) "pipeline" else "production pipeline"
                 assertTrue(
-                    "${benchmarkCase.name} median $metricName p99=${medianPipelineP99Us}us exceeded " +
+                    "${benchmarkCase.name} median $metricName p99=${medianPipelineP99Us}us " +
+                        "medianThreadCpuP99=${medianThreadCpuP99Us}us exceeded " +
                         "${p99CeilingUs}us over $MEASURED_RUNS runs",
                     medianPipelineP99Us < p99CeilingUs,
                 )
@@ -184,6 +233,45 @@ class DspPipelineBenchmarkInstrumentedTest {
                 )
             },
         )
+        val seatAlignment = DspSeatAlignmentConfig(
+            enabled = true,
+            preset = DspSeatPreset.DRIVER,
+            nearSpeaker = DspSeatNearSpeaker.LEFT,
+            distanceDifferenceCm = DspSeatAlignmentConfig.MAX_DISTANCE_DIFFERENCE_CM,
+            leftTrimDb = 3.0,
+            rightTrimDb = -2.0,
+        )
+        val advancedMs = DspAdvancedMsConfig(
+            enabled = true,
+            crossoverHz = 250.0,
+            centerFocusDb = 1.0,
+            midLowGainDb = -1.0,
+            midHighGainDb = 1.0,
+            sideLowGainDb = -1.0,
+            sideHighGainDb = 1.5,
+            lowBandWidth = 0.5,
+            highBandWidth = 1.4,
+            sideCompressor = DspMsSideCompressorConfig(enabled = true, thresholdDb = -28.0, ratio = 2.0),
+        )
+        val cabinCorrection = DspCabinCorrectionConfig(
+            enabled = true,
+            notches = listOf(
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 55.0, gainDb = -6.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 110.0, gainDb = -5.0),
+                DspCabinCorrectionNotch(enabled = true, frequencyHz = 220.0, gainDb = -4.0),
+            ),
+        )
+        val harmonic = DspHarmonicConfig(
+            enabled = true,
+            mode = DspHarmonicMode.MIXED,
+            quality = DspHarmonicQuality.HIGH,
+            exciterEnabled = true,
+            exciterAmount = 0.3,
+            exciterCutoffHz = 6_000.0,
+            virtualBassEnabled = true,
+            virtualBassAmount = 0.2,
+            virtualBassCutoffHz = 120.0,
+        )
         val base = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
         val peq = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false, peqBands = peq15)
 
@@ -229,6 +317,42 @@ class DspPipelineBenchmarkInstrumentedTest {
                     safetyLimiter = DspSafetyLimiterConfig(enabled = false),
                 ),
             ),
+            BenchmarkCase(
+                "SeatAlignment",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    seatAlignment = seatAlignment,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "AdvancedMS",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    advancedMs = advancedMs,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "Cabin3Notches",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    cabinCorrection = cabinCorrection,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
+            BenchmarkCase(
+                "HarmonicEngine",
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    harmonic = harmonic,
+                    safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+                ),
+            ),
             BenchmarkCase("Convolver4k", convolverConfig(sampleRate, channels, 4_096)),
             BenchmarkCase("Convolver16k", convolverConfig(sampleRate, channels, 16_384)),
             BenchmarkCase("Convolver64k", convolverConfig(sampleRate, channels, 65_536)),
@@ -238,12 +362,16 @@ class DspPipelineBenchmarkInstrumentedTest {
                     enabled = true,
                     gainDb = 2.0,
                     autoHeadroomEnabled = false,
-                    peqBands = peq15,
+                    peqBands = peq15.take(12),
                     bass = bass,
                     compressor = compressor,
                     safetyLimiter = limiter,
                     stereoWidth = 1.25,
                     monoBass = monoBass,
+                    seatAlignment = seatAlignment.copy(nearSpeaker = DspSeatNearSpeaker.RIGHT),
+                    advancedMs = advancedMs,
+                    cabinCorrection = cabinCorrection,
+                    harmonic = harmonic,
                     convolver = convolverConfig(sampleRate, channels, 16_384).convolver,
                     multiband = multiband,
                     dynamicEq = dynamicEq,
@@ -326,5 +454,6 @@ class DspPipelineBenchmarkInstrumentedTest {
         const val ALLOCATION_CHECK_BLOCKS = 64
         const val MEASURED_BLOCKS = 256
         const val MEASURED_RUNS = 3
+        const val NANOS_PER_MICROSECOND = 1_000L
     }
 }

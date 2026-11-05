@@ -3,6 +3,10 @@ package com.shilapi.xcertplay.media.dsp
 import java.io.Closeable
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 internal class DspPcmPipeline(
     val format: DspAudioFormat,
@@ -11,6 +15,16 @@ internal class DspPcmPipeline(
     seed: Long = System.nanoTime(),
     private val forceInitialLatencySilence: Boolean = true,
 ) : Closeable {
+    private val retirementQueued = AtomicBoolean()
+    private val retirementCount = AtomicReference<AtomicInteger?>(null)
+    private val retirementFailureHandler = AtomicReference<((Throwable) -> Unit)?>(null)
+    private val retirementCompletionHandler = AtomicReference<(() -> Unit)?>(null)
+    private val closed = AtomicBoolean()
+    private val closeDuration = AtomicLong()
+    @Volatile internal var audioOwnerEpoch: Long? = null
+    @Volatile internal var trackGeneration: Long? = null
+    @Volatile internal var configGeneration: Long? = null
+    @Volatile internal var reaperNext: DspPcmPipeline? = null
     private val diagnostics = DspDiagnostics()
     private val pipelineProcessTiming = DspFixedHistogram()
     private val dither = DspTpdfDither(seed)
@@ -63,6 +77,35 @@ internal class DspPcmPipeline(
 
     val algorithmicLatencyFrames: Int
         get() = processor.latencyFrames + outputDelayFrames
+
+    internal fun claimRetirement(
+        counter: AtomicInteger,
+        onCloseFailure: (Throwable) -> Unit,
+        onCloseComplete: () -> Unit,
+    ): Boolean {
+        if (!retirementQueued.compareAndSet(false, true)) return false
+        retirementCount.set(counter)
+        retirementFailureHandler.set(onCloseFailure)
+        retirementCompletionHandler.set(onCloseComplete)
+        return true
+    }
+
+    internal fun reportRetirementFailure(error: Throwable) {
+        runCatching { retirementFailureHandler.get()?.invoke(error) }
+    }
+
+    internal fun reportRetirementCompleted() {
+        runCatching { retirementCompletionHandler.get()?.invoke() }
+    }
+
+    internal val closeDurationNs: Long
+        get() = closeDuration.get()
+
+    internal fun decrementRetirementCount() {
+        retirementFailureHandler.set(null)
+        retirementCompletionHandler.set(null)
+        retirementCount.getAndSet(null)?.decrementAndGet()
+    }
 
     internal fun preserveLatencyWithDelay(frames: Int) {
         require(frames >= 0)
@@ -189,6 +232,65 @@ internal class DspPcmPipeline(
         startupLatencyRemainingFrames = if (forceInitialLatencySilence) processor.latencyFrames.coerceAtLeast(0) else 0
     }
 
+    internal fun enqueueHotUpdate(update: DspPreparedHotUpdate): Boolean = processor.enqueueHotUpdate(update)
+
+    internal fun enqueuePreampHotUpdate(update: DspPreparedPreampHotUpdate): Boolean =
+        processor.enqueuePreampHotUpdate(update)
+
+    internal fun prepareLocalPeqWarmUpdate(
+        coefficients: DoubleArray,
+        generation: Long,
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): DspPreparedLocalPeqWarmUpdate? = processor.prepareLocalPeqWarmUpdate(
+        coefficients,
+        generation,
+        editorOwnerEpoch,
+        rendererOwnerToken,
+        pcmFormatEpoch,
+        hotContextToken,
+        mediaRole,
+    )
+
+    internal fun enqueueLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int =
+        processor.enqueueLocalPeqWarmUpdate(update)
+
+    internal fun cancelLocalPeqWarmUpdate(update: DspPreparedLocalPeqWarmUpdate): Int =
+        processor.cancelLocalPeqWarmUpdate(update)
+
+    internal fun bindHotUpdateContext(
+        editorOwnerEpoch: Long,
+        rendererOwnerToken: Long,
+        pcmFormatEpoch: Long,
+        hotContextToken: Int,
+        mediaRole: Boolean,
+    ): Boolean = processor.bindHotUpdateContext(
+        editorOwnerEpoch, rendererOwnerToken, pcmFormatEpoch, hotContextToken, mediaRole,
+    )
+
+    internal fun invalidateHotUpdateContext() = processor.invalidateHotUpdateContext()
+
+    internal fun hotUpdateContextToken(): Int = processor.hotUpdateContextToken()
+
+    internal fun hasAcknowledged(update: DspPreparedHotUpdate): Boolean =
+        processor.hotAcknowledgedToken() == update.generationToken
+
+    internal fun hotDeferredToken(): Int = processor.hotDeferredToken()
+
+    internal fun hotDeferredReason(): Int = processor.hotDeferredReason()
+
+    internal fun hasAcknowledged(update: DspPreparedPreampHotUpdate): Boolean =
+        processor.preampHotAcknowledgedToken() == update.generationToken
+
+    internal fun hasAcknowledged(update: DspPreparedLocalPeqWarmUpdate): Boolean =
+        processor.localPeqWarmAcknowledgedToken() == update.generationToken
+
+    internal fun hasRejected(update: DspPreparedLocalPeqWarmUpdate): Boolean =
+        processor.localPeqWarmRejectedToken() == update.generationToken
+
     fun diagnostics(): DspDiagnosticsSnapshot {
         val pipelineSnapshot = diagnostics.snapshot()
         val processorSnapshot = processor.diagnostics()
@@ -217,7 +319,13 @@ internal class DspPcmPipeline(
     }
 
     override fun close() {
-        processor.close()
+        if (!closed.compareAndSet(false, true)) return
+        val startedNs = System.nanoTime()
+        try {
+            processor.close()
+        } finally {
+            closeDuration.set(System.nanoTime() - startedNs)
+        }
     }
 
     private fun fail(): Int {

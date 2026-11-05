@@ -2,6 +2,8 @@
 #define XCERTPLAY_DSP_BIQUAD_H
 
 #define DSP_BIQUAD_MAX_BANDS 15
+// Reserve one graph filter for the static Bass Shelf, outside the shared 15-band PEQ/Cabin limit.
+#define DSP_GRAPH_EQ_FILTER_CAPACITY (DSP_BIQUAD_MAX_BANDS + 1)
 #define DSP_BIQUAD_COEFFICIENT_COUNT 5
 
 typedef struct {

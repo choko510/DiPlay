@@ -358,7 +358,10 @@ class CarPlayBonjour(
                 } catch (_: InterruptedException) {
                     return
                 } catch (error: Exception) {
-                    if (!closed) Log.w(TAG, "Interface CarPlay service handling failed", error)
+                    if (!closed) Log.w(
+                        TAG,
+                        "Interface CarPlay service handling failed error=${error.javaClass.simpleName}",
+                    )
                 }
                 continue
             }
@@ -373,7 +376,10 @@ class CarPlayBonjour(
             } catch (_: InterruptedException) {
                 return
             } catch (error: Exception) {
-                if (!closed) Log.w(TAG, "CarPlay control service handling failed", error)
+                if (!closed) Log.w(
+                    TAG,
+                    "CarPlay control service handling failed error=${error.javaClass.simpleName}",
+                )
             }
         }
     }
@@ -427,7 +433,7 @@ class CarPlayBonjour(
                     }
                 }
             } catch (error: RuntimeException) {
-                Log.w(TAG, "CarPlay control service resolution failed", error)
+                Log.w(TAG, "CarPlay control service resolution failed error=${error.javaClass.simpleName}")
                 false
             }
             if (!submitted) return null
@@ -548,7 +554,7 @@ class CarPlayBonjour(
         try {
             onEvent(event)
         } catch (error: RuntimeException) {
-            Log.w(TAG, "CarPlay Bonjour event callback failed", error)
+            Log.w(TAG, "CarPlay Bonjour event callback failed error=${error.javaClass.simpleName}")
         }
     }
 

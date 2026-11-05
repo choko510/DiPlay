@@ -105,6 +105,39 @@ class DspEqDesignerTest {
         )
     }
 
+    @Test
+    fun autoHeadroomIncludesTheConservativeConvolverGainWhenLimiterIsDisabled() {
+        val irFrames = DspImpulseResponse.MAX_FRAMES
+        val impulseResponse = DspImpulseResponse(
+            id = "high_gain_ir",
+            sampleRate = 48_000,
+            channels = 1,
+            samples = FloatArray(irFrames) { 1.0f },
+        )
+        val config = DspRuntimeConfig(
+            enabled = true,
+            safetyLimiter = DspSafetyLimiterConfig(enabled = false),
+            convolver = DspConvolverConfig(
+                enabled = true,
+                impulseResponseId = impulseResponse.id,
+                wet = 1.0,
+                impulseResponse = impulseResponse,
+            ),
+        )
+
+        val format = DspAudioFormat(48_000, 2)
+        val prepared = config.prepare(format)
+        val convolverPeakDb = 20.0 * kotlin.math.log10(irFrames.toDouble())
+
+        assertEquals(convolverPeakDb + 1.0, prepared.headroom.reductionDb, 0.01)
+        assertEquals(-convolverPeakDb - 1.0, prepared.appliedPreampDb, 0.01)
+        assertEquals(
+            prepared.appliedPreampDb,
+            config.failureFallbackPreampDb(format),
+            0.01,
+        )
+    }
+
     private fun assertFinite(coefficients: DspBiquadCoefficients) {
         assertTrue(coefficients.b0.isFinite())
         assertTrue(coefficients.b1.isFinite())

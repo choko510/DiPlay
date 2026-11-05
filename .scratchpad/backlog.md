@@ -1,28 +1,27 @@
-# Backlog — PR #45
+# 未完了・根拠待ち — PR #45
 
-> Unstarted or evidence-dependent work only. Read [current.md](current.md) for the active batch and exact CI/source status. These entries do not authorize a PR state change.
+## P0 — 受入れを止めているもの
 
-## P0 — Review and acceptance blockers
+- [ ] TS10/K706 + iPhoneで有線NCM/IPv6→TUN、AirPlay映像/タッチ/音声、Siri・通話・AEC/AGC、ルーティング・音量を実機確認。SH M20の結果で代替しない。
+- [ ] MAIN/ALT、Surfaceの停止/再生成、rotation/safeArea/HID、Full/LOCAL Splitの同一Controller/Session維持を20サイクルで検証。
+- [ ] DSPのバイパス、THD/ヘッドルーム/レイテンシ、A/V同期、CPU/RSS/FD/温度/アンダーラン、30〜60分soakを対象端末で計測。
+- [ ] Android 10 TS10/K706でApple USB自動起動（初期OFF）の `MANAGE_USB` 制約、chooser/permission拒否・再試行、20回抜差し、ナビ再起動後の既接続端末、wireless→wired・Split保持を確認。VID/PIDのみで同一端末と判定しない。
+- [ ] F8-01 MAIN/ALT RECORD前の切断復旧、F8-02 4MiB RTSP body互換、F8-03 4セッション上限・解放を実トラフィックで検証。
+- [ ] SH-M27でDSP Splitのinset、スクロール境界、ComposeView実測を確認。既に解消したC-00は再オープンしない。
+- [ ] API 35でP2 ComposeのSave/Discard/Continue操作テストを実行。API 36.1のEspresso初期化失敗はテスト結果ではない。
+- [ ] 公式リリース署名で更新・既存設定の引継ぎ・インストール済みのロールバックを検証。debug署名を代用しない。
+- [ ] 修正後の二回目独立レビューはユーザー指示により `NOT_RUN`。G8は `NO_GO_THIS_RUN` のまま扱う。
 
-- [ ] Run the supported TS10/K706 + iPhone matrix: wired NCM/IPv6→TUN; Siri/call/AEC/AGC; MAIN/ALT and local Split continuity; Surface/rotation/HID/safeArea; DSP THD/headroom/latency/A-V/CPU/underruns; 30–60-minute soak; install/signature/update/rollback. SH M20 remains PARTIAL evidence only.
-- [ ] On TS10/K706 Android 10, verify the `MANAGE_USB`-restricted Apple attach entry appears in the USB chooser, cold-launches after task removal, handles permission refusal/retry and 20 physical re-enumerations without duplicate Controllers, and preserves wireless→wired plus DSP/YouTube Split state. Also verify an already-connected iPhone after navigation reboot and record whether Android emits a fresh attach identity during re-enumeration; never infer the same phone from VID/PID alone. ADB had only an emulator in the 2026-10-28 implementation run.
-- [ ] Validate F8-01 MAIN/ALT pre-RECORD disconnect recovery, F8-02 4 MiB RTSP-body compatibility, and F8-03 four-session cap/release under supported-device reconnect traffic.
-- [ ] On SH-M27, verify DSP Split inset visibility, scroll boundaries and ComposeView measurement diagnostics while CarPlay remains active. C-00 itself remains USER_CONFIRMED_RESOLVED; this gate is device evidence only.
-- [ ] Release-signed update and installed rollback; release credentials/keystore are currently unavailable. Do not substitute a debug signature.
-- [ ] Keep the second post-fix independent review `NOT_RUN` per user direction; G8 remains `NO_GO_THIS_RUN` until its requested evidence is complete.
+## P1 — 計測してから判断
 
-## P1 — Measurements before conditional changes
+- [ ] 音声192-packet drop-newest方針の変更は同一端末A/Bで遅延・欠落・再接続を比較してから。
+- [ ] 動画の `receivedToCodecSurfaceReleaseMs` と**実表示遅延**を分け、MAIN/ALT、復旧、CPU/GC/FD/soakを記録。Surface recoveryは証拠が揃うまでdefault-off。ログ処理の最適化も実測後。
+- [ ] NCM `AUTO` / `NO_STATUS_POLLING` のfirst-frame・`SCREEN_STREAM_OPENED`・timeoutを同端末で比較。
+- [ ] USB接続中に `queue()==false` / `requestWait()==null` を再現。単なるtimeoutで永続requestを破棄しない。
+- [ ] Stage3は時刻計測のみ。追加StartSessionやステータス制御要求は実際の因果が示されるまで無効。
 
-- [ ] F-07 audio queue policy: run same-device A/B with the 192-packet drop-newest policy and any candidate alternative before changing packet eviction behavior; record latency, underruns, and reconnect evidence. No target-device result is available in this implementation run.
-- [ ] Collect same-device TS10/K706 + supported-iPhone video worker, receive-to-codec-Surface-release and actual display-presentation delay, MAIN/ALT request-result, Surface recovery, and 30–60-minute memory/FD metrics before enabling the default-off Surface recovery policy. Surface-release percentiles do not measure visible display time. Measure Host log dispatch/file-write cost before considering OPT-06 batching.
-- [ ] Same-device NCM `AUTO` vs `NO_STATUS_POLLING` A/B with first-frame, `SCREEN_STREAM_OPENED`, and timeout evidence; do not change status behavior or add control requests without cause.
-- [ ] Reproduce `queue()==false` / `requestWait()==null` while the USB device is present; preserve persistent USB-request ownership otherwise.
-- [ ] Keep Stage3 diagnostics timing-only and EX05 second StartSession retry disabled until target packet timing proves the need.
+## P2 — 条件付き候補
 
-## P2 — Conditional candidates
-
-- [ ] Review Pass15 delta rows 4, 24, 28 and 44 only with their target-specific evidence.
-- [ ] Keep `ROTATION_SQUARE_CANVAS`, dynamic ViewArea, vendor codec overrides, and unconditional extra StartSession attempts `NO_GO_THIS_RUN` until their specific prerequisites are measured.
-- [ ] Do not bulk-import upstream, BYD OEM code, root/appops writes, or cross-gate aggregate commits; re-evaluate any individual candidate against hardware evidence.
-
-Historical notes: [completed](completed.md), [decisions](decisions.md), [lessons](lessons.md), [quirks](quirks.md), [optimization](optimization.md).
+- [ ] EX-08 `NEED_EVIDENCE` とPass15 delta 4/24/28/44を個別の実機証拠で再審査。古い判定台帳はGit履歴を参照。
+- [ ] 動的ViewArea、`ROTATION_SQUARE_CANVAS`、vendor codec override、無条件StartSession再試行は `NO_GO_THIS_RUN`。
+- [ ] upstream一括取り込み・BYD OEM固有機能・root/appops権限書換え・複数ゲート混合コミットは採用しない。必要な場合も個別候補として独立審査。

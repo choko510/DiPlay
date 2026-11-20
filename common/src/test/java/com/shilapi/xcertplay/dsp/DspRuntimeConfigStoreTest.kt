@@ -228,4 +228,33 @@ class DspRuntimeConfigStoreTest {
         store.reportPlaybackSampleRate(firstOwner, null)
         assertEquals(null, store.activePlaybackSampleRateHz())
     }
+
+    @Test
+    fun diagnosticSummaryIsFencedByOwnerAndGenerationAndClearsOnRelease() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.claimRendererApplyStatusOwner(100L)
+        store.reportDiagnosticSummary(100L, 1L, "role=MEDIA, notes=none")
+        assertEquals("role=MEDIA, notes=none", store.diagnosticSummary())
+
+        // Older generation and non-owner reports are ignored.
+        store.reportDiagnosticSummary(100L, 0L, "stale-gen")
+        store.reportDiagnosticSummary(99L, 5L, "stale-owner")
+        assertEquals("role=MEDIA, notes=none", store.diagnosticSummary())
+
+        // Claiming a new owner clears the prior owner's summary.
+        store.claimRendererApplyStatusOwner(101L)
+        assertEquals(null, store.diagnosticSummary())
+        store.reportDiagnosticSummary(100L, 2L, "old-owner-after-transfer")
+        assertEquals(null, store.diagnosticSummary())
+
+        store.reportDiagnosticSummary(101L, 1L, "new-owner-active")
+        assertEquals("new-owner-active", store.diagnosticSummary())
+
+        // Releasing a non-owning renderer leaves the active owner summary intact; releasing the active owner clears it.
+        store.clearDiagnosticSummary(100L)
+        assertEquals("new-owner-active", store.diagnosticSummary())
+        store.clearDiagnosticSummary(101L)
+        assertEquals(null, store.diagnosticSummary())
+    }
 }

@@ -17,7 +17,7 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
     private val studioHotUpdatesAllowed = AtomicBoolean(true)
     private val studioLocalWarmAllowed = AtomicBoolean(true)
     private val rendererApplyState = AtomicReference(RendererApplyState(null, null))
-    private val latestDiagnosticSummary = AtomicReference<String?>(null)
+    private val diagnosticSummaryState = AtomicReference(DiagnosticSummaryState(null, Long.MIN_VALUE, null))
     private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
     private val playbackSampleRates = ConcurrentHashMap<Any, PlaybackSampleRate>()
     private val nextPlaybackSampleRateRevision = AtomicLong()
@@ -52,10 +52,24 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
 
     override fun rendererApplyStatus(): DspRendererApplyStatus? = rendererApplyState.get().status
 
-    override fun diagnosticSummary(): String? = latestDiagnosticSummary.get()
+    override fun diagnosticSummary(): String? = diagnosticSummaryState.get().summary
 
-    override fun reportDiagnosticSummary(summary: String?) {
-        latestDiagnosticSummary.set(summary)
+    override fun reportDiagnosticSummary(ownerToken: Long, generation: Long, summary: String?) {
+        while (true) {
+            if (rendererApplyState.get().ownerToken != ownerToken) return
+            val previous = diagnosticSummaryState.get()
+            if (previous.ownerToken == ownerToken && generation < previous.generation) return
+            val updated = DiagnosticSummaryState(ownerToken, generation, summary)
+            if (diagnosticSummaryState.compareAndSet(previous, updated)) return
+        }
+    }
+
+    override fun clearDiagnosticSummary(ownerToken: Long) {
+        while (true) {
+            val previous = diagnosticSummaryState.get()
+            if (previous.ownerToken != null && previous.ownerToken != ownerToken) return
+            if (diagnosticSummaryState.compareAndSet(previous, DiagnosticSummaryState(null, Long.MIN_VALUE, null))) return
+        }
     }
 
     override fun claimRendererApplyStatusOwner(ownerToken: Long) {
@@ -75,7 +89,16 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
                 activeGeneration = activeGeneration,
                 rendererOwnerToken = ownerToken,
             )
-            if (rendererApplyState.compareAndSet(previousState, RendererApplyState(ownerToken, requested))) return
+            if (rendererApplyState.compareAndSet(previousState, RendererApplyState(ownerToken, requested))) {
+                val previousDiag = diagnosticSummaryState.get()
+                if (previousDiag.ownerToken != ownerToken) {
+                    diagnosticSummaryState.compareAndSet(
+                        previousDiag,
+                        DiagnosticSummaryState(ownerToken, snapshot.generation, null),
+                    )
+                }
+                return
+            }
         }
     }
 
@@ -137,6 +160,12 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
     private data class RendererApplyState(
         val ownerToken: Long?,
         val status: DspRendererApplyStatus?,
+    )
+
+    private data class DiagnosticSummaryState(
+        val ownerToken: Long?,
+        val generation: Long,
+        val summary: String?,
     )
 
     private companion object {

@@ -1428,6 +1428,12 @@ internal fun DspSettingsScreen(
                             profile = profile.copy(advancedMs = next)
                         },
                     )
+                    if (ms.enabled && profile.monoBass.enabled) {
+                        Text(
+                            stringResource(R.string.dsp_ms_mono_bass_integrated_note),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     DspValueSlider(stringResource(R.string.dsp_ms_crossover), ms.crossoverHz, 60.0..1_000.0, "Hz") {
                         profile = profile.copy(advancedMs = ms.copy(crossoverHz = it))
                     }

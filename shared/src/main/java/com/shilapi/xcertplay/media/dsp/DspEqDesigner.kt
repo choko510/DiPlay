@@ -216,7 +216,7 @@ internal object DspAutoHeadroom {
             if (magnitude > 0.0) peakDb = max(peakDb, 20.0 * log10(magnitude))
         }
         if (filters.isEmpty()) peakDb = 0.0
-        val widthWorstCaseDb = 0.5 * 20.0 * log10(max(1.0, stereoWidth) * max(1.0, macroWidthFactor))
+        val widthWorstCaseDb = 20.0 * log10(max(1.0, stereoWidth) * max(1.0, macroWidthFactor))
         val staticWorstCaseDb = preampDb + peakDb + max(0.0, compressorMakeupDb) +
             max(0.0, maxBandMakeupDb) + max(0.0, dynamicBoostDb) +
             max(0.0, seatTrimDb) + widthWorstCaseDb +
@@ -543,17 +543,17 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     if (macroTone.enabled && effectiveMacroWidth < macroTone.relativeWidth - 1e-6) {
         diagnosticsNotes += "macro_width_capped_with_spatial"
     }
-    val studioToneBoostDb = macroTone.conservativeBoostDb(format.sampleRate) +
-        smartLoudness.conservativeBoostDb(format.sampleRate)
+    val studioToneBoostDb = macroTone.conservativeBoostDb() +
+        smartLoudness.conservativeBoostDb()
     val dynamicEqBoostHeadroomDb = if (rateSafeDynamicEq.enabled) {
         rateSafeDynamicEq.bands
             .filter { it.enabled && it.mode == DspDynamicEqMode.BOOST }
-            .sumOf { maxOf(0.0, it.thresholdDb + it.maxBoostDb) }
+            .sumOf(DspDynamicEqBandConfig::maxBoostDb)
     } else {
         0.0
     }
     val dynamicBassHeadroomDb = if (dynamicBass.enabled) {
-        maxOf(0.0, dynamicBass.lowThresholdDbfs + dynamicBass.maxBoostDb * dynamicBass.strength)
+        dynamicBass.maxBoostDb * dynamicBass.strength
     } else {
         0.0
     }

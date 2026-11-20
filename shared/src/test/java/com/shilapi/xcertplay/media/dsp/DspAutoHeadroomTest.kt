@@ -50,10 +50,19 @@ class DspAutoHeadroomTest {
 
         assertTrue(result.filterPeakDb > 8.5)
         assertEquals(
-            2.0 + result.filterPeakDb + 3.0 + 0.5 * 20.0 * kotlin.math.log10(2.0) + 1.0,
+            2.0 + result.filterPeakDb + 3.0 + 20.0 * kotlin.math.log10(2.0) + 1.0,
             result.reductionDb,
             0.02,
         )
+    }
+
+    @Test
+    fun stereoWidthReservesFullTheoreticalAntiphasePeakHeadroom() {
+        val wide = DspRuntimeConfig(enabled = true, stereoWidth = 1.6, autoHeadroomMarginDb = 0.0)
+        val prepared = wide.prepare(DspAudioFormat(48_000, 2))
+        val expectedDb = 20.0 * kotlin.math.log10(1.6)
+        assertEquals(expectedDb, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-expectedDb, prepared.appliedPreampDb, 0.02)
     }
 
     @Test
@@ -85,26 +94,31 @@ class DspAutoHeadroomTest {
     }
 
     @Test
-    fun studioToneHeadroomUsesAccurateNativeFrequencyResponseBounds() {
+    fun studioToneHeadroomUsesConservativeL1SafetyBoundsAndExposesSteadyStateReference() {
         val macro = DspMacroToneConfig(enabled = true, bassGainDb = 4.0, vocalGainDb = 2.5, airGainDb = 2.0)
         val loudness = DspSmartLoudnessRuntimeConfig(enabled = true, lowGainDb = 3.0, highGainDb = 1.5)
         val config = DspRuntimeConfig(enabled = true, macroTone = macro, smartLoudness = loudness)
 
         val prepared = config.prepare(DspAudioFormat(48_000, 2))
-        val expected = 1.0 + macro.conservativeBoostDb(48_000) + loudness.conservativeBoostDb(48_000)
+        val expected = 1.0 + macro.conservativeBoostDb() + loudness.conservativeBoostDb()
 
         assertEquals(expected, prepared.headroom.reductionDb, 0.02)
         assertEquals(-expected, prepared.appliedPreampDb, 0.02)
-        assertTrue(macro.conservativeBoostDb(48_000) < macro.bassGainDb + macro.vocalGainDb + macro.airGainDb)
-        assertTrue(macro.conservativeBoostDb(48_000) >= 3.9)
+        assertTrue(macro.conservativeBoostDb() > macro.bassGainDb + macro.vocalGainDb + macro.airGainDb)
+        assertTrue(macro.expectedFrequencyResponsePeakDb(48_000) < macro.conservativeBoostDb())
     }
 
     @Test
-    fun smartLoudnessHighPassMatchesFirstOrderShelfCeilingWithoutL1Inflation() {
+    fun smartLoudnessHighPassTransientUsesItsWorstCaseImpulseGainForHeadroom() {
         val loudness = DspSmartLoudnessRuntimeConfig(enabled = true, highGainDb = 1.5)
 
-        val boostDb = loudness.conservativeBoostDb(48_000)
-        assertTrue(boostDb > 0.7 && boostDb < 2.0)
+        assertEquals(
+            20.0 * kotlin.math.log10(1.0 + 2.0 * (StrictMath.pow(10.0, 1.5 / 20.0) - 1.0)),
+            loudness.conservativeBoostDb(),
+            0.0001,
+        )
+        assertTrue(loudness.conservativeBoostDb() > loudness.highGainDb)
+        assertTrue(loudness.expectedFrequencyResponsePeakDb(48_000) in 0.7..2.0)
     }
 
     @Test
@@ -126,7 +140,7 @@ class DspAutoHeadroomTest {
     }
 
     @Test
-    fun dynamicBoostHeadroomOnlyCountsPotentialOvershootAboveZeroDbfs() {
+    fun dynamicBoostHeadroomReservesFullBoostEvenWhenDetectorBandThresholdIsLow() {
         val bands = DspDynamicEqConfig.defaultBands().toMutableList()
         bands[0] = DspDynamicEqBandConfig(enabled = true, thresholdDb = -24.0, maxBoostDb = 3.0, mode = DspDynamicEqMode.BOOST)
         bands[1] = DspDynamicEqBandConfig(enabled = true, thresholdDb = -2.0, maxBoostDb = 4.0, mode = DspDynamicEqMode.BOOST)
@@ -134,13 +148,14 @@ class DspAutoHeadroomTest {
         val config = DspRuntimeConfig(
             enabled = true,
             dynamicEq = DspDynamicEqConfig(enabled = true, bands = bands),
+            dynamicBass = DspDynamicBassRuntimeConfig(enabled = true, strength = 1.0, maxBoostDb = 3.0, lowThresholdDbfs = -35.0),
         )
 
         val prepared = config.prepare(DspAudioFormat(48_000, 2))
 
-        // Only band 1 (-2 dBFS + 4 dB boost = +2 dBFS) can exceed 0 dBFS, plus 1 dB margin = 3.0 dB.
-        assertEquals(3.0, prepared.headroom.reductionDb, 0.02)
-        assertEquals(-3.0, prepared.appliedPreampDb, 0.02)
+        // 3.0 + 4.0 (Dynamic EQ) + 3.0 (Dynamic Bass) + 1.0 (margin) = 11.0 dB so full-scale out-of-band + quiet bass never clips.
+        assertEquals(11.0, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-11.0, prepared.appliedPreampDb, 0.02)
     }
 
     @Test
@@ -267,7 +282,8 @@ class DspAutoHeadroomTest {
         // L1 time sum would be 1.6 (~+4.08 dB), whereas Nyquist alternating sequence has spectral peak 1.6 only at Nyquist;
         // compare with dense orthogonal impulse [0.5, 0.5, 0.5, -0.5] where L1 sum = 2.0 (6.02 dB) vs spectral peak ~ 1.414 (3.01 dB).
         val barker4 = DspImpulseResponse("barker4", 48_000, 1, floatArrayOf(0.5f, 0.5f, 0.5f, -0.5f))
-        assertTrue(barker4.conservativePeakGainDb(1.0) < 4.0)
+        assertEquals(20.0 * kotlin.math.log10(2.0), barker4.conservativePeakGainDb(1.0), 0.001)
+        assertTrue(barker4.spectralPeakGainDb(1.0) < 4.0)
         assertTrue(alternatingIr.conservativePeakGainDb(1.0) > 0.0)
     }
 }

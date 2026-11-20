@@ -49,7 +49,9 @@ fun interface DspConfigProvider {
 
     fun diagnosticSummary(): String? = null
 
-    fun reportDiagnosticSummary(summary: String?) = Unit
+    fun reportDiagnosticSummary(ownerToken: Long, generation: Long, summary: String?) = Unit
+
+    fun clearDiagnosticSummary(ownerToken: Long) = Unit
 
     fun studioHotUpdatesEnabled(): Boolean = true
 

@@ -10,6 +10,7 @@ class DspImpulseResponse(
     samples: FloatArray,
 ) {
     private val sampleData: FloatArray
+    private val maximumChannelAbsoluteSum: Double
     private val maximumChannelSpectralGain: Double
     val frameCount: Int
 
@@ -35,13 +36,22 @@ class DspImpulseResponse(
             require(absoluteSum <= MAX_ABSOLUTE_SUM)
         }
         frameCount = frames
+        maximumChannelAbsoluteSum = channelAbsoluteSums.maxOrNull() ?: 0.0
         maximumChannelSpectralGain = computeMaxChannelSpectralGain(samples, channels, frames)
         sampleData = samples.copyOf()
     }
 
     internal fun copySamples(): FloatArray = sampleData.copyOf()
 
+    /** Strict L1 peak upper bound guaranteeing arbitrary PCM inputs stay within full scale. */
     internal fun conservativePeakGainDb(wet: Double): Double {
+        require(wet.isFinite() && wet in 0.0..1.0)
+        val peakGain = (1.0 - wet) + wet * maximumChannelAbsoluteSum
+        return if (peakGain > 1.0) 20.0 * log10(peakGain) else 0.0
+    }
+
+    /** Steady-state sine frequency-response peak estimate (diagnostic/reference only). */
+    internal fun spectralPeakGainDb(wet: Double): Double {
         require(wet.isFinite() && wet in 0.0..1.0)
         val peakGain = (1.0 - wet) + wet * maximumChannelSpectralGain
         return if (peakGain > 1.0) 20.0 * log10(peakGain) else 0.0

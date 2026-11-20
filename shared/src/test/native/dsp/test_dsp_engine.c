@@ -5056,6 +5056,90 @@ static void test_harmonic_adaptive_drive_boosts_low_level_harmonics(void) {
     dsp_engine_destroy(engine);
 }
 
+static void test_headroom_protects_antiphase_stereo_width_peak(void) {
+    // Full-scale opposite-phase high-frequency stereo signal multiplied by width=1.6 reaches 1.6 linear
+    // without full 20*log10(1.6) headroom attenuation.
+    const double width = 1.6;
+    const double headroom_db = -20.0 * log10(width);
+    const dsp_spatial_config wide = {.width = width, .mono_bass_enabled = 0, .mono_bass_cutoff_hz = 120};
+    dsp_engine *engine = dsp_engine_create(
+        48000, 2, 512, headroom_db, NULL, 0, &bypass_dynamics, &bypass_multiband, &bypass_dynamic_eq,
+        NULL, 0, NULL, 0, &wide, &bypass_convolver, &bypass_harmonic);
+    assert_true(engine != NULL, "headroom width graph creates");
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) {
+        const float s = sinf(2.0f * 3.14159265358979323846f * 2000.0f * (float)frame / 48000.0f);
+        input[frame * 2] = s;
+        input[frame * 2 + 1] = -s;
+    }
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "headroom width block processes");
+    float peak = 0.0f;
+    for (size_t i = 0; i < 1024; i++) {
+        const float a = fabsf(output[i]);
+        assert_true(a <= 1.0001f, "antiphase width peak stays within full scale under full headroom");
+        if (a > peak) peak = a;
+    }
+    assert_true(peak > 0.9f, "antiphase width peak utilizes headroom without excessive loss");
+    dsp_engine_destroy(engine);
+}
+
+static void test_headroom_protects_alternating_ir_worst_case_transient(void) {
+    // Alternating IR [0.5, 0.5, 0.5, -0.5] has L1 norm 2.0 (+6.02 dB) even though FFT peak is lower (~1.41).
+    // Worst-case input pattern [-1, 1, 1, 1] hits y = 2.0 unless L1 headroom (-6.02 dB) is reserved.
+    const float ir[] = {0.5f, 0.5f, 0.5f, -0.5f};
+    const double l1_headroom_db = -20.0 * log10(2.0);
+    const dsp_convolver_config conv = {1, 48000, 1, 4, 4, 1.0f, ir};
+    dsp_engine *engine = dsp_engine_create(
+        48000, 1, 512, l1_headroom_db, NULL, 0, &bypass_dynamics, &bypass_multiband, &bypass_dynamic_eq,
+        NULL, 0, NULL, 0, &bypass_spatial, &conv, &bypass_harmonic);
+    assert_true(engine != NULL, "alternating IR headroom graph creates");
+    float input[512] = {0.0f};
+    input[0] = -1.0f;
+    input[1] = 1.0f;
+    input[2] = 1.0f;
+    input[3] = 1.0f;
+    float output[512] = {0.0f};
+    assert_true(dsp_engine_process(engine, input, 512, output, 512, 512, 1) == DSP_STATUS_OK,
+        "alternating IR transient block processes");
+    float peak = 0.0f;
+    for (size_t i = 0; i < 512; i++) {
+        const float a = fabsf(output[i]);
+        assert_true(a <= 1.0001f, "alternating IR worst-case transient stays bounded under L1 headroom");
+        if (a > peak) peak = a;
+    }
+    assert_true(peak > 0.99f, "alternating IR transient reaches tight full-scale bound under L1 headroom");
+    dsp_engine_destroy(engine);
+}
+
+static void test_headroom_protects_full_scale_high_plus_quiet_bass_dynamic_boost(void) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dbass = {1, 1.0, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    // Reserve full +3 dB Dynamic Bass headroom when mixing full-scale high tone (0.85) + quiet bass (0.02).
+    dsp_engine *engine = dsp_engine_create_with_studio(
+        48000, 1, 512, -3.0, NULL, 0, &bypass_dynamics, &bypass_multiband, &bypass_dynamic_eq,
+        NULL, 0, NULL, 0, &bypass_spatial, &bypass_convolver, &bypass_harmonic,
+        &macro, &loudness, &dbass);
+    assert_true(engine != NULL, "dynamic bass mixed-signal headroom graph creates");
+    for (int block = 0; block < 20; block++) {
+        float input[512];
+        float output[512] = {0.0f};
+        for (size_t f = 0; f < 512; f++) {
+            const double t = (double)(block * 512 + f) / 48000.0;
+            input[f] = (float)(0.85 * sin(2.0 * 3.14159265358979323846 * 4000.0 * t) +
+                0.02 * sin(2.0 * 3.14159265358979323846 * 60.0 * t));
+        }
+        assert_true(dsp_engine_process(engine, input, 512, output, 512, 512, 1) == DSP_STATUS_OK,
+            "mixed high+quiet bass block processes");
+        for (size_t f = 0; f < 512; f++) {
+            assert_true(fabsf(output[f]) <= 1.0f, "full-scale high + boosted quiet bass stays <= 1.0 under full headroom");
+        }
+    }
+    dsp_engine_destroy(engine);
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
@@ -5128,6 +5212,9 @@ int main(void) {
     test_dynamic_eq_boost_silences_below_noise_floor();
     test_multiband_close_crossovers_maintain_flat_response();
     test_harmonic_adaptive_drive_boosts_low_level_harmonics();
+    test_headroom_protects_antiphase_stereo_width_peak();
+    test_headroom_protects_alternating_ir_worst_case_transient();
+    test_headroom_protects_full_scale_high_plus_quiet_bass_dynamic_boost();
     puts("native DSP tests passed");
     return 0;
 }

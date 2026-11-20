@@ -46,7 +46,18 @@ private fun onePoleComplex(alpha: Double, omega: Double): Pair<Double, Double> {
     return (alpha * dReal / dMagSq) to (-alpha * dImag / dMagSq)
 }
 
-internal fun DspMacroToneConfig.conservativeBoostDb(sampleRate: Int = 48_000): Double {
+/** Strict L1 upper bound for any arbitrary PCM/transient input. */
+internal fun DspMacroToneConfig.conservativeBoostDb(): Double {
+    if (!enabled) return 0.0
+    fun gain(db: Double) = StrictMath.pow(10.0, db / 20.0)
+    val amplitudeBound = 1.0 + kotlin.math.abs(gain(bassGainDb) - 1.0) +
+        2.0 * kotlin.math.abs(gain(vocalGainDb) - 1.0) +
+        2.0 * kotlin.math.abs(gain(airGainDb) - 1.0)
+    return 20.0 * log10(amplitudeBound)
+}
+
+/** Steady-state frequency-response peak estimate (for EQ reference/loudness estimation, not transient peak safety). */
+internal fun DspMacroToneConfig.expectedFrequencyResponsePeakDb(sampleRate: Int = 48_000): Double {
     if (!enabled) return 0.0
     val bassGain = 10.0.pow(bassGainDb / 20.0) - 1.0
     val vocalGain = 10.0.pow(vocalGainDb / 20.0) - 1.0
@@ -77,7 +88,18 @@ data class DspSmartLoudnessRuntimeConfig(
     }
 }
 
-internal fun DspSmartLoudnessRuntimeConfig.conservativeBoostDb(sampleRate: Int = 48_000): Double {
+/** Strict L1 upper bound for any arbitrary PCM/transient input. */
+internal fun DspSmartLoudnessRuntimeConfig.conservativeBoostDb(): Double {
+    if (!enabled) return 0.0
+    val lowGain = StrictMath.pow(10.0, lowGainDb / 20.0)
+    val highGain = StrictMath.pow(10.0, highGainDb / 20.0)
+    // The first-order residual `sample - lowpass(sample)` has an L1 impulse gain no greater than 2.
+    val amplitudeBound = lowGain + 2.0 * (highGain - 1.0)
+    return 20.0 * log10(amplitudeBound)
+}
+
+/** Steady-state frequency-response peak estimate (for EQ reference/loudness estimation, not transient peak safety). */
+internal fun DspSmartLoudnessRuntimeConfig.expectedFrequencyResponsePeakDb(sampleRate: Int = 48_000): Double {
     if (!enabled) return 0.0
     val lowGain = 10.0.pow(lowGainDb / 20.0) - 1.0
     val highGain = 10.0.pow(highGainDb / 20.0) - 1.0

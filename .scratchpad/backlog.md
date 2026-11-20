@@ -2,6 +2,9 @@
 
 ## P0 — 受入れを止めているもの
 
+- [ ] PR #82: TS10/K706（Android 10）でBOOT_COMPLETEDのActivity起動可否と通知フォールバック、Android 13+通知権限、Bluetooth/無線権限拒否、Activity再生成、USB+無線の競合、明示的切断後の非再接続を実機確認。Robolectric成功を実機接続成功と扱わない。
+- [ ] PR #82: 自動開始セッションのホスト復旧抑制と、手動/USBセッションの既存バックオフ再試行が実機ログで期待どおり分離されることを確認。
+
 - [ ] TS10/K706 + iPhoneで有線NCM/IPv6→TUN、AirPlay映像/タッチ/音声、Siri・通話・AEC/AGC、ルーティング・音量を実機確認。SH M20の結果で代替しない。
 - [ ] MAIN/ALT、Surfaceの停止/再生成、rotation/safeArea/HID、Full/LOCAL Splitの同一Controller/Session維持を20サイクルで検証。
 - [ ] DSPのバイパス、THD/ヘッドルーム/レイテンシ、A/V同期、CPU/RSS/FD/温度/アンダーラン、30〜60分soakを対象端末で計測。
@@ -10,7 +13,7 @@
 - [ ] SH-M27でDSP Splitのinset、スクロール境界、ComposeView実測を確認。既に解消したC-00は再オープンしない。
 - [ ] API 35でP2 ComposeのSave/Discard/Continue操作テストを実行。API 36.1のEspresso初期化失敗はテスト結果ではない。
 - [ ] 公式リリース署名で更新・既存設定の引継ぎ・インストール済みのロールバックを検証。debug署名を代用しない。
-- [ ] 修正後の二回目独立レビューはユーザー指示により `NOT_RUN`。G8は `NO_GO_THIS_RUN` のまま扱う。
+- [ ] PR #82: 4回目レビューP1/P2（`onResume()`前の古い権限結果の復旧、無効化済み自動接続ホストIntentの拒否、Controllerのみ残るホスト終了のAC-43拡張）修正後の再レビュー。G8は `NO_GO_THIS_RUN` のまま扱う。
 
 ## P1 — 計測してから判断
 

@@ -259,6 +259,12 @@ class DiPlayActivity : ComponentActivity() {
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!firstResume && page == "home") render()
         firstResume = false
+        // An explicit notification tap asks for CarPlay, so it outranks the page check that
+        // keeps an automatic connection away from the settings screens.
+        if (pendingUsbLaunchFromNotification && setupError == null && handleUsbAutoLaunchRequest()) {
+            autoConnect.noteHandledExternally(autoConnectLaunchSource)
+            return
+        }
         recoverStalePendingAutoRequest()
         if (autoConnectPending) {
             autoConnectPending = false

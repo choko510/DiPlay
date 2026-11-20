@@ -154,6 +154,10 @@ class CarPlayController(
     private val loadPairRecord: (devicePublicKeyPem: ByteArray) -> LockdownPairRecord? = { null },
     /** The most recently used record, for an iPhone whose DevicePublicKey could not be read. */
     private val loadNewestPairRecord: () -> LockdownPairRecord? = { null },
+    /** The older build's record for this iPhone, tried when a stored copy is rejected. */
+    private val loadRetainedPairRecord: (devicePublicKeyPem: ByteArray) -> LockdownPairRecord? = { null },
+    /** Stores a retained record as this iPhone's copy once CarKit accepted it. */
+    private val promotePairRecord: (LockdownPairRecord) -> Unit = {},
     private val savePairRecord: (LockdownPairRecord) -> Unit = {},
     /** Confirms that a stored record actually worked, so recency never follows a failed attempt. */
     private val markPairRecordUsed: (devicePublicKeyPem: ByteArray) -> Unit = {},
@@ -2154,6 +2158,7 @@ class CarPlayController(
             )
             val savedPairRecord = recordChoice.record
             var pairedNewRecord: LockdownPairRecord? = null
+            var retainedRecordAccepted: LockdownPairRecord? = null
             var pairRecord = savedPairRecord
                 ?: pairNewRecord(pairingClient, startupAttempt).also { pairedNewRecord = it }
             traceConnection(ConnectionTraceStage.PAIRING_READY)
@@ -2230,25 +2235,49 @@ class CarPlayController(
                 }
                 // Only a record this iPhone identified may go: a fallback record can be another
                 // iPhone's, and a failed lookup here must not cost that driver their trust.
-                if (recordChoice.discardableOnRejection) {
-                    debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing and pairing again")
-                    whileCurrentWiredAttempt(startupAttempt) {
-                        clearPairRecord(savedPairRecord.devicePublicKeyPem)
-                    }
-                } else {
+                if (!recordChoice.discardableOnRejection) {
                     debugLog(
                         "fallback Lockdown pair record rejected by Lockdown error=$rejection; " +
                             "keeping it and pairing again",
                     )
+                    pairRecord = pairNewRecord(pairingClient, startupAttempt)
+                    pairedNewRecord = pairRecord
+                    carKitClient.open(pairRecord, config.label)
+                } else {
+                    debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing it")
+                    whileCurrentWiredAttempt(startupAttempt) {
+                        clearPairRecord(savedPairRecord.devicePublicKeyPem)
+                    }
+                    // The older build's record for this iPhone may still be retained. Opening it
+                    // before pairing again avoids another Trust prompt when only the copy broke.
+                    val recovered = WiredLockdownRecovery.tryRetainedRecord(
+                        rejected = recordChoice,
+                        retained = loadRetainedPairRecord(savedPairRecord.devicePublicKeyPem),
+                        isCurrentAttempt = { isCurrentWiredAttempt(startupAttempt) },
+                        open = { retained -> carKitClient.open(retained, config.label) },
+                        onRetainedRejected = { retainedError ->
+                            debugLog(
+                                "retained Lockdown pair record rejected too: " +
+                                    "${retainedError.javaClass.simpleName}; pairing again",
+                            )
+                        },
+                    )
+                    if (recovered != null) {
+                        pairRecord = recovered.first
+                        retainedRecordAccepted = recovered.first
+                        recovered.second
+                    } else {
+                        pairRecord = pairNewRecord(pairingClient, startupAttempt)
+                        pairedNewRecord = pairRecord
+                        carKitClient.open(pairRecord, config.label)
+                    }
                 }
-                pairRecord = pairNewRecord(pairingClient, startupAttempt)
-                pairedNewRecord = pairRecord
-                carKitClient.open(pairRecord, config.label)
             }
             // Persisting waits for a CarKit connection, so a record that never connected cannot
             // take the place of another iPhone's and evict it. Recency follows the same signal, and
             // the check and the writes share one lock so a teardown cannot start in between.
             whileCurrentWiredAttempt(startupAttempt) {
+                retainedRecordAccepted?.let(promotePairRecord)
                 pairedNewRecord?.let(savePairRecord)
                 markPairRecordUsed(pairRecord.devicePublicKeyPem)
             }
@@ -2737,7 +2766,9 @@ class CarPlayController(
      *
      * The lock order is always connection state first, then the record store, and nothing in
      * [AirPlayPersistence] calls back into this controller, so the order cannot deadlock. A store
-     * write is a bounded SharedPreferences edit; a teardown that needs this lock waits for it.
+     * write is normally an in-memory edit with an asynchronous disk write; the one exception is
+     * promoting a retained record, which commits once so the recovery survives a crash. A teardown
+     * that needs this lock waits for that commit.
      */
     private fun whileCurrentWiredAttempt(startupAttempt: Int, block: () -> Unit) {
         synchronized(wiredTeardownLock) {

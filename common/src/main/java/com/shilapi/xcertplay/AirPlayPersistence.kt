@@ -31,6 +31,12 @@ object AirPlayPersistence {
     private const val KEY_LOCKDOWN_RECORD_IDS = "lockdown_record_ids"
     private const val MAX_LOCKDOWN_RECORDS = 8
 
+    /**
+     * The record an older build saved, kept aside when it disagrees with the per-iPhone copy. It is
+     * never offered as the active record: only [promoteLegacyLockdownRecord] turns it into one.
+     */
+    private const val RETAINED_PREFIX = "lockdown_retained."
+
     /** Serializes the read-modify-write of the id list with the records it names. */
     private val lockdownStoreLock = Any()
     private val LOCKDOWN_RECORD_ID_PATTERN = Regex("^[0-9a-f]{64}$")
@@ -619,6 +625,45 @@ object AirPlayPersistence {
     fun saveLockdownRecord(context: Context, record: LockdownPairRecord) {
         synchronized(lockdownStoreLock) { saveLockdownRecord(lockdownPrefs(context), record) }
     }
+
+    /**
+     * The record the older build saved, when it belongs to [devicePublicKeyPem]'s iPhone.
+     *
+     * The migration keeps that copy when it disagrees with the stored one, so a rejected stored
+     * copy does not have to cost the owner another Trust prompt: the caller may open it and, if it
+     * works, [promoteLegacyLockdownRecord] it. It is offered only for the iPhone it belongs to.
+     */
+    fun loadLegacyLockdownRecord(context: Context, devicePublicKeyPem: ByteArray): LockdownPairRecord? =
+        synchronized(lockdownStoreLock) {
+            val prefs = lockdownPrefs(context)
+            val id = lockdownRecordId(devicePublicKeyPem)
+            val retained = readRetainedLockdownRecord(prefs) ?: return@synchronized null
+            retained.takeIf { lockdownRecordId(it.devicePublicKeyPem) == id }
+        }
+
+    /**
+     * Stores [record] as this iPhone's per-iPhone copy and drops the retained copy in one edit, after
+     * a CarKit connection proved the retained record works. One [SharedPreferences.Editor.commit]
+     * replaces the whole store file, so a crash leaves either the old state (retained copy, no
+     * stored copy) or the new one (stored copy, no retained copy). Returns true when the stored copy
+     * is readable afterwards; false leaves the retained copy for the next attempt.
+     */
+    fun promoteLegacyLockdownRecord(context: Context, record: LockdownPairRecord): Boolean =
+        synchronized(lockdownStoreLock) {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val id = lockdownRecordId(record.devicePublicKeyPem)
+            val ids = listOf(id) + lockdownRecordIds(prefs)
+                .filter { it != id && readLockdownRecordById(prefs, it) != null }
+            val kept = ids.take(MAX_LOCKDOWN_RECORDS)
+            val editor = prefs.edit()
+            ids.drop(MAX_LOCKDOWN_RECORDS).forEach { removeLockdownRecord(editor, it) }
+            putLockdownRecord(editor, "lockdown.$id.", record)
+            removeRetainedLockdownRecord(editor)
+            editor.putString(KEY_LOCKDOWN_RECORD_IDS, kept.joinToString(","))
+            if (!editor.commit()) return@synchronized false
+            readLockdownRecordById(prefs, id)?.sameRecordAs(record) == true
+        }
+
     /**
      * Moves a stored record to the front of the list without touching its keys or certificates.
      * A record that is not stored, or no longer usable, is left alone. Callers use this only for a
@@ -632,11 +677,12 @@ object AirPlayPersistence {
             if (id !in ids || readLockdownRecordById(prefs, id) == null) return
             val reordered = listOf(id) + (ids - id)
             if (reordered != ids) writeLockdownRecordIds(prefs, reordered)
-            // A connection proved this iPhone's stored record works, so a legacy copy that the
-            // migration kept aside for the same iPhone is no longer needed.
-            val legacy = readLegacyLockdownRecord(prefs)
-            if (legacy != null && lockdownRecordId(legacy.devicePublicKeyPem) == id) {
-                removeLegacyLockdownRecord(prefs)
+            // A connection proved this iPhone's stored record works, so a copy that the migration
+            // kept aside for the same iPhone is no longer needed. apply(), not commit(): this runs
+            // while the wired attempt lock is held.
+            val retained = readRetainedLockdownRecord(prefs)
+            if (retained != null && lockdownRecordId(retained.devicePublicKeyPem) == id) {
+                removeRetainedLockdownRecord(prefs.edit(), commit = false)
             }
         }
     }
@@ -657,11 +703,12 @@ object AirPlayPersistence {
      *
      * The flat keys are only removed once the per-iPhone copy is known to be at least as good as
      * what the older build saved: it must restore, carry the legacy record's own fingerprint, and
-     * either be byte-for-byte the same record or be confirmed by a later connection. A copy that
-     * restores but disagrees is kept as the active record while the flat keys stay as the last copy
-     * of the older build, so a wrong HostID or damaged key cannot silently destroy a working record.
-     * Every write here is a [SharedPreferences.Editor.commit], and a failed write keeps the flat keys
-     * for the next start. Only a legacy record that cannot be restored at all is dropped.
+     * either be byte-for-byte the same record or be written from the legacy record. A copy that
+     * restores but disagrees keeps the older record in [RETAINED_PREFIX] instead of discarding it,
+     * so a wrong HostID or damaged key cannot destroy a working record; a later connection either
+     * promotes it or retires it. Every write here is a [SharedPreferences.Editor.commit], and a
+     * failed write keeps the flat keys for the next start. Only a legacy record that cannot be
+     * restored at all is dropped.
      */
     private fun lockdownPrefs(context: Context): SharedPreferences {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -685,15 +732,27 @@ object AirPlayPersistence {
                 }
                 removeLegacyLockdownRecord(prefs)
             }
-            else -> {
-                // Both restore but disagree. Keep the stored copy for this iPhone and keep the flat
-                // keys until a connection proves the stored copy, which markLockdownRecordUsed does.
-                if (id !in lockdownRecordIds(prefs)) {
-                    writeLockdownRecordIds(prefs, listOf(id) + lockdownRecordIds(prefs))
-                }
-            }
+            else -> retainLegacyLockdownRecord(prefs, legacy, id)
         }
         return prefs
+    }
+
+    /**
+     * Keeps the older build's record aside when it disagrees with the per-iPhone copy. The copy is
+     * moved to [RETAINED_PREFIX] in the same edit that registers the id and drops the flat keys, so
+     * the migration runs once and can never put a retired record back into service by itself.
+     */
+    private fun retainLegacyLockdownRecord(
+        prefs: SharedPreferences,
+        legacy: LockdownPairRecord,
+        id: String,
+    ) {
+        val ids = (listOf(id) + lockdownRecordIds(prefs)).distinct().take(MAX_LOCKDOWN_RECORDS)
+        val editor = prefs.edit()
+        putLockdownRecord(editor, RETAINED_PREFIX, legacy)
+        LOCKDOWN_RECORD_FIELDS.forEach { editor.remove("lockdown_$it") }
+        editor.putString(KEY_LOCKDOWN_RECORD_IDS, ids.joinToString(","))
+        editor.commit()
     }
 
     private fun hasLegacyLockdownRecord(prefs: SharedPreferences): Boolean =
@@ -702,10 +761,26 @@ object AirPlayPersistence {
     private fun readLegacyLockdownRecord(prefs: SharedPreferences): LockdownPairRecord? =
         readLockdownRecord(prefs) { field -> "lockdown_$field" }
 
-    private fun removeLegacyLockdownRecord(prefs: SharedPreferences) {
+    private fun readRetainedLockdownRecord(prefs: SharedPreferences): LockdownPairRecord? =
+        readLockdownRecord(prefs) { field -> "$RETAINED_PREFIX$field" }
+
+    private fun removeLegacyLockdownRecord(prefs: SharedPreferences, commit: Boolean = true) {
         val editor = prefs.edit()
         LOCKDOWN_RECORD_FIELDS.forEach { editor.remove("lockdown_$it") }
-        editor.commit()
+        if (commit) {
+            editor.commit()
+        } else {
+            editor.apply()
+        }
+    }
+
+    private fun removeRetainedLockdownRecord(editor: SharedPreferences.Editor, commit: Boolean = true) {
+        LOCKDOWN_RECORD_FIELDS.forEach { editor.remove("$RETAINED_PREFIX$it") }
+        if (commit) {
+            editor.commit()
+        } else {
+            editor.apply()
+        }
     }
 
     private fun LockdownPairRecord.sameRecordAs(other: LockdownPairRecord): Boolean =
@@ -731,18 +806,8 @@ object AirPlayPersistence {
         val kept = ids.take(MAX_LOCKDOWN_RECORDS)
         val editor = prefs.edit()
         ids.drop(MAX_LOCKDOWN_RECORDS).forEach { removeLockdownRecord(editor, it) }
-        fun key(field: String) = "lockdown.$id.$field"
-        editor
-            .putString(key("host_id"), record.hostId)
-            .putString(key("system_buid"), record.systemBuid)
-            .putString(key("wifi_mac"), record.wifiMacAddress)
-            .putString(key("device_public"), record.devicePublicKeyPem.toHex())
-            .putString(key("device_cert"), record.deviceCertificatePem.toHex())
-            .putString(key("host_private"), record.hostPrivateKeyPem.toHex())
-            .putString(key("host_cert"), record.hostCertificatePem.toHex())
-            .putString(key("root_private"), record.rootPrivateKeyPem.toHex())
-            .putString(key("root_cert"), record.rootCertificatePem.toHex())
-            .putString(KEY_LOCKDOWN_RECORD_IDS, kept.joinToString(","))
+        putLockdownRecord(editor, "lockdown.$id.", record)
+        editor.putString(KEY_LOCKDOWN_RECORD_IDS, kept.joinToString(","))
         return if (commit) {
             editor.commit()
         } else {
@@ -782,6 +847,20 @@ object AirPlayPersistence {
             // ClassCastException from getString().
             null
         }
+
+    private fun putLockdownRecord(editor: SharedPreferences.Editor, keyPrefix: String, record: LockdownPairRecord) {
+        fun key(field: String) = "$keyPrefix$field"
+        editor
+            .putString(key("host_id"), record.hostId)
+            .putString(key("system_buid"), record.systemBuid)
+            .putString(key("wifi_mac"), record.wifiMacAddress)
+            .putString(key("device_public"), record.devicePublicKeyPem.toHex())
+            .putString(key("device_cert"), record.deviceCertificatePem.toHex())
+            .putString(key("host_private"), record.hostPrivateKeyPem.toHex())
+            .putString(key("host_cert"), record.hostCertificatePem.toHex())
+            .putString(key("root_private"), record.rootPrivateKeyPem.toHex())
+            .putString(key("root_cert"), record.rootCertificatePem.toHex())
+    }
 
     private fun removeLockdownRecord(editor: SharedPreferences.Editor, id: String) {
         if (!LOCKDOWN_RECORD_ID_PATTERN.matches(id)) return

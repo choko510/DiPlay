@@ -5076,6 +5076,12 @@ class CarPlayHostActivity : ComponentActivity() {
             markPairRecordUsed = { devicePublicKey ->
                 AirPlayPersistence.markLockdownRecordUsed(pairingContext, devicePublicKey)
             },
+            loadRetainedPairRecord = { devicePublicKey ->
+                AirPlayPersistence.loadLegacyLockdownRecord(pairingContext, devicePublicKey)
+            },
+            promotePairRecord = { record ->
+                AirPlayPersistence.promoteLegacyLockdownRecord(pairingContext, record)
+            },
             clearPairRecord = { devicePublicKey ->
                 AirPlayPersistence.clearLockdownRecord(pairingContext, devicePublicKey)
             },

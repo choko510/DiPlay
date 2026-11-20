@@ -130,16 +130,18 @@ class LockdownRecordPersistenceTest {
         writeStored(record("a", hostId = "WRONG-HOST"))
 
         assertEquals("WRONG-HOST", load("a")?.hostId)
-        // Repeated reads never overwrite the stored copy with the legacy one, and the legacy copy
-        // stays readable as the last record the older build saved.
-        assertEquals("WRONG-HOST", load("a")?.hostId)
-        assertTrue(LEGACY_KEYS.all(prefs::contains))
-        assertEquals("HOST-a", prefs.getString("lockdown_host_id", null))
-
-        // A connection that worked with the stored record makes the legacy copy obsolete.
-        AirPlayPersistence.markLockdownRecordUsed(context, deviceKey("a"))
+        // Repeated reads never overwrite the stored copy with the older one, which is kept aside
+        // rather than offered as the active record.
         assertEquals("WRONG-HOST", load("a")?.hostId)
         assertTrue(LEGACY_KEYS.none(prefs::contains))
+        assertTrue(RETAINED_KEYS.all(prefs::contains))
+        assertEquals("HOST-a", prefs.getString("lockdown_retained.host_id", null))
+        assertEquals("HOST-a", AirPlayPersistence.loadLegacyLockdownRecord(context, deviceKey("a"))?.hostId)
+
+        // A connection that worked with the stored record makes the retained copy obsolete.
+        AirPlayPersistence.markLockdownRecordUsed(context, deviceKey("a"))
+        assertEquals("WRONG-HOST", load("a")?.hostId)
+        assertTrue(RETAINED_KEYS.none(prefs::contains))
     }
 
     @Test
@@ -150,9 +152,83 @@ class LockdownRecordPersistenceTest {
         assertEquals("truncated", String(load("a")!!.hostPrivateKeyPem))
         assertEquals(
             "host-private-a".toByteArray().toHex(),
-            prefs.getString("lockdown_host_private", null),
+            prefs.getString("lockdown_retained.host_private", null),
         )
-        assertTrue(LEGACY_KEYS.all(prefs::contains))
+        assertTrue(RETAINED_KEYS.all(prefs::contains))
+    }
+
+    @Test
+    fun theRetainedLegacyRecordIsOfferedOnlyForItsOwnIphone() {
+        writeLegacy(record("a"))
+        writeStored(record("a", hostId = "WRONG-HOST"))
+
+        assertEquals("HOST-a", AirPlayPersistence.loadLegacyLockdownRecord(context, deviceKey("a"))?.hostId)
+        assertNull(AirPlayPersistence.loadLegacyLockdownRecord(context, deviceKey("b")))
+    }
+
+    @Test
+    fun promotingTheRetainedRecordRestoresTheIphoneWithoutANewPair() {
+        writeLegacy(record("a"))
+        writeStored(record("a", hostId = "WRONG-HOST"))
+        // The stored copy is rejected, so it is cleared exactly as the controller does.
+        AirPlayPersistence.clearLockdownRecord(context, deviceKey("a"))
+        assertNull(load("a"))
+
+        val retained = AirPlayPersistence.loadLegacyLockdownRecord(context, deviceKey("a"))!!
+        assertTrue(AirPlayPersistence.promoteLegacyLockdownRecord(context, retained))
+
+        assertEquals("HOST-a", load("a")?.hostId)
+        assertEquals("host-private-a", String(load("a")!!.hostPrivateKeyPem))
+        assertEquals(listOf(id("a")), ids())
+        assertTrue(LEGACY_KEYS.none(prefs::contains))
+    }
+
+    @Test
+    fun promotingTheSameRetainedRecordTwiceIsStable() {
+        writeLegacy(record("a"))
+        writeStored(record("a", hostId = "WRONG-HOST"))
+        AirPlayPersistence.clearLockdownRecord(context, deviceKey("a"))
+        val retained = AirPlayPersistence.loadLegacyLockdownRecord(context, deviceKey("a"))!!
+
+        assertTrue(AirPlayPersistence.promoteLegacyLockdownRecord(context, retained))
+        assertTrue(AirPlayPersistence.promoteLegacyLockdownRecord(context, retained))
+
+        assertEquals("HOST-a", load("a")?.hostId)
+        assertEquals(1, ids().size)
+        assertTrue(LEGACY_KEYS.none(prefs::contains))
+    }
+
+    @Test
+    fun promotingARetainedRecordKeepsOtherIphonesRecords() {
+        writeStored(record("b"))
+        writeLegacy(record("a"))
+        writeStored(record("a", hostId = "WRONG-HOST"))
+        AirPlayPersistence.clearLockdownRecord(context, deviceKey("a"))
+
+        val retained = AirPlayPersistence.loadLegacyLockdownRecord(context, deviceKey("a"))!!
+        assertTrue(AirPlayPersistence.promoteLegacyLockdownRecord(context, retained))
+
+        assertEquals("HOST-a", load("a")?.hostId)
+        assertEquals("HOST-b", load("b")?.hostId)
+        assertEquals("host-private-b", String(load("b")!!.hostPrivateKeyPem))
+    }
+
+    @Test
+    fun aNewPairingStillWorksWhenBothSavedCopiesWereRejected() {
+        writeLegacy(record("a"))
+        writeStored(record("a", hostId = "WRONG-HOST"))
+        AirPlayPersistence.clearLockdownRecord(context, deviceKey("a"))
+
+        // The retained record was rejected too, so the controller pairs a new record and keeps it.
+        save(record("a", hostId = "HOST-NEW"))
+
+        assertEquals("HOST-NEW", load("a")?.hostId)
+        assertTrue(LEGACY_KEYS.none(prefs::contains))
+        assertEquals(listOf(id("a")), ids())
+        // The rejected copy stays aside until a connection confirms the new record.
+        assertTrue(RETAINED_KEYS.all(prefs::contains))
+        AirPlayPersistence.markLockdownRecordUsed(context, deviceKey("a"))
+        assertTrue(RETAINED_KEYS.none(prefs::contains))
     }
 
     @Test
@@ -426,6 +502,7 @@ class LockdownRecordPersistenceTest {
     /** Writes [record] in the per-iPhone layout, as a newer build would. */
     private fun writeStored(record: LockdownPairRecord) {
         val recordId = sha256Hex(record.devicePublicKeyPem)
+        val ids = (listOf(recordId) + ids().filter { it != recordId }).joinToString(",")
         prefs.edit()
             .putString("lockdown.$recordId.host_id", record.hostId)
             .putString("lockdown.$recordId.system_buid", record.systemBuid)
@@ -436,7 +513,7 @@ class LockdownRecordPersistenceTest {
             .putString("lockdown.$recordId.host_cert", record.hostCertificatePem.toHex())
             .putString("lockdown.$recordId.root_private", record.rootPrivateKeyPem.toHex())
             .putString("lockdown.$recordId.root_cert", record.rootCertificatePem.toHex())
-            .putString("lockdown_record_ids", recordId)
+            .putString("lockdown_record_ids", ids)
             .commit()
     }
 
@@ -463,5 +540,6 @@ class LockdownRecordPersistenceTest {
             "lockdown_device_cert", "lockdown_host_private", "lockdown_host_cert", "lockdown_root_private",
             "lockdown_root_cert",
         )
+        val RETAINED_KEYS = LEGACY_KEYS.map { it.replace("lockdown_", "lockdown_retained.") }
     }
 }

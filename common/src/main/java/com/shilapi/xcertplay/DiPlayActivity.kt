@@ -147,7 +147,15 @@ class DiPlayActivity : ComponentActivity() {
     override fun onPause() {
         handler.removeCallbacks(tick)
         activityResumed = false
-        DiPlayUiFocus.paused(this)
+        if (isFinishing) {
+            // finish() returns to the menu (or leaves DiPlay) without the parent resuming first.
+            DiPlayUiFocus.announceReturn(
+                this,
+                if (returnToMenu) DiPlaySurface.MENU else DiPlaySurface.NONE,
+            )
+        } else {
+            DiPlayUiFocus.paused(this)
+        }
         super.onPause()
     }
 
@@ -250,8 +258,10 @@ class DiPlayActivity : ComponentActivity() {
             card.addView(label(getString(R.string.dsp_settings_entry_description), 15, MUTED))
             card.addView(
                 button(getString(R.string.dsp_settings_entry_button), false) {
-                    DiPlayUiFocus.navigatingTo(this, DiPlaySurface.DSP_SETTINGS)
-                    startActivity(Intent(this, DspSettingsActivity::class.java))
+                    val opened = navigateFrom(this, DiPlaySurface.DSP_SETTINGS) {
+                        startActivity(Intent(this, DspSettingsActivity::class.java))
+                    }
+                    if (!opened) toast(getString(R.string.menu_settings_failed))
                 },
                 matchButton(12, 60),
             )
@@ -757,10 +767,12 @@ class DiPlayActivity : ComponentActivity() {
         else open()
     }
     private fun openProjection() {
-        startActivity(
-            CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY)
-                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
-        )
+        navigateFrom(this, DiPlaySurface.CARPLAY_HOST) {
+            startActivity(
+                CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY)
+                    .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+            )
+        }
     }
     private fun choosePhone() {
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {

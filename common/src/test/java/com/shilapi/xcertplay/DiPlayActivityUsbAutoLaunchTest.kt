@@ -268,6 +268,20 @@ class DiPlayActivityUsbAutoLaunchTest {
         )
     }
 
+    @Test
+    fun closingMenuSettingsHandsTheProtectionBackToTheMenu() {
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java, settingsIntent()).setup()
+        val activity = controller.get()
+        assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+
+        // The menu's settings screen returns with finish(), so the menu never resumes first.
+        activity.finish()
+        controller.pause()
+
+        assertEquals("finish() must announce the menu", DiPlaySurface.MENU, DiPlayUiFocus.current())
+        assertTrue(DiPlayUiFocus.isUserNavigationTarget())
+    }
+
     private fun launchSettings(): DiPlayActivity =
         Robolectric.buildActivity(DiPlayActivity::class.java, settingsIntent()).setup().get()
 

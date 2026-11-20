@@ -169,4 +169,96 @@ class DiPlayNavigationPolicyTest {
         gate.reset()
         assertTrue("returning to CarPlay re-arms the gate", gate.accept(session, nowMillis = 10_900L))
     }
+
+    @Test
+    fun aTransparentUsbReceiverRestoresTheScreenItCovered() {
+        val settings = Any()
+        val receiver = Any()
+        DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
+
+        // Android pauses the settings Activity before the receiver exists.
+        DiPlayUiFocus.paused(settings)
+        assertEquals(DiPlaySurface.NONE, DiPlayUiFocus.current())
+
+        DiPlayUiFocus.transientOverlayResumed(receiver)
+
+        assertEquals(
+            "the receiver keeps the settings screen protected",
+            DiPlaySurface.SETTINGS,
+            DiPlayUiFocus.current(),
+        )
+        assertTrue(DiPlayUiFocus.isUserNavigationTarget())
+
+        // When the receiver pauses too, protection stays until a real screen resumes.
+        DiPlayUiFocus.paused(receiver)
+        assertTrue(DiPlayUiFocus.isUserNavigationTarget())
+    }
+
+    @Test
+    fun aTransparentUsbReceiverDoesNotInventAScreenToProtect() {
+        DiPlayUiFocus.transientOverlayResumed(Any())
+        assertEquals(DiPlaySurface.NONE, DiPlayUiFocus.current())
+        assertFalse(DiPlayUiFocus.isUserNavigationTarget())
+    }
+
+    @Test
+    fun finishingADiPlayScreenAnnouncesItsParent() {
+        val dsp = Any()
+        DiPlayUiFocus.resumed(dsp, DiPlaySurface.DSP_SETTINGS)
+
+        // finish() returns to settings without the settings Activity resuming first.
+        DiPlayUiFocus.announceReturn(dsp, DiPlaySurface.SETTINGS)
+        DiPlayUiFocus.paused(dsp)
+
+        assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+        assertTrue(DiPlayUiFocus.isUserNavigationTarget())
+    }
+
+    @Test
+    fun announcingAReturnDoesNotOverrideAnExplicitNavigation() {
+        val settings = Any()
+        DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
+
+        // connect() announces the host, then finish() runs onPause for the same owner.
+        DiPlayUiFocus.navigatingTo(settings, DiPlaySurface.CARPLAY_HOST)
+        DiPlayUiFocus.announceReturn(settings, DiPlaySurface.MENU)
+
+        assertEquals(DiPlaySurface.CARPLAY_HOST, DiPlayUiFocus.current())
+        assertFalse(DiPlayUiFocus.isUserNavigationTarget())
+    }
+
+    @Test
+    fun aFailedLaunchRestoresTheScreenThatWasLeft() {
+        val settings = Any()
+        DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
+
+        val started = navigateFrom(settings, DiPlaySurface.DSP_SETTINGS) {
+            throw IllegalStateException("Activity not found")
+        }
+
+        assertFalse(started)
+        assertEquals(
+            "a failed launch must not leave the focus on a screen that never opened",
+            DiPlaySurface.SETTINGS,
+            DiPlayUiFocus.current(),
+        )
+        assertTrue(DiPlayUiFocus.isUserNavigationTarget())
+    }
+
+    @Test
+    fun aLateFailureDoesNotCancelANewerNavigation() {
+        val menu = Any()
+        DiPlayUiFocus.resumed(menu, DiPlaySurface.MENU)
+
+        val staleToken = DiPlayUiFocus.navigatingTo(menu, DiPlaySurface.CARPLAY_HOST)
+        DiPlayUiFocus.navigatingTo(menu, DiPlaySurface.SETTINGS)
+
+        DiPlayUiFocus.cancelNavigation(menu, staleToken)
+
+        assertEquals(
+            "the newer destination must survive an older failure",
+            DiPlaySurface.SETTINGS,
+            DiPlayUiFocus.current(),
+        )
+    }
 }

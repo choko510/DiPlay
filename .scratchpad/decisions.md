@@ -23,6 +23,9 @@
 - **入力：** タッチのmoveはまとめても、down/up/cancel境界は黙って捨てない。上限に達した場合は全接触cancelで固着を防ぐ。
 - **Host遷移：** hidden DSP paneはBackを奪わない。HostからのCarPlay/YouTube Split退出もSave/Discard/Continueを経由し、新しい退出要求が古い非同期遷移に上書きされない。ブラウザーの再利用/保存領域は検証済み電話identityに結ぶ。
 - **接続と画面の分離：** 接続・復旧処理は画面を前面化してよい理由にならない。自動接続/USB自動起動は実アプリ起動だけを契機とし、設定・DSP・Menu表示中は自動要求を保留する（明示要求のみ前面化）。前面化の可否は`DiPlayUiFocus`と`IphoneUsbAutoLaunchSource`で判断し、古いセッションやpause中のOEM要求ではMenuを起動しない。Activity多重生成を避けるため、ホストは`singleTask`、Menu/設定は`REORDER_TO_FRONT`、DSPは`singleTop`を維持する。
+- **画面遷移の宣言：** Androidは遷移元を先にpauseするため、開く側は`navigatingTo`、`finish()`で戻る側は`announceReturn`で遷移先を事前に宣言し、遷移先がresumeするまで保護を維持する。起動失敗時はトークンで同じ遷移だけを取り消し、元の画面へ戻す。
+- **透過Activityによる割り込み：** USB接続イベントのようにAndroidが直接起動する透過Activityは`navigatingTo`を実行できない。受信Activityは`transientOverlayResumed`で覆われた画面を復元し、ユーザーが自分で別画面へ移った場合と区別する。
+- **要求の再実行：** 保留要求は起動成功を確認してから破棄し、起動失敗時は保持して次のresumeで再検証・再実行する。
 
 ## 音声とDSP
 

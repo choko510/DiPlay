@@ -30,6 +30,27 @@ internal object DiPlayLaunchIntentPolicy {
 }
 
 /**
+ * Announces a DiPlay navigation, runs it, and restores the previous screen when the launch fails.
+ * Returns true when the Activity was started.
+ */
+internal inline fun navigateFrom(
+    owner: Any,
+    surface: DiPlaySurface,
+    onFailure: (RuntimeException) -> Unit = {},
+    launch: () -> Unit,
+): Boolean {
+    val token = DiPlayUiFocus.navigatingTo(owner, surface)
+    return try {
+        launch()
+        true
+    } catch (error: RuntimeException) {
+        DiPlayUiFocus.cancelNavigation(owner, token)
+        onFailure(error)
+        false
+    }
+}
+
+/**
  * Accepts CarPlay `requestUI` only while the CarPlay host itself owns the screen, so a stale or
  * repeated OEM request cannot replace DiPlay settings or stack another menu instance.
  */

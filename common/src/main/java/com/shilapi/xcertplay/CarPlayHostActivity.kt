@@ -1431,7 +1431,13 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onPause() {
         activityVisible = false
-        DiPlayUiFocus.paused(this)
+        if (isFinishing) {
+            // The host is handed over to a fresh instance or leaves DiPlay; both keep CarPlay
+            // as the display target, so no automatic launch needs to be held.
+            DiPlayUiFocus.announceReturn(this, DiPlaySurface.CARPLAY_HOST)
+        } else {
+            DiPlayUiFocus.paused(this)
+        }
         youtubeBrowser?.setActive(false)
         super.onPause()
     }
@@ -4841,11 +4847,13 @@ class CarPlayHostActivity : ComponentActivity() {
                     }
                     controller?.sendTouch(emptyList())
                     appendLog("CarPlay requested host UI; opening DiPlay Menu")
-                    DiPlayUiFocus.navigatingTo(this@CarPlayHostActivity, DiPlaySurface.MENU)
-                    startActivity(
-                        Intent(this@CarPlayHostActivity, DiPlayMenuActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
-                    )
+                    val opened = navigateFrom(this@CarPlayHostActivity, DiPlaySurface.MENU) {
+                        startActivity(
+                            Intent(this@CarPlayHostActivity, DiPlayMenuActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                        )
+                    }
+                    if (!opened) appendLog("DiPlay Menu could not be opened")
                 }
             }
 
@@ -5607,12 +5615,14 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun showDiPlayHome(page: String = "home") {
         controller?.sendTouch(emptyList())
-        DiPlayUiFocus.navigatingTo(
+        val started = navigateFrom(
             this,
             if (page == "home") DiPlaySurface.HOME else DiPlaySurface.SETTINGS,
-        )
-        startActivity(Intent(this, DiPlayActivity::class.java)
-            .putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        ) {
+            startActivity(Intent(this, DiPlayActivity::class.java)
+                .putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        }
+        if (!started) appendLog("DiPlay screen could not be opened page=$page")
     }
 
     private fun openSettingsMenu() = showDiPlayHome("settings")

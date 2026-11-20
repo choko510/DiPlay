@@ -765,6 +765,8 @@ internal object IphoneUsbAutoLaunchDispatcher {
 class IphoneUsbAutoAttachActivity : Activity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android started this transparent receiver; keep the screen the user was on protected.
+        DiPlayUiFocus.transientOverlayResumed(this)
         val manager = getSystemService(Context.USB_SERVICE) as? UsbManager
         val eventDevice = intent.usbDeviceExtra()
         val inventory = manager?.let(IphoneUsbAutoLaunchSettings::readAttachedDevices)

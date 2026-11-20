@@ -25,7 +25,9 @@ internal object CarPlayUsbAttachDispatcher {
             Log.i(TAG, "event=APPLE_USB_ATTACH source=usb_attach result=held_for_user_navigation")
             return
         }
-        launch(context, identity)
+        if (!launch(context, identity)) {
+            synchronized(this) { pending = identity }
+        }
     }
 
     fun resume(context: Context) {
@@ -36,11 +38,10 @@ internal object CarPlayUsbAttachDispatcher {
             Log.i(TAG, "event=APPLE_USB_ATTACH source=usb_attach result=stale_device")
             return
         }
-        synchronized(this) {
-            if (pending != identity) return
-            pending = null
-        }
-        launch(context, identity)
+        // Keep the request when the host cannot be started, so the next resume retries it instead
+        // of losing the attach.
+        if (!launch(context, identity)) return
+        synchronized(this) { if (pending == identity) pending = null }
     }
 
     internal fun isVerifiedCh341(context: Context, identity: UsbAttachDeviceIdentity): Boolean {
@@ -67,14 +68,16 @@ internal object CarPlayUsbAttachDispatcher {
         synchronized(this) { pending = null }
     }
 
-    private fun launch(context: Context, identity: UsbAttachDeviceIdentity) {
+    private fun launch(context: Context, identity: UsbAttachDeviceIdentity): Boolean {
         try {
             val intent = CarPlayHostActions.createInternalIntent(context, CarPlayHostActions.USB_DEVICE_ATTACHED)
             if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
             Log.i(TAG, "event=APPLE_USB_ATTACH source=usb_attach result=host_dispatched")
+            return true
         } catch (error: RuntimeException) {
             Log.w(TAG, "event=APPLE_USB_ATTACH source=usb_attach result=launch_failed error=${error.javaClass.simpleName}")
+            return false
         }
     }
 }

@@ -13,6 +13,7 @@
     <string name="menu_transport_wireless">Wireless</string>
     <string name="menu_vehicle_home_unavailable">Could not open the vehicle home screen.</string>
     <string name="menu_return_failed">Could not open CarPlay.</string>
+    <string name="menu_settings_failed">Could not open DiPlay Settings.</string>
     <string name="menu_youtube_split_failed">Could not open CarPlay + YouTube.</string>
     <string name="menu_dsp_split_failed">Could not open CarPlay + DSP.</string>
     <string name="youtube_waiting_for_iphone_profile">Identifying iPhone…</string>

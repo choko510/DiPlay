@@ -586,7 +586,7 @@ internal object IphoneUsbAutoLaunchDispatcher {
             IphoneUsbAutoLaunchDecision.KeepCurrentWiredSession -> {
                 Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=keep_wired")
                 if (shouldBringWiredHostToFront(source, DiPlayUiFocus.current())) {
-                    if (bringExistingWiredHostToFront(context)) DispatchOutcome.ACCEPTED else DispatchOutcome.RETRY
+                    if (bringExistingWiredHostToFront(context, source)) DispatchOutcome.ACCEPTED else DispatchOutcome.RETRY
                 } else DispatchOutcome.ACCEPTED
             }
             IphoneUsbAutoLaunchDecision.DeferToCurrentSession -> {
@@ -634,6 +634,17 @@ internal object IphoneUsbAutoLaunchDispatcher {
                     return DispatchOutcome.REJECTED
                 }
                 try {
+                    // The user may have opened settings while the USB inventory was re-read.
+                    if (shouldDeferAutomaticHostLaunch(source, DiPlayUiFocus.current())) {
+                        coordinator.cancelDispatch(identity, decision.generation)
+                        deferTransition(identity, source)
+                        Log.i(
+                            TAG,
+                            "event=APPLE_USB_AUTO_ATTACH source=${source.label} " +
+                                "result=held_before_launch generation=${decision.generation}",
+                        )
+                        return DispatchOutcome.RETRY
+                    }
                     val intent = CarPlayHostActions.createInternalIntent(
                         context,
                         CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
@@ -714,7 +725,14 @@ internal object IphoneUsbAutoLaunchDispatcher {
         clearDeferredRetry()
     }
 
-    private fun bringExistingWiredHostToFront(context: Context): Boolean {
+    private fun bringExistingWiredHostToFront(
+        context: Context,
+        source: IphoneUsbAutoLaunchSource,
+    ): Boolean {
+        if (!shouldBringWiredHostToFront(source, DiPlayUiFocus.current())) {
+            Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=front_held_for_user_navigation")
+            return true
+        }
         try {
             val intent = CarPlayHostActions.createInternalIntent(context, CarPlayHostActions.OPEN_CARPLAY)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)

@@ -115,6 +115,25 @@ class CarPlayHostUiRequestTest {
     }
 
     @Test
+    fun oemRequestDuringTheMenuTransitionIsIgnoredEvenAfterTheDuplicateWindow() {
+        val host = launchHost()
+        val session = presentSession(host)
+        requestHostUi(host, session)
+        assertEquals(1, menuIntents(host).size)
+
+        // The menu has not resumed yet (the host has not paused), so the time window has expired.
+        val gate = TestCarPlayPlaceholders.field(host, "hostUiRequestGate").get(host) as HostUiRequestGate
+        gate.reset()
+        requestHostUi(host, session)
+
+        assertEquals(
+            "the announced menu screen blocks a second launch regardless of timing",
+            0,
+            menuIntents(host).size,
+        )
+    }
+
+    @Test
     fun returningToCarPlayReArmsTheOemRequest() {
         val host = launchHost()
         val session = presentSession(host)

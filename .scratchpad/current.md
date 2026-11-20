@@ -4,7 +4,8 @@
 
 - 対象：[PR #81](https://github.com/choko510/DiPlay/pull/81) / `fix/carplay-focus-settings-navigation`。base は `04c8818` の main。**Draft・未マージ**。
 - 原因は`DiPlayActivity.onResume()`が設定/メニュー遷移も「実アプリ起動」とみなし、USB自動起動のFOREGROUND要求で`CarPlayHostActivity`を`REORDER_TO_FRONT`していたこと。`DiPlayUiFocus`（前面画面の所有者）と`DiPlayLaunchOrigin`（起動種別）、OEM要求ゲートを導入し、接続処理と画面表示を分離した。
-- ローカル確認（当該SHA）：Common unit 404 PASS、Shared unit 756 PASS、mobile/automotive の lintDebug・assembleDebug PASS、`git diff --check` OK。修正前挙動に戻すと新規テスト10件が失敗することを確認済み。
+- ローカル確認（当該SHA）：Common unit 417 PASS、Shared unit 756 PASS、mobile/automotive の lintDebug・assembleDebug PASS、`git diff --check` OK。修正前挙動に戻すと新規テスト19件が失敗することを確認済み。
+- レビュー指摘への対応：同一Activity内のページ変更と`onNewIntent`でフォーカスを同期、遷移前の`navigatingTo`でpause→resume間の空白を保護、起動直前の再検証、ホーム復帰時の保留要求再開（iPhone/CH341）、CH341アタッチ経路の保留化。
 - **未検証：** 実機/ADBなし。有線・無線の画面遷移、`ActivityTaskManager`/`xcertplay-usb-auto`ログ、InstrumentationでのTask Stack検証は未実施。
 
 ## PR #45（2026-11-05）

@@ -46,7 +46,7 @@ class CarPlayUsbAttachActivity : Activity() {
                 permissionGranted = true,
             )
         ) {
-            startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.USB_DEVICE_ATTACHED))
+            CarPlayUsbAttachDispatcher.dispatchOrHold(this, attachedDevice.identity())
         }
         finish()
     }

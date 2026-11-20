@@ -40,6 +40,7 @@ class IphoneUsbAutoLaunchFocusTest {
         context = app
         DiPlayUiFocus.reset()
         IphoneUsbAutoLaunchDispatcher.resetForTesting()
+        CarPlayUsbAttachDispatcher.clearForTesting()
         CarPlayBackgroundSession.clear()
         previousAutoLaunch = AirPlayPersistence.loadAutoLaunchOnIphoneUsbAttach(context)
         assertTrue(IphoneUsbAutoLaunchSettings.setEnabled(context, true))
@@ -49,6 +50,7 @@ class IphoneUsbAutoLaunchFocusTest {
     fun clearState() {
         DiPlayUiFocus.reset()
         IphoneUsbAutoLaunchDispatcher.resetForTesting()
+        CarPlayUsbAttachDispatcher.clearForTesting()
         CarPlayBackgroundSession.clear()
         device?.let { TestIphoneUsbDevice.detach(context, it) }
         device = null
@@ -165,6 +167,23 @@ class IphoneUsbAutoLaunchFocusTest {
 
         assertNotNull(shadowOf(app).nextStartedActivity)
         assertNull(shadowOf(app).nextStartedActivity)
+    }
+
+    @Test
+    fun announcedSettingsNavigationProtectsTheTransitionGap() {
+        val attached = attachIphone()
+        storeWiredSession()
+
+        // The 3-finger gesture announces settings, then Android pauses the host before the
+        // settings Activity resumes.
+        DiPlayUiFocus.resumed(this, DiPlaySurface.CARPLAY_HOST)
+        DiPlayUiFocus.navigatingTo(this, DiPlaySurface.SETTINGS)
+        DiPlayUiFocus.paused(this)
+
+        assertTrue(
+            IphoneUsbAutoLaunchDispatcher.dispatch(context, attached, IphoneUsbAutoLaunchSource.FOREGROUND),
+        )
+        assertNull("the announced settings screen is not replaced", shadowOf(app).nextStartedActivity)
     }
 
     @Test

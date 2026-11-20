@@ -23,6 +23,7 @@ internal object TestIphoneUsbDevice {
         vendorId: Int = APPLE_VENDOR_ID,
         productId: Int = APPLE_PRODUCT_ID,
         carPlayInterfaces: Boolean = true,
+        permissionGranted: Boolean = true,
     ): UsbDevice {
         val interfaces = if (carPlayInterfaces) {
             arrayOf(
@@ -48,7 +49,7 @@ internal object TestIphoneUsbDevice {
             set(usbDevice, "mConfigurations", arrayOf(configuration))
             set(usbDevice, "mInterfaces", interfaces)
         }
-        shadowOf(context.getSystemService(UsbManager::class.java)).addOrUpdateUsbDevice(device, true)
+        shadowOf(context.getSystemService(UsbManager::class.java)).addOrUpdateUsbDevice(device, permissionGranted)
         return device
     }
 

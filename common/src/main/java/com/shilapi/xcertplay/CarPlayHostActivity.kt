@@ -1426,6 +1426,7 @@ class CarPlayHostActivity : ComponentActivity() {
         )
         // A USB request that was held while settings owned the display is safe to replay now.
         IphoneUsbAutoLaunchDispatcher.resumeDeferred(this)
+        CarPlayUsbAttachDispatcher.resume(this)
     }
 
     override fun onPause() {
@@ -4840,6 +4841,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     }
                     controller?.sendTouch(emptyList())
                     appendLog("CarPlay requested host UI; opening DiPlay Menu")
+                    DiPlayUiFocus.navigatingTo(this@CarPlayHostActivity, DiPlaySurface.MENU)
                     startActivity(
                         Intent(this@CarPlayHostActivity, DiPlayMenuActivity::class.java)
                             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
@@ -5605,6 +5607,10 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun showDiPlayHome(page: String = "home") {
         controller?.sendTouch(emptyList())
+        DiPlayUiFocus.navigatingTo(
+            this,
+            if (page == "home") DiPlaySurface.HOME else DiPlaySurface.SETTINGS,
+        )
         startActivity(Intent(this, DiPlayActivity::class.java)
             .putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
     }
@@ -5648,6 +5654,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun exitApplication() {
+        DiPlayUiFocus.navigatingTo(this, DiPlaySurface.NONE)
         if (shuttingDown.get()) {
             shutdown(terminateProcess = true, reason = "settings exit application")
             return

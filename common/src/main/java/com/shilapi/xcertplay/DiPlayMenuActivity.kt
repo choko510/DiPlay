@@ -171,6 +171,7 @@ class DiPlayMenuActivity : ComponentActivity() {
         actions.addView(
             actionButton(getString(R.string.menu_settings), primary = false) {
                 Log.i(TAG, "DiPlay Menu action=settings")
+                DiPlayUiFocus.navigatingTo(this, DiPlaySurface.SETTINGS)
                 startActivity(
                     Intent(this, DiPlayActivity::class.java)
                         .putExtra("page", "settings")
@@ -221,6 +222,7 @@ class DiPlayMenuActivity : ComponentActivity() {
 
     private fun returnToCarPlay() {
         Log.i(TAG, "DiPlay Menu action=return_carplay")
+        DiPlayUiFocus.navigatingTo(this, DiPlaySurface.CARPLAY_HOST)
         try {
             startActivity(
                 CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.EXIT_YOUTUBE_SPLIT)
@@ -235,6 +237,7 @@ class DiPlayMenuActivity : ComponentActivity() {
 
     private fun openCarPlayYoutube() {
         Log.i(TAG, "DiPlay Menu action=carplay_youtube")
+        DiPlayUiFocus.navigatingTo(this, DiPlaySurface.CARPLAY_HOST)
         try {
             startActivity(
                 CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.ENTER_YOUTUBE_SPLIT)
@@ -249,6 +252,7 @@ class DiPlayMenuActivity : ComponentActivity() {
 
     private fun openCarPlayDsp() {
         Log.i(TAG, "DiPlay Menu action=carplay_dsp")
+        DiPlayUiFocus.navigatingTo(this, DiPlaySurface.CARPLAY_HOST)
         try {
             startActivity(
                 CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.ENTER_DSP_SPLIT)
@@ -263,6 +267,7 @@ class DiPlayMenuActivity : ComponentActivity() {
 
     private fun openVehicleHome() {
         Log.i(TAG, "DiPlay Menu action=vehicle_home")
+        DiPlayUiFocus.navigatingTo(this, DiPlaySurface.NONE)
         try {
             startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
         } catch (error: RuntimeException) {

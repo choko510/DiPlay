@@ -75,6 +75,45 @@ class DiPlayNavigationPolicyTest {
     }
 
     @Test
+    fun announcedNavigationProtectsTheDestinationUntilItResumes() {
+        val host = Any()
+        val settings = Any()
+
+        DiPlayUiFocus.resumed(host, DiPlaySurface.CARPLAY_HOST)
+        DiPlayUiFocus.navigatingTo(host, DiPlaySurface.SETTINGS)
+        assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+
+        // Android pauses the source before the destination resumes.
+        DiPlayUiFocus.paused(host)
+        assertEquals(
+            "the announced settings screen still owns the display",
+            DiPlaySurface.SETTINGS,
+            DiPlayUiFocus.current(),
+        )
+        assertTrue(DiPlayUiFocus.isUserNavigationTarget())
+
+        DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
+        DiPlayUiFocus.paused(settings)
+        assertEquals(
+            "a screen the user left no longer blocks automatic launches",
+            DiPlaySurface.NONE,
+            DiPlayUiFocus.current(),
+        )
+    }
+
+    @Test
+    fun leavingDiPlayReleasesTheNavigationProtection() {
+        val menu = Any()
+
+        DiPlayUiFocus.resumed(menu, DiPlaySurface.MENU)
+        DiPlayUiFocus.navigatingTo(menu, DiPlaySurface.NONE)
+        DiPlayUiFocus.paused(menu)
+
+        assertEquals(DiPlaySurface.NONE, DiPlayUiFocus.current())
+        assertFalse(DiPlayUiFocus.isUserNavigationTarget())
+    }
+
+    @Test
     fun hostUiRequestsAreAcceptedOnlyFromTheVisibleCarPlayHost() {
         assertTrue(
             shouldOpenHostUi(

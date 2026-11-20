@@ -289,4 +289,37 @@ class DspRuntimeConfigStoreTest {
         store.reportDiagnosticSummary(101L, 1L, "new-owner-summary")
         assertEquals("new-owner-summary", store.diagnosticSummary())
     }
+
+    @Test
+    fun sameGenerationActiveDiagnosticSummaryCannotRollBackToPreparedUnderConcurrentCas() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.claimRendererApplyStatusOwner(100L)
+
+        val enteredPreparedCas = CountDownLatch(1)
+        val allowPreparedResume = CountDownLatch(1)
+        store.beforeDiagnosticSummaryCasForTesting = {
+            store.beforeDiagnosticSummaryCasForTesting = null
+            enteredPreparedCas.countDown()
+            check(allowPreparedResume.await(5, TimeUnit.SECONDS))
+        }
+
+        val stalePreparedThread = Thread {
+            store.reportDiagnosticSummary(100L, 1L, "gen=1, phase=PREPARED", DspRendererApplyPhase.PREPARED)
+        }.apply { isDaemon = true }
+        stalePreparedThread.start()
+
+        assertTrue(enteredPreparedCas.await(5, TimeUnit.SECONDS))
+        store.reportDiagnosticSummary(100L, 1L, "gen=1, phase=ACTIVE", DspRendererApplyPhase.ACTIVE)
+        assertEquals("gen=1, phase=ACTIVE", store.diagnosticSummary())
+
+        allowPreparedResume.countDown()
+        stalePreparedThread.join(5_000)
+        assertFalse(stalePreparedThread.isAlive)
+        assertEquals("gen=1, phase=ACTIVE", store.diagnosticSummary())
+
+        // Same-generation DEFERRED must also be rejected once ACTIVE is recorded.
+        store.reportDiagnosticSummary(100L, 1L, "gen=1, phase=DEFERRED", DspRendererApplyPhase.DEFERRED)
+        assertEquals("gen=1, phase=ACTIVE", store.diagnosticSummary())
+    }
 }

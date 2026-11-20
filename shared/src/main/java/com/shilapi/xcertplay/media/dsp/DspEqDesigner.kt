@@ -428,7 +428,11 @@ private fun resolveEffectiveMacroWidth(
     return macroTone.relativeWidth
 }
 
+@Volatile
+internal var onDspRuntimeConfigPrepareForTesting: (() -> Unit)? = null
+
 internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
+    onDspRuntimeConfigPrepareForTesting?.invoke()
     val maxFrequencyHz = format.sampleRate * MAX_NORMALIZED_FREQUENCY
     val diagnosticsNotes = mutableListOf<String>()
     val cabinBands = cabinCorrection.approvedEqBands()

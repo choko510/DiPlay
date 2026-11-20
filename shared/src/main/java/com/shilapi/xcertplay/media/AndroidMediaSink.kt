@@ -1516,6 +1516,7 @@ internal class AudioRenderer(
         val activeStatus: DspRendererApplyStatus,
         val deferredStatus: DspRendererApplyStatus,
         val failedStatus: DspRendererApplyStatus,
+        val diagnosticNotesPart: String,
     )
     private data class PendingRendererHotApply(
         val prepared: PreparedRendererDspUpdate,
@@ -1592,6 +1593,7 @@ internal class AudioRenderer(
     private var liveFadeTo: DspPcmPipeline? = null
     private var liveFadeGeneration = dspConfigGeneration
     private var liveFadeConfig = dspRuntimeConfig
+    private var liveFadeDiagnosticNotesPart = ""
     private var liveFadeInProgress = false
     private var liveCrossfade = DspPcmCrossfade(
         format.channels.coerceIn(1, 2),
@@ -1607,6 +1609,7 @@ internal class AudioRenderer(
     @Volatile private var activeDspGeneration = dspConfigGeneration
     @Volatile private var activeDspConfig = dspRuntimeConfig
     @Volatile private var activeDspGraphConfig = DspRuntimeConfig.disabled()
+    @Volatile private var activeDiagnosticNotesPart = ""
     @Volatile private var rendererReleased = false
     @Volatile private var livePreparationPending = false
     @Volatile private var deferredDspGeneration: Long? = null
@@ -2655,8 +2658,14 @@ internal class AudioRenderer(
         if (!DspStreamPolicy.shouldProcess(activeDspConfig.enabled, classification.dspRole)) {
             fallbackReason = if (!activeDspConfig.enabled) "DSP_DISABLED" else "ROLE_NOT_MEDIA"
             activeDspGraphConfig = DspRuntimeConfig.disabled()
+            activeDiagnosticNotesPart = ""
             configureLiveUpdates(nextFormat)
-            publishDiagnosticSummary(nextFormat, activeDspConfig, activeDspGeneration)
+            publishDiagnosticSummary(
+                pcmFormat = nextFormat,
+                activeGeneration = activeDspGeneration,
+                activeNotesPart = "",
+                diagnosticPhase = DspRendererApplyPhase.ACTIVE,
+            )
             reportActiveDspApplyStatus(convolverApplyWarning(nextFormat, activeDspConfig))
             recordTransition()
             return
@@ -2718,9 +2727,16 @@ internal class AudioRenderer(
         }
         reportDsp("DSP: Float32 pipeline ready sampleRate=${nextFormat.sampleRate} channels=${nextFormat.channels}")
         activeDspGraphConfig = effectiveDspGraphConfig(nextFormat, activeDspConfig, preparedPipeline)
+        val initialNotesPart = computeDiagnosticNotesPart(nextFormat, activeDspConfig)
+        activeDiagnosticNotesPart = initialNotesPart
         liveUpdateLatencyFrames.set(preparedPipeline.algorithmicLatencyFrames)
         configureLiveUpdates(nextFormat)
-        publishDiagnosticSummary(nextFormat, activeDspConfig, activeDspGeneration)
+        publishDiagnosticSummary(
+            pcmFormat = nextFormat,
+            activeGeneration = activeDspGeneration,
+            activeNotesPart = initialNotesPart,
+            diagnosticPhase = DspRendererApplyPhase.ACTIVE,
+        )
         reportActiveDspApplyStatus(convolverApplyWarning(nextFormat, activeDspConfig))
         recordTransition()
     }
@@ -2968,45 +2984,66 @@ internal class AudioRenderer(
         return config.failureFallbackPreampDb(format)
     }
 
+    /** Must only be invoked on control/setup paths (never from audio PCM write loops). */
+    private fun computeDiagnosticNotesPart(pcmFormat: DspAudioFormat, config: DspRuntimeConfig): String {
+        if (!config.enabled) return ""
+        val notes = runCatching { config.prepare(pcmFormat).diagnosticsNotes }.getOrDefault(emptyList())
+        return if (notes.isEmpty()) "" else notes.joinToString("+")
+    }
+
     private fun buildDspDiagnosticSummary(
         pcmFormat: DspAudioFormat,
-        activeConfig: DspRuntimeConfig = activeDspConfig,
         activeGeneration: Long = activeDspGeneration,
+        activeNotesPart: String = activeDiagnosticNotesPart,
         pendingUpdate: PreparedRendererDspUpdate? = null,
+        pendingGeneration: Long? = null,
         pendingPhaseLabel: String? = null,
     ): String {
         val base = "role=${classification.dspRole}, audioType=${format.audioType}, rate=${pcmFormat.sampleRate}Hz"
-        val activeNotes = if (!activeConfig.enabled) emptyList()
-        else runCatching { activeConfig.prepare(pcmFormat).diagnosticsNotes }.getOrDefault(emptyList())
-        val activePart = if (activeNotes.isEmpty()) base else "$base, notes=${activeNotes.joinToString("+")}"
-        val pending = pendingUpdate?.takeIf { it.update.generation > activeGeneration } ?: return activePart
+        val activePart = if (activeNotesPart.isEmpty()) base else "$base, notes=$activeNotesPart"
+        val pending = pendingUpdate?.takeIf { it.update.generation > activeGeneration }
+        val targetPendingGen = pending?.update?.generation ?: pendingGeneration?.takeIf { it > activeGeneration }
+            ?: return activePart
         val pendingLabel = pendingPhaseLabel ?: if (
-            pending.update.generation == deferredDspGeneration || pending.update.preDeferredReason != null
+            pending?.update?.generation == deferredDspGeneration || pending?.update?.preDeferredReason != null
         ) {
             "DEFERRED"
         } else {
             "PREPARED"
         }
-        val pendingNotes = if (!pending.update.config.enabled) emptyList()
-        else runCatching { pending.update.config.prepare(pcmFormat).diagnosticsNotes }.getOrDefault(emptyList())
-        val pendingNotesPart = if (pendingNotes.isEmpty()) "" else ", notes=${pendingNotes.joinToString("+")}"
-        return "$activePart, pending(gen=${pending.update.generation}, phase=$pendingLabel$pendingNotesPart)"
+        val pendingNotes = pending?.diagnosticNotesPart.orEmpty()
+        val pendingNotesSuffix = if (pendingNotes.isEmpty()) "" else ", notes=$pendingNotes"
+        return "$activePart, pending(gen=$targetPendingGen, phase=$pendingLabel$pendingNotesSuffix)"
     }
 
     private fun publishDiagnosticSummary(
         pcmFormat: DspAudioFormat,
-        activeConfig: DspRuntimeConfig = activeDspConfig,
         activeGeneration: Long = activeDspGeneration,
+        activeNotesPart: String = activeDiagnosticNotesPart,
         pendingUpdate: PreparedRendererDspUpdate? = null,
+        pendingGeneration: Long? = null,
         pendingPhaseLabel: String? = null,
+        diagnosticPhase: DspRendererApplyPhase? = null,
     ) {
         if (!reportsDspApplyStatus) return
-        val effectiveGeneration = maxOf(activeGeneration, pendingUpdate?.update?.generation ?: activeGeneration)
+        val pending = pendingUpdate?.takeIf { it.update.generation > activeGeneration }
+        val targetPendingGen = pending?.update?.generation ?: pendingGeneration?.takeIf { it > activeGeneration }
+        val effectiveGeneration = targetPendingGen ?: activeGeneration
+        val effectivePhase = diagnosticPhase ?: if (pending != null) {
+            if (pending.update.generation == deferredDspGeneration || pending.update.preDeferredReason != null) {
+                DspRendererApplyPhase.DEFERRED
+            } else {
+                DspRendererApplyPhase.PREPARED
+            }
+        } else {
+            DspRendererApplyPhase.ACTIVE
+        }
         val summary = buildDspDiagnosticSummary(
             pcmFormat = pcmFormat,
-            activeConfig = activeConfig,
             activeGeneration = activeGeneration,
-            pendingUpdate = pendingUpdate,
+            activeNotesPart = activeNotesPart,
+            pendingUpdate = pending,
+            pendingGeneration = pendingGeneration,
             pendingPhaseLabel = pendingPhaseLabel,
         )
         runCatching {
@@ -3014,6 +3051,7 @@ internal class AudioRenderer(
                 ownerToken = rendererOwnerToken,
                 generation = effectiveGeneration,
                 summary = summary,
+                phase = effectivePhase,
             )
         }
     }
@@ -3105,10 +3143,12 @@ internal class AudioRenderer(
                     deferredDspGeneration = generation
                     publishDiagnosticSummary(
                         pcmFormat = format,
-                        activeConfig = activeDspConfig,
                         activeGeneration = activeDspGeneration,
-                        pendingUpdate = pendingDspUpdate.get(),
+                        activeNotesPart = activeDiagnosticNotesPart,
+                        pendingUpdate = pendingDspUpdate.get()?.takeIf { it.update.generation == generation },
+                        pendingGeneration = generation,
                         pendingPhaseLabel = "DEFERRED",
+                        diagnosticPhase = DspRendererApplyPhase.DEFERRED,
                     )
                     reportDspApplyStatus(
                         DspRendererApplyStatus(
@@ -3125,7 +3165,22 @@ internal class AudioRenderer(
                     requestedDspGeneration == snapshot.generation
                 ) {
                     livePreparationPending = false
+                    if (deferredDspGeneration == snapshot.generation) deferredDspGeneration = null
+                    val stalePending = pendingDspUpdate.get()?.takeIf { it.update.generation == snapshot.generation }
+                    if (stalePending != null && pendingDspUpdate.compareAndSet(stalePending, null)) {
+                        stalePending.update.pipeline?.let {
+                            liveUpdateController?.retire(it) ?: retireDetachedPipeline(it)
+                        }
+                    }
                     reportDsp("DSP unavailable: reason=PREPARE_FAILED error=${error.javaClass.simpleName}")
+                    publishDiagnosticSummary(
+                        pcmFormat = format,
+                        activeGeneration = activeDspGeneration,
+                        activeNotesPart = activeDiagnosticNotesPart,
+                        pendingGeneration = snapshot.generation,
+                        pendingPhaseLabel = "FAILED",
+                        diagnosticPhase = DspRendererApplyPhase.FAILED,
+                    )
                     reportDspApplyStatus(
                         DspRendererApplyStatus(
                             snapshot.generation,
@@ -3157,6 +3212,12 @@ internal class AudioRenderer(
                             update.localPeqWarmUpdate == null &&
                             update.preDeferredReason == null
                         ) {
+                            if (deferredDspGeneration == update.generation) deferredDspGeneration = null
+                            previousPipeline = pendingDspUpdate.get()?.takeIf {
+                                it.update.generation <= update.generation
+                            }?.let { pending ->
+                                if (pendingDspUpdate.compareAndSet(pending, null)) pending.update.pipeline else null
+                            }
                             failedStatus = DspRendererApplyStatus(
                                 update.generation,
                                 DspRendererApplyPhase.FAILED,
@@ -3164,6 +3225,7 @@ internal class AudioRenderer(
                             )
                         } else {
                             val warning = convolverApplyWarning(update.format, update.config)
+                            val candidateNotesPart = computeDiagnosticNotesPart(update.format, update.config)
                             val effectiveGraphConfig = if (update.hotUpdate != null || update.preampHotUpdate != null ||
                                 update.localPeqWarmUpdate != null || update.preDeferredReason != null
                             ) {
@@ -3207,6 +3269,7 @@ internal class AudioRenderer(
                                     DspRendererApplyPhase.FAILED,
                                     activeDspGeneration,
                                 ),
+                                diagnosticNotesPart = candidateNotesPart,
                             )
                             previousPipeline = pendingDspUpdate.getAndSet(prepared)?.update?.pipeline
                             if (rendererReleased && pendingDspUpdate.compareAndSet(prepared, null)) {
@@ -3221,15 +3284,26 @@ internal class AudioRenderer(
                 }
                 previousPipeline?.let { runCatching { it.close() } }
                 discardPipeline?.let { runCatching { it.close() } }
-                failedStatus?.let { runCatching { reportDspApplyStatus(it) } }
+                failedStatus?.let {
+                    publishDiagnosticSummary(
+                        pcmFormat = update.format,
+                        activeGeneration = activeDspGeneration,
+                        activeNotesPart = activeDiagnosticNotesPart,
+                        pendingGeneration = update.generation,
+                        pendingPhaseLabel = "FAILED",
+                        diagnosticPhase = DspRendererApplyPhase.FAILED,
+                    )
+                    runCatching { reportDspApplyStatus(it) }
+                }
                 preparedStatus?.let {
                     preparedPendingUpdate?.let { pending ->
                         publishDiagnosticSummary(
                             pcmFormat = pending.update.format,
-                            activeConfig = activeDspConfig,
                             activeGeneration = activeDspGeneration,
+                            activeNotesPart = activeDiagnosticNotesPart,
                             pendingUpdate = pending,
                             pendingPhaseLabel = "PREPARED",
+                            diagnosticPhase = DspRendererApplyPhase.PREPARED,
                         )
                     }
                     runCatching { reportDspApplyStatus(it) }
@@ -3773,10 +3847,11 @@ internal class AudioRenderer(
                 reportDsp("DSP update deferred until next AudioTrack generation: $reason")
                 publishDiagnosticSummary(
                     pcmFormat = update.format,
-                    activeConfig = activeDspConfig,
                     activeGeneration = activeDspGeneration,
+                    activeNotesPart = activeDiagnosticNotesPart,
                     pendingUpdate = prepared,
                     pendingPhaseLabel = "DEFERRED",
+                    diagnosticPhase = DspRendererApplyPhase.DEFERRED,
                 )
                 reportDspApplyStatus(prepared.deferredStatus.copy(reason = reason))
             }
@@ -3792,10 +3867,11 @@ internal class AudioRenderer(
                     reportDsp("DSP re-preparing deferred generation=${update.generation}")
                     publishDiagnosticSummary(
                         pcmFormat = update.format,
-                        activeConfig = activeDspConfig,
                         activeGeneration = activeDspGeneration,
+                        activeNotesPart = activeDiagnosticNotesPart,
                         pendingUpdate = prepared,
                         pendingPhaseLabel = "PREPARING",
+                        diagnosticPhase = DspRendererApplyPhase.PREPARING,
                     )
                     reportDspApplyStatus(
                         DspRendererApplyStatus(
@@ -3816,13 +3892,19 @@ internal class AudioRenderer(
             activeDspConfig = update.config
             activeDspGraphConfig = graphConfig
             activeDspGeneration = update.generation
+            activeDiagnosticNotesPart = prepared.diagnosticNotesPart
             beginTrackGeneration(
                 trackFormat = update.format,
                 preparedFallback = prepared.latencyPreservingBypass,
                 fallbackWasPrepared = true,
             )
             controller.retire(oldPipeline?.takeIf { it !== dspPipeline })
-            publishDiagnosticSummary(update.format, activeDspConfig, activeDspGeneration)
+            publishDiagnosticSummary(
+                pcmFormat = update.format,
+                activeGeneration = activeDspGeneration,
+                activeNotesPart = activeDiagnosticNotesPart,
+                diagnosticPhase = DspRendererApplyPhase.ACTIVE,
+            )
             reportDspApplyStatus(prepared.activeStatus)
             return
         }
@@ -3831,9 +3913,15 @@ internal class AudioRenderer(
             activeDspConfig = update.config
             activeDspGraphConfig = graphConfig
             activeDspGeneration = update.generation
+            activeDiagnosticNotesPart = prepared.diagnosticNotesPart
             liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
             latencyPreservingBypass = prepared.latencyPreservingBypass
-            publishDiagnosticSummary(update.format, activeDspConfig, activeDspGeneration)
+            publishDiagnosticSummary(
+                pcmFormat = update.format,
+                activeGeneration = activeDspGeneration,
+                activeNotesPart = activeDiagnosticNotesPart,
+                diagnosticPhase = DspRendererApplyPhase.ACTIVE,
+            )
             reportDspApplyStatus(prepared.activeStatus)
             return
         }
@@ -3841,6 +3929,7 @@ internal class AudioRenderer(
         liveFadeTo = update.pipeline
         liveFadeGeneration = update.generation
         liveFadeConfig = update.config
+        liveFadeDiagnosticNotesPart = prepared.diagnosticNotesPart
         liveFadeLatencyPreservingBypass = prepared.latencyPreservingBypass
         liveFadeApplyStatus = prepared.activeStatus
         liveFadeFailureStatus = prepared.failedStatus
@@ -3974,6 +4063,7 @@ internal class AudioRenderer(
         liveFadeInProgress = false
         activeDspConfig = liveFadeConfig
         activeDspGeneration = liveFadeGeneration
+        activeDiagnosticNotesPart = liveFadeDiagnosticNotesPart
         activeDspGraphConfig = effectiveDspGraphConfig(
             liveUpdateFormat ?: liveFadeTo?.format ?: liveFadeFrom?.format ?: DspAudioFormat(
                 format.sampleRate,
@@ -3991,8 +4081,9 @@ internal class AudioRenderer(
                 format.sampleRate,
                 format.channels.coerceIn(1, 2),
             ),
-            activeConfig = activeDspConfig,
             activeGeneration = activeDspGeneration,
+            activeNotesPart = activeDiagnosticNotesPart,
+            diagnosticPhase = DspRendererApplyPhase.ACTIVE,
         )
         val activeStatus = liveFadeApplyStatus
         if (activeStatus != null) reportDspApplyStatus(activeStatus)
@@ -4018,6 +4109,7 @@ internal class AudioRenderer(
         liveFadeInProgress = false
         activeDspConfig = liveFadeConfig
         activeDspGeneration = liveFadeGeneration
+        activeDiagnosticNotesPart = liveFadeDiagnosticNotesPart
         liveCrossfade.cancel()
         val activeFormat = liveUpdateFormat ?: trackFormat ?: DspAudioFormat(format.sampleRate, format.channels.coerceIn(1, 2))
         activeDspGraphConfig = effectiveDspGraphConfig(
@@ -4025,7 +4117,12 @@ internal class AudioRenderer(
             activeDspConfig,
             dspPipeline,
         )
-        publishDiagnosticSummary(activeFormat, activeDspConfig, activeDspGeneration)
+        publishDiagnosticSummary(
+            pcmFormat = activeFormat,
+            activeGeneration = activeDspGeneration,
+            activeNotesPart = activeDiagnosticNotesPart,
+            diagnosticPhase = DspRendererApplyPhase.ACTIVE,
+        )
         val activeStatus = liveFadeApplyStatus
         if (activeStatus != null) reportDspApplyStatus(activeStatus)
         liveFadeApplyStatus = null
@@ -4212,6 +4309,7 @@ internal class AudioRenderer(
         activeDspConfig = update.config
         activeDspGraphConfig = prepared.graphConfig
         activeDspGeneration = update.generation
+        activeDiagnosticNotesPart = prepared.diagnosticNotesPart
         liveUpdateLatencyFrames.set(trackGenerationLatencyFrames)
         deferredDspGeneration = null
         if (localPeqWarmUpdate != null) localPeqWarmRetryState.set(null)
@@ -4232,7 +4330,12 @@ internal class AudioRenderer(
             liveUpdateController?.reprepareLatest(latestGeneration)
             return
         }
-        publishDiagnosticSummary(update.format, activeDspConfig, activeDspGeneration, pendingDspUpdate.get())
+        publishDiagnosticSummary(
+            pcmFormat = update.format,
+            activeGeneration = activeDspGeneration,
+            activeNotesPart = activeDiagnosticNotesPart,
+            pendingUpdate = pendingDspUpdate.get(),
+        )
         reportDspApplyStatus(prepared.activeStatus)
     }
 

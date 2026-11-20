@@ -49,7 +49,12 @@ fun interface DspConfigProvider {
 
     fun diagnosticSummary(): String? = null
 
-    fun reportDiagnosticSummary(ownerToken: Long, generation: Long, summary: String?) = Unit
+    fun reportDiagnosticSummary(
+        ownerToken: Long,
+        generation: Long,
+        summary: String?,
+        phase: DspRendererApplyPhase = DspRendererApplyPhase.ACTIVE,
+    ) = Unit
 
     fun clearDiagnosticSummary(ownerToken: Long) = Unit
 

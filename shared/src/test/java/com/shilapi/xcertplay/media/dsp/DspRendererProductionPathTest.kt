@@ -3049,6 +3049,132 @@ class DspRendererProductionPathTest {
     }
 
     @Test
+    fun diagnosticSummaryUpdateDuringPcmProcessingDoesNotInvokeConfigPrepare() {
+        val ir = DspImpulseResponse("diag_perf_convolver", 44_100, 2, floatArrayOf(1.0f, 1.0f))
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val prepareCallerThreads = CopyOnWriteArrayList<String>()
+        onDspRuntimeConfigPrepareForTesting = { prepareCallerThreads += Thread.currentThread().name }
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2, sampleRate = 44_100),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                pipeline(audioFormat, latencyFrames = if (config.convolver.enabled) 128 else 0, gain = 1.0f)
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            prepareCallerThreads.clear()
+
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            assertTrue("initial PCM write must not invoke DspRuntimeConfig.prepare()", prepareCallerThreads.isEmpty())
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    convolver = convolverConfig(ir).convolver,
+                    peqBands = listOf(DspEqBand(DspEqType.PEAK, 20_000.0, gainDb = 3.0)),
+                ),
+            )
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+            assertTrue(prepareCallerThreads.all { it == "dsp-live-control" })
+
+            prepareCallerThreads.clear()
+            // PCM writes (both DEFERRED retention and Track 2 ACTIVE adoption) must use cached notes with 0 prepare() calls.
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 30L,
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation = 1L)
+            assertTrue(
+                "audio PCM path must never call DspRuntimeConfig.prepare(): saw $prepareCallerThreads",
+                prepareCallerThreads.isEmpty(),
+            )
+            assertEquals(
+                "role=MEDIA, audioType=media, rate=44100Hz, notes=peq_bands_disabled_for_sample_rate",
+                provider.diagnosticSummary(),
+            )
+        } finally {
+            onDspRuntimeConfigPrepareForTesting = null
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun failedPreparationAfterDeferredCandidateUpdatesDiagnosticSummaryToFailedWhileRetainingActive() {
+        val ir = DspImpulseResponse("fail_after_defer", 44_100, 1, floatArrayOf(1.0f))
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1, sampleRate = 44_100),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                if (config.gainDb > 0.0) {
+                    throw IllegalStateException("simulated convolver preparation failure")
+                }
+                pipeline(audioFormat, latencyFrames = if (config.convolver.enabled) 128 else 0, gain = 1.0f)
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            assertEquals("role=MEDIA, audioType=media, rate=44100Hz", provider.diagnosticSummary())
+
+            // Generation 1 succeeds and becomes DEFERRED on committed Track 1.
+            provider.update(convolverConfig(ir, gainDb = 0.0))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+            assertTrue(provider.diagnosticSummary()?.contains("pending(gen=1, phase=DEFERRED)") == true)
+
+            // Generation 2 fails during preparation: FAILED status and diagnostic summary must replace stale DEFERRED.
+            provider.update(convolverConfig(ir, gainDb = 2.0))
+            awaitApplyStatus(provider, DspRendererApplyPhase.FAILED, generation = 2L)
+            assertEquals(0L, renderer.dspGenerationForTesting)
+            assertEquals(
+                "role=MEDIA, audioType=media, rate=44100Hz, pending(gen=2, phase=FAILED)",
+                provider.diagnosticSummary(),
+            )
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
     fun turningConvolverOffWhileCompressorIsActiveStillEnforcesStatefulContinuity() {
         val ir = DspImpulseResponse("room_ir", 48_000, 1, floatArrayOf(1.0f))
         val compressor = DspCompressorConfig(enabled = true, thresholdDb = -20.0, ratio = 4.0)
@@ -3676,6 +3802,7 @@ class DspRendererProductionPathTest {
         private val diagnosticSummaryLock = Any()
         private var diagnosticSummaryOwnerToken: Long? = null
         private var diagnosticSummaryGen = Long.MIN_VALUE
+        private var diagnosticSummaryPhase: DspRendererApplyPhase? = null
         @Volatile private var diagnosticSummaryValue: String? = null
         private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
         private val hotUpdatesEnabled = AtomicBoolean(true)
@@ -3693,12 +3820,26 @@ class DspRendererProductionPathTest {
 
         override fun diagnosticSummary(): String? = diagnosticSummaryValue
 
-        override fun reportDiagnosticSummary(ownerToken: Long, generation: Long, summary: String?) {
+        override fun reportDiagnosticSummary(
+            ownerToken: Long,
+            generation: Long,
+            summary: String?,
+            phase: DspRendererApplyPhase,
+        ) {
             synchronized(diagnosticSummaryLock) {
                 if (applyStatusOwner.get() != ownerToken) return
                 if (diagnosticSummaryOwnerToken == ownerToken && generation < diagnosticSummaryGen) return
+                if (diagnosticSummaryOwnerToken == ownerToken &&
+                    generation == diagnosticSummaryGen &&
+                    diagnosticSummaryPhase == DspRendererApplyPhase.ACTIVE &&
+                    phase != DspRendererApplyPhase.ACTIVE &&
+                    phase != DspRendererApplyPhase.FAILED
+                ) {
+                    return
+                }
                 diagnosticSummaryOwnerToken = ownerToken
                 diagnosticSummaryGen = generation
+                diagnosticSummaryPhase = phase
                 diagnosticSummaryValue = summary
             }
         }
@@ -3708,6 +3849,7 @@ class DspRendererProductionPathTest {
                 if (applyStatusOwner.get() != ownerToken && diagnosticSummaryOwnerToken != ownerToken) return
                 diagnosticSummaryOwnerToken = null
                 diagnosticSummaryGen = Long.MIN_VALUE
+                diagnosticSummaryPhase = null
                 diagnosticSummaryValue = null
             }
         }
@@ -3717,6 +3859,7 @@ class DspRendererProductionPathTest {
                 applyStatusOwner.set(ownerToken)
                 diagnosticSummaryOwnerToken = ownerToken
                 diagnosticSummaryGen = Long.MIN_VALUE
+                diagnosticSummaryPhase = null
                 diagnosticSummaryValue = null
             }
         }

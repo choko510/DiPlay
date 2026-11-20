@@ -20,10 +20,42 @@ class SpeedEstimatorTest {
         assertTrue(zero.stopped)
         assertEquals(0.0, zero.speedKmh!!, 0.0)
 
-        val moving = estimator.onSample(60.0, 2 * second)
+        // A car cannot jump 0 -> 60 km/h in one second, so ramp through a plausible step.
+        estimator.onSample(30.0, 2 * second)
+        val moving = estimator.onSample(60.0, 3 * second)
         assertFalse(moving.stale)
         assertFalse(moving.stopped)
         assertTrue(moving.speedKmh!! in 30.0..60.0)
+    }
+
+    @Test
+    fun implausibleJumpsAtTypicalGpsRatesAreRejectedUntilTheyRepeat() {
+        val estimator = SpeedEstimator()
+        estimator.onSample(0.0, second)
+
+        // 0 -> 200 km/h in one second (a ~56 m/s^2 sample) is not a car.
+        val rejected = estimator.onSample(200.0, 2 * second)
+        assertEquals(0.0, rejected.speedKmh!!, 0.0)
+        assertTrue(rejected.stopped)
+
+        // The same value reported twice is accepted: sustained changes are real, single spikes are not.
+        val recovered = estimator.onSample(200.0, 3 * second)
+        assertFalse(recovered.stopped)
+        assertTrue(recovered.speedKmh!! > 0.0)
+    }
+
+    @Test
+    fun plausibleAccelerationAndLongGapsAreAccepted() {
+        val hardLaunch = SpeedEstimator()
+        hardLaunch.onSample(0.0, second)
+        // 0 -> 40 km/h in one second is a 11 m/s^2 launch: uncomfortable but plausible.
+        assertFalse(hardLaunch.onSample(40.0, 2 * second).stopped)
+
+        val highwayEntry = SpeedEstimator()
+        highwayEntry.onSample(50.0, second)
+        // Five seconds between fixes allows a 100 km/h change (20 km/h per second).
+        val afterGap = highwayEntry.onSample(150.0, 6 * second)
+        assertTrue(afterGap.speedKmh!! > 50.0)
     }
 
     @Test
@@ -106,8 +138,9 @@ class SpeedEstimatorTest {
 
         val confirmed = estimator.onSample(200.0, 200_000_000L)
         assertFalse(confirmed.stopped)
-        assertTrue(confirmed.speedKmh!! > 0.0)
-        assertTrue(confirmed.speedKmh!! < 200.0)
+        val confirmedSpeed = confirmed.speedKmh!!
+        assertTrue(confirmedSpeed > 0.0)
+        assertTrue(confirmedSpeed < 200.0)
     }
 
     @Test

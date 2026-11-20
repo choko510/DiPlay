@@ -394,6 +394,35 @@ class DspUpdatePlannerTest {
     }
 
     @Test
+    fun speedCompensationStaysHotOnlyWhileTheAutoHeadroomPreampDoesNotMove() {
+        val idle = DspRuntimeConfig(
+            enabled = true,
+            speedCompensation = DspSpeedCompensationConfig(enabled = true, reservedBoostDb = 8.0),
+        )
+        val driving = idle.withSpeedCompensation(
+            idle.speedCompensation.copy(volumeGainDb = 2.0, lowGainDb = 1.0),
+        )
+        val released = idle.withSpeedCompensation(DspSpeedCompensationConfig.NEUTRAL)
+
+        // Reserving or releasing headroom must rebuild the pipeline so the native preamp follows.
+        assertFalse(DspUpdatePlanner.speedCompensationKeepsPreampStable(DspRuntimeConfig(enabled = true), idle, FORMAT))
+        assertFalse(DspUpdatePlanner.speedCompensationKeepsPreampStable(idle, released, FORMAT))
+        // Same reserve, only the applied gains move: the preamp is untouched, so HOT is safe.
+        assertTrue(DspUpdatePlanner.speedCompensationKeepsPreampStable(idle, driving, FORMAT))
+        assertEquals(idle.prepare(FORMAT).appliedPreampDb, driving.prepare(FORMAT).appliedPreampDb, 1.0e-9)
+        assertTrue(idle.prepare(FORMAT).appliedPreampDb < DspRuntimeConfig(enabled = true).prepare(FORMAT).appliedPreampDb)
+        // Without Auto Headroom nothing is reserved, so the preamp never moves either way.
+        val noHeadroom = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
+        assertTrue(
+            DspUpdatePlanner.speedCompensationKeepsPreampStable(
+                noHeadroom,
+                noHeadroom.withSpeedCompensation(idle.speedCompensation),
+                FORMAT,
+            ),
+        )
+    }
+
+    @Test
     fun disablingStudioHotUpdatesDefersCommittedHotChanges() {
         val current = DspRuntimeConfig(enabled = true)
         val target = DspRuntimeConfig(
@@ -411,4 +440,7 @@ class DspUpdatePlannerTest {
         )
     }
 
+    private companion object {
+        val FORMAT = DspAudioFormat(sampleRate = 48_000, channels = 2)
+    }
 }

@@ -39,6 +39,7 @@ internal data class DspSpeedCompensationPaneState(
     val status: DspSpeedCompensationStatus,
     val rendererStatus: DspRendererApplyStatus?,
     val dspMasterEnabled: Boolean,
+    val autoHeadroomEnabled: Boolean = true,
 )
 
 /**
@@ -187,6 +188,13 @@ internal fun DspSpeedCompensationPane(
         }
 
         Text(stringResource(R.string.dsp_speed_curve_title), style = MaterialTheme.typography.titleSmall)
+        if (settings.active && !state.autoHeadroomEnabled) {
+            Text(
+                stringResource(R.string.dsp_speed_headroom_off_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Text(stringResource(R.string.dsp_speed_curve_help), style = MaterialTheme.typography.bodySmall)
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),

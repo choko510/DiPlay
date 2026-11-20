@@ -87,6 +87,20 @@ class DspSpeedCompensationStoreTest {
     }
 
     @Test
+    fun wrongStoredTypesFallBackToTheSafeDefaults() {
+        val preferences = context.getSharedPreferences("diplay_speed_compensation", 0)
+        preferences.edit()
+            .putString("master_enabled", "yes")
+            .putString("volume_enabled", "yes")
+            .putString("eq_enabled", "no")
+            .putString("schema_version", "1")
+            .apply()
+
+        val settings = DspSpeedCompensationStore(context).load()
+        assertEquals(SpeedCompensationSettings(), settings)
+    }
+
+    @Test
     fun resetReturnsToTheInitialOffState() {
         val store = DspSpeedCompensationStore(context)
         store.save(SpeedCompensationSettings(masterEnabled = true, preset = SpeedCompensationPreset.STRONG))

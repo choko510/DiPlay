@@ -70,6 +70,38 @@ class DspRuntimeConfigStoreTest {
     }
 
     @Test
+    fun concurrentProfileAndSpeedUpdatesNeverPublishAStaleComposition() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig(enabled = true))
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(2)
+        val profiles = (1..200).map { index -> DspRuntimeConfig(enabled = true, gainDb = -0.01 * index) }
+        val speeds = (1..200).map { index ->
+            DspSpeedCompensationConfig(enabled = true, volumeGainDb = 0.01 * index)
+        }
+
+        val profileThread = Thread {
+            start.await()
+            profiles.forEach(store::update)
+            done.countDown()
+        }
+        val speedThread = Thread {
+            start.await()
+            speeds.forEach(store::updateSpeedCompensation)
+            done.countDown()
+        }
+        profileThread.start()
+        speedThread.start()
+        start.countDown()
+        assertTrue(done.await(30, TimeUnit.SECONDS))
+        profileThread.join()
+        speedThread.join()
+
+        val snapshot = store.snapshot()
+        assertEquals("the last profile update must win", profiles.last().gainDb, snapshot.gainDb, 1.0e-9)
+        assertEquals("the last speed update must win", speeds.last(), snapshot.speedCompensation)
+    }
+
+    @Test
     fun versionedSnapshotsAdvanceAndListenersCanBeRemoved() {
         val store = DspRuntimeConfigStore(DspRuntimeConfig(enabled = false))
         val received = mutableListOf<Long>()

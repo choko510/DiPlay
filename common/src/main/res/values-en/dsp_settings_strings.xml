@@ -402,6 +402,7 @@
     <string name="dsp_speed_curve_mid">Mid boost</string>
     <string name="dsp_speed_curve_high">High boost</string>
     <string name="dsp_speed_slider_value">%1$s: %2$s dB</string>
+    <string name="dsp_speed_headroom_off_warning">Auto Headroom is off, so the boost may distort</string>
     <string name="dsp_speed_reset">Reset to defaults</string>
     <string name="dsp_speed_request_permission">Allow location</string>
     <string name="dsp_speed_permission_help">Location permission is required to read the built-in GPS speed. Coordinates and trip history are not stored.</string>

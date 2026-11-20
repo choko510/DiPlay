@@ -21,7 +21,10 @@ internal class DspSpeedCompensationStore(
 ) {
     private val preferences = preferences
 
-    fun load(): SpeedCompensationSettings {
+    fun load(): SpeedCompensationSettings =
+        runCatching { loadOrNull() }.getOrNull() ?: SpeedCompensationSettings()
+
+    private fun loadOrNull(): SpeedCompensationSettings {
         val schema = preferences.getInt(KEY_SCHEMA, SCHEMA_VERSION)
         if (schema != SCHEMA_VERSION) {
             // No released older schema exists yet. Unknown versions fall back to safe defaults

@@ -17,6 +17,7 @@ data class SpeedEstimatorConfig(
     val maxPlausibleSpeedKmh: Double = 300.0,
     val maxJumpKmh: Double = 60.0,
     val minJumpIntervalSeconds: Double = 0.4,
+    val maxPlausibleAccelerationKmhPerSecond: Double = 45.0,
     val jumpRecoverySamples: Int = 2,
 ) {
     init {
@@ -27,6 +28,7 @@ data class SpeedEstimatorConfig(
         require(maxPlausibleSpeedKmh > resumeSpeedKmh)
         require(maxJumpKmh > 0.0)
         require(minJumpIntervalSeconds >= 0.0)
+        require(maxPlausibleAccelerationKmhPerSecond > 0.0)
         require(jumpRecoverySamples >= 1)
     }
 }
@@ -123,8 +125,12 @@ class SpeedEstimator(private val config: SpeedEstimatorConfig = SpeedEstimatorCo
 
     private fun isImplausibleJump(speedKmh: Double, intervalSeconds: Double): Boolean {
         if (!lastRawKmh.isFinite()) return false
-        if (intervalSeconds > config.minJumpIntervalSeconds) return false
-        return abs(speedKmh - lastRawKmh) > config.maxJumpKmh
+        val delta = abs(speedKmh - lastRawKmh)
+        if (intervalSeconds <= config.minJumpIntervalSeconds) return delta > config.maxJumpKmh
+        // GPS fixes arrive at roughly 1 Hz, so a fixed per-sample limit would accept a
+        // 0 -> 200 km/h sample. Judge the implied acceleration instead and let the recovery
+        // counter accept a sustained change (a real tunnel exit, for example).
+        return delta / intervalSeconds > config.maxPlausibleAccelerationKmhPerSecond
     }
 
     private fun updateStopState() {

@@ -15,7 +15,6 @@ import java.util.concurrent.atomic.AtomicReference
 
 internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntimeConfig.disabled()) : DspConfigProvider {
     private val current = AtomicReference(DspConfigSnapshot(0L, initialConfig))
-    private val speedCompensation = AtomicReference(initialConfig.speedCompensation)
     private val studioHotUpdatesAllowed = AtomicBoolean(true)
     private val studioLocalWarmAllowed = AtomicBoolean(false)
     private val rendererApplyState = AtomicReference(RendererApplyState(null, null))
@@ -109,16 +108,14 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
         // Speed compensation is transient runtime state owned by this store; it is layered on
         // top of whatever the profile/workspace update produced so a profile save can never
         // clear or persist it.
-        updateEffective(config.withSpeedCompensationIfDifferent(speedCompensation.get()))
+        merge { snapshot -> config.withSpeedCompensationIfDifferent(snapshot.config.speedCompensation) }
     }
 
     fun updateSpeedCompensation(config: DspSpeedCompensationConfig) {
-        val previous = speedCompensation.getAndSet(config)
-        if (previous == config) return
-        updateEffective(current.get().config.withSpeedCompensationIfDifferent(config))
+        merge { snapshot -> snapshot.config.withSpeedCompensationIfDifferent(config) }
     }
 
-    fun speedCompensation(): DspSpeedCompensationConfig = speedCompensation.get()
+    fun speedCompensation(): DspSpeedCompensationConfig = current.get().config.speedCompensation
 
     private fun DspRuntimeConfig.withSpeedCompensationIfDifferent(
         speedCompensation: DspSpeedCompensationConfig,
@@ -128,9 +125,26 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
         withSpeedCompensation(speedCompensation)
     }
 
-    private fun updateEffective(config: DspRuntimeConfig) {
-        if (current.get().config.hasSameEffectiveSettings(config)) return
-        val next = current.updateAndGet { previous -> DspConfigSnapshot(previous.generation + 1, config) }
+    /**
+     * Publishes a merged config from the latest committed snapshot.
+     *
+     * Both the transient speed layer and the profile layer are merged into one immutable config
+     * that is swapped with a CAS loop, so a profile update and a speed update can never publish
+     * a stale composition of the two (for example an old profile paired with an old speed layer).
+     */
+    private fun merge(transform: (DspConfigSnapshot) -> DspRuntimeConfig) {
+        var published: DspConfigSnapshot? = null
+        while (published == null) {
+            val snapshot = current.get()
+            val target = transform(snapshot)
+            if (target == snapshot.config || snapshot.config.hasSameEffectiveSettings(target)) return
+            val next = DspConfigSnapshot(snapshot.generation + 1, target)
+            if (current.compareAndSet(snapshot, next)) published = next
+        }
+        publishSnapshot(published)
+    }
+
+    private fun publishSnapshot(next: DspConfigSnapshot) {
         while (true) {
             val previousState = rendererApplyState.get()
             val previousStatus = previousState.status

@@ -216,6 +216,7 @@
     <string name="dsp_speed_curve_mid">中音補正</string>
     <string name="dsp_speed_curve_high">高音補正</string>
     <string name="dsp_speed_slider_value">%1$s: %2$s dB</string>
+    <string name="dsp_speed_headroom_off_warning">オートヘッドルームがOFFのため、補正で音が歪む可能性があります</string>
     <string name="dsp_speed_reset">初期値に戻す</string>
     <string name="dsp_speed_request_permission">位置情報を許可</string>
     <string name="dsp_speed_permission_help">内蔵GPSの速度を使うため位置情報の許可が必要です。座標や走行履歴は保存しません。</string>

@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.media.dsp
 
+import kotlin.math.abs
+
 internal enum class DspUpdatePlan {
     HOT,
     LOCAL_WARM,
@@ -233,6 +235,24 @@ internal object DspUpdatePlanner {
         DspRuntimeField.SPEED_COMPENSATION,
     )
 
+    /**
+     * A HOT speed-context change skips the native graph preflight, so the auto-headroom preamp is
+     * not re-applied. That is only safe while the preamp itself does not move: reserving or
+     * releasing headroom therefore has to fall back to a pipeline replacement, where the new
+     * preamp and the new boost are applied together. Otherwise the boost could reach the renderer
+     * without its reserved headroom and clip.
+     */
+    internal fun speedCompensationKeepsPreampStable(
+        current: DspRuntimeConfig,
+        target: DspRuntimeConfig,
+        format: DspAudioFormat,
+    ): Boolean {
+        if (current.speedCompensation == target.speedCompensation) return true
+        val currentPreampDb = current.prepare(format).appliedPreampDb
+        val targetPreampDb = target.prepare(format).appliedPreampDb
+        return abs(currentPreampDb - targetPreampDb) <= PREAMP_STABILITY_TOLERANCE_DB
+    }
+
     private fun isContinuityIndependentHotField(field: DspRuntimeField): Boolean = field in setOf(
         DspRuntimeField.PREAMP,
         DspRuntimeField.COMPRESSOR,
@@ -275,4 +295,6 @@ internal object DspUpdatePlanner {
         DspRuntimeField.ADVANCED_MS,
         DspRuntimeField.HARMONIC,
     )
+
+    private const val PREAMP_STABILITY_TOLERANCE_DB = 1.0e-9
 }

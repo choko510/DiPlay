@@ -395,6 +395,8 @@ internal fun DspSettingsScreen(
         }
     }
     LaunchedEffect(runtime, isVisible) {
+        // The manual test speed is a diagnostic of this screen; never let it outlive the view.
+        if (!isVisible) runtime.speedCompensation.setTestSpeed(null)
         if (isVisible) {
             while (true) {
                 rendererApplyStatus = runtime.configProvider.rendererApplyStatus()
@@ -797,6 +799,9 @@ internal fun DspSettingsScreen(
     val showSpatial = compactSection == DspStudioTab.SPATIAL
     val showDynamics = compactSection == DspStudioTab.DYNAMICS
     val showSpeed = compactSection == DspStudioTab.SPEED
+    DisposableEffect(runtime) {
+        onDispose { runtime.speedCompensation.setTestSpeed(null) }
+    }
     val showAdvanced = compactSection == DspStudioTab.ADVANCED && advanced
     val compactHeightCap = LocalConfiguration.current.screenHeightDp.coerceAtLeast(1).dp
     val compactBodyConstraint = if (compact) {
@@ -1170,6 +1175,7 @@ internal fun DspSettingsScreen(
                             status = speedStatus,
                             rendererStatus = rendererApplyStatus,
                             dspMasterEnabled = dspEnabled,
+                            autoHeadroomEnabled = profile.autoHeadroomEnabled,
                         ),
                         enabled = !operationPending,
                         onSettingsChange = { updated ->

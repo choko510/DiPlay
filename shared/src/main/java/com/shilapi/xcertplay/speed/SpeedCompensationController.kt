@@ -62,6 +62,7 @@ class SpeedCompensationController(
     private var testSpeedKmh: Double? = null
     private var lastTickNanos = Long.MIN_VALUE
     private var lastEmitNanos = Long.MIN_VALUE
+    private var lastEmittedGains = SpeedCompensationGains.NEUTRAL
     private var lastFixNanos = Long.MIN_VALUE
     private var lastSpeedAccuracy: Double? = null
     private var started = false
@@ -72,6 +73,7 @@ class SpeedCompensationController(
             started = true
             lastTickNanos = Long.MIN_VALUE
             lastEmitNanos = Long.MIN_VALUE
+            lastEmittedGains = SpeedCompensationGains.NEUTRAL
             estimate = SpeedEstimate(0.0, stopped = true, stale = true)
             gpsState = SpeedGpsState.WAITING_FIX
         }
@@ -83,6 +85,7 @@ class SpeedCompensationController(
             if (!started) return
             started = false
             gains = SpeedCompensationGains.NEUTRAL
+            lastEmittedGains = SpeedCompensationGains.NEUTRAL
             estimate = SpeedEstimate(0.0, stopped = true, stale = true)
             testSpeedKmh = null
             gpsState = SpeedGpsState.STOPPED
@@ -166,17 +169,22 @@ class SpeedCompensationController(
                 midDb = step(previous.midDb, target.midDb, alpha),
                 highDb = step(previous.highDb, target.highDb, alpha),
             )
+            // Compare against the last value the DSP actually received, not against the previous
+            // tick: a long tail of sub-threshold steps would otherwise never be published.
             val delta = maxOf(
-                abs(gains.volumeDb - previous.volumeDb),
-                abs(gains.lowDb - previous.lowDb),
-                abs(gains.midDb - previous.midDb),
-                abs(gains.highDb - previous.highDb),
+                abs(gains.volumeDb - lastEmittedGains.volumeDb),
+                abs(gains.lowDb - lastEmittedGains.lowDb),
+                abs(gains.midDb - lastEmittedGains.midDb),
+                abs(gains.highDb - lastEmittedGains.highDb),
             )
             val becameNeutral = !previous.isNeutral && gains.isNeutral
             val intervalElapsed = lastEmitNanos == Long.MIN_VALUE ||
                 nowNanos - lastEmitNanos >= minimumEmitIntervalNanos
             changed = becameNeutral || (intervalElapsed && delta >= minimumEmitDeltaDb)
-            if (changed) lastEmitNanos = nowNanos
+            if (changed) {
+                lastEmitNanos = nowNanos
+                lastEmittedGains = gains
+            }
         }
         if (changed) publish(force = false)
     }
@@ -205,7 +213,10 @@ class SpeedCompensationController(
 
     private fun publish(force: Boolean) {
         val state = state()
-        if (force) synchronized(lock) { lastEmitNanos = lastTickNanos }
+        synchronized(lock) {
+            lastEmittedGains = state.gains
+            if (force) lastEmitNanos = lastTickNanos
+        }
         onStateChanged(state)
     }
 

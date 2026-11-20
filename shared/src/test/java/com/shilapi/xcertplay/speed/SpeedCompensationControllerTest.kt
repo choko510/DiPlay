@@ -76,6 +76,20 @@ class SpeedCompensationControllerTest {
     }
 
     @Test
+    fun theLastPublishedGainsMatchTheSettledGains() {
+        val harness = newHarness()
+        harness.enableStandard()
+        harness.drive(60.0, ticks = 60)
+
+        // The emit threshold is compared against the last value the DSP received, so the tail of
+        // the ramp must still be published once it accumulates past the threshold.
+        val settled = harness.controller.state().gains
+        assertEquals(settled.volumeDb, harness.published.last().gains.volumeDb, 1e-9)
+        assertEquals(settled.lowDb, harness.published.last().gains.lowDb, 1e-9)
+        harness.controller.stop()
+    }
+
+    @Test
     fun staleGpsDecaysToNeutralAndRecoversSmoothly() {
         val harness = newHarness()
         harness.enableStandard()

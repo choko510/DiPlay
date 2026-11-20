@@ -22,6 +22,15 @@
 - **動画：** MAIN/ALTそれぞれのscreen ownerでcallback・keyframe要求・decoder停止・Surface解放を直列化。解放ACK前に新ownerを採用しない。Surface recoveryは実機計測までdefault-off。`receivedToCodecSurfaceReleaseMs` はパネル表示時刻ではない。
 - **入力：** タッチのmoveはまとめても、down/up/cancel境界は黙って捨てない。上限に達した場合は全接触cancelで固着を防ぐ。
 - **Host遷移：** hidden DSP paneはBackを奪わない。HostからのCarPlay/YouTube Split退出もSave/Discard/Continueを経由し、新しい退出要求が古い非同期遷移に上書きされない。ブラウザーの再利用/保存領域は検証済み電話identityに結ぶ。
+- **接続と画面の分離：** 接続・復旧処理は画面を前面化してよい理由にならない。自動接続/USB自動起動は実アプリ起動だけを契機とし、設定・DSP・Menu表示中は自動要求を保留する（明示要求のみ前面化）。前面化の可否は`DiPlayUiFocus`と`IphoneUsbAutoLaunchSource`で判断し、古いセッションやpause中のOEM要求ではMenuを起動しない。Activity多重生成を避けるため、ホストは`singleTask`、Menu/設定は`REORDER_TO_FRONT`、DSPは`singleTop`を維持する。
+- **画面遷移の宣言：** Androidは遷移元を先にpauseするため、開く側は`navigatingTo`、`finish()`で戻る側は`announceReturn`で遷移先を事前に宣言し、遷移先がresumeするまで保護を維持する。起動失敗時はトークンで同じ遷移だけを取り消し、元の画面へ戻す。
+- **透過Activityによる割り込み：** USB接続イベントのようにAndroidが直接起動する透過Activityは`navigatingTo`を実行できない。受信Activityは`transientOverlayResumed`で覆われた画面を復元し、ユーザーが自分で別画面へ移った場合と区別する。
+- **要求の再実行：** 保留要求は起動成功を確認してから破棄し、起動失敗時は保持して次のresumeで再検証・再実行する。
+- **保護の解放条件：** 前面画面の保護はpauseでは解除せず、`onStop`（ホームや他アプリでDiPlayが前面を離れた）でのみ解除する。pauseはダイアログ・透過Activity・画面受け渡しを意味し、protected状態のままにする。
+- **ハンドオーバー：** 無線→有線などの非同期再起動は接続処理と画面表示を分ける。旧接続終了後の再起動コールバックでも表示意図を再検証し、設定/Menu表示中は要求を保留する。iPhoneはidentity付きでdeferredへ（`hostLaunchState`＝分割状態と比率も保持）、CH341は`CarPlayUsbAttachDispatcher`の保留へ回し、どちらもCarPlay復帰時に自動再開する。保留できない場合のみ通知で明示導線を出す。
+- **透過レシーバの所有権：** USB受信Activityは画面を所有せず、覆っている間だけ一時保護を追加し、終了時（`onDestroy`）に解放する。複数重なっても最後の1つが終了するまで保護を維持する。覆われた画面が既に`onStop`していた場合は、復帰しない限り保護を残さない。
+- **復旧意図の明示：** ハンドオーバー後の再起動は`CarPlayHostRecovery`で復旧先を明示する。`WIRED_USB`だけがCH341保留へ回り、`RESTORE_TRANSPORT`（無線復旧）は`CarPlayHostRestartQueue`に保留する。CH341が接続されているだけで接続方式を変えない。
+- **保留要求の更新：** 同一identity/sourceの保留要求は重複起動を避けるため1件に集約するが、新しい`hostLaunchState`は捨てずに採用する。
 
 ## 音声とDSP
 

@@ -58,6 +58,23 @@ class DiPlayMenuYoutubeNavigationTest {
         assertEquals(CarPlayHostActions.EXIT_YOUTUBE_SPLIT, CarPlayHostActions.consumeInternalAction(started))
     }
 
+    @Test
+    fun settingsActionReusesTheExistingSettingsActivity() {
+        val activity = Robolectric.buildActivity(DiPlayMenuActivity::class.java).setup().get()
+
+        requireNotNull(findButton(activity.window.decorView, activity.getString(R.string.menu_settings)))
+            .performClick()
+
+        val started = shadowOf(activity).nextStartedActivity
+        assertNotNull(started)
+        assertEquals(DiPlayActivity::class.java.name, started.component?.className)
+        assertEquals("settings", started.getStringExtra("page"))
+        assertTrue(started.getBooleanExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, false))
+        // Reordering keeps a single settings instance and returns to this menu with Back.
+        assertTrue(started.flags and Intent.FLAG_ACTIVITY_REORDER_TO_FRONT != 0)
+        assertTrue(started.flags and Intent.FLAG_ACTIVITY_SINGLE_TOP != 0)
+    }
+
     private fun findButton(view: View, text: String): Button? {
         if (view is Button && view.text.toString() == text) return view
         if (view is ViewGroup) {

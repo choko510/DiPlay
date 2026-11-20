@@ -35,6 +35,8 @@ internal object UsbAttachIntentPolicy {
 class CarPlayUsbAttachActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android started this transparent receiver; keep the screen the user was on protected.
+        DiPlayUiFocus.transientOverlayResumed(this)
         val attachedDevice = usbDeviceFromIntent(intent)
         val usbManager = getSystemService(Context.USB_SERVICE) as? UsbManager
         if (intent.action == CarPlayHostActions.USB_DEVICE_ATTACHED &&
@@ -46,9 +48,15 @@ class CarPlayUsbAttachActivity : Activity() {
                 permissionGranted = true,
             )
         ) {
-            startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.USB_DEVICE_ATTACHED))
+            CarPlayUsbAttachDispatcher.dispatchOrHold(this, attachedDevice.identity())
         }
         finish()
+    }
+
+    override fun onDestroy() {
+        // The receiver never owns the screen; release the temporary protection it added.
+        DiPlayUiFocus.transientOverlayFinished(this)
+        super.onDestroy()
     }
 
     private fun UsbDevice.identity(): UsbAttachDeviceIdentity = UsbAttachDeviceIdentity(

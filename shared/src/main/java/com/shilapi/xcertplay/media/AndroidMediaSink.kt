@@ -2966,6 +2966,31 @@ internal class AudioRenderer(
         return config.failureFallbackPreampDb(format)
     }
 
+    private fun buildDspDiagnosticSummary(pcmFormat: DspAudioFormat, config: DspRuntimeConfig): String {
+        val base = "role=${classification.dspRole}, audioType=${format.audioType}, rate=${pcmFormat.sampleRate}Hz"
+        if (!config.enabled) return base
+        val notes = runCatching { config.prepare(pcmFormat).diagnosticsNotes }.getOrDefault(emptyList())
+        return if (notes.isEmpty()) base else "$base, notes=${notes.joinToString("+")}"
+    }
+
+    private fun estimatedLatencyFrames(format: DspAudioFormat, graphConfig: DspRuntimeConfig): Int {
+        if (!graphConfig.enabled) return trackGenerationLatencyFrames
+        val maxFreq = format.sampleRate * 0.45
+        val targetHarmonicLatency = graphConfig.harmonic.takeIf { h ->
+            h.isActive &&
+                (!h.exciterEnabled || h.exciterCutoffHz < maxFreq) &&
+                (!h.virtualBassEnabled || h.virtualBassCutoffHz < maxFreq)
+        }?.algorithmicLatencyFrames ?: 0
+        val currentHarmonicLatency = activeDspGraphConfig.harmonic.takeIf { h ->
+            h.isActive &&
+                (!h.exciterEnabled || h.exciterCutoffHz < maxFreq) &&
+                (!h.virtualBassEnabled || h.virtualBassCutoffHz < maxFreq)
+        }?.algorithmicLatencyFrames ?: 0
+        val harmonicIncrease = (targetHarmonicLatency - currentHarmonicLatency).coerceAtLeast(0)
+        // pipelinePreparer pads shorter pipelines via preserveLatencyWithDelay, so only increases change latency.
+        return trackGenerationLatencyFrames + harmonicIncrease
+    }
+
     private fun configuredDspGraph(format: DspAudioFormat, config: DspRuntimeConfig): DspRuntimeConfig {
         if (!config.enabled) return DspRuntimeConfig.disabled()
         val convolver = config.convolver
@@ -3093,7 +3118,8 @@ internal class AudioRenderer(
                         if (update.generation == requestedDspGeneration) livePreparationPending = false
                         if (update.config.enabled && update.pipeline == null && update.hotUpdate == null &&
                             update.preampHotUpdate == null &&
-                            update.localPeqWarmUpdate == null
+                            update.localPeqWarmUpdate == null &&
+                            update.preDeferredReason == null
                         ) {
                             failedStatus = DspRendererApplyStatus(
                                 update.generation,
@@ -3102,17 +3128,22 @@ internal class AudioRenderer(
                             )
                         } else {
                             val warning = convolverApplyWarning(update.format, update.config)
+                            val summary = buildDspDiagnosticSummary(update.format, update.config)
+                            runCatching { dspConfigProvider.reportDiagnosticSummary(summary) }
+                            val effectiveGraphConfig = if (update.hotUpdate != null || update.preampHotUpdate != null ||
+                                update.localPeqWarmUpdate != null || update.preDeferredReason != null
+                            ) {
+                                configuredDspGraph(update.format, update.config)
+                            } else {
+                                effectiveDspGraphConfig(update.format, update.config, update.pipeline)
+                            }
                             val prepared = PreparedRendererDspUpdate(
                                 update = update,
-                                graphConfig = if (update.hotUpdate != null || update.preampHotUpdate != null ||
-                                    update.localPeqWarmUpdate != null) {
-                                    configuredDspGraph(update.format, update.config)
-                                } else {
-                                    effectiveDspGraphConfig(update.format, update.config, update.pipeline)
-                                },
+                                graphConfig = effectiveGraphConfig,
                                 latencyPreservingBypass = if (update.hotUpdate == null &&
                                     update.preampHotUpdate == null &&
-                                    update.localPeqWarmUpdate == null
+                                    update.localPeqWarmUpdate == null &&
+                                    update.preDeferredReason == null
                                 ) {
                                     prepareLatencyPreservingBypass(update)
                                 } else {
@@ -3135,6 +3166,7 @@ internal class AudioRenderer(
                                     DspRendererApplyPhase.DEFERRED,
                                     activeDspGeneration,
                                     warning,
+                                    reason = update.preDeferredReason,
                                 ),
                                 failedStatus = DspRendererApplyStatus(
                                     update.generation,
@@ -3180,7 +3212,8 @@ internal class AudioRenderer(
                 val current = activeDspConfig
                 if (hotBoundPipeline === dspPipeline && candidateFormat == format &&
                     dspPipeline?.format == candidateFormat &&
-                    dspConfigProvider.studioHotUpdatesEnabled() && current.canApplyStudioHotUpdateTo(snapshot.config) &&
+                    dspConfigProvider.studioHotUpdatesEnabled() &&
+                    current.canApplyStudioHotUpdateTo(snapshot.config, activeDspGraphConfig) &&
                     DspUpdatePlanner.classify(
                         current = current,
                         target = snapshot.config,
@@ -3191,6 +3224,7 @@ internal class AudioRenderer(
                         requiresStateContinuity = false,
                         mediaRole = classification.dspRole == DspStreamRole.MEDIA,
                         studioLocalWarmEnabled = dspConfigProvider.studioLocalWarmEnabled(),
+                        prepared = activeDspGraphConfig,
                     ) == DspUpdatePlan.HOT
                 ) {
                     val changedFields = DspUpdatePlanner.diff(current, snapshot.config)
@@ -3262,9 +3296,14 @@ internal class AudioRenderer(
                     val currentPrepared = current.prepare(candidateFormat)
                     val targetPrepared = target.prepare(candidateFormat)
                     if (kotlin.math.abs(currentPrepared.appliedPreampDb - targetPrepared.appliedPreampDb) > 1e-9) {
-                        DspLocalPeqWarmPreparation(
-                            unavailableReason = "PEQ or Bass Shelf change also alters auto-headroom preamp; keeping the active pipeline until the next AudioTrack generation",
-                        )
+                        if (!activeDspGraphConfig.requiresStateContinuity()) {
+                            // Zero-latency non-stateful graph: crossfade cleanly so PEQ + AutoHeadroom updates are audible live.
+                            DspLocalPeqWarmPreparation(requiresWarmCrossfade = true)
+                        } else {
+                            DspLocalPeqWarmPreparation(
+                                unavailableReason = "PEQ or Bass Shelf change also alters auto-headroom preamp; keeping the active pipeline until the next AudioTrack generation",
+                            )
+                        }
                     } else {
                         val update = dspPipeline?.prepareLocalPeqWarmUpdate(
                             coefficients = targetPrepared.eqCoefficients,
@@ -3283,6 +3322,44 @@ internal class AudioRenderer(
                                 null
                             },
                         )
+                    }
+                }
+            },
+            preDeferCheck = { snapshot ->
+                if (!trackGenerationContentCommitted) {
+                    null
+                } else {
+                    val targetGraph = configuredDspGraph(format, snapshot.config)
+                    val targetLatency = estimatedLatencyFrames(format, targetGraph)
+                    val diffFields = DspUpdatePlanner.diff(activeDspGraphConfig, targetGraph)
+                    val activatingConvolver = DspRuntimeField.CONVOLVER in diffFields &&
+                        targetGraph.convolver.enabled && targetGraph.convolver.wet > 0.0
+                    if (classification.dspRole != DspStreamRole.MEDIA) {
+                        "DSP updates are restricted to MEDIA streams"
+                    } else if (targetLatency != trackGenerationLatencyFrames ||
+                        (activatingConvolver && !activeDspGraphConfig.convolver.enabled &&
+                            trackGenerationLatencyFrames == 0)
+                    ) {
+                        "DSP latency change is deferred until the next AudioTrack generation"
+                    } else if (activatingConvolver) {
+                        "impulse response topology requires a new track"
+                    } else if (targetGraph.enabled && DspRuntimeField.SEAT_ALIGNMENT in DspUpdatePlanner.diff(activeDspGraphConfig, targetGraph)) {
+                        val decision = DspUpdatePlanner.decide(
+                            current = activeDspGraphConfig,
+                            target = targetGraph,
+                            hasActivePipeline = dspPipeline != null,
+                            trackGenerationCommitted = true,
+                            currentLatencyFrames = trackGenerationLatencyFrames,
+                            targetLatencyFrames = targetLatency,
+                            requiresStateContinuity = false,
+                            mediaRole = true,
+                            studioHotUpdatesEnabled = dspConfigProvider.studioHotUpdatesEnabled(),
+                            studioLocalWarmEnabled = dspConfigProvider.studioLocalWarmEnabled(),
+                            prepared = activeDspGraphConfig,
+                        )
+                        decision.reason?.takeIf { decision.plan == DspUpdatePlan.DEFERRED }
+                    } else {
+                        null
                     }
                 }
             },
@@ -3635,6 +3712,12 @@ internal class AudioRenderer(
             else -> update.pipeline.algorithmicLatencyFrames
         }
         val graphConfig = prepared.graphConfig
+        val convolverTurnedOff = activeDspGraphConfig.convolver.enabled &&
+            (!graphConfig.convolver.enabled || graphConfig.convolver.wet <= 0.0)
+        val effectiveRequiresStateContinuity = graphConfig.enabled && (
+            graphConfig.requiresStateContinuity() ||
+                (activeDspGraphConfig.requiresStateContinuity() && !convolverTurnedOff)
+            )
         val updateDecision = DspUpdatePlanner.decide(
             current = activeDspGraphConfig,
             target = graphConfig,
@@ -3642,13 +3725,15 @@ internal class AudioRenderer(
             trackGenerationCommitted = trackGenerationContentCommitted,
             currentLatencyFrames = trackGenerationLatencyFrames,
             targetLatencyFrames = candidateLatencyFrames,
-            requiresStateContinuity = graphConfig.requiresStateContinuity(),
+            requiresStateContinuity = effectiveRequiresStateContinuity,
             mediaRole = classification.dspRole == DspStreamRole.MEDIA,
             studioHotUpdatesEnabled = dspConfigProvider.studioHotUpdatesEnabled(),
             studioLocalWarmEnabled = dspConfigProvider.studioLocalWarmEnabled(),
+            prepared = activeDspGraphConfig,
         )
         val unsupportedLocalWarm = updateDecision.plan == DspUpdatePlan.LOCAL_WARM &&
-            trackGenerationContentCommitted
+            trackGenerationContentCommitted &&
+            !update.localWarmRequiresWarmFallback
         if (updateDecision.plan == DspUpdatePlan.DEFERRED || unsupportedLocalWarm) {
             if (deferredDspGeneration != update.generation) {
                 deferredDspGeneration = update.generation
@@ -3666,14 +3751,44 @@ internal class AudioRenderer(
         if (!trackGenerationContentCommitted) {
             if (!pendingDspUpdate.compareAndSet(prepared, null)) return
             val oldPipeline = dspPipeline
-            dspPipeline = update.pipeline
+            val adoptedPipeline = if (update.preDeferredReason != null &&
+                update.pipeline == null &&
+                graphConfig.enabled
+            ) {
+                runCatching {
+                    dspPipelinePreparer(update.format, graphConfig)?.also { pipeline ->
+                        pipeline.audioOwnerEpoch = audioOwnerEpoch
+                        pipeline.trackGeneration = audioTrackGeneration
+                    }
+                }.getOrNull()
+            } else {
+                update.pipeline
+            }
+            if (graphConfig.enabled && adoptedPipeline == null && update.preDeferredReason != null) {
+                dspPipeline = null
+                activeDspGraphConfig = DspRuntimeConfig.disabled()
+                controller.retire(oldPipeline)
+                reportDspApplyStatus(prepared.failedStatus)
+                return
+            }
+            dspPipeline = adoptedPipeline
             bindHotPipeline(dspPipeline, liveUpdateControllerEpoch.get(), update.format)
             activeDspConfig = update.config
             activeDspGraphConfig = graphConfig
             activeDspGeneration = update.generation
+            val preparedFallback = prepared.latencyPreservingBypass ?: if (adoptedPipeline != null) {
+                prepareLatencyPreservingBypass(
+                    update.copy(
+                        pipeline = adoptedPipeline,
+                        latencyFrames = adoptedPipeline.algorithmicLatencyFrames,
+                    ),
+                )
+            } else {
+                null
+            }
             beginTrackGeneration(
                 trackFormat = update.format,
-                preparedFallback = prepared.latencyPreservingBypass,
+                preparedFallback = preparedFallback,
                 fallbackWasPrepared = true,
             )
             controller.retire(oldPipeline?.takeIf { it !== dspPipeline })

@@ -69,7 +69,8 @@ internal object DspUpdatePlanner {
         requiresStateContinuity: Boolean,
         mediaRole: Boolean = true,
         studioHotUpdatesEnabled: Boolean = true,
-        studioLocalWarmEnabled: Boolean = false,
+        studioLocalWarmEnabled: Boolean = true,
+        prepared: DspRuntimeConfig = current,
     ): DspUpdatePlan = decide(
         current = current,
         target = target,
@@ -81,6 +82,7 @@ internal object DspUpdatePlanner {
         mediaRole = mediaRole,
         studioHotUpdatesEnabled = studioHotUpdatesEnabled,
         studioLocalWarmEnabled = studioLocalWarmEnabled,
+        prepared = prepared,
     ).plan
 
     fun decide(
@@ -93,7 +95,8 @@ internal object DspUpdatePlanner {
         requiresStateContinuity: Boolean,
         mediaRole: Boolean = true,
         studioHotUpdatesEnabled: Boolean = true,
-        studioLocalWarmEnabled: Boolean = false,
+        studioLocalWarmEnabled: Boolean = true,
+        prepared: DspRuntimeConfig = current,
     ): DspUpdateDecision {
         val changed = diff(current, target)
         if (changed.isEmpty()) return DspUpdateDecision(DspUpdatePlan.HOT)
@@ -167,7 +170,7 @@ internal object DspUpdatePlanner {
                 return DspUpdateDecision(DspUpdatePlan.DEFERRED,
                     "LIMITER enable transition or threshold increase is unsafe for HOT; keeping the active pipeline")
             }
-            if (DspRuntimeField.DYNAMIC_EQ in changed && !canHotDynamicEq(current, target)) {
+            if (DspRuntimeField.DYNAMIC_EQ in changed && !canHotDynamicEq(current, target, prepared)) {
                 return DspUpdateDecision(DspUpdatePlan.DEFERRED,
                     "DYNAMIC_EQ enabled/mode/frequency/Q topology change is unsafe for HOT; keeping the active pipeline")
             }
@@ -191,7 +194,7 @@ internal object DspUpdatePlanner {
             changed.all { isHotField(it) || it == DspRuntimeField.COMPRESSOR ||
                 it == DspRuntimeField.LIMITER || it == DspRuntimeField.DYNAMIC_EQ } &&
             (!requiresStateContinuity || changed.all(::isContinuityIndependentHotField)) &&
-            canHotDynamics(current, target) && canHotDynamicEq(current, target)
+            canHotDynamics(current, target) && canHotDynamicEq(current, target, prepared)
         ) {
             return if (studioHotUpdatesEnabled) DspUpdateDecision(DspUpdatePlan.HOT)
             else DspUpdateDecision(DspUpdatePlan.DEFERRED, "Native HOT updates are disabled")
@@ -246,15 +249,28 @@ internal object DspUpdatePlanner {
         return target.safetyLimiter.thresholdDb <= current.safetyLimiter.thresholdDb
     }
 
-    internal fun canHotDynamicEq(current: DspRuntimeConfig, target: DspRuntimeConfig): Boolean {
+    internal fun canHotDynamicEq(
+        current: DspRuntimeConfig,
+        target: DspRuntimeConfig,
+        prepared: DspRuntimeConfig = current,
+    ): Boolean {
         val old = current.dynamicEq
         val next = target.dynamicEq
         if (old.enabled != next.enabled || old.bands.size != next.bands.size) return false
         return old.bands.indices.all { index ->
             val before = old.bands[index]
             val after = next.bands[index]
+            val baseBand = prepared.dynamicEq.bands.getOrNull(index)
+            val preparedPeak = if (baseBand != null) {
+                if (baseBand.mode == DspDynamicEqMode.CUT) baseBand.maxCutDb else baseBand.maxBoostDb
+            } else {
+                if (after.mode == DspDynamicEqMode.CUT) after.maxCutDb else after.maxBoostDb
+            }
+            val targetPeak = if (after.mode == DspDynamicEqMode.CUT) after.maxCutDb else after.maxBoostDb
+            val withinPreparedPeak = !old.enabled || !before.enabled || targetPeak <= preparedPeak
             before.enabled == after.enabled && before.mode == after.mode &&
-                before.frequencyHz == after.frequencyHz && before.q == after.q
+                before.frequencyHz == after.frequencyHz && before.q == after.q &&
+                withinPreparedPeak
         }
     }
 

@@ -230,6 +230,8 @@ void dsp_dynamic_eq_reset(dsp_dynamic_eq *dynamic_eq) {
 
 static float target_mix(const dsp_dynamic_eq_band *band) {
     const float level_db = 20.0f * log10f(fmaxf(band->envelope, 1e-12f));
+    // Avoid boosting digital silence or sub-floor noise when no program material is present.
+    if (band->config.mode == DSP_DYNAMIC_EQ_BOOST && level_db < -75.0f) return 0.0f;
     const float overshoot = band->config.mode == DSP_DYNAMIC_EQ_CUT
         ? level_db - (float)band->config.threshold_db
         : (float)band->config.threshold_db - level_db;

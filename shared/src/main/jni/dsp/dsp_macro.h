@@ -20,6 +20,7 @@ typedef struct {
     double vocal_low_alpha;
     double vocal_high_alpha;
     double air_alpha;
+    double width_hp_alpha;
     double vocal_normalization;
     double current_bass_gain;
     double current_vocal_gain;
@@ -37,6 +38,7 @@ typedef struct {
     float vocal_low_state[2];
     float vocal_high_state[2];
     float air_state[2];
+    float side_low_state;
     int ramp_frames_remaining;
 } dsp_macro;
 

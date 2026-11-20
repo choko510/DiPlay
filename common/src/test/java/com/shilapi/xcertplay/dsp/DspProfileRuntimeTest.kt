@@ -53,7 +53,7 @@ class DspProfileRuntimeTest {
         assertTrue(defaults.smartLoudnessEnabled)
         assertTrue(defaults.dynamicBassEnabled)
         assertTrue(defaults.nativeHotUpdatesEnabled)
-        assertFalse(defaults.localWarmEnabled)
+        assertTrue(defaults.localWarmEnabled)
         assertFalse(defaults.irWarmBudgetEnabled)
         val disabled = defaults.disableEnhancedDsp()
         assertFalse(disabled.workspaceUiEnabled)

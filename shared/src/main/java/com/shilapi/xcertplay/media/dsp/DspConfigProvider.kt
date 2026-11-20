@@ -47,7 +47,11 @@ fun interface DspConfigProvider {
 
     fun reportRendererApplyStatus(status: DspRendererApplyStatus) = Unit
 
+    fun diagnosticSummary(): String? = null
+
+    fun reportDiagnosticSummary(summary: String?) = Unit
+
     fun studioHotUpdatesEnabled(): Boolean = true
 
-    fun studioLocalWarmEnabled(): Boolean = false
+    fun studioLocalWarmEnabled(): Boolean = true
 }

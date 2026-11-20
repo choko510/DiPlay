@@ -596,7 +596,6 @@ void dsp_graph_process(
 
         float output_left = dsp_gain_apply(&graph->gain, input_left);
         float output_right = channels == 2 ? dsp_gain_apply(&graph->gain, input_right) : 0.0f;
-        dsp_spatial_process_seat(&graph->spatial, &output_left, &output_right, (int)channels);
         record_peq_input(&graph->peq_history, output_left, output_right);
         if (graph->peq_transition_active) {
             float target_left = output_left;
@@ -668,6 +667,7 @@ void dsp_graph_process(
         dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
         dsp_harmonic_process_frame(&graph->harmonic, &output_left, &output_right, (int)channels);
         dsp_convolver_process_frame(&graph->convolver, &output_left, &output_right, (int)channels);
+        dsp_spatial_process_seat(&graph->spatial, &output_left, &output_right, (int)channels);
         dsp_dynamics_process_limiter_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
         if (!isfinite(output_left)) {
             output_left = 0.0f;

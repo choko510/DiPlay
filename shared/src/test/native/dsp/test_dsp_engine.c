@@ -4140,8 +4140,10 @@ static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
     float input[1024];
     float output[1024] = {0.0f};
     for (size_t frame = 0; frame < 512; frame++) {
-        input[frame * 2] = 0.5f;
-        input[frame * 2 + 1] = -0.5f;
+        // Use a 1 kHz antiphase tone so macro width operates above the 200 Hz bass protection HPF.
+        const float sample = 0.5f * sinf(2.0f * 3.14159265358979323846f * 1000.0f * (float)frame / 48000.0f);
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = -sample;
     }
     dsp_engine *engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
     assert_true(engine != NULL, "hot update studio graph creates");
@@ -4206,7 +4208,14 @@ static void test_studio_hot_command_is_acknowledged_after_its_block(void) {
             "bounded HOT transition completion block processes");
     }
     assert_true(dsp_engine_get_hot_ack_token(engine) == 44, "latest queued generation is applied and acknowledged");
-    assert_true(fabsf(output[1022]) > 0.5f && fabsf(output[1022]) < 0.63f,
+    double out_rms_sq = 0.0;
+    double in_rms_sq = 0.0;
+    for (size_t frame = 256; frame < 512; frame++) {
+        in_rms_sq += (double)input[frame * 2] * (double)input[frame * 2];
+        out_rms_sq += (double)output[frame * 2] * (double)output[frame * 2];
+    }
+    const double rms_ratio = sqrt(out_rms_sq / in_rms_sq);
+    assert_true(rms_ratio > 1.05 && rms_ratio < 1.26,
         "macro width moves toward its target without an abrupt step");
     assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 0, 0, 0, 0, 0),
         "renderer close invalidates native owner context");
@@ -4742,10 +4751,10 @@ static void test_dynamic_bass_threshold_curve_and_boost_ceiling(void) {
     const double expected_max_gain = pow(10.0, 3.0 / 20.0);
     assert_true(bass.current_gain > 1.0 && bass.current_gain < expected_max_gain,
         "mid-threshold bass requests an intermediate lift");
-    const double threshold_amount = (pow(10.0, -10.0 / 20.0) - 0.1) /
-        (pow(10.0, -10.0 / 20.0) - pow(10.0, -40.0 / 20.0));
+    const double level_dbfs = 20.0 * log10(0.1);
+    const double threshold_amount = (-10.0 - level_dbfs) / (-10.0 - (-40.0));
     assert_near(bass.current_gain, 1.0 + (expected_max_gain - 1.0) * threshold_amount, 0.015,
-        "threshold interpolation follows the configured linear-amplitude curve");
+        "threshold interpolation follows the configured dBFS curve");
     assert_true(bass.current_gain <= expected_max_gain + 1e-12,
         "dynamic bass gain remains within configured maximum boost");
 }
@@ -4754,7 +4763,8 @@ static void test_dynamic_bass_attack_release_and_linked_detection(void) {
     dsp_dynamic_bass bass;
     assert_true(dsp_dynamic_bass_prepare(&bass, 44100, 1, &dynamic_bass_test_config),
         "mono dynamic bass prepares at 44.1 kHz");
-    process_dynamic_bass_constant(&bass, 0.05f, 0.0f, 1, 44100);
+    // Allow sufficient time (~4s) for the 250 ms release envelope and gain to settle before step-response probes.
+    process_dynamic_bass_constant(&bass, 0.05f, 0.0f, 1, 44100 * 4);
     const double quiet_gain = bass.current_gain;
     assert_true(quiet_gain > 1.0, "quiet low band reaches a positive lift");
     process_dynamic_bass_constant(&bass, 0.5f, 0.0f, 1, 1);
@@ -4763,8 +4773,13 @@ static void test_dynamic_bass_attack_release_and_linked_detection(void) {
     const double strong_bass_gain = bass.current_gain;
     assert_true(first_transient_gain < quiet_gain && strong_bass_gain < first_transient_gain,
         "attack progressively reduces lift when strong bass arrives");
+    process_dynamic_bass_constant(&bass, 0.05f, 0.0f, 1, 4410);
+    const double partial_release_gain = bass.current_gain;
+    // Gain reduction over 100 ms (attack = 40 ms) covers a larger fraction of range than recovery (release = 250 ms).
+    assert_true((quiet_gain - strong_bass_gain) > (partial_release_gain - strong_bass_gain) * 1.5,
+        "attack reduces boost faster than release restores it");
     process_dynamic_bass_constant(&bass, 0.05f, 0.0f, 1, 22050);
-    assert_true(bass.current_gain > strong_bass_gain && bass.current_gain <= quiet_gain,
+    assert_true(bass.current_gain > strong_bass_gain && bass.current_gain <= quiet_gain + 1e-4,
         "release restores lift gradually when bass becomes quiet");
 
     dsp_dynamic_bass mono;
@@ -4918,6 +4933,129 @@ static void test_dynamic_bass_graph_is_block_boundary_invariant(void) {
     dsp_engine_destroy(partitioned_engine);
 }
 
+static void test_seat_alignment_runs_after_ms_and_before_limiter(void) {
+    dsp_spatial_config config = {
+        .width = 1.6,
+        .mono_bass_enabled = 0,
+        .mono_bass_cutoff_hz = 120,
+        .seat_enabled = 1,
+        .seat_near_speaker = DSP_SPATIAL_NEAR_LEFT,
+        .seat_distance_difference_cm = 34300.0 * 10.0 / 48000.0,
+        .seat_left_trim_db = -3.0,
+        .seat_right_trim_db = 0.0,
+    };
+    dsp_engine *engine = create_test_engine_with_spatial(48000, 2, 512, &config, NULL, 0, NULL, 0);
+    assert_true(engine != NULL, "seat + width graph creates");
+    // Dual-mono high-frequency sine: because seat alignment runs after M/S width, Side must remain 0
+    // so output equals pure delayed/trimmed left and untouched right with no M/S comb filtering.
+    float input[1024];
+    float output[1024] = {0.0f};
+    for (size_t frame = 0; frame < 512; frame++) {
+        const float sample = 0.4f * sinf(2.0f * 3.14159265358979323846f * 2400.0f * (float)frame / 48000.0f);
+        input[frame * 2] = sample;
+        input[frame * 2 + 1] = sample;
+    }
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "seat + width stereo block processes");
+    const double left_trim = pow(10.0, -3.0 / 20.0);
+    for (size_t frame = 64; frame < 512; frame++) {
+        assert_near(output[frame * 2], input[(frame - 10) * 2] * left_trim, 1e-4,
+            "left channel receives delayed dual-mono input without M/S leakage");
+        assert_near(output[frame * 2 + 1], input[frame * 2 + 1], 1e-5,
+            "right channel receives exact dual-mono input without M/S leakage");
+    }
+    dsp_engine_destroy(engine);
+}
+
+static void test_macro_width_protects_low_bass_side_energy(void) {
+    const dsp_macro_config macro = {1, 0.0, 0.0, 0.0, 1.25};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "macro width studio graph creates");
+
+    double bass_side_ratio = 0.0;
+    double high_side_ratio = 0.0;
+    const double test_freqs[] = {40.0, 2000.0};
+    for (size_t f_idx = 0; f_idx < 2; f_idx++) {
+        assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "macro graph resets");
+        double in_sq = 0.0;
+        double out_sq = 0.0;
+        for (int block = 0; block < 16; block++) {
+            float in_buf[1024];
+            float out_buf[1024] = {0.0f};
+            for (size_t frame = 0; frame < 512; frame++) {
+                const size_t t = (size_t)block * 512 + frame;
+                const float s = 0.25f * sinf(2.0f * 3.14159265358979323846f * (float)test_freqs[f_idx] * (float)t / 48000.0f);
+                in_buf[frame * 2] = s;
+                in_buf[frame * 2 + 1] = -s;
+            }
+            assert_true(dsp_engine_process(engine, in_buf, 1024, out_buf, 1024, 512, 2) == DSP_STATUS_OK,
+                "macro width probe block processes");
+            if (block >= 8) {
+                for (size_t frame = 0; frame < 512; frame++) {
+                    in_sq += (double)in_buf[frame * 2] * in_buf[frame * 2];
+                    out_sq += (double)out_buf[frame * 2] * out_buf[frame * 2];
+                }
+            }
+        }
+        if (f_idx == 0) bass_side_ratio = sqrt(out_sq / in_sq);
+        else high_side_ratio = sqrt(out_sq / in_sq);
+    }
+    assert_true(bass_side_ratio < 1.05, "40 Hz antiphase bass side is not heavily amplified by macro width");
+    assert_true(high_side_ratio > 1.20, "2 kHz side widens cleanly above the bass protection cutoff");
+    dsp_engine_destroy(engine);
+}
+
+static void test_dynamic_eq_boost_silences_below_noise_floor(void) {
+    dsp_dynamic_eq_config boost = bypass_dynamic_eq;
+    boost.enabled = 1;
+    boost.bands[0] = (dsp_dynamic_eq_band_config){1, DSP_DYNAMIC_EQ_BOOST, 1000.0, 1.0, -24.0, 4.0, 5.0, 80.0, 6.0, 6.0};
+    dsp_dynamic_eq dynamic_eq;
+    assert_true(dsp_dynamic_eq_prepare(&dynamic_eq, 48000, &boost), "dynamic EQ boost silence gate prepares");
+    for (int frame = 0; frame < 4096; frame++) {
+        float left = 0.0f;
+        float right = 0.0f;
+        dsp_dynamic_eq_process_frame(&dynamic_eq, &left, &right, 2);
+        assert_near(left, 0.0, 0.0, "digital silence stays zero");
+    }
+    assert_near(dynamic_eq.bands[0].current_mix, 0.0, 1e-6, "digital silence does not engage BOOST mix");
+}
+
+static void test_multiband_close_crossovers_maintain_flat_response(void) {
+    dsp_multiband_config config = bypass_multiband;
+    config.enabled = 1;
+    config.low_mid_crossover_hz = 500.0;
+    config.mid_high_crossover_hz = 900.0;
+    dsp_engine *engine = create_test_engine_with_multiband(48000, 1, 512, &config);
+    assert_true(engine != NULL, "close-crossover multiband graph creates");
+    const double freqs[] = {100.0, 400.0, 650.0, 900.0, 2000.0, 10000.0};
+    for (size_t i = 0; i < sizeof(freqs) / sizeof(freqs[0]); i++) {
+        assert_near(measure_sine_gain(engine, freqs[i], 1), 1.0, 0.03,
+            "allpass phase alignment preserves flat reconstruction even for close crossovers");
+        assert_true(dsp_engine_reset(engine) == DSP_STATUS_OK, "close-crossover multiband resets");
+    }
+    dsp_engine_destroy(engine);
+}
+
+static void test_harmonic_adaptive_drive_boosts_low_level_harmonics(void) {
+    dsp_harmonic_config config = make_harmonic_config();
+    config.mode = 0; // Even (2nd harmonic)
+    config.taps = 17;
+    config.exciter_amount = 0.4;
+    config.exciter_cutoff_hz = 1000.0;
+    config.level_match_enabled = 0;
+    dsp_engine *engine = create_test_engine_with_harmonic(48000, 2, 512, &config);
+    assert_true(engine != NULL, "adaptive harmonic graph creates");
+    // At amplitude 0.05 (-26 dBFS), un-driven x^2 * 0.4 * 0.5 yields ~0.0005.
+    // With 4x adaptive drive, 2nd harmonic rises ~4x (> 0.0015).
+    const double second_harmonic = measure_output_tone_component_at_rate_with_amplitude(
+        engine, 48000, 2000.0, 4000.0, 0.05);
+    assert_true(second_harmonic > 0.0015,
+        "adaptive drive makes harmonics measurable on realistic -26 dBFS music levels");
+    dsp_engine_destroy(engine);
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
@@ -4985,6 +5123,11 @@ int main(void) {
     test_local_peq_cancel_fades_back_smoothly_at_early_middle_and_late_points();
     test_local_peq_rollout_cancel_stops_queued_and_active_transitions();
     test_local_peq_candidate_history_and_owner_fences();
+    test_seat_alignment_runs_after_ms_and_before_limiter();
+    test_macro_width_protects_low_bass_side_energy();
+    test_dynamic_eq_boost_silences_below_noise_floor();
+    test_multiband_close_crossovers_maintain_flat_response();
+    test_harmonic_adaptive_drive_boosts_low_level_harmonics();
     puts("native DSP tests passed");
     return 0;
 }

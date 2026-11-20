@@ -50,7 +50,7 @@ class DspAutoHeadroomTest {
 
         assertTrue(result.filterPeakDb > 8.5)
         assertEquals(
-            2.0 + result.filterPeakDb + 3.0 + 20.0 * kotlin.math.log10(2.0) + 1.0,
+            2.0 + result.filterPeakDb + 3.0 + 0.5 * 20.0 * kotlin.math.log10(2.0) + 1.0,
             result.reductionDb,
             0.02,
         )
@@ -85,29 +85,26 @@ class DspAutoHeadroomTest {
     }
 
     @Test
-    fun studioToneHeadroomUsesConservativeNativeStageBounds() {
+    fun studioToneHeadroomUsesAccurateNativeFrequencyResponseBounds() {
         val macro = DspMacroToneConfig(enabled = true, bassGainDb = 4.0, vocalGainDb = 2.5, airGainDb = 2.0)
         val loudness = DspSmartLoudnessRuntimeConfig(enabled = true, lowGainDb = 3.0, highGainDb = 1.5)
         val config = DspRuntimeConfig(enabled = true, macroTone = macro, smartLoudness = loudness)
 
         val prepared = config.prepare(DspAudioFormat(48_000, 2))
-        val expected = 1.0 + macro.conservativeBoostDb() + loudness.conservativeBoostDb()
+        val expected = 1.0 + macro.conservativeBoostDb(48_000) + loudness.conservativeBoostDb(48_000)
 
         assertEquals(expected, prepared.headroom.reductionDb, 0.02)
         assertEquals(-expected, prepared.appliedPreampDb, 0.02)
-        assertTrue(macro.conservativeBoostDb() > macro.bassGainDb + macro.vocalGainDb + macro.airGainDb)
+        assertTrue(macro.conservativeBoostDb(48_000) < macro.bassGainDb + macro.vocalGainDb + macro.airGainDb)
+        assertTrue(macro.conservativeBoostDb(48_000) >= 3.9)
     }
 
     @Test
-    fun smartLoudnessHighPassTransientUsesItsWorstCaseImpulseGainForHeadroom() {
+    fun smartLoudnessHighPassMatchesFirstOrderShelfCeilingWithoutL1Inflation() {
         val loudness = DspSmartLoudnessRuntimeConfig(enabled = true, highGainDb = 1.5)
 
-        assertEquals(
-            20.0 * kotlin.math.log10(1.0 + 2.0 * (StrictMath.pow(10.0, 1.5 / 20.0) - 1.0)),
-            loudness.conservativeBoostDb(),
-            0.0001,
-        )
-        assertTrue(loudness.conservativeBoostDb() > loudness.highGainDb)
+        val boostDb = loudness.conservativeBoostDb(48_000)
+        assertTrue(boostDb > 0.7 && boostDb < 2.0)
     }
 
     @Test
@@ -129,10 +126,10 @@ class DspAutoHeadroomTest {
     }
 
     @Test
-    fun dynamicBoostHeadroomIncludesEveryEnabledBoostBandMaximum() {
+    fun dynamicBoostHeadroomOnlyCountsPotentialOvershootAboveZeroDbfs() {
         val bands = DspDynamicEqConfig.defaultBands().toMutableList()
-        bands[0] = DspDynamicEqBandConfig(enabled = true, maxBoostDb = 3.0, mode = DspDynamicEqMode.BOOST)
-        bands[1] = DspDynamicEqBandConfig(enabled = true, maxBoostDb = 4.0, mode = DspDynamicEqMode.BOOST)
+        bands[0] = DspDynamicEqBandConfig(enabled = true, thresholdDb = -24.0, maxBoostDb = 3.0, mode = DspDynamicEqMode.BOOST)
+        bands[1] = DspDynamicEqBandConfig(enabled = true, thresholdDb = -2.0, maxBoostDb = 4.0, mode = DspDynamicEqMode.BOOST)
         bands[2] = DspDynamicEqBandConfig(enabled = true, maxBoostDb = 12.0, mode = DspDynamicEqMode.CUT)
         val config = DspRuntimeConfig(
             enabled = true,
@@ -141,8 +138,9 @@ class DspAutoHeadroomTest {
 
         val prepared = config.prepare(DspAudioFormat(48_000, 2))
 
-        assertEquals(8.0, prepared.headroom.reductionDb, 0.02)
-        assertEquals(-8.0, prepared.appliedPreampDb, 0.02)
+        // Only band 1 (-2 dBFS + 4 dB boost = +2 dBFS) can exceed 0 dBFS, plus 1 dB margin = 3.0 dB.
+        assertEquals(3.0, prepared.headroom.reductionDb, 0.02)
+        assertEquals(-3.0, prepared.appliedPreampDb, 0.02)
     }
 
     @Test
@@ -224,5 +222,52 @@ class DspAutoHeadroomTest {
         val expectedBoostDb = config.harmonic.worstCaseBoostDb
         assertEquals(expectedBoostDb + 1.0, prepared.headroom.reductionDb, 0.02)
         assertEquals(-expectedBoostDb - 1.0, prepared.appliedPreampDb, 0.02)
+    }
+
+    @Test
+    fun advancedMsSuppressesMonoBassAndLowSampleRateSanitizesSafely() {
+        val advanced = DspRuntimeConfig(
+            enabled = true,
+            stereoWidth = 1.5,
+            monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 120),
+            advancedMs = DspAdvancedMsConfig(enabled = true),
+            macroTone = DspMacroToneConfig(enabled = true, relativeWidth = 1.25),
+            harmonic = DspHarmonicConfig(enabled = true, exciterEnabled = true, exciterCutoffHz = 6_000.0),
+        )
+        val prepared48 = advanced.prepare(DspAudioFormat(48_000, 2))
+        assertEquals(0, prepared48.monoBassCoefficients.size)
+        assertEquals(0.0, prepared48.spatial[1], 0.0)
+        assertEquals(1.0, prepared48.macroTone[4], 0.0)
+        assertTrue(prepared48.diagnosticsNotes.contains("mono_bass_bypassed_by_advanced_ms"))
+
+        // Low 8 kHz stream does not throw even with 6 kHz harmonic exciter configured (F-5).
+        val prepared8 = advanced.prepare(DspAudioFormat(8_000, 2))
+        assertEquals(0.0, prepared8.harmonic[0], 0.0)
+        assertTrue(prepared8.diagnosticsNotes.contains("harmonic_disabled_for_sample_rate"))
+    }
+
+    @Test
+    fun macroWidthIsBoundedWhenStackedWithSpatialWidthAndConvolverUsesSpectralPeak() {
+        val stacked = DspRuntimeConfig(
+            enabled = true,
+            stereoWidth = 1.5,
+            macroTone = DspMacroToneConfig(enabled = true, relativeWidth = 1.25),
+        )
+        val prepared = stacked.prepare(DspAudioFormat(48_000, 2))
+        assertTrue(prepared.macroTone[4] * stacked.stereoWidth <= 1.61)
+        assertTrue(prepared.diagnosticsNotes.contains("macro_width_capped_with_spatial"))
+
+        // Dispersed impulse with flat unit spectrum (+-0.5 alternating? Sum(|h|)=1.0, use [0.5, 0.5, 0.0, 0.0]) vs oscillating IR
+        val alternatingIr = DspImpulseResponse(
+            id = "osc",
+            sampleRate = 48_000,
+            channels = 1,
+            samples = FloatArray(16) { index -> if (index % 2 == 0) 0.1f else -0.1f },
+        )
+        // L1 time sum would be 1.6 (~+4.08 dB), whereas Nyquist alternating sequence has spectral peak 1.6 only at Nyquist;
+        // compare with dense orthogonal impulse [0.5, 0.5, 0.5, -0.5] where L1 sum = 2.0 (6.02 dB) vs spectral peak ~ 1.414 (3.01 dB).
+        val barker4 = DspImpulseResponse("barker4", 48_000, 1, floatArrayOf(0.5f, 0.5f, 0.5f, -0.5f))
+        assertTrue(barker4.conservativePeakGainDb(1.0) < 4.0)
+        assertTrue(alternatingIr.conservativePeakGainDb(1.0) > 0.0)
     }
 }

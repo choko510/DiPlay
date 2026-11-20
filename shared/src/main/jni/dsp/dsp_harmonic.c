@@ -98,7 +98,14 @@ static float process_upsampled_branch(
     const float coefficients[DSP_HARMONIC_MAX_FIR_TAPS],
     int taps,
     float sample,
+    float env_release_alpha,
     int mode) {
+    const float abs_sample = fabsf(sample);
+    state->input_envelope = abs_sample > state->input_envelope
+        ? abs_sample
+        : env_release_alpha * state->input_envelope + (1.0f - env_release_alpha) * abs_sample;
+    // Normalize low-level filtered bands toward 0.40 peak (max 4x drive) so harmonics remain audible.
+    const float drive = fminf(4.0f, fmaxf(1.0f, 0.40f / fmaxf(state->input_envelope, 0.05f)));
     float output = 0.0f;
     for (int phase = 0; phase < 2; phase++) {
         state->upsample_ring[state->upsample_write_index] = phase == 0 ? sample : 0.0f;
@@ -109,11 +116,12 @@ static float process_upsampled_branch(
             upsampled += coefficients[tap] * state->upsample_ring[read_index];
         }
         upsampled *= 2.0f;
+        const float driven = upsampled * drive;
         const float shaped = waveshape_antiderivative(
-            upsampled,
+            driven,
             state->previous_upsampled_sample,
-            mode);
-        state->previous_upsampled_sample = upsampled;
+            mode) / drive;
+        state->previous_upsampled_sample = driven;
         state->shaped_ring[state->shaped_write_index] = fabsf(shaped) < 1e-20f ? 0.0f : shaped;
         if (phase == 0) {
             for (int tap = 0; tap < taps; tap++) {
@@ -155,6 +163,7 @@ int dsp_harmonic_prepare(
     harmonic->level_match_gain = harmonic->level_match_enabled
         ? (float)pow(10.0, -1.5 * additive_amount / 20.0)
         : 1.0f;
+    harmonic->env_release_alpha = expf(-1.0f / (0.150f * (float)sample_rate));
     if (!harmonic->active) {
         dsp_harmonic_reset(harmonic);
         return 1;
@@ -224,14 +233,24 @@ void dsp_harmonic_process_frame(dsp_harmonic *harmonic, float *left, float *righ
             const float high_passed = dsp_biquad_process_sample(&harmonic->exciter_high_pass, input, channel);
             const float band = dsp_biquad_process_sample(&harmonic->exciter_alias_guard, high_passed, channel);
             float harmonic_component = process_upsampled_branch(
-                &harmonic->branches[channel][0], harmonic->fir_coefficients, harmonic->taps, band, harmonic->mode);
+                &harmonic->branches[channel][0],
+                harmonic->fir_coefficients,
+                harmonic->taps,
+                band,
+                harmonic->env_release_alpha,
+                harmonic->mode);
             harmonic_component = dsp_biquad_process_sample(&harmonic->exciter_dc_block, harmonic_component, channel);
             output[channel] += harmonic_component * harmonic->exciter_amount;
         }
         if (harmonic->virtual_bass_enabled) {
             const float band = dsp_biquad_process_sample(&harmonic->virtual_bass_low_pass, input, channel);
             float harmonic_component = process_upsampled_branch(
-                &harmonic->branches[channel][1], harmonic->fir_coefficients, harmonic->taps, band, harmonic->mode);
+                &harmonic->branches[channel][1],
+                harmonic->fir_coefficients,
+                harmonic->taps,
+                band,
+                harmonic->env_release_alpha,
+                harmonic->mode);
             harmonic_component = dsp_biquad_process_sample(&harmonic->virtual_bass_dc_block, harmonic_component, channel);
             output[channel] += harmonic_component * harmonic->virtual_bass_amount;
         }

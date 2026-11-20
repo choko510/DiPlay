@@ -15,8 +15,9 @@ import java.util.concurrent.atomic.AtomicReference
 internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntimeConfig.disabled()) : DspConfigProvider {
     private val current = AtomicReference(DspConfigSnapshot(0L, initialConfig))
     private val studioHotUpdatesAllowed = AtomicBoolean(true)
-    private val studioLocalWarmAllowed = AtomicBoolean(false)
+    private val studioLocalWarmAllowed = AtomicBoolean(true)
     private val rendererApplyState = AtomicReference(RendererApplyState(null, null))
+    private val latestDiagnosticSummary = AtomicReference<String?>(null)
     private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
     private val playbackSampleRates = ConcurrentHashMap<Any, PlaybackSampleRate>()
     private val nextPlaybackSampleRateRevision = AtomicLong()
@@ -50,6 +51,12 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
     }
 
     override fun rendererApplyStatus(): DspRendererApplyStatus? = rendererApplyState.get().status
+
+    override fun diagnosticSummary(): String? = latestDiagnosticSummary.get()
+
+    override fun reportDiagnosticSummary(summary: String?) {
+        latestDiagnosticSummary.set(summary)
+    }
 
     override fun claimRendererApplyStatusOwner(ownerToken: Long) {
         require(ownerToken > 0L)

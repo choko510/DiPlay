@@ -47,6 +47,7 @@ int dsp_macro_prepare(dsp_macro *macro, int sample_rate, int channels, const dsp
     macro->vocal_low_alpha = one_pole_alpha(500.0, sample_rate);
     macro->vocal_high_alpha = one_pole_alpha(4000.0, sample_rate);
     macro->air_alpha = one_pole_alpha(fmin(8000.0, (double)sample_rate * 0.4), sample_rate);
+    macro->width_hp_alpha = one_pole_alpha(200.0, sample_rate);
     macro->vocal_normalization = 1.0;
     set_targets(macro, config);
     macro->enabled = config->enabled;
@@ -118,9 +119,16 @@ void dsp_macro_process_frame(dsp_macro *macro, float *left, float *right, int ch
     float output_left = process_channel(macro, *left, 0);
     if (channels == 2 && right != NULL) {
         float output_right = process_channel(macro, *right, 1);
+        const float raw_side = 0.5f * (output_left - output_right);
+        const float side_low = (float)macro->width_hp_alpha * (raw_side - macro->side_low_state) +
+            macro->side_low_state;
+        macro->side_low_state = side_low;
         if (macro->current_width != 1.0) {
             const float mid = 0.5f * (output_left + output_right);
-            const float side = 0.5f * (output_left - output_right) * (float)macro->current_width;
+            // Only widen above ~200 Hz so car door speakers do not amplify antiphase bass pressure.
+            const float side = macro->current_width > 1.0
+                ? raw_side + (float)(macro->current_width - 1.0) * (raw_side - side_low)
+                : raw_side * (float)macro->current_width;
             output_left = mid + side;
             *right = mid - side;
         } else if (!neutral_tone) {
@@ -138,6 +146,7 @@ void dsp_macro_reset(dsp_macro *macro) {
     memset(macro->vocal_low_state, 0, sizeof(macro->vocal_low_state));
     memset(macro->vocal_high_state, 0, sizeof(macro->vocal_high_state));
     memset(macro->air_state, 0, sizeof(macro->air_state));
+    macro->side_low_state = 0.0f;
 }
 
 void dsp_macro_flush_denormals(dsp_macro *macro) {
@@ -148,4 +157,5 @@ void dsp_macro_flush_denormals(dsp_macro *macro) {
         if (fabsf(macro->vocal_high_state[channel]) < 1.0e-20f) macro->vocal_high_state[channel] = 0.0f;
         if (fabsf(macro->air_state[channel]) < 1.0e-20f) macro->air_state[channel] = 0.0f;
     }
+    if (fabsf(macro->side_low_state) < 1.0e-20f) macro->side_low_state = 0.0f;
 }

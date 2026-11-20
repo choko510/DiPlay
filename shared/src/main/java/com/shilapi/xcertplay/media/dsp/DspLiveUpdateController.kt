@@ -17,11 +17,14 @@ internal data class DspPreparedUpdate(
     val preampHotUpdate: DspPreparedPreampHotUpdate? = null,
     val localPeqWarmUpdate: DspPreparedLocalPeqWarmUpdate? = null,
     val localWarmFailureReason: String? = null,
+    val localWarmRequiresWarmFallback: Boolean = false,
+    val preDeferredReason: String? = null,
 )
 
 internal data class DspLocalPeqWarmPreparation(
     val update: DspPreparedLocalPeqWarmUpdate? = null,
     val unavailableReason: String? = null,
+    val requiresWarmCrossfade: Boolean = false,
 )
 
 internal typealias DspPipelinePreparer = (DspAudioFormat, DspRuntimeConfig) -> DspPcmPipeline?
@@ -47,6 +50,7 @@ internal class DspLiveUpdateController(
     private val preampHotUpdatePreparer: ((DspAudioFormat, DspConfigSnapshot) -> DspPreparedPreampHotUpdate?)? = null,
     private val localPeqWarmPreparer: DspLocalPeqWarmPreparer? = null,
     private val onRetirementCompleted: (DspPcmPipeline, Long) -> Unit = { _, _ -> },
+    private val preDeferCheck: ((DspConfigSnapshot) -> String?)? = null,
 ) : Closeable {
     private val closed = AtomicBoolean(false)
     private val workRequested = AtomicBoolean(false)
@@ -107,7 +111,16 @@ internal class DspLiveUpdateController(
                     val hotUpdate = hotUpdatePreparer?.invoke(format, snapshot)
                     val preampHotUpdate = if (hotUpdate == null) preampHotUpdatePreparer?.invoke(format, snapshot) else null
                     val localPeqWarm = if (hotUpdate == null && preampHotUpdate == null) localPeqWarmPreparer?.invoke(format, snapshot) else null
-                    if (hotUpdate == null && preampHotUpdate == null && localPeqWarm?.update == null) {
+                    val preDeferredReason = if (hotUpdate == null && preampHotUpdate == null &&
+                        localPeqWarm?.update == null && localPeqWarm?.requiresWarmCrossfade != true
+                    ) {
+                        preDeferCheck?.invoke(snapshot)
+                    } else {
+                        null
+                    }
+                    if (hotUpdate == null && preampHotUpdate == null && localPeqWarm?.update == null &&
+                        preDeferredReason == null
+                    ) {
                         candidate = pipelinePreparer(format, snapshot.config)
                     }
                     candidate?.configGeneration = snapshot.generation
@@ -123,10 +136,13 @@ internal class DspLiveUpdateController(
                         }
                         continue
                     }
-                    val latencyFrames = if (hotUpdate != null || preampHotUpdate != null || localPeqWarm?.update != null) {
+                    val latencyFrames = if (hotUpdate != null || preampHotUpdate != null ||
+                        localPeqWarm?.update != null || preDeferredReason != null
+                    ) {
                         activeLatencyFrames().coerceAtLeast(0)
+                    } else {
+                        preparedLatencyFrames(candidate).coerceAtLeast(0)
                     }
-                    else preparedLatencyFrames(candidate).coerceAtLeast(0)
                     val deferLatencyChange = latencyFrames != activeLatencyFrames() && !canAdoptLatencyChange()
                     if (desired.get()?.generation != snapshot.generation) {
                         retire(candidate)
@@ -149,6 +165,8 @@ internal class DspLiveUpdateController(
                         preampHotUpdate,
                         localPeqWarm?.update,
                         localPeqWarm?.unavailableReason,
+                        localWarmRequiresWarmFallback = localPeqWarm?.requiresWarmCrossfade == true,
+                        preDeferredReason = preDeferredReason,
                     )
                     val transferred = onPreparedResult?.invoke(update) ?: run {
                         onPrepared(update)
@@ -160,12 +178,14 @@ internal class DspLiveUpdateController(
                         retire(candidate)
                         candidate = null
                     }
-                    if (transferred && deferLatencyChange) {
+                    if (transferred && (deferLatencyChange || preDeferredReason != null)) {
+                        val deferReason = if (deferLatencyChange) {
+                            "DSP latency change is deferred until the next AudioTrack generation"
+                        } else {
+                            requireNotNull(preDeferredReason)
+                        }
                         runCatching {
-                            onDeferred(
-                                snapshot.generation,
-                                "DSP latency change is deferred until the next AudioTrack generation",
-                            )
+                            onDeferred(snapshot.generation, deferReason)
                         }
                     }
                 } catch (error: Throwable) {

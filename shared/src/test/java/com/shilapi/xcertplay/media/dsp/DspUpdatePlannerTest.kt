@@ -29,14 +29,26 @@ class DspUpdatePlannerTest {
         assertEquals(DspUpdatePlan.DEFERRED,
             DspUpdatePlanner.classify(current, unsafeLimiter, true, true, 0, 0, true))
 
-        val eqCurrent = DspRuntimeConfig(enabled = true, dynamicEq = DspDynamicEqConfig(enabled = true))
+        val eqCurrent = DspRuntimeConfig(enabled = true, dynamicEq = DspDynamicEqConfig(
+            enabled = true,
+            bands = DspDynamicEqConfig.defaultBands().mapIndexed { index, band ->
+                if (index == 0) band.copy(enabled = true) else band
+            },
+        ))
         val eqThreshold = DspDynamicEqConfig(enabled = true, bands = eqCurrent.dynamicEq.bands.mapIndexed { index, band ->
-            if (index == 0) band.copy(thresholdDb = -30.0, ratio = 3.0, attackMs = 12.0,
+            if (index == 0) band.copy(enabled = true, thresholdDb = -30.0, ratio = 3.0, attackMs = 12.0,
                 releaseMs = 130.0, maxBoostDb = 4.0, maxCutDb = 5.0) else band
         })
         val eqTarget = DspRuntimeConfig(enabled = true, dynamicEq = eqThreshold)
         assertEquals(DspUpdatePlan.HOT,
             DspUpdatePlanner.classify(eqCurrent, eqTarget, true, true, 0, 0, true))
+        val exceedsPreparedPeak = DspRuntimeConfig(enabled = true, dynamicEq = DspDynamicEqConfig(
+            enabled = true, bands = eqCurrent.dynamicEq.bands.mapIndexed { index, band ->
+                if (index == 0) band.copy(enabled = true, maxCutDb = 9.0) else band
+            }))
+        assertFalse(DspUpdatePlanner.canHotDynamicEq(eqTarget, exceedsPreparedPeak, eqCurrent))
+        assertEquals(DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(eqTarget, exceedsPreparedPeak, true, true, 0, 0, true, prepared = eqCurrent))
         val frequencyTarget = DspRuntimeConfig(enabled = true, dynamicEq = DspDynamicEqConfig(
             enabled = true, bands = eqThreshold.bands.mapIndexed { index, band ->
                 if (index == 0) band.copy(frequencyHz = 125.0) else band
@@ -197,7 +209,16 @@ class DspUpdatePlannerTest {
         assertEquals(setOf(DspRuntimeField.PEQ), DspUpdatePlanner.diff(currentWithConvolver, peqOnly))
         assertEquals(
             DspUpdatePlan.DEFERRED,
-            DspUpdatePlanner.classify(currentWithConvolver, peqOnly, true, true, 0, 0, true),
+            DspUpdatePlanner.classify(
+                currentWithConvolver,
+                peqOnly,
+                true,
+                true,
+                0,
+                0,
+                true,
+                studioLocalWarmEnabled = false,
+            ),
         )
         assertEquals(
             DspUpdatePlan.LOCAL_WARM,
@@ -271,6 +292,7 @@ class DspUpdatePlannerTest {
                 0,
                 0,
                 true,
+                studioLocalWarmEnabled = false,
             ).reason,
         )
         val cabinOnly = DspRuntimeConfig(

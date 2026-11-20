@@ -33,6 +33,7 @@ data class SpeedCompensationState(
     val settings: SpeedCompensationSettings = SpeedCompensationSettings(),
     val lastFixNanos: Long = Long.MIN_VALUE,
     val speedAccuracyMetersPerSecond: Double? = null,
+    val boostAllowed: Boolean = true,
 ) {
     val active: Boolean get() = settings.active || !gains.isNeutral
 }
@@ -66,11 +67,15 @@ class SpeedCompensationController(
     private var lastFixNanos = Long.MIN_VALUE
     private var lastSpeedAccuracy: Double? = null
     private var started = false
+    private var boostAllowed = true
 
     fun start() {
         synchronized(lock) {
             if (started) return
             started = true
+            // A new session must not replay the speed of the previous one while the GPS has not
+            // delivered a fresh fix yet.
+            estimator.reset()
             lastTickNanos = Long.MIN_VALUE
             lastEmitNanos = Long.MIN_VALUE
             lastEmittedGains = SpeedCompensationGains.NEUTRAL
@@ -84,6 +89,7 @@ class SpeedCompensationController(
         synchronized(lock) {
             if (!started) return
             started = false
+            estimator.reset()
             gains = SpeedCompensationGains.NEUTRAL
             lastEmittedGains = SpeedCompensationGains.NEUTRAL
             estimate = SpeedEstimate(0.0, stopped = true, stale = true)
@@ -131,10 +137,34 @@ class SpeedCompensationController(
      */
     fun setTestSpeed(speedKmh: Double?) {
         synchronized(lock) {
-            testSpeedKmh = speedKmh?.takeIf { it.isFinite() }?.coerceIn(0.0, SpeedCurvePoint.MAX_SPEED_KMH)
+            val previous = testSpeedKmh
+            val next = speedKmh?.takeIf { it.isFinite() }?.coerceIn(0.0, SpeedCurvePoint.MAX_SPEED_KMH)
+            testSpeedKmh = next
+            if (next != null) {
+                // The simulation takes effect immediately instead of waiting for the next tick.
+                estimate = SpeedEstimate(next, stopped = next <= estimatorStopSpeed(), stale = false)
+            } else if (previous != null) {
+                // Returning to real GPS input must not reuse the simulated speed.
+                estimator.reset()
+                estimate = SpeedEstimate(0.0, stopped = true, stale = true)
+            }
         }
         publish(force = true)
     }
+
+    /**
+     * Gates every applied gain, e.g. while Auto Headroom is disabled and the boost cannot be
+     * matched by a reserved preamp attenuation. Disallowed gains ramp down like a normal target.
+     */
+    fun setBoostAllowed(allowed: Boolean) {
+        synchronized(lock) {
+            if (boostAllowed == allowed) return
+            boostAllowed = allowed
+        }
+        publish(force = true)
+    }
+
+    fun isBoostAllowed(): Boolean = synchronized(lock) { boostAllowed }
 
     fun testSpeed(): Double? = synchronized(lock) { testSpeedKmh }
 
@@ -200,6 +230,7 @@ class SpeedCompensationController(
             settings = settings,
             lastFixNanos = lastFixNanos,
             speedAccuracyMetersPerSecond = lastSpeedAccuracy,
+            boostAllowed = boostAllowed,
         )
     }
 
@@ -221,7 +252,7 @@ class SpeedCompensationController(
     }
 
     private fun targetGains(settings: SpeedCompensationSettings, estimate: SpeedEstimate): SpeedCompensationGains {
-        if (!settings.active || !estimate.usable) return SpeedCompensationGains.NEUTRAL
+        if (!boostAllowed || !settings.active || !estimate.usable) return SpeedCompensationGains.NEUTRAL
         val speed = estimate.speedKmh ?: return SpeedCompensationGains.NEUTRAL
         val curve = settings.curve
         return SpeedCompensationGains(

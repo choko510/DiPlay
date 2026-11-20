@@ -87,6 +87,7 @@ internal class DspProfileRuntime private constructor(
             context = applicationContext,
             publishConfig = { config -> runtimeConfig.updateSpeedCompensation(config) },
             dspEnabledProvider = { isDspEnabled() },
+            autoHeadroomEnabledProvider = { runtimeConfig.snapshot().autoHeadroomEnabled },
         )
     }
 

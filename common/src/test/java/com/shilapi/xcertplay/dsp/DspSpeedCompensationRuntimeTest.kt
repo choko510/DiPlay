@@ -3,12 +3,15 @@ package com.shilapi.xcertplay.dsp
 import android.app.Application
 import com.shilapi.xcertplay.media.dsp.DspSpeedCompensationConfig
 import com.shilapi.xcertplay.speed.SpeedCompensationSettings
+import com.shilapi.xcertplay.speed.SpeedFix
 import com.shilapi.xcertplay.speed.SpeedFixListener
+import com.shilapi.xcertplay.speed.SpeedFixSource
 import com.shilapi.xcertplay.speed.SpeedGpsState
 import com.shilapi.xcertplay.speed.SpeedSource
 import com.shilapi.xcertplay.speed.SpeedSourceStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,12 +28,13 @@ class DspSpeedCompensationRuntimeTest {
     private var nowNanos = 0L
     private lateinit var runtime: DspSpeedCompensationRuntime
 
-    private fun createRuntime(dspEnabled: Boolean = true) {
+    private fun createRuntime(dspEnabled: Boolean = true, autoHeadroomEnabled: Boolean = true) {
         published.clear()
         runtime = DspSpeedCompensationRuntime(
             context = context,
             publishConfig = { published += it },
             dspEnabledProvider = { dspEnabled },
+            autoHeadroomEnabledProvider = { autoHeadroomEnabled },
             nowNanos = { nowNanos },
             store = DspSpeedCompensationStore(context),
             sourceFactory = { source },
@@ -65,7 +69,73 @@ class DspSpeedCompensationRuntimeTest {
 
         assertTrue(runtime.status().running)
         assertEquals(1, source.startCount)
+        // No fix yet: the stage must stay disabled and claim no headroom.
+        assertFalse(published.last().enabled)
+        assertEquals(0.0, published.last().reservedBoostDb, 1.0e-9)
+    }
+
+    @Test
+    fun waitingForAFixNeverReservesHeadroom() {
+        createRuntime()
+        runtime.updateSettings(SpeedCompensationSettings().withMasterEnabled(true))
+        runtime.attachHost()
+        tick(steps = 50)
+
+        assertTrue("the runtime keeps waiting for a fix", runtime.status().running)
+        assertNull(runtime.status().state.speedKmh)
+        assertTrue("a missing fix must not attenuate the music", published.all { it.reservedBoostDb == 0.0 })
+        assertTrue(published.all { !it.enabled })
+        assertEquals(0.0, runtime.status().state.gains.volumeDb, 1.0e-9)
+    }
+
+    @Test
+    fun aFixReservesHeadroomBeforeTheBoostIsApplied() {
+        createRuntime()
+        val settings = SpeedCompensationSettings().withMasterEnabled(true)
+        runtime.updateSettings(settings)
+        runtime.attachHost()
+        source.emit(90.0, nowNanos)
+        tick()
+
         assertTrue(published.last().enabled)
+        assertEquals(settings.reservedBoostDb, published.last().reservedBoostDb, 1.0e-9)
+        // The very first boosted publish already carries the reserve.
+        assertTrue(published.last().volumeGainDb <= published.last().reservedBoostDb)
+    }
+
+    @Test
+    fun losingTheFixDecaysTheBoostBeforeReleasingHeadroom() {
+        createRuntime()
+        val settings = SpeedCompensationSettings().withMasterEnabled(true)
+        runtime.updateSettings(settings)
+        runtime.attachHost()
+        source.emit(90.0, nowNanos)
+        repeat(20) {
+            tick()
+            source.emit(90.0, nowNanos)
+        }
+        assertTrue(runtime.status().state.gains.volumeDb > 0.5)
+
+        // Stop delivering fixes and let the estimate go stale.
+        repeat(60) { tick() }
+
+        assertEquals(0.0, runtime.status().state.gains.volumeDb, 1.0e-9)
+        assertFalse(published.last().enabled)
+        assertEquals(0.0, published.last().reservedBoostDb, 1.0e-9)
+    }
+
+    @Test
+    fun autoHeadroomOffDisablesTheBoostInsteadOfClipping() {
+        createRuntime(autoHeadroomEnabled = false)
+        runtime.updateSettings(SpeedCompensationSettings().withMasterEnabled(true))
+        runtime.attachHost()
+        runtime.setTestSpeed(120.0)
+        tick(steps = 30)
+
+        assertEquals(0.0, runtime.status().state.gains.volumeDb, 1.0e-9)
+        assertTrue(published.all { it.volumeGainDb == 0.0 })
+        assertTrue(published.all { it.reservedBoostDb == 0.0 })
+        assertTrue(published.all { !it.enabled })
     }
 
     @Test
@@ -171,6 +241,10 @@ class DspSpeedCompensationRuntimeTest {
     private class FakeSpeedSource : SpeedSource {
         var startCount = 0
         private var listener: SpeedFixListener? = null
+
+        fun emit(speedKmh: Double, elapsedRealtimeNanos: Long) {
+            listener?.onSpeedFix(SpeedFix(speedKmh, elapsedRealtimeNanos, SpeedFixSource.GPS))
+        }
 
         override fun start(listener: SpeedFixListener): Boolean {
             startCount += 1

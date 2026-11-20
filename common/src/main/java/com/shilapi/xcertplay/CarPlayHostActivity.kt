@@ -1468,11 +1468,9 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI.
-        if (speedAdaptiveHostAttached) {
-            speedAdaptiveHostAttached = false
-            DspProfileRuntime.peekInstance()?.speedCompensation?.detachHost()
-        }
+        // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI, and
+        // CarPlay audio keeps rendering while only the UI is stopped: the speed layer therefore
+        // stays attached until onDestroy rather than cutting off mid-song.
         super.onStop()
     }
 
@@ -1501,6 +1499,10 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (speedAdaptiveHostAttached) {
+            speedAdaptiveHostAttached = false
+            DspProfileRuntime.peekInstance()?.speedCompensation?.detachHost()
+        }
         dspHostExitActivityGeneration += 1
         dspHostExitRequests.clear()
         SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)

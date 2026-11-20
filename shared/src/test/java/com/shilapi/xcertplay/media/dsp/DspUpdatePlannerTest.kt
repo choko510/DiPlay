@@ -440,6 +440,30 @@ class DspUpdatePlannerTest {
         )
     }
 
+    @Test
+    fun headroomReserveChangesStayNonHotWhileStatefulStagesAreEnabled() {
+        val base = DspRuntimeConfig(
+            enabled = true,
+            compressor = DspCompressorConfig(enabled = true),
+            safetyLimiter = DspSafetyLimiterConfig(enabled = true),
+            multiband = DspMultibandConfig(enabled = true),
+            dynamicEq = DspDynamicEqConfig(enabled = true),
+        )
+        val boosted = base.withSpeedCompensation(
+            DspSpeedCompensationConfig(enabled = true, volumeGainDb = 2.0, reservedBoostDb = 6.8),
+        )
+
+        // A pipeline swap is required, so the renderer starts from a fresh, consistent history
+        // instead of applying the boost on top of the stateful stages of the old pipeline.
+        assertFalse(DspUpdatePlanner.speedCompensationKeepsPreampStable(base, boosted, FORMAT))
+        val steady = boosted.withSpeedCompensation(boosted.speedCompensation.copy(volumeGainDb = 3.0))
+        assertTrue(DspUpdatePlanner.speedCompensationKeepsPreampStable(boosted, steady, FORMAT))
+        assertEquals(
+            setOf(DspRuntimeField.SPEED_COMPENSATION),
+            DspUpdatePlanner.diff(boosted, steady),
+        )
+    }
+
     private companion object {
         val FORMAT = DspAudioFormat(sampleRate = 48_000, channels = 2)
     }

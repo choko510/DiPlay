@@ -43,6 +43,7 @@ internal class DspSpeedCompensationRuntime(
     context: Context,
     private val publishConfig: (DspSpeedCompensationConfig) -> Unit,
     private val dspEnabledProvider: () -> Boolean,
+    private val autoHeadroomEnabledProvider: () -> Boolean = { true },
     private val nowNanos: () -> Long = SystemClock::elapsedRealtimeNanos,
     private val store: DspSpeedCompensationStore = DspSpeedCompensationStore(context),
     private val sourceFactory: (Context) -> SpeedSource = { GpsSpeedSource(it) },
@@ -190,7 +191,19 @@ internal class DspSpeedCompensationRuntime(
      * The controller also keeps running while compensation gains are still fading out, so that
      * switching the feature off never snaps the audio level back instantly.
      */
-    private fun keepRunning(): Boolean = isLive(controller.state())
+    private fun keepRunning(): Boolean {
+        syncBoostAllowed()
+        return isLive(controller.state())
+    }
+
+    /**
+     * Speed boost adds positive gain at runtime, so it is only allowed while Auto Headroom can
+     * reserve the matching attenuation. Without it the boost would reach the limiter as a
+     * distorted signal that the driver never asked for.
+     */
+    private fun syncBoostAllowed() {
+        controller.setBoostAllowed(autoHeadroomEnabledProvider())
+    }
 
     /**
      * The layer may only claim auto-headroom while it can actually drive gains: DSP enabled, a
@@ -203,6 +216,9 @@ internal class DspSpeedCompensationRuntime(
         return (state.settings.active && hostAvailable) || !state.gains.isNeutral
     }
 
+    /** A non-stale speed estimate is required before the layer may claim headroom. */
+    private fun hasUsableSpeed(state: SpeedCompensationState): Boolean = state.speedKmh != null
+
     private fun onFix(fix: SpeedFix) {
         controller.onFix(fix)
         controller.onGpsStatus(source.status())
@@ -211,16 +227,20 @@ internal class DspSpeedCompensationRuntime(
     private fun onConfigurationChanged(state: SpeedCompensationState) {
         val gains = state.gains
         val live = isLive(state)
-        val requestedReserve = if (live && state.settings.active) state.settings.reservedBoostDb else 0.0
+        // Waiting for a fix, a denied permission, or a disabled provider must never attenuate the
+        // user's music: headroom is only claimed once a usable speed can actually drive a boost.
+        val canBoost = live && state.boostAllowed && hasUsableSpeed(state)
+        val requestedReserve = if (canBoost && state.settings.active) state.settings.reservedBoostDb else 0.0
         heldReserveDb = if (gains.isNeutral) {
             requestedReserve
         } else {
             maxOf(heldReserveDb, requestedReserve, gains.worstCaseBoostDb)
         }
-        val reserved = if (live) heldReserveDb else 0.0
+        val reserved = if (canBoost || !gains.isNeutral) heldReserveDb else 0.0
         publishConfig(
             DspSpeedCompensationConfig(
-                enabled = live,
+                // Disabled while neutral keeps the stage bit-exact and free of per-frame work.
+                enabled = canBoost || !gains.isNeutral,
                 volumeGainDb = gains.volumeDb.coerceAtMost(DspSpeedCompensationConfig.MAX_VOLUME_GAIN_DB),
                 lowGainDb = gains.lowDb.coerceAtMost(DspSpeedCompensationConfig.MAX_LOW_GAIN_DB),
                 midGainDb = gains.midDb.coerceAtMost(DspSpeedCompensationConfig.MAX_MID_GAIN_DB),

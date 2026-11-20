@@ -50,6 +50,8 @@ class DspSettingsActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        // The manual test speed belongs to this screen; never let it drive audio after leaving.
+        DspProfileRuntime.peekInstance()?.speedCompensation?.setTestSpeed(null)
         if (speedHostAttached) {
             speedHostAttached = false
             DspProfileRuntime.peekInstance()?.speedCompensation?.detachHost()

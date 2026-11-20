@@ -90,6 +90,55 @@ class SpeedCompensationControllerTest {
     }
 
     @Test
+    fun restartingDoesNotReplayThePreviousSessionSpeed() {
+        val harness = Harness(second)
+        harness.controller.start()
+        harness.enableStandard()
+        harness.drive(90.0, ticks = 20)
+        assertTrue(harness.controller.state().gains.volumeDb > 0.5)
+        harness.controller.stop()
+
+        harness.controller.start()
+        // No fix after the restart: the old speed must not come back while GPS is re-acquiring.
+        harness.now += tick
+        harness.controller.tick(harness.now)
+        assertTrue(harness.controller.state().stale)
+        assertEquals(0.0, harness.controller.state().gains.volumeDb, 1e-9)
+
+        // A fresh fix drives the layer again.
+        harness.drive(90.0, ticks = 20)
+        assertTrue(harness.controller.state().gains.volumeDb > 0.5)
+        harness.controller.stop()
+    }
+
+    @Test
+    fun leavingTestModeRequiresAFreshFix() {
+        val harness = Harness(second)
+        harness.controller.start()
+        harness.enableStandard()
+        harness.controller.setTestSpeed(100.0)
+        repeat(10) {
+            harness.now += tick
+            harness.controller.tick(harness.now)
+        }
+        assertTrue(harness.controller.state().gains.volumeDb > 0.5)
+
+        harness.controller.setTestSpeed(null)
+        assertTrue(harness.controller.state().stale)
+        harness.now += tick
+        harness.controller.tick(harness.now)
+        // The stale estimate decays the gain smoothly instead of dropping it in one step.
+        val decaying = harness.controller.state().gains.volumeDb
+        assertTrue(decaying in 0.0..<1.5)
+        repeat(40) {
+            harness.now += tick
+            harness.controller.tick(harness.now)
+        }
+        assertEquals(0.0, harness.controller.state().gains.volumeDb, 1e-9)
+        harness.controller.stop()
+    }
+
+    @Test
     fun staleGpsDecaysToNeutralAndRecoversSmoothly() {
         val harness = newHarness()
         harness.enableStandard()

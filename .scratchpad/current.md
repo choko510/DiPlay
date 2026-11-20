@@ -9,3 +9,10 @@
 - **未達：** TS10/K706 + iPhoneでのNCM/通話/音声/DSP/Surface/Touch、A/V・CPU・熱・長時間soak、正式署名による更新/復旧、修正後独立レビュー。現時点でリリース可と主張しない。
 
 次の作業は [backlog.md](backlog.md)、壊してはいけない仕様は [decisions.md](decisions.md) を参照。
+
+## 車速連動オーディオ（Draft PR、ブランチ `t3/dd1d14c3`）
+
+- 実装範囲: `shared/.../speed/`（GPS取得・推定・平滑化・カーブ/設定）、`shared/.../dsp/DspSpeedCompensationConfig.kt`（transient config）、native `dsp_speed_comp.c`（180Hz/4kHz分割、40msランプ、無効時bit-exact）、JNI `nativeSetSpeedCompConfig` + `nativeApplyHotConfig` 拡張、DSP HOT経路（`DspRuntimeField.SPEED_COMPENSATION`）、common `DspSpeedCompensationStore`/`Runtime`（単一GPS購読・200ms tick・自動ヘッドルーム予約）、DSP Studio「車速」タブ。初期値はOFF。
+- 自動ヘッドルーム予約は「実際にゲインを動かせる間」だけ確保し、減衰中は縮めない（プリAMPの再適用とパイプライン再構築を防ぐ）。ホスト離脱時は即停止せず0dBまで戻してから停止する。
+- ローカル検証（当該作業ツリー）: `:shared` + `:common` unit **1177 PASS**、native DSPテスト PASS、`:mobile`/`:automotive` debugビルド PASS、app module `lintDebug` PASS、R8後JNIマッピング検証 PASS、`check_public_tree.py` PASS。ASan/UBSanはローカルMSYS2に `-lasan`/`-lubsan` が無く **BLOCKED_ENV**（CIで確認）。
+- **未検証:** TS10/K706実機でのGPS速度精度・実際の音量変化・通話/ナビ/アシスタントへの非適用・バックグラウンド再生中の挙動・CPU負荷。リリース可と主張しない。

@@ -32,6 +32,7 @@ internal enum class DspRuntimeField {
     MACRO_TONE,
     SMART_LOUDNESS,
     DYNAMIC_BASS,
+    SPEED_COMPENSATION,
 }
 
 internal object DspUpdatePlanner {
@@ -57,6 +58,7 @@ internal object DspUpdatePlanner {
         if (current.macroTone != target.macroTone) add(DspRuntimeField.MACRO_TONE)
         if (current.smartLoudness != target.smartLoudness) add(DspRuntimeField.SMART_LOUDNESS)
         if (current.dynamicBass != target.dynamicBass) add(DspRuntimeField.DYNAMIC_BASS)
+        if (current.speedCompensation != target.speedCompensation) add(DspRuntimeField.SPEED_COMPENSATION)
     }
 
     fun classify(
@@ -228,6 +230,7 @@ internal object DspUpdatePlanner {
         DspRuntimeField.MACRO_TONE,
         DspRuntimeField.SMART_LOUDNESS,
         DspRuntimeField.DYNAMIC_BASS,
+        DspRuntimeField.SPEED_COMPENSATION,
     )
 
     private fun isContinuityIndependentHotField(field: DspRuntimeField): Boolean = field in setOf(
@@ -238,6 +241,7 @@ internal object DspUpdatePlanner {
         DspRuntimeField.MACRO_TONE,
         DspRuntimeField.SMART_LOUDNESS,
         DspRuntimeField.DYNAMIC_BASS,
+        DspRuntimeField.SPEED_COMPENSATION,
     )
 
     internal fun canHotDynamics(current: DspRuntimeConfig, target: DspRuntimeConfig): Boolean {

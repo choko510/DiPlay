@@ -14,6 +14,9 @@
 
 ## P1 — 計測してから判断
 
+- [ ] 車速連動オーディオ（Draft PR）をTS10/K706実機で受入れ: GPSのみでの速度取得（トンネル・停車・低速でのヒステリシス）、音量/EQ変化の聴感（ポップ・段差なし）、通話/ナビ/アシスタントに適用されないこと、CPU負荷、バックグラウンド再生中にヘッドルームが解放されること。
+- [ ] 車速連動のアプリ非表示中（CarPlay音声のみ継続）の補正要否を判断。現状はホストActivity起動中のみ動作する。
+
 - [ ] 音声192-packet drop-newest方針の変更は同一端末A/Bで遅延・欠落・再接続を比較してから。
 - [ ] 動画の `receivedToCodecSurfaceReleaseMs` と**実表示遅延**を分け、MAIN/ALT、復旧、CPU/GC/FD/soakを記録。Surface recoveryは証拠が揃うまでdefault-off。ログ処理の最適化も実測後。
 - [ ] NCM `AUTO` / `NO_STATUS_POLLING` のfirst-frame・`SCREEN_STREAM_OPENED`・timeoutを同端末で比較。

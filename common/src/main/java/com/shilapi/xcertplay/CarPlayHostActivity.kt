@@ -587,6 +587,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var safeAreaDrawOutside = true
     private var locationReportingEnabled = false
     private var locationPermissionAvailable = false
+    private var speedAdaptiveHostAttached = false
     private var microphoneAvailable = false
     private var microphonePermissionResolved = false
     private var wirelessEnabled = false
@@ -1453,7 +1454,20 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onStop() {
         // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI.
+        if (speedAdaptiveHostAttached) {
+            speedAdaptiveHostAttached = false
+            DspProfileRuntime.peekInstance()?.speedCompensation?.detachHost()
+        }
         super.onStop()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val speedRuntime = DspProfileRuntime.peekInstance()?.speedCompensation
+        if (speedRuntime != null && !speedAdaptiveHostAttached) {
+            speedAdaptiveHostAttached = true
+            speedRuntime.attachHost()
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {

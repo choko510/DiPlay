@@ -530,7 +530,8 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     jdoubleArray dynamics_values,
     jdoubleArray dynamic_eq_values,
     jdoubleArray dynamics_coefficients,
-    jdoubleArray dynamic_eq_coefficients) {
+    jdoubleArray dynamic_eq_coefficients,
+    jdoubleArray speed_comp_values) {
     (void)receiver;
     dsp_engine_lease lease = {0};
     if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
@@ -541,15 +542,16 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
         gain_linear > 15.84893193 ||
         macro_values == NULL || smart_loudness_values == NULL || dynamic_bass_values == NULL ||
         dynamics_values == NULL || dynamic_eq_values == NULL || dynamics_coefficients == NULL ||
-        dynamic_eq_coefficients == NULL || sample_rate < 8000 || sample_rate > 192000 ||
-        field_mask <= 0 || (field_mask & ~7) != 0 || hot_version != 1 ||
+        dynamic_eq_coefficients == NULL || speed_comp_values == NULL || sample_rate < 8000 || sample_rate > 192000 ||
+        field_mask <= 0 || (field_mask & ~15) != 0 || hot_version != 1 ||
         (*env)->GetArrayLength(env, macro_values) != 5 ||
         (*env)->GetArrayLength(env, smart_loudness_values) != 3 ||
         (*env)->GetArrayLength(env, dynamic_bass_values) != 9 ||
         (*env)->GetArrayLength(env, dynamics_values) != 10 ||
         (*env)->GetArrayLength(env, dynamic_eq_values) != DSP_DYNAMIC_EQ_VALUES_COUNT ||
         (*env)->GetArrayLength(env, dynamics_coefficients) != 5 ||
-        (*env)->GetArrayLength(env, dynamic_eq_coefficients) != 10) {
+        (*env)->GetArrayLength(env, dynamic_eq_coefficients) != 10 ||
+        (*env)->GetArrayLength(env, speed_comp_values) != 5) {
         release_engine(&lease);
         return DSP_STATUS_INVALID_ARGUMENT;
     }
@@ -560,6 +562,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     jdouble dynamic_eq_values_data[DSP_DYNAMIC_EQ_VALUES_COUNT];
     jdouble dynamics_coefficients_data[5];
     jdouble dynamic_eq_coefficients_data[10];
+    jdouble speed_comp_values_data[5];
     (*env)->GetDoubleArrayRegion(env, macro_values, 0, 5, macro_values_data);
     if ((*env)->ExceptionCheck(env)) {
         release_engine(&lease);
@@ -592,6 +595,23 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
     }
     (*env)->GetDoubleArrayRegion(env, dynamic_bass_values, 0, 9, dynamic_bass_values_data);
     if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    (*env)->GetDoubleArrayRegion(env, speed_comp_values, 0, 5, speed_comp_values_data);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    const dsp_speed_comp_config speed_comp_config = {
+        .enabled = (int)speed_comp_values_data[0],
+        .volume_gain_db = speed_comp_values_data[1],
+        .low_gain_db = speed_comp_values_data[2],
+        .mid_gain_db = speed_comp_values_data[3],
+        .high_gain_db = speed_comp_values_data[4],
+    };
+    if ((speed_comp_values_data[0] != 0.0 && speed_comp_values_data[0] != 1.0) ||
+        !dsp_speed_comp_config_is_valid(&speed_comp_config)) {
         release_engine(&lease);
         return DSP_STATUS_INVALID_ARGUMENT;
     }
@@ -740,6 +760,7 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyHotConfig(
             .attack_ms = dynamic_bass_values_data[7],
             .release_ms = dynamic_bass_values_data[8],
         },
+        .speed_comp = speed_comp_config,
         .dynamics = dynamics_params,
         .dynamic_eq = dynamic_eq_update,
     };
@@ -782,6 +803,41 @@ Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeApplyPreampHot(
     const int queued = dsp_engine_enqueue_preamp_update(lease.engine, &update);
     release_engine(&lease);
     return queued ? DSP_STATUS_OK : DSP_STATUS_QUEUE_FULL;
+}
+
+JNIEXPORT jint JNICALL
+Java_com_shilapi_xcertplay_media_dsp_NativeDspJni_nativeSetSpeedCompConfig(
+    JNIEnv *env,
+    jobject receiver,
+    jlong handle,
+    jdoubleArray speed_comp_values) {
+    (void)receiver;
+    dsp_engine_lease lease = {0};
+    if (!acquire_engine(handle, &lease)) return DSP_STATUS_INVALID_HANDLE;
+    if (speed_comp_values == NULL || (*env)->GetArrayLength(env, speed_comp_values) != 5) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    jdouble values[5];
+    (*env)->GetDoubleArrayRegion(env, speed_comp_values, 0, 5, values);
+    if ((*env)->ExceptionCheck(env)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    const dsp_speed_comp_config config = {
+        .enabled = (int)values[0],
+        .volume_gain_db = values[1],
+        .low_gain_db = values[2],
+        .mid_gain_db = values[3],
+        .high_gain_db = values[4],
+    };
+    if (!hot_value_is_boolean(values[0]) || !dsp_speed_comp_config_is_valid(&config)) {
+        release_engine(&lease);
+        return DSP_STATUS_INVALID_ARGUMENT;
+    }
+    const int applied = dsp_engine_set_speed_comp_config(lease.engine, &config);
+    release_engine(&lease);
+    return applied ? DSP_STATUS_OK : DSP_STATUS_INVALID_ARGUMENT;
 }
 
 JNIEXPORT jint JNICALL

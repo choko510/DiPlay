@@ -342,6 +342,39 @@ class DspUpdatePlannerTest {
     }
 
     @Test
+    fun speedCompensationChangesAreHotAndNeverRewriteTheSavedProfile() {
+        val current = DspRuntimeConfig(enabled = true)
+        val driving = DspRuntimeConfig(
+            enabled = true,
+            speedCompensation = DspSpeedCompensationConfig(
+                enabled = true,
+                volumeGainDb = 1.5,
+                lowGainDb = 0.9,
+                midGainDb = 0.2,
+                highGainDb = 0.5,
+                reservedBoostDb = 8.0,
+            ),
+        )
+        assertEquals(setOf(DspRuntimeField.SPEED_COMPENSATION), DspUpdatePlanner.diff(current, driving))
+        assertEquals(
+            DspUpdatePlan.HOT,
+            DspUpdatePlanner.classify(current, driving, true, true, 0, 0, true),
+        )
+        assertTrue(current.canApplyStudioHotUpdateTo(driving))
+        assertTrue(DspUpdatePlanner.diff(current, DspRuntimeConfig(enabled = true)).isEmpty())
+
+        // Non-MEDIA streams and a disabled native HOT kill switch defer instead of rebuilding.
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, driving, true, true, 0, 0, true, mediaRole = false),
+        )
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, driving, true, true, 0, 0, true, studioHotUpdatesEnabled = false),
+        )
+    }
+
+    @Test
     fun masterSwitchAndOtherNonHotFieldsAreNeverClassifiedAsHot() {
         val current = DspRuntimeConfig(enabled = true)
         val disabled = DspRuntimeConfig(enabled = false)

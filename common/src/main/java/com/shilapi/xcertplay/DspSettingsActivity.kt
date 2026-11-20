@@ -1,15 +1,23 @@
 package com.shilapi.xcertplay
 
+import android.Manifest
 import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import com.shilapi.xcertplay.dsp.DspEditorSavedState
 import com.shilapi.xcertplay.dsp.DspProfileRuntime
 import com.shilapi.xcertplay.shared.AppLanguage
 
 class DspSettingsActivity : ComponentActivity() {
+    private val locationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            DspProfileRuntime.peekInstance()?.speedCompensation?.onLocationPermissionResult()
+        }
+    private var speedHostAttached = false
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(AppLanguage.localizedContext(newBase))
     }
@@ -22,9 +30,31 @@ class DspSettingsActivity : ComponentActivity() {
         }
         setContent {
             MaterialTheme(colorScheme = dspColorScheme()) {
-                DspSettingsScreen(runtime = runtime, onBack = ::finish)
+                DspSettingsScreen(
+                    runtime = runtime,
+                    onBack = ::finish,
+                    onRequestLocationPermission = ::requestSpeedLocationPermission,
+                )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        DspProfileRuntime.peekInstance()?.speedCompensation?.let { speed ->
+            if (!speedHostAttached) {
+                speedHostAttached = true
+                speed.attachHost()
+            }
+        }
+    }
+
+    override fun onStop() {
+        if (speedHostAttached) {
+            speedHostAttached = false
+            DspProfileRuntime.peekInstance()?.speedCompensation?.detachHost()
+        }
+        super.onStop()
     }
 
     override fun onResume() {
@@ -42,5 +72,14 @@ class DspSettingsActivity : ComponentActivity() {
             )
         }
         super.onSaveInstanceState(outState)
+    }
+
+    private fun requestSpeedLocationPermission() {
+        locationPermissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+        )
     }
 }

@@ -19,6 +19,7 @@ LOCAL_SRC_FILES := \
     dsp/dsp_macro.c \
     dsp/dsp_smart_loudness.c \
     dsp/dsp_dynamic_bass.c \
+    dsp/dsp_speed_comp.c \
     dsp/dsp_convolver.c \
     dsp/dsp_gain.c \
     dsp/dsp_meter.c \

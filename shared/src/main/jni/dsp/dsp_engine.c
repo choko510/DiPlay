@@ -261,6 +261,11 @@ dsp_engine *dsp_engine_create(
         &dynamic_bass_config);
 }
 
+int dsp_engine_set_speed_comp_config(dsp_engine *engine, const dsp_speed_comp_config *config) {
+    if (!engine_is_prepared(engine) || config == NULL) return 0;
+    return dsp_graph_set_speed_comp_config(&engine->graph, config);
+}
+
 int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_update *update) {
     if (!engine_is_prepared(engine) || update == NULL || update->generation == 0 ||
         update->generation_token != hot_generation_token(update->generation) ||
@@ -280,12 +285,14 @@ int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_updat
         }
     } else if (update->payload_kind != DSP_ENGINE_HOT_KIND_STUDIO ||
         update->hot_version != 1 ||
-        update->field_mask == 0 || (update->field_mask & ~7u) != 0 ||
+        update->field_mask == 0 || (update->field_mask & ~15u) != 0 ||
         (((update->field_mask & DSP_ENGINE_HOT_FIELD_STUDIO) != 0) && !dsp_graph_studio_hot_config_is_valid(
             update->gain_db,
             &update->macro,
             &update->smart_loudness,
             &update->dynamic_bass)) ||
+        (((update->field_mask & DSP_ENGINE_HOT_FIELD_SPEED_COMP) != 0) &&
+            !dsp_speed_comp_config_is_valid(&update->speed_comp)) ||
         (((update->field_mask & DSP_ENGINE_HOT_FIELD_DYNAMICS) != 0) &&
             (update->dynamics.validation_token == 0 || update->dynamics.sample_rate != engine->sample_rate)) ||
         (((update->field_mask & DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ) != 0) &&
@@ -697,42 +704,54 @@ dsp_status dsp_engine_process(
             hot_read_index++;
             continue;
         }
-        const int studio_hot_result = dsp_graph_apply_hot(
-                &engine->graph,
-                update->field_mask,
-                update->gain_db,
-                update->gain_linear,
-                &update->macro,
-                &update->smart_loudness,
-                &update->dynamic_bass,
-                &update->dynamics,
-                &update->dynamic_eq);
-        if (studio_hot_result == DSP_GRAPH_HOT_PROTECTIVE_RAMP) {
-            if (engine->protective_hot_generation == 0 && engine->graph.gain.ramp_remaining > 0) {
-                engine->protective_hot_generation = update->generation;
-                engine->protective_hot_editor_owner_epoch = update->editor_owner_epoch;
-                engine->protective_hot_renderer_owner_token = update->renderer_owner_token;
-                engine->protective_hot_pcm_format_epoch = update->pcm_format_epoch;
-                engine->protective_hot_context_token = update->hot_context_token;
+        const uint32_t graph_field_mask = update->field_mask & ~DSP_ENGINE_HOT_FIELD_SPEED_COMP;
+        int studio_hot_result = DSP_GRAPH_HOT_APPLIED;
+        // A speed-only update skips the graph preflight (it rejects mask 0) because the speed
+        // stage validates and ramps its own targets inside dsp_speed_comp_apply_hot().
+        if (graph_field_mask != 0) {
+            studio_hot_result = dsp_graph_apply_hot(
+                    &engine->graph,
+                    graph_field_mask,
+                    update->gain_db,
+                    update->gain_linear,
+                    &update->macro,
+                    &update->smart_loudness,
+                    &update->dynamic_bass,
+                    &update->dynamics,
+                    &update->dynamic_eq);
+            if (studio_hot_result == DSP_GRAPH_HOT_PROTECTIVE_RAMP) {
+                if (engine->protective_hot_generation == 0 && engine->graph.gain.ramp_remaining > 0) {
+                    engine->protective_hot_generation = update->generation;
+                    engine->protective_hot_editor_owner_epoch = update->editor_owner_epoch;
+                    engine->protective_hot_renderer_owner_token = update->renderer_owner_token;
+                    engine->protective_hot_pcm_format_epoch = update->pcm_format_epoch;
+                    engine->protective_hot_context_token = update->hot_context_token;
+                }
+                break;
             }
-            break;
-        }
-        if (studio_hot_result != DSP_GRAPH_HOT_APPLIED) {
-            atomic_store_explicit(&engine->hot_deferred_reason, (uint32_t)studio_hot_result, memory_order_relaxed);
-            atomic_store_explicit(&engine->hot_deferred_token, update->generation_token, memory_order_release);
-            hot_read_index++;
-            continue;
-        }
-        if (studio_hot_result == DSP_GRAPH_HOT_APPLIED) {
-            if (dsp_graph_hot_transition_pending(&engine->graph)) {
-                engine->active_hot_ack_token = update->generation_token;
-                engine->active_hot_context_token = update->hot_context_token;
-                engine->active_hot_ack_after_ramp = 1;
-            } else {
-                processed_hot_token = update->generation_token;
+            if (studio_hot_result != DSP_GRAPH_HOT_APPLIED) {
+                atomic_store_explicit(&engine->hot_deferred_reason, (uint32_t)studio_hot_result, memory_order_relaxed);
+                atomic_store_explicit(&engine->hot_deferred_token, update->generation_token, memory_order_release);
+                hot_read_index++;
+                continue;
             }
+        }
+        if ((update->field_mask & DSP_ENGINE_HOT_FIELD_SPEED_COMP) != 0) {
+            const int speed_result = dsp_graph_apply_speed_comp_hot(&engine->graph, &update->speed_comp);
+            if (speed_result != DSP_GRAPH_HOT_APPLIED) {
+                atomic_store_explicit(&engine->hot_deferred_reason, (uint32_t)speed_result, memory_order_relaxed);
+                atomic_store_explicit(&engine->hot_deferred_token, update->generation_token, memory_order_release);
+                saturating_add_counter(&engine->native_error_count, 1);
+                hot_read_index++;
+                continue;
+            }
+        }
+        if (dsp_graph_hot_transition_pending(&engine->graph)) {
+            engine->active_hot_ack_token = update->generation_token;
+            engine->active_hot_context_token = update->hot_context_token;
+            engine->active_hot_ack_after_ramp = 1;
         } else {
-            saturating_add_counter(&engine->native_error_count, 1);
+            processed_hot_token = update->generation_token;
         }
         hot_read_index++;
     }

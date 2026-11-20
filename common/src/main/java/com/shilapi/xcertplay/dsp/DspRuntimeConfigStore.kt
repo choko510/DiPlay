@@ -5,6 +5,7 @@ import com.shilapi.xcertplay.media.dsp.DspConfigSnapshot
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import com.shilapi.xcertplay.media.dsp.DspSpeedCompensationConfig
 import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -14,6 +15,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntimeConfig.disabled()) : DspConfigProvider {
     private val current = AtomicReference(DspConfigSnapshot(0L, initialConfig))
+    private val speedCompensation = AtomicReference(initialConfig.speedCompensation)
     private val studioHotUpdatesAllowed = AtomicBoolean(true)
     private val studioLocalWarmAllowed = AtomicBoolean(false)
     private val rendererApplyState = AtomicReference(RendererApplyState(null, null))
@@ -104,6 +106,29 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
     }
 
     fun update(config: DspRuntimeConfig) {
+        // Speed compensation is transient runtime state owned by this store; it is layered on
+        // top of whatever the profile/workspace update produced so a profile save can never
+        // clear or persist it.
+        updateEffective(config.withSpeedCompensationIfDifferent(speedCompensation.get()))
+    }
+
+    fun updateSpeedCompensation(config: DspSpeedCompensationConfig) {
+        val previous = speedCompensation.getAndSet(config)
+        if (previous == config) return
+        updateEffective(current.get().config.withSpeedCompensationIfDifferent(config))
+    }
+
+    fun speedCompensation(): DspSpeedCompensationConfig = speedCompensation.get()
+
+    private fun DspRuntimeConfig.withSpeedCompensationIfDifferent(
+        speedCompensation: DspSpeedCompensationConfig,
+    ): DspRuntimeConfig = if (this.speedCompensation == speedCompensation) {
+        this
+    } else {
+        withSpeedCompensation(speedCompensation)
+    }
+
+    private fun updateEffective(config: DspRuntimeConfig) {
         if (current.get().config.hasSameEffectiveSettings(config)) return
         val next = current.updateAndGet { previous -> DspConfigSnapshot(previous.generation + 1, config) }
         while (true) {

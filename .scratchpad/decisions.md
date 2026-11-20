@@ -22,6 +22,7 @@
 - **動画：** MAIN/ALTそれぞれのscreen ownerでcallback・keyframe要求・decoder停止・Surface解放を直列化。解放ACK前に新ownerを採用しない。Surface recoveryは実機計測までdefault-off。`receivedToCodecSurfaceReleaseMs` はパネル表示時刻ではない。
 - **入力：** タッチのmoveはまとめても、down/up/cancel境界は黙って捨てない。上限に達した場合は全接触cancelで固着を防ぐ。
 - **Host遷移：** hidden DSP paneはBackを奪わない。HostからのCarPlay/YouTube Split退出もSave/Discard/Continueを経由し、新しい退出要求が古い非同期遷移に上書きされない。ブラウザーの再利用/保存領域は検証済み電話identityに結ぶ。
+- **接続と画面の分離：** 接続・復旧処理は画面を前面化してよい理由にならない。自動接続/USB自動起動は実アプリ起動だけを契機とし、設定・DSP・Menu表示中は自動要求を保留する（明示要求のみ前面化）。前面化の可否は`DiPlayUiFocus`と`IphoneUsbAutoLaunchSource`で判断し、古いセッションやpause中のOEM要求ではMenuを起動しない。Activity多重生成を避けるため、ホストは`singleTask`、Menu/設定は`REORDER_TO_FRONT`、DSPは`singleTop`を維持する。
 
 ## 音声とDSP
 

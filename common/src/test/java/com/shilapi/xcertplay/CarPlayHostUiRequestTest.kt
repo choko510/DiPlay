@@ -167,7 +167,11 @@ class CarPlayHostUiRequestTest {
         host.restartHostAfterShutdown(
             CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
             identity,
-            CarPlayHostLaunchState(HostLayoutMode.CARPLAY_FULL, 0.5f, null),
+            CarPlayHostLaunchState(
+                HostLayoutMode.CARPLAY_YOUTUBE_SPLIT,
+                0.42f,
+                HostLayoutMode.CARPLAY_DSP_SPLIT,
+            ),
         )
 
         assertEquals("settings keep the screen", 0, startedHostIntents(host).size)
@@ -181,9 +185,12 @@ class CarPlayHostUiRequestTest {
 
         val replayed = startedHostIntents(host)
         assertEquals(1, replayed.size)
+        val request = CarPlayHostActions.consumeInternalRequest(replayed.single())
+        assertEquals(CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED, request?.action)
         assertEquals(
-            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
-            CarPlayHostActions.consumeInternalAction(replayed.single()),
+            "the split layout of the interrupted host must survive the hold",
+            CarPlayHostLaunchState(HostLayoutMode.CARPLAY_YOUTUBE_SPLIT, 0.42f, HostLayoutMode.CARPLAY_DSP_SPLIT),
+            request?.hostLaunchState,
         )
     }
 
@@ -203,6 +210,35 @@ class CarPlayHostUiRequestTest {
         assertEquals(
             CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
             CarPlayHostActions.consumeInternalAction(started.single()),
+        )
+    }
+
+    @Test
+    fun aCh341HandoverRestartIsHeldAndResumedLater() {
+        val host = launchHost()
+        val attached = TestIphoneUsbDevice.attach(
+            app,
+            name = "/dev/bus/usb/001/077",
+            vendorId = 0x1a86,
+            productId = 0x5512,
+            carPlayInterfaces = false,
+        )
+        device = attached
+        DiPlayUiFocus.resumed(Any(), DiPlaySurface.SETTINGS)
+
+        // The CH341 resume has no iPhone identity, so it must not fall back to a notification only.
+        host.restartHostAfterShutdown(CarPlayHostActions.OPEN_CARPLAY)
+
+        assertEquals("settings keep the screen", 0, startedHostIntents(host).size)
+
+        DiPlayUiFocus.resumed(host, DiPlaySurface.CARPLAY_HOST)
+        CarPlayUsbAttachDispatcher.resume(host)
+
+        val replayed = startedHostIntents(host)
+        assertEquals(1, replayed.size)
+        assertEquals(
+            CarPlayHostActions.USB_DEVICE_ATTACHED,
+            CarPlayHostActions.consumeInternalAction(replayed.single()),
         )
     }
 

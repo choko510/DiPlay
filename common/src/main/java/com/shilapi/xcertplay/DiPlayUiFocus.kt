@@ -41,6 +41,8 @@ internal object DiPlayUiFocus {
     private var surface: DiPlaySurface = DiPlaySurface.NONE
     private var navigationAnnounced = false
     private var coveredSurface: DiPlaySurface = DiPlaySurface.NONE
+    private var overlayOwner: Any? = null
+    private var ownerLeftWhileCovered = false
     private var nextNavigationToken = 0L
     private var lastNavigation: Navigation? = null
 
@@ -58,6 +60,8 @@ internal object DiPlayUiFocus {
         this.surface = surface
         navigationAnnounced = false
         coveredSurface = DiPlaySurface.NONE
+        overlayOwner = null
+        ownerLeftWhileCovered = false
         lastNavigation = null
     }
 
@@ -78,8 +82,21 @@ internal object DiPlayUiFocus {
         if (this.owner !== owner) return
         coveredSurface = DiPlaySurface.NONE
         if (navigationAnnounced) return
-        this.owner = null
+        if (overlayOwner != null) {
+            // A transparent receiver is still on top; it releases the screen when it finishes.
+            ownerLeftWhileCovered = true
+            return
+        }
+        release()
+    }
+
+    private fun release() {
+        owner = null
         surface = DiPlaySurface.NONE
+        navigationAnnounced = false
+        coveredSurface = DiPlaySurface.NONE
+        overlayOwner = null
+        ownerLeftWhileCovered = false
         lastNavigation = null
     }
 
@@ -124,20 +141,30 @@ internal object DiPlayUiFocus {
 
     /**
      * A transparent DiPlay receiver (USB attach) is running on top of a screen the user chose.
-     * Android started it without running any DiPlay navigation code, so the covered screen keeps
-     * ownership instead of freeing the display.
+     * Android started it without running any DiPlay navigation code. The receiver only protects the
+     * covered screen; it never becomes its owner, so the screen keeps its identity and the receiver
+     * releases the protection when it finishes ([transientOverlayFinished]).
      */
     @Synchronized
     fun transientOverlayResumed(owner: Any) {
-        val restored = when {
-            surface != DiPlaySurface.NONE -> surface
-            coveredSurface != DiPlaySurface.NONE -> coveredSurface
-            else -> return
+        if (surface == DiPlaySurface.NONE && coveredSurface == DiPlaySurface.NONE) return
+        overlayOwner = owner
+    }
+
+    /**
+     * The transparent receiver is gone. If the covered screen is still there it keeps the display;
+     * if it left DiPlay while covered, nothing is displayed any more and the focus is released.
+     */
+    @Synchronized
+    fun transientOverlayFinished(owner: Any) {
+        if (overlayOwner !== owner) return
+        overlayOwner = null
+        if (!ownerLeftWhileCovered) return
+        if (navigationAnnounced) {
+            ownerLeftWhileCovered = false
+            return
         }
-        this.owner = owner
-        this.surface = restored
-        navigationAnnounced = true
-        coveredSurface = DiPlaySurface.NONE
+        release()
     }
 
     @Synchronized
@@ -148,10 +175,6 @@ internal object DiPlayUiFocus {
 
     @Synchronized
     fun reset() {
-        owner = null
-        surface = DiPlaySurface.NONE
-        navigationAnnounced = false
-        coveredSurface = DiPlaySurface.NONE
-        lastNavigation = null
+        release()
     }
 }

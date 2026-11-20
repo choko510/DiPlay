@@ -53,6 +53,12 @@ class CarPlayUsbAttachActivity : Activity() {
         finish()
     }
 
+    override fun onDestroy() {
+        // The receiver never owns the screen; release the temporary protection it added.
+        DiPlayUiFocus.transientOverlayFinished(this)
+        super.onDestroy()
+    }
+
     private fun UsbDevice.identity(): UsbAttachDeviceIdentity = UsbAttachDeviceIdentity(
         deviceId = deviceId,
         deviceName = deviceName,

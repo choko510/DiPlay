@@ -44,6 +44,43 @@ internal object CarPlayUsbAttachDispatcher {
         synchronized(this) { if (pending == identity) pending = null }
     }
 
+    /**
+     * Holds the attached CH341 adapter for a later resume. Used when a restart after a handover has
+     * no iPhone identity to defer, so the wired host still comes back without taking a user screen.
+     */
+    fun holdVerifiedCh341(context: Context): Boolean {
+        val identity = findVerifiedCh341(context) ?: return false
+        synchronized(this) { pending = identity }
+        Log.i(TAG, "event=APPLE_USB_ATTACH source=handover result=held_for_user_navigation")
+        return true
+    }
+
+    /** First attached CH341 adapter that is still present and permission-granted. */
+    fun findVerifiedCh341(context: Context): UsbAttachDeviceIdentity? {
+        val manager = context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return null
+        val devices = try {
+            manager.deviceList.values.toList()
+        } catch (error: RuntimeException) {
+            Log.w(TAG, "event=APPLE_USB_ATTACH result=usb_inventory_unavailable error=${error.javaClass.simpleName}")
+            return null
+        }
+        return devices.firstOrNull {
+            it.vendorId == CH341_VENDOR_ID && it.productId == CH341_PRODUCT_ID &&
+                (try {
+                    manager.hasPermission(it)
+                } catch (_: RuntimeException) {
+                    false
+                })
+        }?.let { device ->
+            UsbAttachDeviceIdentity(
+                deviceId = device.deviceId,
+                deviceName = device.deviceName,
+                vendorId = device.vendorId,
+                productId = device.productId,
+            )
+        }
+    }
+
     internal fun isVerifiedCh341(context: Context, identity: UsbAttachDeviceIdentity): Boolean {
         if (identity.vendorId != CH341_VENDOR_ID || identity.productId != CH341_PRODUCT_ID) return false
         val manager = context.getSystemService(Context.USB_SERVICE) as? UsbManager ?: return false

@@ -9,6 +9,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -137,6 +138,41 @@ class CarPlayUsbAttachDispatcherTest {
             CarPlayHostActions.USB_DEVICE_ATTACHED,
             CarPlayHostActions.consumeInternalAction(started!!),
         )
+    }
+
+    @Test
+    fun holdVerifiedCh341KeepsTheAdapterForACarPlayResume() {
+        val attached = attachCh341()
+
+        assertTrue(CarPlayUsbAttachDispatcher.holdVerifiedCh341(app))
+        assertNull(shadowOf(app).nextStartedActivity)
+
+        CarPlayUsbAttachDispatcher.resume(app)
+
+        val started = shadowOf(app).nextStartedActivity
+        assertNotNull(started)
+        assertEquals(
+            CarPlayHostActions.USB_DEVICE_ATTACHED,
+            CarPlayHostActions.consumeInternalAction(started!!),
+        )
+        assertEquals(attached.deviceName, "/dev/bus/usb/001/077")
+    }
+
+    @Test
+    fun holdVerifiedCh341WithoutAnAdapterHoldsNothing() {
+        assertFalse(CarPlayUsbAttachDispatcher.holdVerifiedCh341(app))
+
+        CarPlayUsbAttachDispatcher.resume(app)
+        assertNull(shadowOf(app).nextStartedActivity)
+    }
+
+    @Test
+    fun theNotificationFallbackStaysQuietWithoutNotificationPermission() {
+        // The fallback is only used when nothing can be held; it must not throw when the user has
+        // not granted notifications.
+        shadowOf(app).denyPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+
+        assertFalse(IphoneUsbAutoLaunchNotification.show(app))
     }
 
     @Test

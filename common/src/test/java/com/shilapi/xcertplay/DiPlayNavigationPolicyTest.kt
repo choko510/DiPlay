@@ -205,9 +205,35 @@ class DiPlayNavigationPolicyTest {
         )
         assertTrue(DiPlayUiFocus.isUserNavigationTarget())
 
-        // The covered Activity is now stopped behind an opaque receiver; the overlay still owns it.
+        // The covered Activity stops behind an opaque receiver; the overlay keeps it protected
+        // while the receiver itself is still on screen.
         DiPlayUiFocus.stopped(settings)
         assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+
+        // The receiver finishes and leaves; the settings screen resumes and keeps the display.
+        DiPlayUiFocus.transientOverlayFinished(receiver)
+        DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
+        assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+        assertTrue(DiPlayUiFocus.isUserNavigationTarget())
+    }
+
+    @Test
+    fun aTransparentUsbReceiverReleasesTheScreenWhenNothingResumesIt() {
+        val settings = Any()
+        val receiver = Any()
+        DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
+        DiPlayUiFocus.paused(settings)
+        DiPlayUiFocus.transientOverlayResumed(receiver)
+
+        // The user leaves DiPlay while the receiver is on top and the settings screen never
+        // resumes; the receiver must not leave SETTINGS behind.
+        DiPlayUiFocus.stopped(settings)
+        assertEquals("the receiver still protects the screen it covers", DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+
+        DiPlayUiFocus.transientOverlayFinished(receiver)
+
+        assertEquals(DiPlaySurface.NONE, DiPlayUiFocus.current())
+        assertFalse(DiPlayUiFocus.isUserNavigationTarget())
     }
 
     @Test

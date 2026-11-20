@@ -1370,15 +1370,23 @@ class CarPlayHostActivity : ComponentActivity() {
         hostLaunchState: CarPlayHostLaunchState? = null,
     ) {
         if (DiPlayUiFocus.isUserNavigationTarget()) {
-            if (identity != null) {
-                IphoneUsbAutoLaunchDispatcher.deferTransition(identity, IphoneUsbAutoLaunchSource.ATTACH)
+            val kept = if (identity != null) {
+                IphoneUsbAutoLaunchDispatcher.deferTransition(
+                    identity,
+                    IphoneUsbAutoLaunchSource.ATTACH,
+                    hostLaunchState,
+                )
+                true
             } else {
-                IphoneUsbAutoLaunchNotification.show(this)
+                // A CH341 resume has no iPhone identity; hold the verified adapter instead so the
+                // wired host comes back on its own once the user leaves DiPlay settings.
+                CarPlayUsbAttachDispatcher.holdVerifiedCh341(this)
             }
+            if (!kept) IphoneUsbAutoLaunchNotification.show(this)
             Log.i(
                 TAG,
                 "event=APPLE_USB_AUTO_ATTACH source=handover result=held_for_user_navigation " +
-                    "action=$action",
+                    "kept=$kept action=$action",
             )
             return
         }

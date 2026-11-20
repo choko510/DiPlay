@@ -461,8 +461,12 @@ internal object IphoneUsbAutoLaunchDispatcher {
 
     fun failLaunch(identity: UsbAttachDeviceIdentity) = coordinator.cancelCurrent(identity)
 
-    fun deferTransition(identity: UsbAttachDeviceIdentity, source: IphoneUsbAutoLaunchSource) {
-        requests.defer(DeferredIphoneUsbAutoLaunch(identity, source))
+    fun deferTransition(
+        identity: UsbAttachDeviceIdentity,
+        source: IphoneUsbAutoLaunchSource,
+        hostLaunchState: CarPlayHostLaunchState? = null,
+    ) {
+        requests.defer(DeferredIphoneUsbAutoLaunch(identity, source, hostLaunchState))
     }
 
     @Synchronized
@@ -506,7 +510,13 @@ internal object IphoneUsbAutoLaunchDispatcher {
             )
             return
         }
-        val outcome = dispatchDetailed(context, pending.identity, pending.source, deferredReplay = true)
+        val outcome = dispatchDetailed(
+            context,
+            pending.identity,
+            pending.source,
+            deferredReplay = true,
+            hostLaunchState = pending.hostLaunchState,
+        )
         if (outcome == DispatchOutcome.RETRY) {
             val latest = requests.peekDeferred() ?: pending
             scheduleDeferredRetry(context, latest)
@@ -528,6 +538,7 @@ internal object IphoneUsbAutoLaunchDispatcher {
         identity: UsbAttachDeviceIdentity,
         source: IphoneUsbAutoLaunchSource,
         deferredReplay: Boolean,
+        hostLaunchState: CarPlayHostLaunchState? = null,
     ): DispatchOutcome {
         val enabled = try {
             IphoneUsbAutoLaunchSettings.isOperationallyEnabled(context)
@@ -649,6 +660,7 @@ internal object IphoneUsbAutoLaunchDispatcher {
                         context,
                         CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
                         identity,
+                        hostLaunchState,
                     )
                     if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
@@ -802,6 +814,12 @@ class IphoneUsbAutoAttachActivity : Activity() {
             )
         }
         finish()
+    }
+
+    override fun onDestroy() {
+        // The receiver never owns the screen; release the temporary protection it added.
+        DiPlayUiFocus.transientOverlayFinished(this)
+        super.onDestroy()
     }
 
     private companion object {

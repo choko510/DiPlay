@@ -188,6 +188,32 @@ class UsbReceiverFocusTest {
         )
     }
 
+    @Test
+    fun theReceiverDoesNotLeaveTheFocusBehindWhenTheSettingsScreenIsGone() {
+        val settings = Robolectric.buildActivity(DiPlayActivity::class.java, settingsIntent()).setup()
+        device = TestIphoneUsbDevice.attach(app)
+        settings.pause()
+        val receiverController = Robolectric.buildActivity(
+            IphoneUsbAutoAttachActivity::class.java,
+            Intent(app, IphoneUsbAutoAttachActivity::class.java)
+                .setAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+                .putExtra(UsbManager.EXTRA_DEVICE, device),
+        ).setup()
+        assertTrue(receiverController.get().isFinishing)
+
+        // The user left DiPlay while the receiver was on top and the settings screen is stopped.
+        settings.stop()
+        receiverController.destroy()
+        DiPlayUiFocus.stopped(settings)
+
+        assertEquals(
+            "a finished receiver must not keep a screen nobody is looking at",
+            DiPlaySurface.NONE,
+            DiPlayUiFocus.current(),
+        )
+        assertNull(shadowOf(app).nextStartedActivity)
+    }
+
     private fun buildIphoneReceiver(): IphoneUsbAutoAttachActivity =
         Robolectric.buildActivity(
             IphoneUsbAutoAttachActivity::class.java,

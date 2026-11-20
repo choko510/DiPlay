@@ -257,4 +257,36 @@ class DspRuntimeConfigStoreTest {
         store.clearDiagnosticSummary(101L)
         assertEquals(null, store.diagnosticSummary())
     }
+
+    @Test
+    fun concurrentOwnerTransferPreventsStaleDiagnosticSummaryCasOverwrite() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.claimRendererApplyStatusOwner(100L)
+
+        val enteredCasWindow = CountDownLatch(1)
+        val allowStaleCasResume = CountDownLatch(1)
+        store.beforeDiagnosticSummaryCasForTesting = {
+            store.beforeDiagnosticSummaryCasForTesting = null
+            enteredCasWindow.countDown()
+            check(allowStaleCasResume.await(5, TimeUnit.SECONDS))
+        }
+
+        val staleThread = Thread {
+            store.reportDiagnosticSummary(100L, 1L, "stale-old-owner-summary")
+        }.apply { isDaemon = true }
+        staleThread.start()
+
+        assertTrue(enteredCasWindow.await(5, TimeUnit.SECONDS))
+        store.claimRendererApplyStatusOwner(101L)
+        assertEquals(null, store.diagnosticSummary())
+
+        allowStaleCasResume.countDown()
+        staleThread.join(5_000)
+        assertFalse(staleThread.isAlive)
+        assertEquals(null, store.diagnosticSummary())
+
+        store.reportDiagnosticSummary(101L, 1L, "new-owner-summary")
+        assertEquals("new-owner-summary", store.diagnosticSummary())
+    }
 }

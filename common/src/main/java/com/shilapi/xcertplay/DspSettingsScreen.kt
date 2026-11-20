@@ -1251,10 +1251,12 @@ internal fun DspSettingsScreen(
                         },
                     )
                 } else {
-                    Text(
-                        stringResource(R.string.dsp_ms_mono_bass_integrated_note),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    advancedMsMonoBassNoteResId(profile.advancedMs, profile.monoBass)?.let { noteRes ->
+                        Text(
+                            stringResource(noteRes),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
 
@@ -1429,10 +1431,12 @@ internal fun DspSettingsScreen(
                         },
                     )
                     if (ms.enabled && profile.monoBass.enabled) {
-                        Text(
-                            stringResource(R.string.dsp_ms_mono_bass_integrated_note),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                        advancedMsMonoBassNoteResId(ms, profile.monoBass)?.let { noteRes ->
+                            Text(
+                                stringResource(noteRes),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     }
                     DspValueSlider(stringResource(R.string.dsp_ms_crossover), ms.crossoverHz, 60.0..1_000.0, "Hz") {
                         profile = profile.copy(advancedMs = ms.copy(crossoverHz = it))
@@ -2259,3 +2263,12 @@ private fun showProfileSaveResult(context: Context, result: DspProfileSaveResult
 private const val CUSTOM_PROFILE_1 = "custom1"
 private const val CUSTOM_PROFILE_2 = "custom2"
 private const val STUDIO_RESTORE_ACK_TIMEOUT_MS = 10_000L
+
+internal fun advancedMsMonoBassNoteResId(
+    advancedMs: DspAdvancedMsConfig,
+    monoBass: DspMonoBassConfig,
+): Int? = when {
+    !advancedMs.enabled -> null
+    monoBass.enabled && advancedMs.lowBandWidth > 0.0 -> R.string.dsp_ms_mono_bass_bypassed_manual_note
+    else -> R.string.dsp_ms_mono_bass_integrated_note
+}

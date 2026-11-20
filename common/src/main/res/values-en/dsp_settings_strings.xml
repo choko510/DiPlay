@@ -125,6 +125,7 @@
     <string name="dsp_renderer_apply_convolver_rate_mismatch">Convolver is inactive for this output because its impulse response sample rate does not match.</string>
     <string name="dsp_renderer_diagnostic_summary">Runtime details: %1$s</string>
     <string name="dsp_ms_mono_bass_integrated_note">When Advanced Mid/Side is enabled, legacy Stereo width and Mono bass are bypassed and handled by the low-band width slider below.</string>
+    <string name="dsp_ms_mono_bass_bypassed_manual_note">Mono bass is bypassed while Advanced Mid/Side is active. Manually lower Low-band width to 0.00 below if you want mono bass.</string>
     <string name="dsp_done">Done</string>
     <string name="dsp_preset_flat">Flat</string>
     <string name="dsp_preset_daily">Daily</string>

@@ -2,6 +2,9 @@
 
 ## P0 — 受入れを止めているもの
 
+- [ ] PR #82: TS10/K706（Android 10）でBOOT_COMPLETEDのActivity起動可否と通知フォールバック、Android 13+通知権限、Bluetooth/無線権限拒否、Activity再生成、USB+無線の競合、明示的切断後の非再接続を実機確認。Robolectric成功を実機接続成功と扱わない。
+- [ ] PR #82: 自動開始セッションのホスト復旧抑制と、手動/USBセッションの既存バックオフ再試行が実機ログで期待どおり分離されることを確認。
+
 - [ ] TS10/K706 + iPhoneで有線NCM/IPv6→TUN、AirPlay映像/タッチ/音声、Siri・通話・AEC/AGC、ルーティング・音量を実機確認。SH M20の結果で代替しない。
 - [ ] MAIN/ALT、Surfaceの停止/再生成、rotation/safeArea/HID、Full/LOCAL Splitの同一Controller/Session維持を20サイクルで検証。
 - [ ] DSPのバイパス、THD/ヘッドルーム/レイテンシ、A/V同期、CPU/RSS/FD/温度/アンダーラン、30〜60分soakを対象端末で計測。

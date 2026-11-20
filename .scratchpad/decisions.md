@@ -2,6 +2,15 @@
 
 詳細な旧判断・レビュー経緯は[整理前の決定集](https://github.com/choko510/DiPlay/blob/7198329afeb0c77fe57a7d861e26a2ba7b651d02/.scratchpad/decisions.md)。**このファイルは現行実装に重要な判断だけ**を保持し、確認していない実機動作を断定しない。
 
+## 自動接続
+
+- **要求と接続の分離：** 「DiPlayを開いたときに接続」の起動判定は `AutoConnectCoordinator` が担当し、既存の `CarPlayBackgroundSession` / `CarPlayController` / USB自動起動処理へ委譲する。状態管理を二重化しない。
+- **Bluetooth非自動化：** Bluetoothデバイスの常時監視・自動ペアリング・自動接続は追加しない。手動iPhone選択と、明示的に開始した無線CarPlayのRFCOMM処理だけを維持する。
+- **起動キー：** 自動要求は起動ごとのキーで識別し、Activity再生成では同じキーを復元する。同一キーの `onResume` 連続呼び出しや `onNewIntent` で二重接続しない。
+- **再試行：** ホストActivity起動失敗だけを上限付き・バックオフ付きで再試行する。自動接続OFF、明示的切断、必須権限拒否、初期化失敗、既存セッション/teardown中は再試行しない。
+- **復旧の所有：** コントローラ生成後の復旧は既存の `ReconnectAfterLossGate` と世代/owner epochに任せる。自動開始セッションに限り、自動接続OFF・ユーザー切断・権限拒否・試行上限でホスト復旧を抑制する。手動/USBセッションの復旧は変更しない。
+- **起動フォールバック：** `BOOT_COMPLETED` からのActivity起動はOS/OEMが拒否し得る。起動前に通知を用意し、Activity起動後に取消す。非公開APIや権限回避は使わない。
+
 ## 開発・証拠
 
 - **固定ベース：** PR #45はfork mainを基準とし、上流差分を一括で取り込まない。EX-08の元 `source_review_state` は出典、現在のdispositionは審査結果。`NEED_EVIDENCE` は合格ではない。候補ごとに必要な挙動・テスト・権限を判断する。

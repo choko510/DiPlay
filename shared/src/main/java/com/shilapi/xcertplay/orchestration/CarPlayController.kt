@@ -68,6 +68,7 @@ import com.shilapi.xcertplay.transport.IphoneUsbMatcher
 import com.shilapi.xcertplay.transport.LinuxI2cTransport
 import com.shilapi.xcertplay.transport.LockdownCarKitClient
 import com.shilapi.xcertplay.transport.LockdownPairingClient
+import com.shilapi.xcertplay.transport.LockdownPairingException
 import com.shilapi.xcertplay.transport.LockdownPairRecord
 import com.shilapi.xcertplay.transport.NcmDiagnosticProfileStore
 import com.shilapi.xcertplay.transport.NcmFunctionDiscovery
@@ -150,9 +151,17 @@ class CarPlayController(
     listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
     reportStatus: (CarPlayStatus) -> Unit,
-    private val loadPairRecord: () -> LockdownPairRecord? = { null },
+    private val loadPairRecord: (devicePublicKeyPem: ByteArray) -> LockdownPairRecord? = { null },
+    /** The most recently used record, for an iPhone whose DevicePublicKey could not be read. */
+    private val loadNewestPairRecord: () -> LockdownPairRecord? = { null },
+    /** The older build's record for this iPhone, tried when a stored copy is rejected. */
+    private val loadRetainedPairRecord: (devicePublicKeyPem: ByteArray) -> LockdownPairRecord? = { null },
+    /** Stores a retained record as this iPhone's copy; false when that could not be confirmed. */
+    private val promotePairRecord: (LockdownPairRecord) -> Boolean = { false },
     private val savePairRecord: (LockdownPairRecord) -> Unit = {},
-    private val clearPairRecord: () -> Unit = {},
+    /** Confirms that a stored record actually worked, so recency never follows a failed attempt. */
+    private val markPairRecordUsed: (devicePublicKeyPem: ByteArray) -> Unit = {},
+    private val clearPairRecord: (devicePublicKeyPem: ByteArray) -> Unit = {},
     private val locationProvider: Iap2LocationProvider? = null,
     private val connectionTraceEnabled: Boolean = false,
     private val onConnectionTrace: (ConnectionTraceEvent) -> Unit = {},
@@ -451,7 +460,9 @@ class CarPlayController(
         synchronized(this) {
             if (closed) return
             traceConnection(ConnectionTraceStage.CANCELLED)
-            closed = true
+            // Setting closed under the teardown lock keeps it ordered with the record writes that
+            // check both flags, and no path takes these two locks in the opposite order.
+            synchronized(wiredTeardownLock) { closed = true }
         }
         wiredPathDiagnosticsByAttempt.keys.toList().forEach(::finishWiredPathDiagnostics)
         wiredDataPathGeneration.invalidate()
@@ -2127,8 +2138,30 @@ class CarPlayController(
             debugLog("wired USBMUX host opened")
             onStatus(CarPlayStatus.Pairing)
             val pairingClient = LockdownPairingClient(openedMux)
-            val savedPairRecord = loadPairRecord()
-            var pairRecord = savedPairRecord ?: pairNewRecord(pairingClient)
+            val recordChoice = WiredLockdownRecordLookup.choose(
+                readDevicePublicKey = {
+                    pairingClient.devicePublicKey(
+                        label = config.label,
+                        timeoutMillis = DEVICE_PUBLIC_KEY_TIMEOUT_MILLIS,
+                        isCancelled = { !isCurrentWiredAttempt(startupAttempt) },
+                    )
+                },
+                isCancelled = { !isCurrentWiredAttempt(startupAttempt) },
+                loadForDevice = loadPairRecord,
+                loadRetained = loadRetainedPairRecord,
+                loadNewest = loadNewestPairRecord,
+                onLookupFailure = { error ->
+                    debugLog(
+                        "wired DevicePublicKey lookup failed: ${error.javaClass.simpleName}; " +
+                            "using the newest saved Lockdown pair record",
+                    )
+                },
+            )
+            val savedPairRecord = recordChoice.record
+            // Decides, per transition, which record a successful connection has to store.
+            val persistence = WiredLockdownPersistence().apply { usingChosenRecord(recordChoice) }
+            var pairRecord = savedPairRecord
+                ?: pairNewRecord(pairingClient, startupAttempt).also { persistence.usingPairedRecord(it) }
             traceConnection(ConnectionTraceStage.PAIRING_READY)
             debugLog(
                 if (savedPairRecord != null) {
@@ -2198,11 +2231,73 @@ class CarPlayController(
                 carKitClient.open(pairRecord, config.label)
             } catch (error: Throwable) {
                 val rejection = rejectedLockdownPairRecordError(error)
-                if (savedPairRecord == null || rejection == null) throw error
-                debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing and pairing again")
-                clearPairRecord()
-                pairRecord = pairNewRecord(pairingClient)
-                carKitClient.open(pairRecord, config.label)
+                if (savedPairRecord == null || rejection == null || !isCurrentWiredAttempt(startupAttempt)) {
+                    throw error
+                }
+                // Only a record this iPhone identified may go: a fallback record can be another
+                // iPhone's, and a failed lookup here must not cost that driver their trust. A
+                // retained copy was never a stored record, so nothing is deleted for it either.
+                if (!recordChoice.discardableOnRejection) {
+                    debugLog(
+                        when (recordChoice.source) {
+                            WiredLockdownRecordChoice.Source.RETAINED ->
+                                "retained Lockdown pair record rejected by Lockdown error=$rejection; " +
+                                    "pairing again"
+                            else ->
+                                "fallback Lockdown pair record rejected by Lockdown error=$rejection; " +
+                                    "keeping it and pairing again"
+                        },
+                    )
+                    pairRecord = pairNewRecord(pairingClient, startupAttempt)
+                        .also { persistence.usingPairedRecord(it) }
+                    carKitClient.open(pairRecord, config.label)
+                } else {
+                    debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing it")
+                    whileCurrentWiredAttempt(startupAttempt) {
+                        clearPairRecord(savedPairRecord.devicePublicKeyPem)
+                    }
+                    // The older build's record for this iPhone may still be retained. Opening it
+                    // before pairing again avoids another Trust prompt when only the copy broke.
+                    val recovered = WiredLockdownRecovery.tryRetainedRecord(
+                        rejected = recordChoice,
+                        retained = loadRetainedPairRecord(savedPairRecord.devicePublicKeyPem),
+                        isCurrentAttempt = { isCurrentWiredAttempt(startupAttempt) },
+                        open = { retained -> carKitClient.open(retained, config.label) },
+                        onStale = { stream -> runCatching { stream.close() } },
+                        onRetainedRejected = { retainedRejection ->
+                            debugLog(
+                                "retained Lockdown pair record rejected too: $retainedRejection; " +
+                                    "pairing again",
+                            )
+                        },
+                    )
+                    if (recovered != null) {
+                        pairRecord = recovered.first
+                        persistence.usingRetainedRecord(recovered.first)
+                        recovered.second
+                    } else {
+                        pairRecord = pairNewRecord(pairingClient, startupAttempt)
+                            .also { persistence.usingPairedRecord(it) }
+                        carKitClient.open(pairRecord, config.label)
+                    }
+                }
+            }
+            // Persisting waits for a CarKit connection, so a record that never connected cannot
+            // take the place of another iPhone's and evict it. Recency follows the same signal, and
+            // the check and the writes share one lock so a teardown cannot start in between.
+            whileCurrentWiredAttempt(startupAttempt) {
+                persistence.confirm(
+                    acceptedRecord = pairRecord,
+                    promote = promotePairRecord,
+                    save = savePairRecord,
+                    markUsed = markPairRecordUsed,
+                    onPromotionFailed = {
+                        debugLog(
+                            "retained Lockdown pair record could not be stored; " +
+                                "keeping it aside for the next connection",
+                        )
+                    },
+                )
             }
             debugLog("wired com.apple.carkit.service stream opened")
             traceConnection(ConnectionTraceStage.CARKIT_SERVICE_OPENED)
@@ -2592,11 +2687,13 @@ class CarPlayController(
     }
 
     private fun requestWiredReconnect() {
-        if (!wiredReconnectRequested.compareAndSet(false, true)) return
-        wiredRetryScheduleGeneration.incrementAndGet()
-        wiredDataPathGeneration.invalidate()
-        wiredRecoveryPending.set(false)
+        // The request flag is set under the teardown lock so a record write that is checking the
+        // attempt cannot interleave with the reconnect that invalidates it.
         synchronized(wiredTeardownLock) {
+            if (!wiredReconnectRequested.compareAndSet(false, true)) return
+            wiredRetryScheduleGeneration.incrementAndGet()
+            wiredDataPathGeneration.invalidate()
+            wiredRecoveryPending.set(false)
             wiredStartupWatchdog.cancel()
             activeWiredStartupAttempt.get().takeIf { it != 0 }?.let {
                 wiredStartupTimeoutAttempt.compareAndSet(it, 0)
@@ -2681,14 +2778,38 @@ class CarPlayController(
             "usbmux" in message || ("usb" in message && "request" in message)
         }
 
-    private fun pairNewRecord(client: LockdownPairingClient): LockdownPairRecord =
-        client.pair(
+    /**
+     * Runs [block] only while [startupAttempt] is still current, holding [wiredTeardownLock] across
+     * the check and the store write so a teardown or a reconnect request cannot start in between.
+     *
+     * The lock order is always connection state first, then the record store, and nothing in
+     * [AirPlayPersistence] calls back into this controller, so the order cannot deadlock. A store
+     * write is normally an in-memory edit with an asynchronous disk write; the one exception is
+     * promoting a retained record, which commits once so the recovery survives a crash. A teardown
+     * that needs this lock waits for that commit.
+     */
+    private fun whileCurrentWiredAttempt(startupAttempt: Int, block: () -> Unit) {
+        synchronized(wiredTeardownLock) {
+            if (isActiveWiredAttemptLocked(startupAttempt)) block()
+        }
+    }
+
+    /**
+     * Pairs once, using the same cancellation signal as the record lookup, so a superseded attempt
+     * stops instead of finishing a trust dialog for a session that is already gone. Saving is the
+     * caller's decision and happens only after CarKit accepted the record.
+     */
+    private fun pairNewRecord(client: LockdownPairingClient, startupAttempt: Int): LockdownPairRecord {
+        val record = client.pair(
             label = config.label,
             hostId = hostId,
             systemBuid = systemBuid,
             totalTimeoutMillis = PAIR_TIMEOUT_MILLIS,
-            isCancelled = { closed },
-        ).pairRecord.also(savePairRecord)
+            isCancelled = { !isCurrentWiredAttempt(startupAttempt) },
+        ).pairRecord
+        if (!isCurrentWiredAttempt(startupAttempt)) throw LockdownPairingException.Cancelled
+        return record
+    }
 
     private fun isBluetoothHandoffCommand(type: String): Boolean =
         type.equals("disableBluetooth", ignoreCase = true) ||
@@ -3563,6 +3684,7 @@ class CarPlayController(
         private const val IAP2_IPHONE_UUID = "00000000-deca-fade-deca-deafdecacafe"
         private const val HOTSPOT_START_TIMEOUT_MILLIS = 60_000L
         private const val WIFI_P2P_START_TIMEOUT_MILLIS = 20_000L
+        private const val DEVICE_PUBLIC_KEY_TIMEOUT_MILLIS = 10_000L
         private const val PAIR_TIMEOUT_MILLIS = 5 * 60_000L
         private const val VPN_CONNECT_TIMEOUT_MILLIS = 10_000L
         private const val CONTROL_LOOP_TIMEOUT_MILLIS = 5 * 60_000L

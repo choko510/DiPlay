@@ -5101,9 +5101,23 @@ class CarPlayHostActivity : ComponentActivity() {
             listener = createSessionListener(controllerGeneration, controllerConnectionEpoch),
             media = media,
             reportStatus = createStatusReporter(controllerGeneration, controllerConnectionEpoch),
-            loadPairRecord = { AirPlayPersistence.loadLockdownRecord(pairingContext) },
+            loadPairRecord = { devicePublicKey ->
+                AirPlayPersistence.loadLockdownRecord(pairingContext, devicePublicKey)
+            },
+            loadNewestPairRecord = { AirPlayPersistence.loadNewestLockdownRecord(pairingContext) },
             savePairRecord = { record -> AirPlayPersistence.saveLockdownRecord(pairingContext, record) },
-            clearPairRecord = { AirPlayPersistence.clearLockdownRecord(pairingContext) },
+            markPairRecordUsed = { devicePublicKey ->
+                AirPlayPersistence.markLockdownRecordUsed(pairingContext, devicePublicKey)
+            },
+            loadRetainedPairRecord = { devicePublicKey ->
+                AirPlayPersistence.loadLegacyLockdownRecord(pairingContext, devicePublicKey)
+            },
+            promotePairRecord = { record ->
+                AirPlayPersistence.promoteLegacyLockdownRecord(pairingContext, record)
+            },
+            clearPairRecord = { devicePublicKey ->
+                AirPlayPersistence.clearLockdownRecord(pairingContext, devicePublicKey)
+            },
             locationProvider = locationProvider,
             connectionTraceEnabled = AirPlayPersistence.loadDebugLogsEnabled(this),
             onConnectionTrace = { event ->

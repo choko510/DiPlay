@@ -85,6 +85,54 @@ class LockdownPairingClient(
         }
     }
 
+    /**
+     * Reads the iPhone's DevicePublicKey over one plaintext connection, closed before returning.
+     * It needs no pairing or session, so the caller can look up the record saved for this iPhone
+     * before deciding whether to [pair].
+     *
+     * Only the connection this call opens is closed; [host] stays open for its caller. The whole
+     * read is bounded by [timeoutMillis] and each protocol step keeps its own step timeout.
+     */
+    @Throws(IphoneUsbException::class, LockdownPairingException::class)
+    fun devicePublicKey(
+        label: String,
+        timeoutMillis: Long,
+        isCancelled: () -> Boolean = { false },
+    ): ByteArray {
+        require(label.isNotBlank()) { "label must not be blank" }
+        require(timeoutMillis in 1..MAXIMUM_TOTAL_TIMEOUT_MILLIS) {
+            "timeoutMillis must be between 1 and $MAXIMUM_TOTAL_TIMEOUT_MILLIS"
+        }
+        val deadline = Deadline(timeoutMillis)
+        checkCancelled(isCancelled)
+        val connection = host.connect(
+            destinationPort = Iap2UsbMuxHost.LOCKDOWN_PORT,
+            timeoutMillis = stepTimeoutMillis(deadline),
+        )
+        return try {
+            LockdownPlistChannel(connection).use { channel ->
+                devicePublicKey(channel, label, deadline, isCancelled)
+            }
+        } finally {
+            // Closing the channel already closes the connection; this only covers a failure in between.
+            connection.close()
+        }
+    }
+
+    private fun devicePublicKey(
+        channel: LockdownPlistChannel,
+        label: String,
+        deadline: Deadline,
+        isCancelled: () -> Boolean,
+    ): ByteArray {
+        val value = getValue(channel, label, "DevicePublicKey", deadline, isCancelled)
+            as? LockdownPlistValue.Data
+            ?: throw LockdownPairingException.InvalidResponse("DevicePublicKey was not data")
+        // An empty key cannot identify an iPhone, so it is reported as a bad response rather than hashed.
+        if (value.bytes.isEmpty()) throw LockdownPairingException.InvalidResponse("DevicePublicKey was empty")
+        return value.bytes
+    }
+
     private fun generatePairRecord(
         channel: LockdownPlistChannel,
         label: String,
@@ -93,14 +141,12 @@ class LockdownPairingClient(
         deadline: Deadline,
         isCancelled: () -> Boolean,
     ): LockdownPairRecord {
-        val devicePublicKey = getValue(channel, label, "DevicePublicKey", deadline, isCancelled)
-            as? LockdownPlistValue.Data
-            ?: throw LockdownPairingException.InvalidResponse("DevicePublicKey was not data")
+        val devicePublicKey = devicePublicKey(channel, label, deadline, isCancelled)
         val wifiAddress = getValue(channel, label, "WiFiAddress", deadline, isCancelled)
             as? LockdownPlistValue.Text
             ?: throw LockdownPairingException.InvalidResponse("WiFiAddress was not text")
         return LockdownPairRecordGenerator.generate(
-            devicePublicKeyPkcs1Pem = devicePublicKey.bytes,
+            devicePublicKeyPkcs1Pem = devicePublicKey,
             wifiAddress = wifiAddress.value,
             hostId = hostId,
             systemBuid = systemBuid,

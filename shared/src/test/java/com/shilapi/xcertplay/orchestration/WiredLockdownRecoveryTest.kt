@@ -1,18 +1,21 @@
 package com.shilapi.xcertplay.orchestration
 
 import com.shilapi.xcertplay.transport.IphoneUsbException
+import com.shilapi.xcertplay.transport.LockdownPairingException
 import com.shilapi.xcertplay.transport.LockdownPairRecord
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 /**
  * Recovery for a rejected saved record. The older build's retained copy is offered only for the
- * iPhone that identified the rejected record, and only while the attempt is current; opening it
- * before a new Pair is what keeps a broken stored copy from costing another Trust prompt.
+ * iPhone that identified the rejected record, only while the attempt is current, and only a real
+ * Lockdown rejection of the record is treated as "pair again".
  */
 class WiredLockdownRecoveryTest {
     private val rejectedRecord = record("a")
@@ -45,18 +48,101 @@ class WiredLockdownRecoveryTest {
     }
 
     @Test
-    fun aRetainedRecordThatIsRejectedFallsThroughToPairing() {
-        val failures = mutableListOf<Throwable>()
+    fun aLockdownRejectionOfTheRetainedRecordFallsThroughToPairing() {
+        val rejections = mutableListOf<String>()
         val recovered = WiredLockdownRecovery.tryRetainedRecord(
             rejected = exactMatch,
             retained = retainedRecord,
             isCurrentAttempt = { true },
             open = { throw IphoneUsbException.LockdownRemoteError("StartSession", "InvalidHostID") },
-            onRetainedRejected = { failures += it },
+            onRetainedRejected = { rejections += it },
         )
         assertNull(recovered)
-        assertEquals(1, failures.size)
-        assertTrue(failures.single() is IphoneUsbException.LockdownRemoteError)
+        assertEquals(listOf("InvalidHostID"), rejections)
+    }
+
+    @Test
+    fun aUsbFailureWhileTryingTheRetainedRecordIsNotARejection() {
+        // A timeout says nothing about the record, so it must not start a new pairing.
+        try {
+            WiredLockdownRecovery.tryRetainedRecord(
+                rejected = exactMatch,
+                retained = retainedRecord,
+                isCurrentAttempt = { true },
+                open = { throw IphoneUsbException.TimedOut("Lockdown StartSession timed out") },
+                onRetainedRejected = { fail("a transport failure is not a rejection: $it") },
+            )
+            fail("a transport failure must propagate")
+        } catch (expected: IphoneUsbException.TimedOut) {
+            assertTrue(true)
+        }
+    }
+
+    @Test
+    fun aTransportFailureWhileTryingTheRetainedRecordIsNotARejection() {
+        try {
+            WiredLockdownRecovery.tryRetainedRecord(
+                rejected = exactMatch,
+                retained = retainedRecord,
+                isCurrentAttempt = { true },
+                open = { throw IOException("USBMUX TCP connection failed") },
+            )
+            fail("a transport failure must propagate")
+        } catch (expected: IOException) {
+            assertEquals("USBMUX TCP connection failed", expected.message)
+        }
+    }
+
+    @Test
+    fun aCancelledAttemptIsNotARejection() {
+        try {
+            WiredLockdownRecovery.tryRetainedRecord(
+                rejected = exactMatch,
+                retained = retainedRecord,
+                isCurrentAttempt = { true },
+                open = { throw LockdownPairingException.Cancelled },
+            )
+            fail("a cancellation must propagate")
+        } catch (expected: LockdownPairingException.Cancelled) {
+            assertTrue(true)
+        }
+    }
+
+    @Test
+    fun anAttemptLostWhileOpeningIsReportedAsCancelled() {
+        val stream = StringBuilder("stream")
+        val closed = mutableListOf<String>()
+        val current = booleanArrayOf(true)
+        try {
+            WiredLockdownRecovery.tryRetainedRecord(
+                rejected = exactMatch,
+                retained = retainedRecord,
+                isCurrentAttempt = { current[0] },
+                open = {
+                    current[0] = false
+                    stream
+                },
+                onStale = { closed += it.toString() },
+            )
+            fail("a success nobody can use must not be reported")
+        } catch (expected: LockdownPairingException.Cancelled) {
+            assertEquals(listOf("stream"), closed)
+        }
+    }
+
+    @Test
+    fun aFatalErrorIsNotSwallowed() {
+        try {
+            WiredLockdownRecovery.tryRetainedRecord(
+                rejected = exactMatch,
+                retained = retainedRecord,
+                isCurrentAttempt = { true },
+                open = { throw OutOfMemoryError("no room") },
+            )
+            fail("an Error must propagate")
+        } catch (expected: OutOfMemoryError) {
+            assertTrue(true)
+        }
     }
 
     @Test
@@ -101,18 +187,22 @@ class WiredLockdownRecoveryTest {
     }
 
     @Test
-    fun anAttemptInvalidatedWhileOpeningDoesNotReportSuccess() {
-        // The caller re-checks the attempt before it touches the store, so a stale success is never
-        // promoted; this asserts the helper itself stays silent about it.
-        val current = booleanArrayOf(true)
-        val recovered = WiredLockdownRecovery.tryRetainedRecord(
-            rejected = exactMatch,
-            retained = retainedRecord,
-            isCurrentAttempt = { current[0] },
-            open = { current[0] = false },
+    fun aRetainedOnlyChoiceIsAlreadyTheRecordInUse() {
+        // A retained copy chosen at connection start needs no recovery: it is the stored candidate.
+        val retainedChoice = WiredLockdownRecordChoice(
+            record = retainedRecord,
+            source = WiredLockdownRecordChoice.Source.RETAINED,
         )
-        assertFalse(current[0])
-        assertEquals(retainedRecord, recovered?.first)
+        assertFalse(retainedChoice.discardableOnRejection)
+        assertTrue(retainedChoice.promotableOnAcceptance)
+        assertNull(
+            WiredLockdownRecovery.tryRetainedRecord(
+                rejected = retainedChoice,
+                retained = retainedRecord,
+                isCurrentAttempt = { true },
+                open = { error("no second attempt is needed") },
+            ),
+        )
     }
 
     private fun deviceKey(phone: String) =

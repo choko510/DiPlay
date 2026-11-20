@@ -53,6 +53,46 @@ class WiredLockdownRecordLookupTest {
     }
 
     @Test
+    fun aRetainedCopyIsUsedWhenNoStoredRecordIsLeft() {
+        // The stored copy was rejected and cleared, and the recovery attempt then failed on the USB
+        // side, so the next connection has to reach the retained copy without a stored record.
+        val retained = record("a", hostId = "HOST-a-retained")
+        var retainedRequested: ByteArray? = null
+        val choice = WiredLockdownRecordLookup.choose(
+            readDevicePublicKey = { deviceKey("a") },
+            isCancelled = { false },
+            loadForDevice = { null },
+            loadNewest = { error("the newest record must not be used when the key was read") },
+            loadRetained = { key ->
+                retainedRequested = key
+                retained
+            },
+        )
+        assertEquals(retained, choice.record)
+        assertEquals(WiredLockdownRecordChoice.Source.RETAINED, choice.source)
+        // A retained copy is not a stored record: a rejection must not delete anything.
+        assertFalse(choice.discardableOnRejection)
+        assertTrue(choice.promotableOnAcceptance)
+        assertEquals(String(deviceKey("a")), String(retainedRequested!!))
+    }
+
+    @Test
+    fun aStoredRecordWinsOverARetainedCopy() {
+        val retained = record("a", hostId = "HOST-a-retained")
+        val choice = WiredLockdownRecordLookup.choose(
+            readDevicePublicKey = { deviceKey("a") },
+            isCancelled = { false },
+            loadForDevice = { deviceRecord },
+            loadNewest = { error("the newest record must not be used when the key was read") },
+            loadRetained = { error("the retained copy must not be consulted while a record is stored") },
+        )
+        assertEquals(deviceRecord, choice.record)
+        assertEquals(WiredLockdownRecordChoice.Source.EXACT_MATCH, choice.source)
+        assertFalse(choice.promotableOnAcceptance)
+        assertTrue(retained.hostId.isNotEmpty())
+    }
+
+    @Test
     fun aTransportFailureUsesTheNewestSavedRecord() {
         val failures = mutableListOf<Exception>()
         val choice = WiredLockdownRecordLookup.choose(
@@ -164,8 +204,8 @@ class WiredLockdownRecordLookupTest {
     private fun deviceKey(phone: String) =
         "-----BEGIN RSA PUBLIC KEY-----\n$phone\n-----END RSA PUBLIC KEY-----\n".toByteArray()
 
-    private fun record(phone: String) = LockdownPairRecord.restore(
-        hostId = "HOST-$phone",
+    private fun record(phone: String, hostId: String = "HOST-$phone") = LockdownPairRecord.restore(
+        hostId = hostId,
         systemBuid = "BUID-$phone",
         wifiMacAddress = "aa:bb:cc:dd:ee:ff",
         devicePublicKeyPem = deviceKey(phone),

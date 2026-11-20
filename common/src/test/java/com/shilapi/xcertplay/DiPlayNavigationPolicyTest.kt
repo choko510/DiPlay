@@ -237,6 +237,30 @@ class DiPlayNavigationPolicyTest {
     }
 
     @Test
+    fun stackedTransparentUsbReceiversKeepTheScreenUntilTheLastOneFinishes() {
+        val settings = Any()
+        val first = Any()
+        val second = Any()
+        DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
+        DiPlayUiFocus.paused(settings)
+
+        DiPlayUiFocus.transientOverlayResumed(first)
+        DiPlayUiFocus.transientOverlayResumed(second)
+        DiPlayUiFocus.stopped(settings)
+
+        // The second receiver finishes while the first is still on top of the same screen.
+        DiPlayUiFocus.transientOverlayFinished(second)
+        assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+
+        DiPlayUiFocus.transientOverlayFinished(first)
+        assertEquals(
+            "the last receiver releases the screen nobody resumes",
+            DiPlaySurface.NONE,
+            DiPlayUiFocus.current(),
+        )
+    }
+
+    @Test
     fun aTransparentUsbReceiverDoesNotResurrectAScreenThatLeftDiPlay() {
         val settings = Any()
         DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)

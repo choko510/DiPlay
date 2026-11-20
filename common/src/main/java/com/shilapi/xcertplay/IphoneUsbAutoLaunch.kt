@@ -356,10 +356,21 @@ internal class IphoneUsbAutoLaunchRequestQueue {
     private var latestHandoff: DeferredIphoneUsbAutoLaunch? = null
     private var handoffGeneration = 0L
 
+    /**
+     * Keeps one request per device and source so a burst of attach events cannot queue duplicates,
+     * but a later request may still bring new information: if it knows the split layout the held
+     * one does not, that state is adopted instead of dropped.
+     */
     @Synchronized
     fun defer(request: DeferredIphoneUsbAutoLaunch) {
-        if (latestDeferred?.let { it.identity == request.identity && it.source == request.source } == true) return
-        latestDeferred = request
+        val current = latestDeferred
+        latestDeferred = if (current != null && current.identity == request.identity &&
+            current.source == request.source
+        ) {
+            current.copy(hostLaunchState = request.hostLaunchState ?: current.hostLaunchState)
+        } else {
+            request
+        }
     }
 
     @Synchronized

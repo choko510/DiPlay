@@ -41,7 +41,7 @@ internal object DiPlayUiFocus {
     private var surface: DiPlaySurface = DiPlaySurface.NONE
     private var navigationAnnounced = false
     private var coveredSurface: DiPlaySurface = DiPlaySurface.NONE
-    private var overlayOwner: Any? = null
+    private val overlays = mutableListOf<Any>()
     private var ownerLeftWhileCovered = false
     private var nextNavigationToken = 0L
     private var lastNavigation: Navigation? = null
@@ -60,7 +60,7 @@ internal object DiPlayUiFocus {
         this.surface = surface
         navigationAnnounced = false
         coveredSurface = DiPlaySurface.NONE
-        overlayOwner = null
+        overlays.clear()
         ownerLeftWhileCovered = false
         lastNavigation = null
     }
@@ -82,7 +82,7 @@ internal object DiPlayUiFocus {
         if (this.owner !== owner) return
         coveredSurface = DiPlaySurface.NONE
         if (navigationAnnounced) return
-        if (overlayOwner != null) {
+        if (overlays.isNotEmpty()) {
             // A transparent receiver is still on top; it releases the screen when it finishes.
             ownerLeftWhileCovered = true
             return
@@ -95,7 +95,7 @@ internal object DiPlayUiFocus {
         surface = DiPlaySurface.NONE
         navigationAnnounced = false
         coveredSurface = DiPlaySurface.NONE
-        overlayOwner = null
+        overlays.clear()
         ownerLeftWhileCovered = false
         lastNavigation = null
     }
@@ -148,7 +148,7 @@ internal object DiPlayUiFocus {
     @Synchronized
     fun transientOverlayResumed(owner: Any) {
         if (surface == DiPlaySurface.NONE && coveredSurface == DiPlaySurface.NONE) return
-        overlayOwner = owner
+        if (overlays.none { it === owner }) overlays.add(owner)
     }
 
     /**
@@ -157,8 +157,10 @@ internal object DiPlayUiFocus {
      */
     @Synchronized
     fun transientOverlayFinished(owner: Any) {
-        if (overlayOwner !== owner) return
-        overlayOwner = null
+        val removed = overlays.removeAll { it === owner }
+        if (!removed) return
+        // Another receiver may still be on top of the same screen.
+        if (overlays.isNotEmpty()) return
         if (!ownerLeftWhileCovered) return
         if (navigationAnnounced) {
             ownerLeftWhileCovered = false

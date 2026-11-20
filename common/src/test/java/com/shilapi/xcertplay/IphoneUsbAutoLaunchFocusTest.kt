@@ -8,6 +8,7 @@ import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.orchestration.CarPlayTransport
+import com.shilapi.xcertplay.youtube.HostLayoutMode
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -240,6 +241,49 @@ class IphoneUsbAutoLaunchFocusTest {
             480,
             owner = this,
             stop = { done -> done() },
+        )
+    }
+
+    @Test
+    fun aLaterRequestUpdatesTheHeldLaunchStateInsteadOfBeingDropped() {
+        val queue = IphoneUsbAutoLaunchRequestQueue()
+        val identity = UsbAttachDeviceIdentity(1, "/dev/bus/usb/001/002", 0x05ac, 0x12a8)
+        val state = CarPlayHostLaunchState(HostLayoutMode.CARPLAY_YOUTUBE_SPLIT, 0.42f, null)
+
+        queue.defer(DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH))
+        queue.defer(DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH, state))
+
+        assertEquals(
+            "the held request adopts the split layout the newer one knows",
+            state,
+            queue.peekDeferred()?.hostLaunchState,
+        )
+    }
+
+    @Test
+    fun aRequestWithoutLaunchStateKeepsTheKnownLayout() {
+        val queue = IphoneUsbAutoLaunchRequestQueue()
+        val identity = UsbAttachDeviceIdentity(1, "/dev/bus/usb/001/002", 0x05ac, 0x12a8)
+        val state = CarPlayHostLaunchState(HostLayoutMode.CARPLAY_DSP_SPLIT, 0.55f, null)
+
+        queue.defer(DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH, state))
+        queue.defer(DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH))
+        queue.defer(DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH))
+        queue.defer(DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH, state))
+
+        assertEquals("a repeated attach never queues twice", state, queue.peekDeferred()?.hostLaunchState)
+        assertNull(
+            "a different device still replaces the request",
+            IphoneUsbAutoLaunchRequestQueue().let { other ->
+                other.defer(DeferredIphoneUsbAutoLaunch(identity, IphoneUsbAutoLaunchSource.ATTACH, state))
+                other.defer(
+                    DeferredIphoneUsbAutoLaunch(
+                        UsbAttachDeviceIdentity(2, "/dev/bus/usb/001/003", 0x05ac, 0x12a8),
+                        IphoneUsbAutoLaunchSource.ATTACH,
+                    ),
+                )
+                other.peekDeferred()?.hostLaunchState
+            },
         )
     }
 }

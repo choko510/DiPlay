@@ -12,6 +12,7 @@ import com.shilapi.xcertplay.youtube.HostLayoutMode
 import java.lang.reflect.Field
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -41,6 +42,8 @@ class CarPlayHostUiRequestTest {
     fun prepare() {
         app = RuntimeEnvironment.getApplication()
         DiPlayUiFocus.reset()
+        CarPlayHostRestartQueue.clearForTesting()
+        CarPlayUsbAttachDispatcher.clearForTesting()
         CarPlayBackgroundSession.clear()
         bootstrapReadyField = DiPlayBootstrap::class.java.getDeclaredField("ready").apply { isAccessible = true }
         previousBootstrapReady = bootstrapReadyField!!.getBoolean(DiPlayBootstrap)
@@ -53,6 +56,8 @@ class CarPlayHostUiRequestTest {
     fun release() {
         DiPlayUiFocus.reset()
         CarPlayBackgroundSession.clear()
+        CarPlayHostRestartQueue.clearForTesting()
+        CarPlayUsbAttachDispatcher.clearForTesting()
         device?.let { TestIphoneUsbDevice.detach(app, it) }
         device = null
         assertTrue(IphoneUsbAutoLaunchSettings.setEnabled(app, previousAutoLaunch))
@@ -211,6 +216,43 @@ class CarPlayHostUiRequestTest {
             CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
             CarPlayHostActions.consumeInternalAction(started.single()),
         )
+    }
+
+    @Test
+    fun aWirelessRestoreIsNotTurnedIntoACh341Start() {
+        val host = launchHost()
+        val attached = TestIphoneUsbDevice.attach(
+            app,
+            name = "/dev/bus/usb/001/077",
+            vendorId = 0x1a86,
+            productId = 0x5512,
+            carPlayInterfaces = false,
+        )
+        device = attached
+        DiPlayUiFocus.resumed(Any(), DiPlaySurface.SETTINGS)
+
+        // The iPhone vanished mid-handover, so the connection has to go back to wireless even
+        // though a CH341 adapter is attached.
+        host.restartHostAfterShutdown(
+            CarPlayHostActions.OPEN_CARPLAY,
+            recovery = CarPlayHostRecovery.RESTORE_TRANSPORT,
+        )
+
+        assertEquals("settings keep the screen", 0, startedHostIntents(host).size)
+
+        DiPlayUiFocus.resumed(host, DiPlaySurface.CARPLAY_HOST)
+        CarPlayUsbAttachDispatcher.resume(host)
+        assertEquals("the CH341 adapter must not resume instead", 0, startedHostIntents(host).size)
+
+        CarPlayHostRestartQueue.resume(host)
+
+        val replayed = startedHostIntents(host)
+        assertEquals("the wireless restore is replayed once", 1, replayed.size)
+        assertEquals(
+            CarPlayHostActions.OPEN_CARPLAY,
+            CarPlayHostActions.consumeInternalAction(replayed.single()),
+        )
+        assertFalse("the parked restart is consumed once", CarPlayHostRestartQueue.isPendingForTesting())
     }
 
     @Test

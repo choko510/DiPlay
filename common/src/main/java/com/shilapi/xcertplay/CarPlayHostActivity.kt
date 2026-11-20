@@ -1275,14 +1275,20 @@ class CarPlayHostActivity : ComponentActivity() {
                     enqueueShutdownCompletion { result ->
                         if (result != CarPlayHostShutdownResult.CLOSED) return@enqueueShutdownCompletion
                         AirPlayPersistence.saveWirelessEnabled(this, false)
-                        restartHostAfterShutdown(CarPlayHostActions.OPEN_CARPLAY)
+                        restartHostAfterShutdown(
+                            CarPlayHostActions.OPEN_CARPLAY,
+                            recovery = CarPlayHostRecovery.WIRED_USB,
+                        )
                         finish()
                     }
                 } else {
                     if (!wiredUsbResumeAfterShutdownRequested.compareAndSet(false, true)) return
                     enqueueShutdownCompletion { result ->
                         if (result != CarPlayHostShutdownResult.CLOSED) return@enqueueShutdownCompletion
-                        restartHostAfterShutdown(CarPlayHostActions.OPEN_CARPLAY)
+                        restartHostAfterShutdown(
+                            CarPlayHostActions.OPEN_CARPLAY,
+                            recovery = CarPlayHostRecovery.WIRED_USB,
+                        )
                         finish()
                     }
                 }
@@ -1302,7 +1308,10 @@ class CarPlayHostActivity : ComponentActivity() {
                 shutdown(false, "switching to USB") { result ->
                     if (result != CarPlayHostShutdownResult.CLOSED) return@shutdown
                     AirPlayPersistence.saveWirelessEnabled(this, false)
-                    restartHostAfterShutdown(CarPlayHostActions.OPEN_CARPLAY)
+                    restartHostAfterShutdown(
+                        CarPlayHostActions.OPEN_CARPLAY,
+                        recovery = CarPlayHostRecovery.WIRED_USB,
+                    )
                 }
                 finish()
             } else {
@@ -1343,7 +1352,10 @@ class CarPlayHostActivity : ComponentActivity() {
             if (IphoneUsbAutoLaunchSettings.currentCandidate(this, latestIdentity) == null) {
                 IphoneUsbAutoLaunchDispatcher.failLaunch(latestIdentity)
                 AirPlayPersistence.saveWirelessEnabled(this, true)
-                restartHostAfterShutdown(CarPlayHostActions.OPEN_CARPLAY)
+                restartHostAfterShutdown(
+                    CarPlayHostActions.OPEN_CARPLAY,
+                    recovery = CarPlayHostRecovery.RESTORE_TRANSPORT,
+                )
                 return@shutdown
             }
             autoUsbLaunchIdentity = latestIdentity
@@ -1368,25 +1380,33 @@ class CarPlayHostActivity : ComponentActivity() {
         action: String,
         identity: UsbAttachDeviceIdentity? = null,
         hostLaunchState: CarPlayHostLaunchState? = null,
+        recovery: CarPlayHostRecovery = CarPlayHostRecovery.WIRED_USB,
     ) {
         if (DiPlayUiFocus.isUserNavigationTarget()) {
-            val kept = if (identity != null) {
-                IphoneUsbAutoLaunchDispatcher.deferTransition(
-                    identity,
-                    IphoneUsbAutoLaunchSource.ATTACH,
-                    hostLaunchState,
-                )
-                true
-            } else {
+            val kept = when {
+                recovery == CarPlayHostRecovery.RESTORE_TRANSPORT -> {
+                    // The connection has to go back to the transport it came from; an attached
+                    // CH341 adapter must not turn this into a wired start.
+                    CarPlayHostRestartQueue.hold()
+                    true
+                }
+                identity != null -> {
+                    IphoneUsbAutoLaunchDispatcher.deferTransition(
+                        identity,
+                        IphoneUsbAutoLaunchSource.ATTACH,
+                        hostLaunchState,
+                    )
+                    true
+                }
                 // A CH341 resume has no iPhone identity; hold the verified adapter instead so the
                 // wired host comes back on its own once the user leaves DiPlay settings.
-                CarPlayUsbAttachDispatcher.holdVerifiedCh341(this)
+                else -> CarPlayUsbAttachDispatcher.holdVerifiedCh341(this)
             }
             if (!kept) IphoneUsbAutoLaunchNotification.show(this)
             Log.i(
                 TAG,
                 "event=APPLE_USB_AUTO_ATTACH source=handover result=held_for_user_navigation " +
-                    "kept=$kept action=$action",
+                    "kept=$kept action=$action recovery=$recovery",
             )
             return
         }
@@ -1446,6 +1466,7 @@ class CarPlayHostActivity : ComponentActivity() {
         // A USB request that was held while settings owned the display is safe to replay now.
         IphoneUsbAutoLaunchDispatcher.resumeDeferred(this)
         CarPlayUsbAttachDispatcher.resume(this)
+        CarPlayHostRestartQueue.resume(this)
     }
 
     override fun onPause() {

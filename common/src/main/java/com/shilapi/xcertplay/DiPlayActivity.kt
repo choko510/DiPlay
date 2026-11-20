@@ -500,6 +500,7 @@ class DiPlayActivity : ComponentActivity() {
         if (currentSurface() != DiPlaySurface.HOME) return
         IphoneUsbAutoLaunchDispatcher.resumeDeferred(this)
         CarPlayUsbAttachDispatcher.resume(this)
+        CarPlayHostRestartQueue.resume(this)
     }
 
     private fun carPlayNameControl(parent: LinearLayout) {

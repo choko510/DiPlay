@@ -53,6 +53,7 @@ internal interface NativeDspBindings {
         convolverSamples,
         harmonicValues,
     )
+    fun setSpeedCompConfig(handle: Long, values: DoubleArray): Boolean = true
     fun process(
         handle: Long,
         input: ByteBuffer,
@@ -191,7 +192,11 @@ internal object NativeDspJni : NativeDspBindings {
         update.dynamicEqValues,
         update.dynamicsCoefficients,
         update.dynamicEqCoefficients,
+        update.speedCompensationValues,
     )
+
+    override fun setSpeedCompConfig(handle: Long, values: DoubleArray): Boolean =
+        nativeSetSpeedCompConfig(handle, values) == 0
 
     override fun applyPreampHot(handle: Long, update: DspPreparedPreampHotUpdate): Int = nativeApplyPreampHot(
         handle, update.version, update.generation, update.editorOwnerEpoch, update.rendererOwnerToken,
@@ -321,6 +326,7 @@ internal object NativeDspJni : NativeDspBindings {
         dynamicEqValues: DoubleArray,
         dynamicsCoefficients: DoubleArray,
         dynamicEqCoefficients: DoubleArray,
+        speedCompensationValues: DoubleArray,
     ): Int
     private external fun nativeApplyPreampHot(
         handle: Long,
@@ -335,6 +341,7 @@ internal object NativeDspJni : NativeDspBindings {
         gainLinear: Double,
         gainPairValidated: Boolean,
     ): Int
+    private external fun nativeSetSpeedCompConfig(handle: Long, speedCompensationValues: DoubleArray): Int
     private external fun nativePrepareLocalPeqUpdate(
         handle: Long,
         eqCoefficients: DoubleArray,
@@ -546,13 +553,15 @@ internal class NativeDspProcessor internal constructor(
             update.sampleRateHz != format.sampleRate ||
             update.hotFieldMask <= 0 || (update.hotFieldMask and
                 (DspPreparedHotUpdate.HOT_FIELD_STUDIO or DspPreparedHotUpdate.HOT_FIELD_DYNAMICS or
-                    DspPreparedHotUpdate.HOT_FIELD_DYNAMIC_EQ).inv()) != 0 ||
+                    DspPreparedHotUpdate.HOT_FIELD_DYNAMIC_EQ or DspPreparedHotUpdate.HOT_FIELD_SPEED_COMP).inv()) != 0 ||
             update.dynamicsValues.size != DspPreparedHotUpdate.DYNAMICS_VALUES_COUNT ||
             update.dynamicEqValues.size != DspPreparedHotUpdate.DYNAMIC_EQ_VALUES_COUNT ||
             update.dynamicsCoefficients.size != DspPreparedHotUpdate.DYNAMICS_COEFFICIENTS_COUNT ||
             update.dynamicEqCoefficients.size != DspPreparedHotUpdate.DYNAMIC_EQ_COEFFICIENTS_COUNT ||
+            update.speedCompensationValues.size != DspSpeedCompensationConfig.NATIVE_VALUE_COUNT ||
             update.dynamicsValues.any { !it.isFinite() } || update.dynamicEqValues.any { !it.isFinite() } ||
             update.dynamicsCoefficients.any { !it.isFinite() } || update.dynamicEqCoefficients.any { !it.isFinite() } ||
+            update.speedCompensationValues.any { !it.isFinite() } ||
             update.editorOwnerEpoch != hotEditorOwnerEpoch ||
             update.rendererOwnerToken != hotRendererOwnerToken || update.pcmFormatEpoch != hotPcmFormatEpoch ||
             update.hotContextToken != hotContextToken || !update.mediaRole
@@ -839,6 +848,10 @@ internal class NativeDspProcessor internal constructor(
                 if (latencyFrames < 0 || !interchannelRelativeDelayFrames.isFinite() ||
                     interchannelRelativeDelayFrames < 0.0
                 ) {
+                    runCatching { bindings.destroy(handle) }
+                    return null
+                }
+                if (!bindings.setSpeedCompConfig(handle, prepared.speedCompensation)) {
                     runCatching { bindings.destroy(handle) }
                     return null
                 }

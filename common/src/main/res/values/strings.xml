@@ -4,6 +4,7 @@
     <string name="dsp_studio_tab_eq">EQ</string>
     <string name="dsp_studio_tab_spatial">空間</string>
     <string name="dsp_studio_tab_dynamics">ダイナミクス</string>
+    <string name="dsp_studio_tab_speed">車速</string>
     <string name="dsp_studio_tab_advanced">詳細</string>
     <string name="dsp_studio_tab_selected">%1$s、選択中</string>
     <string name="dsp_eq_editor_heading">Parametric EQ · 有効 %1$s/%2$s · Cabin EQ %3$sバンド · %4$s</string>

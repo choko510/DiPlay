@@ -5140,6 +5140,194 @@ static void test_headroom_protects_full_scale_high_plus_quiet_bass_dynamic_boost
     dsp_engine_destroy(engine);
 }
 
+static dsp_engine *create_speed_comp_test_engine(int sample_rate, int channels, int max_frames) {
+    const dsp_macro_config macro = {0, 0.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    return create_studio_test_engine(sample_rate, channels, max_frames, &macro, &loudness, &dynamic_bass);
+}
+
+static dsp_engine_hot_update speed_comp_hot_update(
+    uint64_t generation,
+    dsp_speed_comp_config speed_comp) {
+    dsp_engine_hot_update update = {0};
+    update.generation = generation;
+    update.generation_token = (uint32_t)(generation & UINT64_C(0x7fffffff));
+    if (update.generation_token == 0) update.generation_token = 1;
+    update.editor_owner_epoch = 7;
+    update.renderer_owner_token = 9;
+    update.pcm_format_epoch = 3;
+    update.hot_context_token = 1;
+    update.media_role = 1;
+    update.gain_db = 0.0;
+    update.gain_linear = 1.0;
+    update.gain_pair_validated = 1;
+    update.payload_kind = DSP_ENGINE_HOT_KIND_STUDIO;
+    update.field_mask = DSP_ENGINE_HOT_FIELD_SPEED_COMP;
+    update.hot_version = 1;
+    update.speed_comp = speed_comp;
+    return update;
+}
+
+static double measure_speed_comp_tone_gain(
+    dsp_engine *engine,
+    double frequency_hz,
+    int sample_rate,
+    int channels) {
+    const size_t total_frames = (size_t)sample_rate;
+    size_t frame = 0;
+    double input_square = 0.0;
+    double output_square = 0.0;
+    while (frame < total_frames) {
+        const size_t frames = total_frames - frame < 512 ? total_frames - frame : 512;
+        float input[1024];
+        float output[1024];
+        for (size_t index = 0; index < frames; index++) {
+            const double sample = 0.05 * sin(2.0 * 3.14159265358979323846 * frequency_hz *
+                (double)(frame + index) / (double)sample_rate);
+            input[index * (size_t)channels] = (float)sample;
+            if (channels == 2) input[index * 2 + 1] = (float)sample;
+        }
+        assert_true(
+            dsp_engine_process(
+                engine,
+                input,
+                frames * (size_t)channels,
+                output,
+                frames * (size_t)channels,
+                (int)frames,
+                channels) == DSP_STATUS_OK,
+            "speed compensation block processes");
+        for (size_t index = 0; index < frames; index++) {
+            if (frame + index < (size_t)(sample_rate / 10)) continue;
+            const double input_sample = (double)input[index * (size_t)channels];
+            const double output_sample = (double)output[index * (size_t)channels];
+            input_square += input_sample * input_sample;
+            output_square += output_sample * output_sample;
+        }
+        frame += frames;
+    }
+    return input_square > 0.0 ? sqrt(output_square / input_square) : 0.0;
+}
+
+static void test_speed_comp_disabled_is_bit_exact(void) {
+    dsp_engine *engine = create_speed_comp_test_engine(48000, 2, 512);
+    assert_true(engine != NULL, "speed compensation test engine creates");
+    float input[1024];
+    float output[1024];
+    for (size_t index = 0; index < 1024; index++) {
+        input[index] = (float)(((int)(index * 37u) % 2001 - 1000) / 4000.0);
+        output[index] = 12345.0f;
+    }
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "disabled speed compensation block processes");
+    assert_true(memcmp(input, output, sizeof(input)) == 0,
+        "disabled speed compensation leaves every PCM sample bit identical");
+    dsp_engine_destroy(engine);
+}
+
+static void test_speed_comp_hot_update_is_fenced_and_bounded(void) {
+    dsp_engine *engine = create_speed_comp_test_engine(48000, 2, 512);
+    assert_true(engine != NULL, "speed compensation validation engine creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "speed compensation validation binds a MEDIA context");
+
+    const dsp_speed_comp_config too_loud = {1, 7.0, 0.0, 0.0, 0.0};
+    dsp_engine_hot_update update = speed_comp_hot_update(10, too_loud);
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &update),
+        "speed compensation rejects a volume gain above the safe ceiling");
+
+    const dsp_speed_comp_config negative = {1, -1.0, 0.0, 0.0, 0.0};
+    update = speed_comp_hot_update(11, negative);
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &update),
+        "speed compensation rejects a negative gain");
+
+    const dsp_speed_comp_config valid = {1, 3.0, 2.0, 0.5, 1.3};
+    update = speed_comp_hot_update(12, valid);
+    update.renderer_owner_token = 99;
+    assert_true(!dsp_engine_enqueue_hot_update(engine, &update),
+        "speed compensation HOT updates are fenced by the renderer owner token");
+
+    const dsp_speed_comp_config direct = {1, 6.0, 6.0, 3.0, 4.0};
+    assert_true(dsp_engine_set_speed_comp_config(engine, &direct),
+        "creation time speed compensation accepts the documented maximum");
+    const dsp_speed_comp_config direct_invalid = {1, 0.0, 0.0, 3.5, 0.0};
+    assert_true(!dsp_engine_set_speed_comp_config(engine, &direct_invalid),
+        "creation time speed compensation rejects an out of range mid gain");
+    dsp_engine_destroy(engine);
+}
+
+static void test_speed_comp_ramps_and_keeps_levels_finite(void) {
+    dsp_engine *engine = create_speed_comp_test_engine(48000, 2, 512);
+    assert_true(engine != NULL, "speed compensation ramp engine creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "speed compensation ramp binds a MEDIA context");
+    const dsp_speed_comp_config boosted = {1, 3.0, 0.0, 0.0, 0.0};
+    const dsp_engine_hot_update update = speed_comp_hot_update(21, boosted);
+    assert_true(dsp_engine_enqueue_hot_update(engine, &update), "speed compensation HOT update queues");
+
+    float output[1024];
+    float input[1024];
+    for (size_t index = 0; index < 1024; index++) {
+        input[index] = 0.0f;
+    }
+    assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+        "first block after the speed HOT update processes");
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 0,
+        "speed compensation ACK waits for the gain ramp to finish");
+
+    size_t blocks = 0;
+    while (dsp_engine_get_hot_ack_token(engine) == 0 && blocks < 200) {
+        assert_true(dsp_engine_process(engine, input, 1024, output, 1024, 512, 2) == DSP_STATUS_OK,
+            "speed compensation ramp block processes");
+        for (size_t index = 0; index < 1024; index++) {
+            assert_true(isfinite(output[index]), "speed compensation keeps silent samples finite");
+        }
+        blocks++;
+    }
+    assert_true(dsp_engine_get_hot_ack_token(engine) == 21,
+        "speed compensation is acknowledged once the ramp settled");
+
+    const double gain = measure_speed_comp_tone_gain(engine, 1000.0, 48000, 2);
+    const double expected = pow(10.0, 3.0 / 20.0);
+    assert_near(gain, expected, 0.02, "speed compensation applies the requested volume gain after the ramp");
+    dsp_engine_destroy(engine);
+}
+
+static void test_speed_comp_bands_are_selective_and_finite(void) {
+    dsp_engine *engine = create_speed_comp_test_engine(48000, 2, 512);
+    assert_true(engine != NULL, "speed compensation band engine creates");
+    const dsp_speed_comp_config low_only = {1, 0.0, 6.0, 0.0, 0.0};
+    assert_true(dsp_engine_set_speed_comp_config(engine, &low_only),
+        "speed compensation low band config applies at creation");
+    const double low_gain = measure_speed_comp_tone_gain(engine, 60.0, 48000, 2);
+    const double high_gain = measure_speed_comp_tone_gain(engine, 8000.0, 48000, 2);
+    assert_true(low_gain > pow(10.0, 2.0 / 20.0), "low band boost raises a 60 Hz tone");
+    assert_true(high_gain < 1.2, "low band boost barely changes an 8 kHz tone");
+    assert_true(isfinite(low_gain) && isfinite(high_gain), "speed compensation band gains stay finite");
+    dsp_engine_destroy(engine);
+}
+
+static void test_speed_comp_update_preserves_user_macro_tone(void) {
+    const dsp_macro_config macro = {1, 4.0, 0.0, 0.0, 1.0};
+    const dsp_smart_loudness_config loudness = {0, 0.0, 0.0};
+    const dsp_dynamic_bass_config dynamic_bass = {0, 0.5, 3.0, 120.0, -55.0, -35.0, -10.0, 40.0, 250.0};
+    dsp_engine *engine = create_studio_test_engine(48000, 2, 512, &macro, &loudness, &dynamic_bass);
+    assert_true(engine != NULL, "speed compensation coexistence engine creates");
+    assert_true(dsp_engine_bind_hot_update_context(engine, 48000, 2, 7, 9, 3, 1, 1),
+        "speed compensation coexistence binds a MEDIA context");
+    const double macro_only = measure_speed_comp_tone_gain(engine, 60.0, 48000, 2);
+    assert_true(macro_only > 1.2, "the user Macro Tone bass boost is audible before the speed update");
+
+    const dsp_speed_comp_config neutral_but_enabled = {1, 0.0, 0.0, 0.0, 0.0};
+    const dsp_engine_hot_update update = speed_comp_hot_update(31, neutral_but_enabled);
+    assert_true(dsp_engine_enqueue_hot_update(engine, &update), "neutral speed compensation HOT update queues");
+    const double after_update = measure_speed_comp_tone_gain(engine, 60.0, 48000, 2);
+    assert_near(after_update, macro_only, 0.02,
+        "a speed compensation HOT update never rewrites the user Macro Tone target");
+    dsp_engine_destroy(engine);
+}
+
 int main(void) {
     test_gain_and_meter();
     test_bad_handles_arguments_and_capacities();
@@ -5201,6 +5389,11 @@ int main(void) {
     test_dynamic_bass_graph_detector_uses_raw_input();
     test_dynamic_bass_precedes_compressor_processing();
     test_dynamic_bass_graph_is_block_boundary_invariant();
+    test_speed_comp_disabled_is_bit_exact();
+    test_speed_comp_hot_update_is_fenced_and_bounded();
+    test_speed_comp_ramps_and_keeps_levels_finite();
+    test_speed_comp_bands_are_selective_and_finite();
+    test_speed_comp_update_preserves_user_macro_tone();
     test_local_peq_warm_preserves_downstream_state_and_latency();
     test_local_peq_candidate_catches_up_or_rejects_stale_history();
     test_rejected_local_peq_generation_retries_with_fresh_history();

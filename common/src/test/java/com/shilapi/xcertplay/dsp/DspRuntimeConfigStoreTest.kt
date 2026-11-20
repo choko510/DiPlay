@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay.dsp
 
 import com.shilapi.xcertplay.media.dsp.DspRuntimeConfig
+import com.shilapi.xcertplay.media.dsp.DspSpeedCompensationConfig
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyPhase
 import com.shilapi.xcertplay.media.dsp.DspRendererApplyStatus
 import java.io.Closeable
@@ -40,6 +41,64 @@ class DspRuntimeConfigStoreTest {
         assertSame(configA, existingRendererConfig)
         assertSame(configB, store.snapshot())
         assertTrue(existingRendererConfig.gainDb == -3.0)
+    }
+
+    @Test
+    fun speedCompensationIsTransientRuntimeStateAndSurvivesProfileUpdates() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig(enabled = true))
+        val driving = DspSpeedCompensationConfig(
+            enabled = true,
+            volumeGainDb = 1.5,
+            lowGainDb = 0.9,
+            midGainDb = 0.2,
+            highGainDb = 0.5,
+            reservedBoostDb = 8.0,
+        )
+        store.updateSpeedCompensation(driving)
+        assertEquals(driving, store.snapshot().speedCompensation)
+        val generation = store.versionedSnapshot().generation
+
+        // A profile/workspace update must keep the live speed layer instead of clearing it.
+        store.update(DspRuntimeConfig(enabled = true, gainDb = -3.0))
+        assertEquals(driving, store.snapshot().speedCompensation)
+        assertEquals(-3.0, store.snapshot().gainDb, 0.0)
+        assertTrue(store.versionedSnapshot().generation > generation)
+
+        store.updateSpeedCompensation(DspSpeedCompensationConfig.NEUTRAL)
+        assertEquals(DspSpeedCompensationConfig.NEUTRAL, store.snapshot().speedCompensation)
+        assertEquals(-3.0, store.snapshot().gainDb, 0.0)
+    }
+
+    @Test
+    fun concurrentProfileAndSpeedUpdatesNeverPublishAStaleComposition() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig(enabled = true))
+        val start = CountDownLatch(1)
+        val done = CountDownLatch(2)
+        val profiles = (1..200).map { index -> DspRuntimeConfig(enabled = true, gainDb = -0.01 * index) }
+        val speeds = (1..200).map { index ->
+            DspSpeedCompensationConfig(enabled = true, volumeGainDb = 0.01 * index)
+        }
+
+        val profileThread = Thread {
+            start.await()
+            profiles.forEach(store::update)
+            done.countDown()
+        }
+        val speedThread = Thread {
+            start.await()
+            speeds.forEach(store::updateSpeedCompensation)
+            done.countDown()
+        }
+        profileThread.start()
+        speedThread.start()
+        start.countDown()
+        assertTrue(done.await(30, TimeUnit.SECONDS))
+        profileThread.join()
+        speedThread.join()
+
+        val snapshot = store.snapshot()
+        assertEquals("the last profile update must win", profiles.last().gainDb, snapshot.gainDb, 1.0e-9)
+        assertEquals("the last speed update must win", speeds.last(), snapshot.speedCompensation)
     }
 
     @Test

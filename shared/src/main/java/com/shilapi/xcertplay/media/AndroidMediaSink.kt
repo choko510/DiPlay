@@ -3334,6 +3334,7 @@ internal class AudioRenderer(
                     dspPipeline?.format == candidateFormat &&
                     dspConfigProvider.studioHotUpdatesEnabled() &&
                     current.canApplyStudioHotUpdateTo(snapshot.config, activeDspGraphConfig) &&
+                    DspUpdatePlanner.speedCompensationKeepsPreampStable(current, snapshot.config, candidateFormat) &&
                     DspUpdatePlanner.classify(
                         current = current,
                         target = snapshot.config,
@@ -3358,6 +3359,9 @@ internal class AudioRenderer(
                         } else 0) or
                         (if (DspRuntimeField.DYNAMIC_EQ in changedFields) {
                             DspPreparedHotUpdate.HOT_FIELD_DYNAMIC_EQ
+                        } else 0) or
+                        (if (DspRuntimeField.SPEED_COMPENSATION in changedFields) {
+                            DspPreparedHotUpdate.HOT_FIELD_SPEED_COMP
                         } else 0)
                     snapshot.config.prepareHotUpdate(
                         candidateFormat,

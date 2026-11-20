@@ -12,6 +12,7 @@ JNI_CLASSES = {
         "nativeCreate",
         "nativeApplyHotConfig",
         "nativeApplyPreampHot",
+        "nativeSetSpeedCompConfig",
         "nativeBindHotUpdateContext",
         "nativePrepareLocalPeqUpdate",
         "nativeEnqueueLocalPeqUpdate",

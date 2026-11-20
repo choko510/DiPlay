@@ -135,6 +135,8 @@ static void process_peq_history(
     }
 }
 
+static const dsp_speed_comp_config disabled_speed_comp = {0, 0.0, 0.0, 0.0, 0.0};
+
 int dsp_graph_prepare(
     dsp_graph *graph,
     int sample_rate,
@@ -208,7 +210,8 @@ int dsp_graph_prepare(
     }
     if (!dsp_macro_prepare(&graph->macro, sample_rate, channels, macro_config) ||
         !dsp_smart_loudness_prepare(&graph->smart_loudness, sample_rate, channels, smart_loudness_config) ||
-        !dsp_dynamic_bass_prepare(&graph->dynamic_bass, sample_rate, channels, dynamic_bass_config)) {
+        !dsp_dynamic_bass_prepare(&graph->dynamic_bass, sample_rate, channels, dynamic_bass_config) ||
+        !dsp_speed_comp_prepare(&graph->speed_comp, sample_rate, channels, &disabled_speed_comp)) {
         return 0;
     }
     graph->pending_studio_gain_db = gain_db;
@@ -235,9 +238,21 @@ static int studio_module_gains_are_settled(const dsp_graph *graph) {
         : 1.0;
     return graph->macro.ramp_frames_remaining <= 0 &&
         graph->smart_loudness.ramp_frames_remaining <= 0 &&
+        graph->speed_comp.ramp_frames_remaining <= 0 &&
         graph->dynamic_bass.current_gain <= dynamic_bass_gain_ceiling + 1.0e-6 &&
         !dsp_dynamics_hot_transition_pending(&graph->dynamics) &&
         !dsp_dynamic_eq_hot_transition_pending(&graph->dynamic_eq);
+}
+
+int dsp_graph_set_speed_comp_config(dsp_graph *graph, const dsp_speed_comp_config *config) {
+    if (graph == NULL || config == NULL) return 0;
+    return dsp_speed_comp_set_config(&graph->speed_comp, config);
+}
+
+int dsp_graph_apply_speed_comp_hot(dsp_graph *graph, const dsp_speed_comp_config *config) {
+    if (graph == NULL || config == NULL) return DSP_GRAPH_HOT_REJECTED;
+    if (!dsp_speed_comp_apply_hot(&graph->speed_comp, config)) return DSP_GRAPH_HOT_REJECTED;
+    return DSP_GRAPH_HOT_APPLIED;
 }
 
 int dsp_graph_apply_studio_hot(
@@ -354,6 +369,7 @@ int dsp_graph_apply_hot(
 int dsp_graph_hot_transition_pending(const dsp_graph *graph) {
     if (graph == NULL) return 0;
     return graph->gain.ramp_remaining > 0 || graph->studio_gain_refund_pending ||
+        graph->speed_comp.ramp_frames_remaining > 0 ||
         !studio_module_gains_are_settled(graph);
 }
 
@@ -547,6 +563,7 @@ void dsp_graph_reset(dsp_graph *graph) {
     dsp_macro_reset(&graph->macro);
     dsp_smart_loudness_reset(&graph->smart_loudness);
     dsp_dynamic_bass_reset(&graph->dynamic_bass);
+    dsp_speed_comp_reset(&graph->speed_comp);
     dsp_meter_reset(&graph->input_meter);
     dsp_meter_reset(&graph->output_meter);
 }
@@ -664,6 +681,7 @@ void dsp_graph_process(
         dsp_dynamics_process_compressor_frame(&graph->dynamics, &output_left, &output_right, (int)channels);
         dsp_multiband_process_frame(&graph->multiband, &output_left, &output_right, (int)channels);
         dsp_dynamic_eq_process_frame(&graph->dynamic_eq, &output_left, &output_right, (int)channels);
+        dsp_speed_comp_process_frame(&graph->speed_comp, &output_left, &output_right, (int)channels);
         dsp_spatial_process_stereo(&graph->spatial, &output_left, &output_right, (int)channels);
         dsp_harmonic_process_frame(&graph->harmonic, &output_left, &output_right, (int)channels);
         dsp_convolver_process_frame(&graph->convolver, &output_left, &output_right, (int)channels);
@@ -704,4 +722,5 @@ void dsp_graph_process(
     dsp_macro_flush_denormals(&graph->macro);
     dsp_smart_loudness_flush_denormals(&graph->smart_loudness);
     dsp_dynamic_bass_flush_denormals(&graph->dynamic_bass);
+    dsp_speed_comp_flush_denormals(&graph->speed_comp);
 }

@@ -15,6 +15,7 @@
 #include "dsp_macro.h"
 #include "dsp_smart_loudness.h"
 #include "dsp_dynamic_bass.h"
+#include "dsp_speed_comp.h"
 
 typedef struct dsp_engine dsp_engine;
 
@@ -58,6 +59,7 @@ typedef struct {
     dsp_macro_config macro;
     dsp_smart_loudness_config smart_loudness;
     dsp_dynamic_bass_config dynamic_bass;
+    dsp_speed_comp_config speed_comp;
     dsp_dynamics_hot_params dynamics;
     dsp_dynamic_eq_hot_update dynamic_eq;
 } dsp_engine_hot_update;
@@ -131,6 +133,7 @@ dsp_engine *dsp_engine_create_with_studio(
     const dsp_smart_loudness_config *smart_loudness_config,
     const dsp_dynamic_bass_config *dynamic_bass_config);
 int dsp_engine_enqueue_hot_update(dsp_engine *engine, const dsp_engine_hot_update *update);
+int dsp_engine_set_speed_comp_config(dsp_engine *engine, const dsp_speed_comp_config *config);
 int dsp_engine_enqueue_preamp_update(dsp_engine *engine, const dsp_engine_preamp_update *update);
 int dsp_engine_prepare_local_peq_update(
     dsp_engine *engine,

@@ -423,8 +423,7 @@ class CarPlayHostActivity : ComponentActivity() {
             showMissingWirelessPermission()
             maybeStartCarPlay()
         }
-    private val microphonePermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+    private val microphonePermission =        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             microphoneAvailable = granted
             microphonePermissionResolved = true
             appendLog(if (granted) "Microphone permission granted" else "Microphone permission denied")
@@ -457,6 +456,13 @@ class CarPlayHostActivity : ComponentActivity() {
             }
             updateResolutionMenu()
             if (!menuOpen) requestStartupPrerequisites()
+        }
+
+    // The DSP split view asks for location permission on its own, so it must not disable the
+    // AirPlay location reporting toggle when it is denied there.
+    private val speedLocationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+            DspProfileRuntime.peekInstance()?.speedCompensation?.onLocationPermissionResult()
         }
 
     private val imagePicker =
@@ -587,6 +593,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var safeAreaDrawOutside = true
     private var locationReportingEnabled = false
     private var locationPermissionAvailable = false
+    private var speedAdaptiveHostAttached = false
     private var microphoneAvailable = false
     private var microphonePermissionResolved = false
     private var wirelessEnabled = false
@@ -1109,6 +1116,15 @@ class CarPlayHostActivity : ComponentActivity() {
         )
     }
 
+    private fun requestSpeedLocationPermission() {
+        speedLocationPermission.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ),
+        )
+    }
+
     private fun hasFineLocationPermission(): Boolean =
         checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
@@ -1452,8 +1468,20 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onStop() {
-        // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI.
+        // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI, and
+        // CarPlay audio keeps rendering while only the UI is stopped: the speed layer therefore
+        // stays attached until onDestroy rather than cutting off mid-song.
         super.onStop()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // get() instead of peekInstance(): the CarPlay media sink is created later, but the speed
+        // layer has to follow the activity lifecycle from the first launch as well.
+        if (!speedAdaptiveHostAttached) {
+            speedAdaptiveHostAttached = true
+            DspProfileRuntime.get(applicationContext).speedCompensation.attachHost()
+        }
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -1471,6 +1499,10 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (speedAdaptiveHostAttached) {
+            speedAdaptiveHostAttached = false
+            DspProfileRuntime.peekInstance()?.speedCompensation?.detachHost()
+        }
         dspHostExitActivityGeneration += 1
         dspHostExitRequests.clear()
         SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
@@ -1745,6 +1777,7 @@ class CarPlayHostActivity : ComponentActivity() {
                         hostExitRequest = dspHostExitRequests.requestState.value,
                         onHostExitResolved = ::onDspHostExitResolved,
                         onBack = ::exitDspSplit,
+                        onRequestLocationPermission = ::requestSpeedLocationPermission,
                     )
                 }
             }

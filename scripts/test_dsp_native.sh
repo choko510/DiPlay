@@ -42,6 +42,7 @@ fi
   "$source_dir/dsp_macro.c" \
   "$source_dir/dsp_smart_loudness.c" \
   "$source_dir/dsp_dynamic_bass.c" \
+  "$source_dir/dsp_speed_comp.c" \
   "$source_dir/dsp_convolver.c" \
   "$source_dir/dsp_gain.c" \
   "$source_dir/dsp_meter.c" \

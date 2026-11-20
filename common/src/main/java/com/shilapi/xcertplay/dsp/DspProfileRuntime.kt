@@ -82,6 +82,14 @@ internal class DspProfileRuntime private constructor(
         )
     }
     val configProvider: DspConfigProvider = runtimeConfig
+    internal val speedCompensation: DspSpeedCompensationRuntime by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        DspSpeedCompensationRuntime(
+            context = applicationContext,
+            publishConfig = { config -> runtimeConfig.updateSpeedCompensation(config) },
+            dspEnabledProvider = { isDspEnabled() },
+            autoHeadroomEnabledProvider = { runtimeConfig.snapshot().autoHeadroomEnabled },
+        )
+    }
 
     init {
         customProfileWorkspaceSave.recoverPending()
@@ -549,8 +557,9 @@ internal class DspProfileRuntime private constructor(
             if (generation != null && generation != studioApplyGeneration.get()) return false
             activeStudioWorkspace.set(workspace)
             activeProfile.set(profile)
-            dspEnabled.set(enabled)
+            val wasEnabled = dspEnabled.getAndSet(enabled)
             runtimeConfig.update(resolved)
+            if (wasEnabled != enabled) speedCompensation.onDspEnabledChanged()
             preferences.edit()
                 .putBoolean(KEY_DSP_ENABLED, enabled)
                 .putString(KEY_SELECTED_PROFILE_ID, profile.id)
@@ -572,8 +581,9 @@ internal class DspProfileRuntime private constructor(
             if (generation != null && generation != studioApplyGeneration.get()) return false
             activeStudioWorkspace.set(snapshot)
             activeProfile.set(snapshot.baseProfileSnapshot)
-            dspEnabled.set(enabled)
+            val wasEnabled = dspEnabled.getAndSet(enabled)
             runtimeConfig.update(resolved)
+            if (wasEnabled != enabled) speedCompensation.onDspEnabledChanged()
             return true
         }
     }

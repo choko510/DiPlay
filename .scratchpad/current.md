@@ -4,7 +4,15 @@
 
 - base は main `04c8818`。PR #80、#83、#79、#81、#82 をこの順でマージ（すべてDraft/未マージのPR、`main` へは未反映）。
 - 衝突解決：`DspEqDesigner`/`DspRuntimeConfig`/`AndroidMediaSink`/native DSPテスト（#80×#83）、`CarPlayHostActivity`（#83×#81）、`DiPlayActivity`/`CarPlayUsbAttachActivity`（#81×#82）。`DiPlayActivity` は PR #82 の自動接続機械を採用し、PR #81 のフォーカス連携（`DiPlayUiFocus`、`showPage`、`navigateFrom`、保留要求の再開、`launchOrigin` によるUSB自動起動抑制）をその上に統合した。`initialLaunch` は廃止し `firstResume` に一本化。CH341アタッチは `CarPlayUsbAttachDispatcher` 経由に統一し、`onExternalSessionStart()` はディスパッチャの起動成功時に通知する。
-- ローカル検証：この統合ブランチで `:common`/`:shared` unit、native DSPテスト、lint、Debugビルドを実行（結果は下記「APK」節）。
+- ローカル検証（統合HEAD）：`:shared` + `:common` unit 全PASS（`DiPlayActivityUsbAutoLaunchTest`含む）、native DSPテスト PASS（MSYS2 UCRT gcc）、`:mobile`/`:automotive` lint（`lintRelease`/`lintDebug`）・`assembleDebug` PASS。
+- 統合時の追加修正：PR #82 の再構成で落ちていた「通知タップによる明示的USB起動」を `onResume` に復活（`pendingUsbLaunchFromNotification` をページ判定より優先）。
+- **未実施：** 実機/ADBでの確認、API 35 instrumentation、Draftのままの再レビュー。マージ済みでもPRの未検証項目は解消していない。
+
+## APK（認証資産入り、2026-11-20）
+
+- 添付 `DiPlay-0.2.22.apk`（versionCode 41、release署名 CN=DiPlay）の `assets/offline-mfi/identity.pk8` と `certificate.p7b` を外部ディレクトリへ抽出して再利用。認証資産はGitに含めない（`.gitignore`対象外のパスには置かない）。ビルドには `DIPLAY_AUTH_ASSETS_DIR`（`offline-mfi`の親）を指定。
+- `:mobile`/`:automotive` のdebug APK（arm64-v8a / armeabi-v7a / x86_64）を生成し、`assets/offline-mfi/` に両ファイルが入ることを確認。debugは `applicationIdSuffix=.hudtest` の別パッケージ・debug署名のため、既存の自動車側インストール（`com.shihab.diplay`）の更新にはならない。
+- release署名は未実施：DiPlayのリリース鍵（`ANDROID_KEYSTORE_PATH` 等）が無く `validateSigningRelease` がfail closed。APKから復元できない。
 
 ## PR #81 — CarPlay表示中の設定画面が奪われる問題（2026-11-20）
 

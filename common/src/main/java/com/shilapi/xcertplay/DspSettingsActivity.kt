@@ -35,6 +35,11 @@ class DspSettingsActivity : ComponentActivity() {
         }
     }
 
+    override fun onStop() {
+        DiPlayUiFocus.stopped(this)
+        super.onStop()
+    }
+
     override fun onPause() {
         if (isFinishing) {
             // Back to the DiPlay settings screen that opened this editor, without it resuming

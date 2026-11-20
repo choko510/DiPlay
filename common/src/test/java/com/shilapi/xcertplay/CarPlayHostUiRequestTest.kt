@@ -8,6 +8,7 @@ import com.shilapi.xcertplay.airplay.AirPlaySession
 import com.shilapi.xcertplay.airplay.AirPlaySessionListener
 import com.shilapi.xcertplay.media.AndroidMediaSink
 import com.shilapi.xcertplay.orchestration.CarPlayTransport
+import com.shilapi.xcertplay.youtube.HostLayoutMode
 import java.lang.reflect.Field
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -33,6 +34,8 @@ class CarPlayHostUiRequestTest {
     private lateinit var app: Application
     private var bootstrapReadyField: Field? = null
     private var previousBootstrapReady = false
+    private var device: android.hardware.usb.UsbDevice? = null
+    private var previousAutoLaunch = false
 
     @Before
     fun prepare() {
@@ -42,12 +45,17 @@ class CarPlayHostUiRequestTest {
         bootstrapReadyField = DiPlayBootstrap::class.java.getDeclaredField("ready").apply { isAccessible = true }
         previousBootstrapReady = bootstrapReadyField!!.getBoolean(DiPlayBootstrap)
         bootstrapReadyField!!.setBoolean(DiPlayBootstrap, true)
+        previousAutoLaunch = AirPlayPersistence.loadAutoLaunchOnIphoneUsbAttach(app)
+        assertTrue(IphoneUsbAutoLaunchSettings.setEnabled(app, true))
     }
 
     @After
     fun release() {
         DiPlayUiFocus.reset()
         CarPlayBackgroundSession.clear()
+        device?.let { TestIphoneUsbDevice.detach(app, it) }
+        device = null
+        assertTrue(IphoneUsbAutoLaunchSettings.setEnabled(app, previousAutoLaunch))
         bootstrapReadyField?.setBoolean(DiPlayBootstrap, previousBootstrapReady)
     }
 
@@ -146,6 +154,65 @@ class CarPlayHostUiRequestTest {
         requestHostUi(host, session)
 
         assertEquals(1, menuIntents(host).size)
+    }
+
+    @Test
+    fun aHandoverRestartDoesNotTakeTheSettingsScreen() {
+        val host = launchHost()
+        val attached = TestIphoneUsbDevice.attach(app)
+        device = attached
+        val identity = attached.toUsbAttachDeviceIdentity()
+        DiPlayUiFocus.resumed(Any(), DiPlaySurface.SETTINGS)
+
+        host.restartHostAfterShutdown(
+            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+            identity,
+            CarPlayHostLaunchState(HostLayoutMode.CARPLAY_FULL, 0.5f, null),
+        )
+
+        assertEquals("settings keep the screen", 0, startedHostIntents(host).size)
+        assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+
+        // The handover already closed the old connection; only the display was deferred.
+        CarPlayBackgroundSession.clear()
+        // The request is kept and replayed once CarPlay owns the display again.
+        DiPlayUiFocus.resumed(host, DiPlaySurface.CARPLAY_HOST)
+        IphoneUsbAutoLaunchDispatcher.resumeDeferred(host)
+
+        val replayed = startedHostIntents(host)
+        assertEquals(1, replayed.size)
+        assertEquals(
+            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+            CarPlayHostActions.consumeInternalAction(replayed.single()),
+        )
+    }
+
+    @Test
+    fun aHandoverRestartStillRunsWhileCarPlayOwnsTheDisplay() {
+        val host = launchHost()
+        val identity = UsbAttachDeviceIdentity(1, "/dev/bus/usb/001/002", 0x05ac, 0x12a8)
+
+        host.restartHostAfterShutdown(
+            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+            identity,
+            CarPlayHostLaunchState(HostLayoutMode.CARPLAY_FULL, 0.5f, null),
+        )
+
+        val started = startedHostIntents(host)
+        assertEquals(1, started.size)
+        assertEquals(
+            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+            CarPlayHostActions.consumeInternalAction(started.single()),
+        )
+    }
+
+    private fun startedHostIntents(host: CarPlayHostActivity): List<Intent> {
+        val started = mutableListOf<Intent>()
+        while (true) {
+            val intent = shadowOf(host).nextStartedActivity ?: break
+            if (intent.component?.className == CarPlayHostActivity::class.java.name) started += intent
+        }
+        return started
     }
 
     private fun launchHost(): CarPlayHostActivity {

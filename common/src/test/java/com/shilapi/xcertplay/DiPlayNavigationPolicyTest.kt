@@ -70,7 +70,10 @@ class DiPlayNavigationPolicyTest {
         DiPlayUiFocus.paused(settings)
         assertEquals(DiPlaySurface.CARPLAY_HOST, DiPlayUiFocus.current())
 
+        // A pause alone is not enough: only leaving the foreground releases the display.
         DiPlayUiFocus.paused(host)
+        assertEquals(DiPlaySurface.CARPLAY_HOST, DiPlayUiFocus.current())
+        DiPlayUiFocus.stopped(host)
         assertEquals(DiPlaySurface.NONE, DiPlayUiFocus.current())
     }
 
@@ -93,7 +96,7 @@ class DiPlayNavigationPolicyTest {
         assertTrue(DiPlayUiFocus.isUserNavigationTarget())
 
         DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
-        DiPlayUiFocus.paused(settings)
+        DiPlayUiFocus.stopped(settings)
         assertEquals(
             "a screen the user left no longer blocks automatic launches",
             DiPlaySurface.NONE,
@@ -171,14 +174,27 @@ class DiPlayNavigationPolicyTest {
     }
 
     @Test
-    fun aTransparentUsbReceiverRestoresTheScreenItCovered() {
+    fun aPausedScreenKeepsTheProtectionUntilItStops() {
+        val settings = Any()
+        DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
+
+        // A dialog, a translucent receiver, or a handoff only pauses the screen.
+        DiPlayUiFocus.paused(settings)
+        assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+        assertTrue(DiPlayUiFocus.isUserNavigationTarget())
+
+        // Leaving DiPlay for the home screen stops it.
+        DiPlayUiFocus.stopped(settings)
+        assertEquals(DiPlaySurface.NONE, DiPlayUiFocus.current())
+        assertFalse(DiPlayUiFocus.isUserNavigationTarget())
+    }
+
+    @Test
+    fun aTransparentUsbReceiverKeepsTheScreenItCovered() {
         val settings = Any()
         val receiver = Any()
         DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
-
-        // Android pauses the settings Activity before the receiver exists.
         DiPlayUiFocus.paused(settings)
-        assertEquals(DiPlaySurface.NONE, DiPlayUiFocus.current())
 
         DiPlayUiFocus.transientOverlayResumed(receiver)
 
@@ -189,9 +205,26 @@ class DiPlayNavigationPolicyTest {
         )
         assertTrue(DiPlayUiFocus.isUserNavigationTarget())
 
-        // When the receiver pauses too, protection stays until a real screen resumes.
-        DiPlayUiFocus.paused(receiver)
-        assertTrue(DiPlayUiFocus.isUserNavigationTarget())
+        // The covered Activity is now stopped behind an opaque receiver; the overlay still owns it.
+        DiPlayUiFocus.stopped(settings)
+        assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+    }
+
+    @Test
+    fun aTransparentUsbReceiverDoesNotResurrectAScreenThatLeftDiPlay() {
+        val settings = Any()
+        DiPlayUiFocus.resumed(settings, DiPlaySurface.SETTINGS)
+        DiPlayUiFocus.paused(settings)
+        DiPlayUiFocus.stopped(settings)
+
+        DiPlayUiFocus.transientOverlayResumed(Any())
+
+        assertEquals(
+            "the user is on the vehicle home screen, not in DiPlay settings",
+            DiPlaySurface.NONE,
+            DiPlayUiFocus.current(),
+        )
+        assertFalse(DiPlayUiFocus.isUserNavigationTarget())
     }
 
     @Test

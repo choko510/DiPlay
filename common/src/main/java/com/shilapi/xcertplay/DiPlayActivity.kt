@@ -144,6 +144,11 @@ class DiPlayActivity : ComponentActivity() {
         }
         resumeDeferredHostLaunches()
     }
+    override fun onStop() {
+        DiPlayUiFocus.stopped(this)
+        super.onStop()
+    }
+
     override fun onPause() {
         handler.removeCallbacks(tick)
         activityResumed = false

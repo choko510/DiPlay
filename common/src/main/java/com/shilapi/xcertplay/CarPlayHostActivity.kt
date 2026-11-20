@@ -1275,18 +1275,14 @@ class CarPlayHostActivity : ComponentActivity() {
                     enqueueShutdownCompletion { result ->
                         if (result != CarPlayHostShutdownResult.CLOSED) return@enqueueShutdownCompletion
                         AirPlayPersistence.saveWirelessEnabled(this, false)
-                        startActivity(
-                            CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
-                        )
+                        restartHostAfterShutdown(CarPlayHostActions.OPEN_CARPLAY)
                         finish()
                     }
                 } else {
                     if (!wiredUsbResumeAfterShutdownRequested.compareAndSet(false, true)) return
                     enqueueShutdownCompletion { result ->
                         if (result != CarPlayHostShutdownResult.CLOSED) return@enqueueShutdownCompletion
-                        startActivity(
-                            CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
-                        )
+                        restartHostAfterShutdown(CarPlayHostActions.OPEN_CARPLAY)
                         finish()
                     }
                 }
@@ -1306,9 +1302,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 shutdown(false, "switching to USB") { result ->
                     if (result != CarPlayHostShutdownResult.CLOSED) return@shutdown
                     AirPlayPersistence.saveWirelessEnabled(this, false)
-                    startActivity(
-                        CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
-                    )
+                    restartHostAfterShutdown(CarPlayHostActions.OPEN_CARPLAY)
                 }
                 finish()
             } else {
@@ -1349,41 +1343,58 @@ class CarPlayHostActivity : ComponentActivity() {
             if (IphoneUsbAutoLaunchSettings.currentCandidate(this, latestIdentity) == null) {
                 IphoneUsbAutoLaunchDispatcher.failLaunch(latestIdentity)
                 AirPlayPersistence.saveWirelessEnabled(this, true)
-                try {
-                    startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY))
-                } catch (error: RuntimeException) {
-                    Log.w(
-                        TAG,
-                        "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=restore_failed " +
-                            "error=${error.javaClass.simpleName}",
-                    )
-                }
+                restartHostAfterShutdown(CarPlayHostActions.OPEN_CARPLAY)
                 return@shutdown
             }
             autoUsbLaunchIdentity = latestIdentity
             autoUsbLaunchBlocked = false
             AirPlayPersistence.saveWirelessEnabled(this, false)
-            try {
-                startActivity(
-                    CarPlayHostActions.createInternalIntent(
-                        this,
-                        CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
-                        latestIdentity,
-                        latestRequest.hostLaunchState ?: hostLaunchState,
-                    ),
-                )
-            } catch (error: RuntimeException) {
-                Log.w(
-                    TAG,
-                    "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=launch_failed " +
-                        "error=${error.javaClass.simpleName}",
-                )
-                IphoneUsbAutoLaunchDispatcher.failLaunch(latestIdentity)
-                IphoneUsbAutoLaunchNotification.show(this)
-            }
+            restartHostAfterShutdown(
+                CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+                latestIdentity,
+                latestRequest.hostLaunchState ?: hostLaunchState,
+            )
         }
         expectedOwnerEpoch = CarPlayBackgroundSession.ownerEpoch()
         finish()
+    }
+
+    /**
+     * Restarts the host after a transport handover finished asynchronously. The handover itself is
+     * already past the point of return, but taking the display is a separate decision: a request
+     * that arrives while DiPlay settings or the menu is open is kept for later instead.
+     */
+    internal fun restartHostAfterShutdown(
+        action: String,
+        identity: UsbAttachDeviceIdentity? = null,
+        hostLaunchState: CarPlayHostLaunchState? = null,
+    ) {
+        if (DiPlayUiFocus.isUserNavigationTarget()) {
+            if (identity != null) {
+                IphoneUsbAutoLaunchDispatcher.deferTransition(identity, IphoneUsbAutoLaunchSource.ATTACH)
+            } else {
+                IphoneUsbAutoLaunchNotification.show(this)
+            }
+            Log.i(
+                TAG,
+                "event=APPLE_USB_AUTO_ATTACH source=handover result=held_for_user_navigation " +
+                    "action=$action",
+            )
+            return
+        }
+        try {
+            startActivity(
+                CarPlayHostActions.createInternalIntent(this, action, identity, hostLaunchState),
+            )
+        } catch (error: RuntimeException) {
+            Log.w(
+                TAG,
+                "event=APPLE_USB_AUTO_ATTACH source=handover result=launch_failed " +
+                    "error=${error.javaClass.simpleName}",
+            )
+            identity?.let(IphoneUsbAutoLaunchDispatcher::failLaunch)
+            IphoneUsbAutoLaunchNotification.show(this)
+        }
     }
 
     override fun onResume() {
@@ -1467,6 +1478,7 @@ class CarPlayHostActivity : ComponentActivity() {
 
     override fun onStop() {
         // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI.
+        DiPlayUiFocus.stopped(this)
         super.onStop()
     }
 

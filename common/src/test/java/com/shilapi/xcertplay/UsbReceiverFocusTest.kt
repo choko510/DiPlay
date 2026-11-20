@@ -10,6 +10,7 @@ import com.shilapi.xcertplay.orchestration.CarPlayTransport
 import java.lang.reflect.Field
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -70,8 +71,8 @@ class UsbReceiverFocusTest {
         device = TestIphoneUsbDevice.attach(app)
         settings.pause()
         assertEquals(
-            "pausing clears the focus; the receiver has to restore the covered screen",
-            DiPlaySurface.NONE,
+            "a pause alone must not free the display; Android pauses before the receiver runs",
+            DiPlaySurface.SETTINGS,
             DiPlayUiFocus.current(),
         )
 
@@ -143,6 +144,48 @@ class UsbReceiverFocusTest {
 
         assertNull(shadowOf(settings.get()).nextStartedActivity)
         assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+    }
+
+    @Test
+    fun aRequestFromAnotherQueueCannotUseThePauseGap() {
+        val settings = Robolectric.buildActivity(DiPlayActivity::class.java, settingsIntent()).setup()
+        val attached = TestIphoneUsbDevice.attach(app)
+        device = attached
+        settings.pause()
+
+        // Another queue dispatches between onPause and the receiver's onCreate.
+        val dispatched = IphoneUsbAutoLaunchDispatcher.dispatch(
+            app,
+            attached.toUsbAttachDeviceIdentity(),
+            IphoneUsbAutoLaunchSource.ATTACH,
+        )
+
+        assertFalse("the paused settings screen still owns the display", dispatched)
+        assertNull(shadowOf(app).nextStartedActivity)
+        assertEquals(DiPlaySurface.SETTINGS, DiPlayUiFocus.current())
+    }
+
+    @Test
+    fun theAttachIsNoLongerHeldOnceTheUserLeftDiPlayForTheVehicleHome() {
+        val settings = Robolectric.buildActivity(DiPlayActivity::class.java, settingsIntent()).setup()
+        val attached = TestIphoneUsbDevice.attach(app)
+        device = attached
+
+        // The user leaves DiPlay for the vehicle home screen: the settings Activity stops.
+        settings.pause()
+        settings.stop()
+        assertEquals(DiPlaySurface.NONE, DiPlayUiFocus.current())
+        assertNull("nothing is left to protect", shadowOf(app).nextStartedActivity)
+
+        val receiver = buildIphoneReceiver()
+
+        assertTrue(receiver.isFinishing)
+        val started = shadowOf(receiver).nextStartedActivity ?: shadowOf(app).nextStartedActivity
+        assertNotNull("a stale settings screen must not hold the attach", started)
+        assertEquals(
+            CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+            CarPlayHostActions.consumeInternalAction(started!!),
+        )
     }
 
     private fun buildIphoneReceiver(): IphoneUsbAutoAttachActivity =

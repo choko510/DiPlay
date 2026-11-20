@@ -29,13 +29,12 @@ internal enum class DiPlaySurface {
  * asynchronous USB auto-launch, recovery, and OEM menu requests consult this instead of guessing
  * whether the user is looking at CarPlay.
  *
- * Three lifecycle details matter:
- * - An Activity reports page changes inside itself through [resumed].
- * - Every DiPlay navigation is announced with [navigatingTo] before `startActivity`, because Android
- *   pauses the source before it resumes the destination.
- * - A screen that returns through `finish()` re-announces its parent with [announceReturn], and the
- *   transparent USB attach receivers restore the covered screen with [transientOverlayResumed],
- *   because Android starts those without our code running first.
+ * The screen is released only when an Activity proves it left the foreground ([stopped]), not on
+ * every pause: a pause can mean a dialog, a translucent receiver, or a handoff to the next DiPlay
+ * screen. This keeps the protection intact from `onPause` until the destination resumes.
+ *
+ * Android also starts the transparent USB attach receivers without running DiPlay navigation code,
+ * so those receivers restore the screen they cover with [transientOverlayResumed].
  */
 internal object DiPlayUiFocus {
     private var owner: Any? = null
@@ -59,6 +58,28 @@ internal object DiPlayUiFocus {
         this.surface = surface
         navigationAnnounced = false
         coveredSurface = DiPlaySurface.NONE
+        lastNavigation = null
+    }
+
+    /** The screen is only covered; the user has not chosen another one. */
+    @Synchronized
+    fun paused(owner: Any) {
+        if (this.owner !== owner) return
+        if (surface == DiPlaySurface.NONE) return
+        coveredSurface = surface
+    }
+
+    /**
+     * The screen left the foreground, so the user is no longer looking at DiPlay. The announced
+     * destination keeps the display until it resumes.
+     */
+    @Synchronized
+    fun stopped(owner: Any) {
+        if (this.owner !== owner) return
+        coveredSurface = DiPlaySurface.NONE
+        if (navigationAnnounced) return
+        this.owner = null
+        surface = DiPlaySurface.NONE
         lastNavigation = null
     }
 
@@ -103,28 +124,20 @@ internal object DiPlayUiFocus {
 
     /**
      * A transparent DiPlay receiver (USB attach) is running on top of a screen the user chose.
-     * Android started it without running any DiPlay navigation code, so the covered screen is
-     * restored instead of treated as "the user left DiPlay".
+     * Android started it without running any DiPlay navigation code, so the covered screen keeps
+     * ownership instead of freeing the display.
      */
     @Synchronized
     fun transientOverlayResumed(owner: Any) {
-        if (surface != DiPlaySurface.NONE) return
-        if (coveredSurface == DiPlaySurface.NONE) return
+        val restored = when {
+            surface != DiPlaySurface.NONE -> surface
+            coveredSurface != DiPlaySurface.NONE -> coveredSurface
+            else -> return
+        }
         this.owner = owner
-        this.surface = coveredSurface
+        this.surface = restored
         navigationAnnounced = true
         coveredSurface = DiPlaySurface.NONE
-    }
-
-    @Synchronized
-    fun paused(owner: Any) {
-        if (this.owner !== owner) return
-        // The announced destination is not resumed yet; keep protecting it.
-        if (navigationAnnounced) return
-        coveredSurface = surface
-        this.owner = null
-        this.surface = DiPlaySurface.NONE
-        lastNavigation = null
     }
 
     @Synchronized

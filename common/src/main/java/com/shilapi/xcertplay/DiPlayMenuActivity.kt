@@ -72,6 +72,11 @@ class DiPlayMenuActivity : ComponentActivity() {
         handler.post(statusRefresh)
     }
 
+    override fun onStop() {
+        DiPlayUiFocus.stopped(this)
+        super.onStop()
+    }
+
     override fun onPause() {
         handler.removeCallbacks(statusRefresh)
         DiPlayUiFocus.paused(this)

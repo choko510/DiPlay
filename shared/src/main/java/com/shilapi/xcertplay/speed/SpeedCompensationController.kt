@@ -34,6 +34,7 @@ data class SpeedCompensationState(
     val lastFixNanos: Long = Long.MIN_VALUE,
     val speedAccuracyMetersPerSecond: Double? = null,
     val boostAllowed: Boolean = true,
+    val sourceBlocked: Boolean = false,
 ) {
     val active: Boolean get() = settings.active || !gains.isNeutral
 }
@@ -68,6 +69,8 @@ class SpeedCompensationController(
     private var lastSpeedAccuracy: Double? = null
     private var started = false
     private var boostAllowed = true
+    private var boostPrimed = true
+    private var sourceBlocked = false
 
     fun start() {
         synchronized(lock) {
@@ -114,6 +117,9 @@ class SpeedCompensationController(
     fun onGpsStatus(status: SpeedSourceStatus) {
         synchronized(lock) {
             gpsState = status.state
+            // A disabled provider or a lost permission must not keep compensating on the last
+            // known speed while the staleness timeout runs out.
+            sourceBlocked = status.state.blocksBoost
         }
     }
 
@@ -165,6 +171,18 @@ class SpeedCompensationController(
     }
 
     fun isBoostAllowed(): Boolean = synchronized(lock) { boostAllowed }
+
+    /**
+     * Holds the boost until the reserved headroom has actually been applied to the renderer, so
+     * an attenuation step never lands on top of an already boosted signal.
+     */
+    fun setBoostPrimed(primed: Boolean) {
+        synchronized(lock) {
+            if (boostPrimed == primed) return
+            boostPrimed = primed
+        }
+        publish(force = true)
+    }
 
     fun testSpeed(): Double? = synchronized(lock) { testSpeedKmh }
 
@@ -231,6 +249,7 @@ class SpeedCompensationController(
             lastFixNanos = lastFixNanos,
             speedAccuracyMetersPerSecond = lastSpeedAccuracy,
             boostAllowed = boostAllowed,
+            sourceBlocked = sourceBlocked,
         )
     }
 
@@ -252,7 +271,9 @@ class SpeedCompensationController(
     }
 
     private fun targetGains(settings: SpeedCompensationSettings, estimate: SpeedEstimate): SpeedCompensationGains {
-        if (!boostAllowed || !settings.active || !estimate.usable) return SpeedCompensationGains.NEUTRAL
+        if (!boostAllowed || !boostPrimed || sourceBlocked || !settings.active || !estimate.usable) {
+            return SpeedCompensationGains.NEUTRAL
+        }
         val speed = estimate.speedKmh ?: return SpeedCompensationGains.NEUTRAL
         val curve = settings.curve
         return SpeedCompensationGains(

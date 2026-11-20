@@ -125,6 +125,66 @@ class DspSpeedCompensationRuntimeTest {
     }
 
     @Test
+    fun theReserveIsAppliedBeforeTheBoostStarts() {
+        createRuntime()
+        val settings = SpeedCompensationSettings().withMasterEnabled(true)
+        runtime.updateSettings(settings)
+        runtime.attachHost()
+        source.emit(90.0, nowNanos)
+        tick()
+
+        // The first publish after the fix carries the headroom but no boost yet.
+        assertEquals(settings.reservedBoostDb, published.last().reservedBoostDb, 1.0e-9)
+        assertEquals(0.0, published.last().volumeGainDb, 1.0e-9)
+        assertTrue(published.last().enabled)
+
+        tick()
+        assertEquals("the boost waits for the reserve to settle", 0.0, runtime.status().state.gains.volumeDb, 1.0e-9)
+
+        repeat(20) {
+            tick()
+            source.emit(90.0, nowNanos)
+        }
+        assertTrue(runtime.status().state.gains.volumeDb > 0.5)
+    }
+
+    @Test
+    fun aDisabledProviderStopsTheBoostWithoutWaitingForStaleness() {
+        createRuntime()
+        runtime.updateSettings(SpeedCompensationSettings().withMasterEnabled(true))
+        runtime.attachHost()
+        source.emit(90.0, nowNanos)
+        repeat(25) {
+            tick()
+            source.emit(90.0, nowNanos)
+        }
+        val boosted = runtime.status().state.gains.volumeDb
+        assertTrue(boosted > 0.5)
+
+        source.overrideState = SpeedGpsState.PROVIDER_DISABLED
+        tick()
+        assertTrue(runtime.status().state.gains.volumeDb < boosted)
+        // The reserve must survive until the gains are neutral.
+        assertTrue(published.last().reservedBoostDb > 0.0)
+
+        tick(steps = 40)
+        assertEquals(0.0, runtime.status().state.gains.volumeDb, 1.0e-9)
+        assertEquals(0.0, published.last().reservedBoostDb, 1.0e-9)
+        assertFalse(published.last().enabled)
+    }
+
+    @Test
+    fun noGpsSubscriptionIsOpenedWhenTheBoostIsDisallowed() {
+        createRuntime(autoHeadroomEnabled = false)
+        runtime.updateSettings(SpeedCompensationSettings().withMasterEnabled(true))
+        runtime.attachHost()
+        tick(steps = 10)
+
+        assertEquals(0, source.startCount)
+        assertTrue(source.isStopped)
+    }
+
+    @Test
     fun autoHeadroomOffDisablesTheBoostInsteadOfClipping() {
         createRuntime(autoHeadroomEnabled = false)
         runtime.updateSettings(SpeedCompensationSettings().withMasterEnabled(true))
@@ -240,7 +300,9 @@ class DspSpeedCompensationRuntimeTest {
 
     private class FakeSpeedSource : SpeedSource {
         var startCount = 0
+        var overrideState: SpeedGpsState? = null
         private var listener: SpeedFixListener? = null
+        val isStopped: Boolean get() = listener == null && overrideState == null
 
         fun emit(speedKmh: Double, elapsedRealtimeNanos: Long) {
             listener?.onSpeedFix(SpeedFix(speedKmh, elapsedRealtimeNanos, SpeedFixSource.GPS))
@@ -257,7 +319,8 @@ class DspSpeedCompensationRuntimeTest {
         }
 
         override fun status(): SpeedSourceStatus = SpeedSourceStatus(
-            state = if (listener != null) SpeedGpsState.RECEIVING else SpeedGpsState.STOPPED,
+            state = overrideState
+                ?: if (listener != null) SpeedGpsState.RECEIVING else SpeedGpsState.STOPPED,
         )
     }
 

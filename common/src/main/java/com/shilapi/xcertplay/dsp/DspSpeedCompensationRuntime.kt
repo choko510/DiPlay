@@ -61,10 +61,13 @@ internal class DspSpeedCompensationRuntime(
     // every decay tick would re-apply the preamp (and rebuild the pipeline). Hold the largest
     // reserve until the layer is exactly neutral, then release it once.
     private var heldReserveDb = 0.0
+    // Headroom must be audible-neutral for a moment after it is claimed, so the boost cannot ride
+    // on top of the pipeline swap that applies the attenuation.
+    private var reservePrimedAtNanos: Long? = null
     private var sourceSubscribed = false
     private val ticker = object : Runnable {
         override fun run() {
-            controller.onGpsStatus(source.status())
+            forwardSourceStatus()
             controller.tick(nowNanos())
             if (keepRunning()) {
                 updateSourceSubscription()
@@ -154,6 +157,7 @@ internal class DspSpeedCompensationRuntime(
                 handler.removeCallbacks(ticker)
                 handler.post(ticker)
             }
+            forwardSourceStatus()
             controller.tick(nowNanos())
             return
         }
@@ -161,7 +165,7 @@ internal class DspSpeedCompensationRuntime(
             handler.removeCallbacks(ticker)
         }
         stopSource()
-        controller.onGpsStatus(source.status())
+        forwardSourceStatus()
         if (controller.isStarted()) controller.stop()
     }
 
@@ -171,7 +175,8 @@ internal class DspSpeedCompensationRuntime(
      */
     private fun updateSourceSubscription() {
         val state = controller.state()
-        val wantsGps = state.settings.active && !state.testMode && hostCount.get() > 0
+        val wantsGps = state.settings.active && !state.testMode && state.boostAllowed &&
+            hostCount.get() > 0
         if (wantsGps) {
             if (!sourceSubscribed) {
                 sourceSubscribed = source.start { fix -> onFix(fix) }
@@ -193,7 +198,29 @@ internal class DspSpeedCompensationRuntime(
      */
     private fun keepRunning(): Boolean {
         syncBoostAllowed()
-        return isLive(controller.state())
+        val state = controller.state()
+        armReservePriming(state)
+        syncBoostPrimed()
+        return isLive(state)
+    }
+
+    /**
+     * The headroom is applied by a pipeline swap, so the boost is held for a moment afterwards
+     * instead of ramping on top of a swap that is still being applied.
+     */
+    private fun armReservePriming(state: SpeedCompensationState) {
+        if (heldReserveDb > 0.0 || reservePrimedAtNanos != null) return
+        if (!state.boostAllowed || !hasUsableSpeed(state) || !isLive(state)) return
+        reservePrimedAtNanos = nowNanos()
+        controller.setBoostPrimed(false)
+    }
+
+    private fun syncBoostPrimed() {
+        val primedAt = reservePrimedAtNanos ?: return
+        if (nowNanos() - primedAt >= RESERVE_PRIME_NANOS) {
+            reservePrimedAtNanos = null
+            controller.setBoostPrimed(true)
+        }
     }
 
     /**
@@ -217,10 +244,20 @@ internal class DspSpeedCompensationRuntime(
     }
 
     /** A non-stale speed estimate is required before the layer may claim headroom. */
-    private fun hasUsableSpeed(state: SpeedCompensationState): Boolean = state.speedKmh != null
+    private fun hasUsableSpeed(state: SpeedCompensationState): Boolean =
+        state.speedKmh != null && !state.sourceBlocked
 
     private fun onFix(fix: SpeedFix) {
         controller.onFix(fix)
+        forwardSourceStatus()
+    }
+
+    /**
+     * The manual test simulation has no platform source, so its (stopped) status must not gate the
+     * boost; only a real GPS failure should.
+     */
+    private fun forwardSourceStatus() {
+        if (controller.state().testMode) return
         controller.onGpsStatus(source.status())
     }
 
@@ -231,10 +268,19 @@ internal class DspSpeedCompensationRuntime(
         // user's music: headroom is only claimed once a usable speed can actually drive a boost.
         val canBoost = live && state.boostAllowed && hasUsableSpeed(state)
         val requestedReserve = if (canBoost && state.settings.active) state.settings.reservedBoostDb else 0.0
+        val previousReserveDb = heldReserveDb
         heldReserveDb = if (gains.isNeutral) {
             requestedReserve
         } else {
             maxOf(heldReserveDb, requestedReserve, gains.worstCaseBoostDb)
+        }
+        if (heldReserveDb > 0.0 && previousReserveDb == 0.0 &&
+            reservePrimedAtNanos == null
+        ) {
+            reservePrimedAtNanos = nowNanos()
+            controller.setBoostPrimed(false)
+        } else if (heldReserveDb == 0.0) {
+            reservePrimedAtNanos = null
         }
         val reserved = if (canBoost || !gains.isNeutral) heldReserveDb else 0.0
         publishConfig(
@@ -252,5 +298,6 @@ internal class DspSpeedCompensationRuntime(
 
     private companion object {
         const val TICK_INTERVAL_MS = 200L
+        const val RESERVE_PRIME_NANOS = 350_000_000L
     }
 }

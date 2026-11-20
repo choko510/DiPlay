@@ -7,6 +7,12 @@ enum class SpeedGpsState {
     PERMISSION_DENIED,
     NO_PROVIDER,
     PROVIDER_DISABLED,
+    ;
+
+    /** The source cannot deliver speeds at all, so the last estimate must not drive a boost. */
+    val blocksBoost: Boolean
+        get() = this == PERMISSION_DENIED || this == NO_PROVIDER ||
+            this == PROVIDER_DISABLED || this == STOPPED
 }
 
 enum class SpeedFixSource {

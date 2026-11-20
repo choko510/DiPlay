@@ -19,6 +19,7 @@ class DiPlaySessionService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            AutoConnectCoordinator.shared.onUserDisconnect()
             CarPlayBackgroundSession.stop()
             stopSelf()
             return START_NOT_STICKY
@@ -61,6 +62,7 @@ class DiPlaySessionService : Service() {
         return START_NOT_STICKY
     }
     override fun onTaskRemoved(rootIntent: Intent?) {
+        AutoConnectCoordinator.shared.onUserDisconnect()
         CarPlayBackgroundSession.stop()
         stopSelf()
     }

@@ -419,6 +419,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     "Wireless startup permissions denied"
                 },
             )
+            if (!wirelessPermissionsReady) AutoConnectCoordinator.shared.onHostPermissionDenied()
             updateHotspotStatusBlock()
             showMissingWirelessPermission()
             maybeStartCarPlay()
@@ -5449,6 +5450,10 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun reconnectAfterLoss(reason: String) {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
+        if (AutoConnectCoordinator.shared.suppressesHostRecovery(DiPlayPreferences.autoConnect(this))) {
+            appendLog("Auto-connect recovery is suppressed; not retrying")
+            return
+        }
         val controllerManaged = controller?.isWiredRecoveryManagedByController() == true
         if (controllerManaged) {
             appendLog("Wired controller owns recovery; host retry skipped")

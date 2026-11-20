@@ -405,6 +405,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 maybeStartCarPlay()
             } else {
                 setStatus("VPN consent was denied")
+                AutoConnectCoordinator.shared.onHostPermissionDenied()
             }
         }
     private val wirelessPermissions =

@@ -6,6 +6,7 @@
 - 自動開始セッションに限り、自動接続OFF・ユーザー切断・必須権限拒否・試行上限で `CarPlayHostActivity.reconnectAfterLoss()` を抑制。手動/USBセッションの既存復旧は維持。
 - Bluetooth監視・自動ペアリング・自動接続は追加していない。手動iPhone選択と既存RFCOMM経路は不変。
 - ローカル確認：shared unit **756/756 PASS**、common unit **419/419 PASS**（新規44件）、mobile/automotive lint・Debug build・Benchmark build PASS。途中のフル実行で既存 `WifiP2pGroupManagerTest` の300ms固定タイムアウトが1回負荷起因で失敗したが、単独・再実行・最終フル実行はPASS。
-- **未検証：** TS10/K706（Android 10）実機のBOOT起動制限・通知タップ、Android 13+通知権限、Bluetooth/無線権限拒否、USB+無線競合、実CarPlay接続。モック成功を実機接続成功と扱わない。CIはPR #82のrunで確認する。
+- **未検証：** TS10/K706（Android 10）実機のBOOT起動制限・通知タップ、Android 13+通知権限、Bluetooth/無線権限拒否、USB+無線競合、実CarPlay接続。モック成功を実機接続成功と扱わない。
+- **CI未実行：** PR #82はDraftのためcheck未登録。`workflow_dispatch` は `HTTP 422: Actions has been disabled for this repository` で拒否。API上は `enabled=true` / workflow activeだが外部制約。ローカルCI相当はPASS済み。
 
 次の作業は [backlog.md](backlog.md)、壊してはいけない仕様は [decisions.md](decisions.md) を参照。

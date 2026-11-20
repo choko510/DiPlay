@@ -68,6 +68,7 @@ import com.shilapi.xcertplay.transport.IphoneUsbMatcher
 import com.shilapi.xcertplay.transport.LinuxI2cTransport
 import com.shilapi.xcertplay.transport.LockdownCarKitClient
 import com.shilapi.xcertplay.transport.LockdownPairingClient
+import com.shilapi.xcertplay.transport.LockdownPairingException
 import com.shilapi.xcertplay.transport.LockdownPairRecord
 import com.shilapi.xcertplay.transport.NcmDiagnosticProfileStore
 import com.shilapi.xcertplay.transport.NcmFunctionDiscovery
@@ -2131,7 +2132,7 @@ class CarPlayController(
             debugLog("wired USBMUX host opened")
             onStatus(CarPlayStatus.Pairing)
             val pairingClient = LockdownPairingClient(openedMux)
-            val savedPairRecord = WiredLockdownRecordLookup.choose(
+            val recordChoice = WiredLockdownRecordLookup.choose(
                 readDevicePublicKey = {
                     pairingClient.devicePublicKey(
                         label = config.label,
@@ -2149,7 +2150,10 @@ class CarPlayController(
                     )
                 },
             )
-            var pairRecord = savedPairRecord ?: pairNewRecord(pairingClient)
+            val savedPairRecord = recordChoice.record
+            var pairedNewRecord: LockdownPairRecord? = null
+            var pairRecord = savedPairRecord
+                ?: pairNewRecord(pairingClient, startupAttempt).also { pairedNewRecord = it }
             traceConnection(ConnectionTraceStage.PAIRING_READY)
             debugLog(
                 if (savedPairRecord != null) {
@@ -2219,14 +2223,28 @@ class CarPlayController(
                 carKitClient.open(pairRecord, config.label)
             } catch (error: Throwable) {
                 val rejection = rejectedLockdownPairRecordError(error)
-                if (savedPairRecord == null || rejection == null) throw error
-                debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing and pairing again")
-                clearPairRecord(savedPairRecord.devicePublicKeyPem)
-                pairRecord = pairNewRecord(pairingClient)
+                if (savedPairRecord == null || rejection == null || !isCurrentWiredAttempt(startupAttempt)) {
+                    throw error
+                }
+                // Only a record this iPhone identified may go: a fallback record can be another
+                // iPhone's, and a failed lookup here must not cost that driver their trust.
+                if (recordChoice.discardableOnRejection) {
+                    debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing and pairing again")
+                    clearPairRecord(savedPairRecord.devicePublicKeyPem)
+                } else {
+                    debugLog(
+                        "fallback Lockdown pair record rejected by Lockdown error=$rejection; " +
+                            "keeping it and pairing again",
+                    )
+                }
+                pairRecord = pairNewRecord(pairingClient, startupAttempt)
+                pairedNewRecord = pairRecord
                 carKitClient.open(pairRecord, config.label)
             }
-            // Only a CarKit connection that really opened counts as recent use of a saved record.
+            // Persisting waits for a CarKit connection, so a record that never connected cannot
+            // take the place of another iPhone's and evict it. Recency follows the same signal.
             if (isCurrentWiredAttempt(startupAttempt)) {
+                pairedNewRecord?.let(savePairRecord)
                 markPairRecordUsed(pairRecord.devicePublicKeyPem)
             }
             debugLog("wired com.apple.carkit.service stream opened")
@@ -2706,14 +2724,22 @@ class CarPlayController(
             "usbmux" in message || ("usb" in message && "request" in message)
         }
 
-    private fun pairNewRecord(client: LockdownPairingClient): LockdownPairRecord =
-        client.pair(
+    /**
+     * Pairs once, using the same cancellation signal as the record lookup, so a superseded attempt
+     * stops instead of finishing a trust dialog for a session that is already gone. Saving is the
+     * caller's decision and happens only after CarKit accepted the record.
+     */
+    private fun pairNewRecord(client: LockdownPairingClient, startupAttempt: Int): LockdownPairRecord {
+        val record = client.pair(
             label = config.label,
             hostId = hostId,
             systemBuid = systemBuid,
             totalTimeoutMillis = PAIR_TIMEOUT_MILLIS,
-            isCancelled = { closed },
-        ).pairRecord.also(savePairRecord)
+            isCancelled = { !isCurrentWiredAttempt(startupAttempt) },
+        ).pairRecord
+        if (!isCurrentWiredAttempt(startupAttempt)) throw LockdownPairingException.Cancelled
+        return record
+    }
 
     private fun isBluetoothHandoffCommand(type: String): Boolean =
         type.equals("disableBluetooth", ignoreCase = true) ||

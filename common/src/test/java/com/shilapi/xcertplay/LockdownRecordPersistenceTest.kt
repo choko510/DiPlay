@@ -8,6 +8,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
@@ -228,30 +230,106 @@ class LockdownRecordPersistenceTest {
     @Test
     fun concurrentSaveAndClearKeepTheListConsistent() {
         save(record("a"))
-        val threads = (1..4).map { worker ->
-            Thread {
-                for (round in 1..10) {
-                    val phone = "w$worker-$round"
-                    save(record(phone))
-                    AirPlayPersistence.markLockdownRecordUsed(context, deviceKey(phone))
-                    if (round % 3 == 0) AirPlayPersistence.clearLockdownRecord(context, deviceKey(phone))
+        val executor = Executors.newFixedThreadPool(4)
+        val failures = try {
+            (1..4).map { worker ->
+                executor.submit {
+                    for (round in 1..10) {
+                        val phone = "w$worker-$round"
+                        save(record(phone))
+                        AirPlayPersistence.markLockdownRecordUsed(context, deviceKey(phone))
+                        if (round % 3 == 0) AirPlayPersistence.clearLockdownRecord(context, deviceKey(phone))
+                    }
                 }
+            }.map { future ->
+                // A worker that throws or hangs must fail this test instead of passing unnoticed.
+                runCatching { future.get(60, TimeUnit.SECONDS) }.exceptionOrNull()
             }
+        } finally {
+            executor.shutdownNow()
         }
-        threads.forEach(Thread::start)
-        threads.forEach { it.join(30_000) }
+        assertEquals(emptyList<Throwable>(), failures.filterNotNull())
+
         val ids = ids()
         assertTrue("at most $ids", ids.size <= 8)
         assertEquals(ids.distinct(), ids)
-        // Every listed id still names a complete record, and every record that is still listed loads.
-        for (id in ids) {
-            assertTrue(prefs.contains("lockdown.$id.host_id"))
-            assertTrue(prefs.contains("lockdown.$id.host_private"))
+        // Every listed id names a record that loads for the key stored under it, and that key is the
+        // one the id was derived from.
+        for (recordId in ids) {
+            val publicKey = prefs.getString("lockdown.$recordId.device_public", null)!!.decodeHex()
+            assertEquals(recordId, sha256Hex(publicKey))
+            assertNotNull("$recordId does not load", AirPlayPersistence.loadLockdownRecord(context, publicKey))
         }
         for (phone in listOf("a")) {
-            val recordId = id(phone)
-            if (recordId in ids) assertEquals("HOST-$phone", load(phone)?.hostId)
+            if (id(phone) in ids) assertEquals("HOST-$phone", load(phone)?.hostId)
         }
+    }
+
+    @Test
+    fun aDamagedPerIphoneCopyIsRestoredFromTheLegacyRecord() {
+        writeLegacy(record("a"))
+        // A migration that recorded the id but left a copy that no longer restores.
+        prefs.edit()
+            .putString("lockdown.${id("a")}.host_id", "DAMAGED")
+            .putString("lockdown.${id("a")}.system_buid", "BUID-a")
+            .putString("lockdown.${id("a")}.wifi_mac", "aa:bb:cc:dd:ee:ff")
+            .putString("lockdown.${id("a")}.device_public", deviceKey("a").toHex())
+            .putString("lockdown.${id("a")}.device_cert", "zz")
+            .putString("lockdown.${id("a")}.host_private", "00")
+            .putString("lockdown.${id("a")}.host_cert", "00")
+            .putString("lockdown.${id("a")}.root_private", "00")
+            .putString("lockdown.${id("a")}.root_cert", "00")
+            .putString("lockdown_record_ids", id("a"))
+            .commit()
+
+        assertEquals("HOST-a", load("a")?.hostId)
+        assertTrue(LEGACY_KEYS.none(prefs::contains))
+        assertEquals("host-private-a", String(load("a")!!.hostPrivateKeyPem))
+    }
+
+    @Test
+    fun aPerIphoneCopyWhoseFingerprintIsWrongIsRestoredFromTheLegacyRecord() {
+        writeLegacy(record("a"))
+        // The copy under A's id carries B's public key, so it is not A's record.
+        prefs.edit()
+            .putString("lockdown.${id("a")}.host_id", "HOST-b")
+            .putString("lockdown.${id("a")}.system_buid", "BUID-b")
+            .putString("lockdown.${id("a")}.wifi_mac", "aa:bb:cc:dd:ee:ff")
+            .putString("lockdown.${id("a")}.device_public", deviceKey("b").toHex())
+            .putString("lockdown.${id("a")}.device_cert", "device-cert-b".toByteArray().toHex())
+            .putString("lockdown.${id("a")}.host_private", "host-private-b".toByteArray().toHex())
+            .putString("lockdown.${id("a")}.host_cert", "host-cert-b".toByteArray().toHex())
+            .putString("lockdown.${id("a")}.root_private", "root-private-b".toByteArray().toHex())
+            .putString("lockdown.${id("a")}.root_cert", "root-cert-b".toByteArray().toHex())
+            .putString("lockdown_record_ids", id("a"))
+            .commit()
+
+        assertEquals("HOST-a", load("a")?.hostId)
+        assertTrue(LEGACY_KEYS.none(prefs::contains))
+    }
+
+    @Test
+    fun aRecordWhoseDeviceKeyDoesNotMatchItsIdIsNotUsed() {
+        save(record("a"))
+        prefs.edit()
+            .putString("lockdown.${id("a")}.device_public", deviceKey("b").toHex())
+            .commit()
+        assertNull(load("a"))
+        assertNull(AirPlayPersistence.loadNewestLockdownRecord(context))
+        // Booking another iPhone drops the unusable id instead of keeping it in the rotation.
+        save(record("c"))
+        assertEquals(listOf(id("c")), ids())
+        assertTrue(prefs.contains("lockdown.${id("a")}.host_id"))
+    }
+
+    @Test
+    fun aValueStoredWithAnUnexpectedTypeIsIgnored() {
+        save(record("a"))
+        save(record("b"))
+        prefs.edit().putInt("lockdown.${id("b")}.host_id", 7).commit()
+        assertNull(load("b"))
+        assertEquals("HOST-a", load("a")?.hostId)
+        assertEquals("HOST-a", AirPlayPersistence.loadNewestLockdownRecord(context)?.hostId)
     }
 
     @Test
@@ -269,9 +347,14 @@ class LockdownRecordPersistenceTest {
     private fun ids(): List<String> =
         prefs.getString("lockdown_record_ids", null)?.split(',')?.filter(String::isNotEmpty) ?: emptyList()
 
-    private fun id(phone: String): String =
-        java.security.MessageDigest.getInstance("SHA-256").digest(deviceKey(phone))
+    private fun id(phone: String): String = sha256Hex(deviceKey(phone))
+
+    private fun sha256Hex(bytes: ByteArray): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private fun String.decodeHex(): ByteArray =
+        ByteArray(length / 2) { index -> substring(index * 2, index * 2 + 2).toInt(16).toByte() }
 
     private fun deviceKey(phone: String) =
         "-----BEGIN RSA PUBLIC KEY-----\n$phone\n-----END RSA PUBLIC KEY-----\n".toByteArray()

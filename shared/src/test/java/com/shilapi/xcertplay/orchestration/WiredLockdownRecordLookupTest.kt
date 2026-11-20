@@ -6,6 +6,7 @@ import com.shilapi.xcertplay.transport.LockdownPairRecord
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -23,7 +24,7 @@ class WiredLockdownRecordLookupTest {
     @Test
     fun aReportedDeviceKeySelectsThatIphonesRecord() {
         var requested: ByteArray? = null
-        val chosen = WiredLockdownRecordLookup.choose(
+        val choice = WiredLockdownRecordLookup.choose(
             readDevicePublicKey = { deviceKey("a") },
             isCancelled = { false },
             loadForDevice = { key ->
@@ -32,67 +33,77 @@ class WiredLockdownRecordLookupTest {
             },
             loadNewest = { error("the newest record must not be used when the key was read") },
         )
-        assertEquals(deviceRecord, chosen)
+        assertEquals(deviceRecord, choice.record)
+        assertEquals(WiredLockdownRecordChoice.Source.EXACT_MATCH, choice.source)
+        assertTrue(choice.discardableOnRejection)
         assertEquals(String(deviceKey("a")), String(requested!!))
     }
 
     @Test
     fun anIphoneWithoutARecordFallsThroughToNewPairing() {
-        val chosen = WiredLockdownRecordLookup.choose(
+        val choice = WiredLockdownRecordLookup.choose(
             readDevicePublicKey = { deviceKey("c") },
             isCancelled = { false },
             loadForDevice = { null },
             loadNewest = { newestRecord },
         )
-        assertNull(chosen)
+        assertNull(choice.record)
+        assertEquals(WiredLockdownRecordChoice.Source.NONE, choice.source)
+        assertFalse(choice.discardableOnRejection)
     }
 
     @Test
     fun aTransportFailureUsesTheNewestSavedRecord() {
         val failures = mutableListOf<Exception>()
-        val chosen = WiredLockdownRecordLookup.choose(
+        val choice = WiredLockdownRecordLookup.choose(
             readDevicePublicKey = { throw IphoneUsbException.TimedOut("lockdown read timed out") },
             isCancelled = { false },
             loadForDevice = { error("the per-iPhone record must not be used without a key") },
             loadNewest = { newestRecord },
             onLookupFailure = { failures += it },
         )
-        assertEquals(newestRecord, chosen)
+        assertEquals(newestRecord, choice.record)
+        assertEquals(WiredLockdownRecordChoice.Source.FALLBACK, choice.source)
+        // The fallback record may belong to another iPhone, so a rejection must not delete it.
+        assertFalse(choice.discardableOnRejection)
         assertEquals(1, failures.size)
         assertTrue(failures.single() is IphoneUsbException.TimedOut)
     }
 
     @Test
     fun aPairingTimeoutAlsoFallsBack() {
-        val chosen = WiredLockdownRecordLookup.choose(
+        val choice = WiredLockdownRecordLookup.choose(
             readDevicePublicKey = { throw LockdownPairingException.TimedOut },
             isCancelled = { false },
             loadForDevice = { error("the per-iPhone record must not be used without a key") },
             loadNewest = { newestRecord },
         )
-        assertEquals(newestRecord, chosen)
+        assertEquals(newestRecord, choice.record)
+        assertEquals(WiredLockdownRecordChoice.Source.FALLBACK, choice.source)
     }
 
     @Test
     fun anInvalidResponseFallsBack() {
-        val chosen = WiredLockdownRecordLookup.choose(
+        val choice = WiredLockdownRecordLookup.choose(
             readDevicePublicKey = { throw LockdownPairingException.InvalidResponse("DevicePublicKey was not data") },
             isCancelled = { false },
             loadForDevice = { error("the per-iPhone record must not be used without a key") },
             loadNewest = { newestRecord },
         )
-        assertEquals(newestRecord, chosen)
+        assertEquals(newestRecord, choice.record)
+        assertEquals(WiredLockdownRecordChoice.Source.FALLBACK, choice.source)
     }
 
     @Test
     fun aFallbackWithoutAnySavedRecordStillPairsNew() {
-        val chosen = WiredLockdownRecordLookup.choose(
+        val choice = WiredLockdownRecordLookup.choose(
             readDevicePublicKey = { throw IOException("USBMUX TCP connection failed") },
             isCancelled = { false },
             loadForDevice = { error("the per-iPhone record must not be used without a key") },
             loadNewest = { null },
         )
-        assertNull(chosen)
+        assertNull(choice.record)
+        assertEquals(WiredLockdownRecordChoice.Source.NONE, choice.source)
     }
 
     @Test
@@ -110,23 +121,23 @@ class WiredLockdownRecordLookupTest {
             )
             fail("a cancelled read must not fall back")
         } catch (expected: LockdownPairingException.Cancelled) {
-            assertTrue(true)
+            assertFalse(newestLoaded.get())
         }
-        assertTrue(!newestLoaded.get())
     }
 
     @Test
-    fun aReadFailureAfterTheAttemptWasSupersededDoesNotFallBack() {
-        val cancelled = AtomicBoolean(true)
+    fun aReadFailureAfterTheAttemptWasSupersededIsReportedAsCancelled() {
+        // A USB disconnect is a transport failure, but on a superseded attempt it is not a reason to
+        // continue, and callers must be able to tell that apart from a real lookup failure.
         try {
             WiredLockdownRecordLookup.choose(
                 readDevicePublicKey = { throw IphoneUsbException.DeviceUnavailable("USB was disconnected") },
-                isCancelled = { cancelled.get() },
+                isCancelled = { true },
                 loadForDevice = { error("a superseded attempt must not pick a record") },
                 loadNewest = { error("a superseded attempt must not fall back") },
             )
             fail("a superseded attempt must not fall back")
-        } catch (expected: IphoneUsbException.DeviceUnavailable) {
+        } catch (expected: LockdownPairingException.Cancelled) {
             assertTrue(true)
         }
     }

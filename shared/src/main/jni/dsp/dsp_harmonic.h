@@ -28,6 +28,7 @@ typedef struct {
     int upsample_write_index;
     int shaped_write_index;
     float previous_upsampled_sample;
+    float input_envelope;
 } dsp_harmonic_oversampler_state;
 
 typedef struct {
@@ -42,6 +43,7 @@ typedef struct {
     float exciter_amount;
     float virtual_bass_amount;
     float level_match_gain;
+    float env_release_alpha;
     float fir_coefficients[DSP_HARMONIC_MAX_FIR_TAPS];
     dsp_harmonic_oversampler_state branches[2][2];
     float dry_delay[2][DSP_HARMONIC_DELAY_FRAMES];

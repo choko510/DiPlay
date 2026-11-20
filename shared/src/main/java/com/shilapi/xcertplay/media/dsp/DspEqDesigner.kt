@@ -244,6 +244,7 @@ internal data class DspPreparedConfig(
     val smartLoudness: DoubleArray,
     val dynamicBass: DoubleArray,
     val headroom: DspHeadroomResult,
+    val diagnosticsNotes: List<String> = emptyList(),
 )
 
 internal data class DspPreparedHotUpdate(
@@ -410,16 +411,66 @@ private fun DspPreparedConfig.dynamicEqHotCoefficients(sampleRate: Int): DoubleA
         exp(-1.0 / (sampleRate * dynamicEq[valueOffset] * 0.001))
     }
 
-internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
-    advancedMs.validateForSampleRate(format.sampleRate)
-    harmonic.validateForSampleRate(format.sampleRate)
-    val cabinBands = cabinCorrection.approvedEqBands()
-    val enabledBands = (peqBands + cabinBands).filter(DspEqBand::enabled)
-    require(enabledBands.size <= DspEqDesigner.MAX_BANDS) {
-        "PEQ_CAPACITY_EXCEEDED: ${enabledBands.size} active bands exceeds ${DspEqDesigner.MAX_BANDS}"
+private fun resolveEffectiveMacroWidth(
+    macroTone: DspMacroToneConfig,
+    stereoWidth: Double,
+    advancedMsEnabled: Boolean,
+    channels: Int,
+): Double {
+    if (!macroTone.enabled) return 1.0
+    if (advancedMsEnabled && channels == 2) return 1.0
+    if (stereoWidth > 1.0 && macroTone.relativeWidth > 1.0) {
+        return minOf(
+            macroTone.relativeWidth,
+            (MAX_COMBINED_STEREO_WIDTH / stereoWidth).coerceAtLeast(1.0),
+        )
     }
-    val bassBand = if (bass.enabled) {
-        DspEqBand(DspEqType.LOW_SHELF, bass.frequencyHz, gainDb = bass.gainDb)
+    return macroTone.relativeWidth
+}
+
+@Volatile
+internal var onDspRuntimeConfigPrepareForTesting: (() -> Unit)? = null
+
+internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig {
+    onDspRuntimeConfigPrepareForTesting?.invoke()
+    val maxFrequencyHz = format.sampleRate * MAX_NORMALIZED_FREQUENCY
+    val diagnosticsNotes = mutableListOf<String>()
+    val cabinBands = cabinCorrection.approvedEqBands()
+    val requestedEnabledBands = (peqBands + cabinBands).filter(DspEqBand::enabled)
+    require(requestedEnabledBands.size <= DspEqDesigner.MAX_BANDS) {
+        "PEQ_CAPACITY_EXCEEDED: ${requestedEnabledBands.size} active bands exceeds ${DspEqDesigner.MAX_BANDS}"
+    }
+    val enabledBands = requestedEnabledBands.filter { it.frequencyHz < maxFrequencyHz }
+    if (enabledBands.size < requestedEnabledBands.size) {
+        diagnosticsNotes += "peq_bands_disabled_for_sample_rate"
+    }
+    val rateSafeBass = if (bass.enabled && bass.frequencyHz >= maxFrequencyHz) {
+        diagnosticsNotes += "bass_disabled_for_sample_rate"
+        bass.copy(enabled = false)
+    } else {
+        bass
+    }
+    val rateSafeAdvancedMs = if (advancedMs.enabled && advancedMs.crossoverHz >= maxFrequencyHz) {
+        diagnosticsNotes += "advanced_ms_disabled_for_sample_rate"
+        advancedMs.copy(enabled = false)
+    } else {
+        advancedMs
+    }
+    val effectiveHarmonicExciter = harmonic.exciterEnabled && harmonic.exciterCutoffHz < maxFrequencyHz
+    val effectiveHarmonicVirtualBass = harmonic.virtualBassEnabled && harmonic.virtualBassCutoffHz < maxFrequencyHz
+    if (harmonic.enabled && (
+            (harmonic.exciterEnabled && !effectiveHarmonicExciter) ||
+                (harmonic.virtualBassEnabled && !effectiveHarmonicVirtualBass)
+            )
+    ) {
+        diagnosticsNotes += "harmonic_disabled_for_sample_rate"
+    }
+    val rateSafeHarmonic = harmonic.copy(
+        exciterEnabled = effectiveHarmonicExciter,
+        virtualBassEnabled = effectiveHarmonicVirtualBass,
+    )
+    val bassBand = if (rateSafeBass.enabled) {
+        DspEqBand(DspEqType.LOW_SHELF, rateSafeBass.frequencyHz, gainDb = rateSafeBass.gainDb)
     } else {
         null
     }
@@ -429,7 +480,19 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         DspEqDesigner.design(format.sampleRate, band)
             .writeTo(coefficients, index * DspEqDesigner.COEFFICIENTS_PER_BAND)
     }
-    val monoBassCoefficients = if (monoBass.enabled) {
+    val advancedMsActive = rateSafeAdvancedMs.enabled && format.channels == 2
+    val effectiveMonoBass = when {
+        monoBass.enabled && advancedMsActive -> {
+            diagnosticsNotes += "mono_bass_bypassed_by_advanced_ms"
+            false
+        }
+        monoBass.enabled && monoBass.cutoffHz >= maxFrequencyHz -> {
+            diagnosticsNotes += "mono_bass_disabled_for_sample_rate"
+            false
+        }
+        else -> monoBass.enabled
+    }
+    val monoBassCoefficients = if (effectiveMonoBass) {
         DoubleArray(DspEqDesigner.COEFFICIENTS_PER_BAND).also { destination ->
             DspEqDesigner.design(
                 format.sampleRate,
@@ -448,52 +511,84 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
     val sampleRateMatchedImpulseResponse = activeImpulseResponse?.takeIf { it.sampleRate == format.sampleRate }
     val convolverEnabled = activeImpulseResponse != null
     val convolverSamples = activeImpulseResponse?.copySamples() ?: FloatArray(0)
-    if (multiband.enabled) {
-        require(multiband.lowMidCrossoverHz < format.sampleRate * 0.45)
-        require(multiband.midHighCrossoverHz < format.sampleRate * 0.45)
+    val rateSafeMultiband = if (multiband.enabled && (
+            multiband.lowMidCrossoverHz >= maxFrequencyHz ||
+                multiband.midHighCrossoverHz >= maxFrequencyHz
+            )
+    ) {
+        diagnosticsNotes += "multiband_disabled_for_sample_rate"
+        multiband.copy(enabled = false)
+    } else {
+        multiband
     }
-    val multibandNativeValues = multiband.toNativeValues()
+    val multibandNativeValues = rateSafeMultiband.toNativeValues()
+    var dynamicEqRateDisabled = false
     val rateSafeDynamicEq = DspDynamicEqConfig(
         enabled = dynamicEq.enabled,
         bands = dynamicEq.bands.map { band ->
-            if (band.enabled && band.frequencyHz >= format.sampleRate * 0.45) band.copy(enabled = false) else band
+            if (band.enabled && band.frequencyHz >= maxFrequencyHz) {
+                dynamicEqRateDisabled = true
+                band.copy(enabled = false)
+            } else {
+                band
+            }
         },
     )
+    if (dynamicEq.enabled && dynamicEqRateDisabled) {
+        diagnosticsNotes += "dynamic_eq_bands_disabled_for_sample_rate"
+    }
     val dynamicEqNativeValues = rateSafeDynamicEq.toNativeValues()
-    val studioToneBoostDb = macroTone.conservativeBoostDb() + smartLoudness.conservativeBoostDb()
+    val effectiveMacroWidth = resolveEffectiveMacroWidth(
+        macroTone = macroTone,
+        stereoWidth = stereoWidth,
+        advancedMsEnabled = rateSafeAdvancedMs.enabled,
+        channels = format.channels,
+    )
+    if (macroTone.enabled && effectiveMacroWidth < macroTone.relativeWidth - 1e-6) {
+        diagnosticsNotes += "macro_width_capped_with_spatial"
+    }
+    val studioToneBoostDb = macroTone.conservativeBoostDb() +
+        smartLoudness.conservativeBoostDb()
+    val dynamicEqBoostHeadroomDb = if (rateSafeDynamicEq.enabled) {
+        rateSafeDynamicEq.bands
+            .filter { it.enabled && it.mode == DspDynamicEqMode.BOOST }
+            .sumOf(DspDynamicEqBandConfig::maxBoostDb)
+    } else {
+        0.0
+    }
+    val dynamicBassHeadroomDb = if (dynamicBass.enabled) {
+        dynamicBass.maxBoostDb * dynamicBass.strength
+    } else {
+        0.0
+    }
     val headroom = if (autoHeadroomEnabled) {
         DspAutoHeadroom.calculate(
             sampleRate = format.sampleRate,
             preampDb = gainDb,
             peqBands = enabledBands,
             compressorMakeupDb = if (compressor.enabled) compressor.makeupDb else 0.0,
-            maxBandMakeupDb = if (multiband.enabled) {
+            maxBandMakeupDb = if (rateSafeMultiband.enabled) {
                 maxOf(
-                    if (multiband.low.enabled) multiband.low.makeupDb else 0.0,
-                    if (multiband.mid.enabled) multiband.mid.makeupDb else 0.0,
-                    if (multiband.high.enabled) multiband.high.makeupDb else 0.0,
+                    if (rateSafeMultiband.low.enabled) rateSafeMultiband.low.makeupDb else 0.0,
+                    if (rateSafeMultiband.mid.enabled) rateSafeMultiband.mid.makeupDb else 0.0,
+                    if (rateSafeMultiband.high.enabled) rateSafeMultiband.high.makeupDb else 0.0,
                 )
             } else {
                 0.0
             },
-            dynamicBoostDb = studioToneBoostDb + (if (rateSafeDynamicEq.enabled) {
-                rateSafeDynamicEq.bands.filter { it.enabled && it.mode == DspDynamicEqMode.BOOST }
-                    .sumOf(DspDynamicEqBandConfig::maxBoostDb)
-            } else {
-                0.0
-            }) + if (dynamicBass.enabled) dynamicBass.maxBoostDb * dynamicBass.strength else 0.0,
+            dynamicBoostDb = studioToneBoostDb + dynamicEqBoostHeadroomDb + dynamicBassHeadroomDb,
             seatTrimDb = if (format.channels == 2) seatAlignment.positiveTrimForHeadroomDb else 0.0,
-            stereoWidth = if (advancedMs.enabled) 1.0 else stereoWidth,
-            macroWidthFactor = if (macroTone.enabled) macroTone.relativeWidth else 1.0,
-            advancedMsBoostDb = if (format.channels == 2) advancedMs.worstCaseBoostDb else 0.0,
-            harmonicBoostDb = harmonic.worstCaseBoostDb,
+            stereoWidth = if (advancedMsActive) 1.0 else stereoWidth,
+            macroWidthFactor = effectiveMacroWidth,
+            advancedMsBoostDb = if (format.channels == 2) rateSafeAdvancedMs.worstCaseBoostDb else 0.0,
+            harmonicBoostDb = rateSafeHarmonic.worstCaseBoostDb,
             marginDb = autoHeadroomMarginDb,
-            staticBassBands = if (bass.enabled) {
+            staticBassBands = if (rateSafeBass.enabled) {
                 listOf(
                     DspEqBand(
                         type = DspEqType.LOW_SHELF,
-                        frequencyHz = bass.frequencyHz,
-                        gainDb = bass.gainDb,
+                        frequencyHz = rateSafeBass.frequencyHz,
+                        gainDb = rateSafeBass.gainDb,
                     ),
                 )
             } else {
@@ -523,7 +618,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         monoBassCoefficients = monoBassCoefficients,
         spatial = doubleArrayOf(
             stereoWidth,
-            if (monoBass.enabled) 1.0 else 0.0,
+            if (effectiveMonoBass) 1.0 else 0.0,
             monoBass.cutoffHz.toDouble(),
             if (seatAlignment.enabled && format.channels == 2) 1.0 else 0.0,
             seatAlignment.nearSpeaker.nativeValue.toDouble(),
@@ -532,21 +627,21 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             seatAlignment.rightTrimDb,
             if (seatAlignment.invertLeft) 1.0 else 0.0,
             if (seatAlignment.invertRight) 1.0 else 0.0,
-            if (advancedMs.enabled && format.channels == 2) 1.0 else 0.0,
-            advancedMs.crossoverHz,
-            advancedMs.centerFocusDb,
-            advancedMs.midLowGainDb,
-            advancedMs.midHighGainDb,
-            advancedMs.sideLowGainDb,
-            advancedMs.sideHighGainDb,
-            advancedMs.lowBandWidth,
-            advancedMs.highBandWidth,
-            if (advancedMs.sideCompressor.enabled && format.channels == 2) 1.0 else 0.0,
-            advancedMs.sideCompressor.thresholdDb,
-            advancedMs.sideCompressor.ratio,
-            advancedMs.sideCompressor.attackMs,
-            advancedMs.sideCompressor.releaseMs,
-            advancedMs.sideCompressor.kneeDb,
+            if (advancedMsActive) 1.0 else 0.0,
+            rateSafeAdvancedMs.crossoverHz,
+            rateSafeAdvancedMs.centerFocusDb,
+            rateSafeAdvancedMs.midLowGainDb,
+            rateSafeAdvancedMs.midHighGainDb,
+            rateSafeAdvancedMs.sideLowGainDb,
+            rateSafeAdvancedMs.sideHighGainDb,
+            rateSafeAdvancedMs.lowBandWidth,
+            rateSafeAdvancedMs.highBandWidth,
+            if (rateSafeAdvancedMs.sideCompressor.enabled && format.channels == 2) 1.0 else 0.0,
+            rateSafeAdvancedMs.sideCompressor.thresholdDb,
+            rateSafeAdvancedMs.sideCompressor.ratio,
+            rateSafeAdvancedMs.sideCompressor.attackMs,
+            rateSafeAdvancedMs.sideCompressor.releaseMs,
+            rateSafeAdvancedMs.sideCompressor.kneeDb,
         ),
         convolverConfig = doubleArrayOf(
             if (convolverEnabled) 1.0 else 0.0,
@@ -559,23 +654,23 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
         multiband = multibandNativeValues,
         dynamicEq = dynamicEqNativeValues,
         harmonic = doubleArrayOf(
-            if (harmonic.isActive) 1.0 else 0.0,
-            harmonic.mode.nativeValue.toDouble(),
-            harmonic.quality.taps.toDouble(),
-            if (harmonic.isActive && harmonic.exciterEnabled) 1.0 else 0.0,
-            harmonic.exciterAmount,
-            harmonic.exciterCutoffHz,
-            if (harmonic.isActive && harmonic.virtualBassEnabled) 1.0 else 0.0,
-            harmonic.virtualBassAmount,
-            harmonic.virtualBassCutoffHz,
-            if (harmonic.levelMatchEnabled) 1.0 else 0.0,
+            if (rateSafeHarmonic.isActive) 1.0 else 0.0,
+            rateSafeHarmonic.mode.nativeValue.toDouble(),
+            rateSafeHarmonic.quality.taps.toDouble(),
+            if (rateSafeHarmonic.isActive && rateSafeHarmonic.exciterEnabled) 1.0 else 0.0,
+            rateSafeHarmonic.exciterAmount,
+            rateSafeHarmonic.exciterCutoffHz,
+            if (rateSafeHarmonic.isActive && rateSafeHarmonic.virtualBassEnabled) 1.0 else 0.0,
+            rateSafeHarmonic.virtualBassAmount,
+            rateSafeHarmonic.virtualBassCutoffHz,
+            if (rateSafeHarmonic.levelMatchEnabled) 1.0 else 0.0,
         ),
         macroTone = doubleArrayOf(
             if (macroTone.enabled) 1.0 else 0.0,
             macroTone.bassGainDb,
             macroTone.vocalGainDb,
             macroTone.airGainDb,
-            macroTone.relativeWidth,
+            effectiveMacroWidth,
         ),
         smartLoudness = doubleArrayOf(
             if (smartLoudness.enabled) 1.0 else 0.0,
@@ -594,8 +689,11 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             dynamicBass.releaseMs,
         ),
         headroom = headroom,
+        diagnosticsNotes = diagnosticsNotes,
     )
 }
 
 private const val MIN_APPLIED_PREAMP_DB = -700.0
 private const val BUTTERWORTH_Q = 0.7071067811865476
+private const val MAX_NORMALIZED_FREQUENCY = 0.45
+private const val MAX_COMBINED_STEREO_WIDTH = 1.6

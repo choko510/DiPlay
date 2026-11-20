@@ -47,7 +47,18 @@ fun interface DspConfigProvider {
 
     fun reportRendererApplyStatus(status: DspRendererApplyStatus) = Unit
 
+    fun diagnosticSummary(): String? = null
+
+    fun reportDiagnosticSummary(
+        ownerToken: Long,
+        generation: Long,
+        summary: String?,
+        phase: DspRendererApplyPhase = DspRendererApplyPhase.ACTIVE,
+    ) = Unit
+
+    fun clearDiagnosticSummary(ownerToken: Long) = Unit
+
     fun studioHotUpdatesEnabled(): Boolean = true
 
-    fun studioLocalWarmEnabled(): Boolean = false
+    fun studioLocalWarmEnabled(): Boolean = true
 }

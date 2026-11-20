@@ -11,7 +11,7 @@
     <string name="dsp_preset_edits_session_only">標準プリセットの編集はこのセッション中のみ有効です。再起動後も使うにはCustom 1またはCustom 2に保存してください。</string>
     <string name="dsp_selected_profile">選択中のプロファイル: %1$s</string>
     <string name="dsp_applied_profile">設定済みプロファイル: %1$s</string>
-    <string name="dsp_settings_description">一部の設定は再生中に反映されます。Convolver、Compressor、Multiband、Dynamic EQなど、内部状態を持つgraphの再構築は次のオーディオストリームまで保留されます。</string>
+    <string name="dsp_settings_description">大半の設定は再生中に即時・クロスフェード反映されます。レイテンシが変わる設定、Convolver、Seatディレイは次トラックで適用されます。</string>
     <string name="dsp_enabled">DSPを有効にする</string>
     <string name="dsp_enabled_description">初期設定では無効です。無効時は既存のPCM再生経路を使用します。</string>
     <string name="dsp_profile">プロファイル</string>
@@ -123,6 +123,9 @@
     <string name="dsp_renderer_apply_status_note">最後に採用したグラフ世代の表示です。設定した全モジュールの有効状態や、現在再生中であることは示しません。</string>
     <string name="dsp_renderer_apply_convolver_ir_unavailable">ConvolverはIRを読み込めなかったため、この出力では無効です。</string>
     <string name="dsp_renderer_apply_convolver_rate_mismatch">ConvolverはIRのサンプルレートと出力が異なるため、この出力では無効です。</string>
+    <string name="dsp_renderer_diagnostic_summary">出力詳細: %1$s</string>
+    <string name="dsp_ms_mono_bass_integrated_note">Advanced Mid/Side有効時は、低域の広がり制御がAdvanced M/S側に統合されるため従来のStereo widthとMono bassはバイパスされます。</string>
+    <string name="dsp_ms_mono_bass_bypassed_manual_note">Advanced Mid/Side有効時は従来のMono bass設定はバイパスされています。低域をモノラル化する場合は下の「低域の幅」を 0.00 に手動調整してください。</string>
     <string name="dsp_done">完了</string>
     <string name="dsp_preset_flat">Flat</string>
     <string name="dsp_preset_daily">Daily</string>

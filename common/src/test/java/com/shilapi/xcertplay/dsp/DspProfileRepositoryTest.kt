@@ -1,5 +1,7 @@
 package com.shilapi.xcertplay.dsp
 
+import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.advancedMsMonoBassNoteResId
 import com.shilapi.xcertplay.media.dsp.DspBassConfig
 import com.shilapi.xcertplay.media.dsp.DspCompressorConfig
 import com.shilapi.xcertplay.media.dsp.DspConvolverConfig
@@ -518,6 +520,28 @@ class DspProfileRepositoryTest {
         assertTrue(runCatching { DspConvolverConfig(enabled = true, impulseResponseId = "%2e%2e") }.isFailure)
         assertEquals(null, repository.profileFileForTesting("C:\\outside"))
         assertEquals(null, repository.profileFileForTesting("%2e%2e"))
+    }
+
+    @Test
+    fun savedAdvancedMsWithMonoBassEnabledPreservesLowBandWidthAndWarnsManualAdjustment() {
+        val repository = repository()
+        val legacyCoexisting = DspAudioProfile(
+            id = "custom1",
+            name = "Legacy coexistence",
+            enabled = true,
+            monoBass = DspMonoBassConfig(enabled = true, cutoffHz = 120),
+            advancedMs = DspAdvancedMsConfig(enabled = true, lowBandWidth = 1.0, highBandWidth = 1.3),
+        )
+        assertEquals(DspProfileSaveResult.SAVED, repository.save(legacyCoexisting))
+
+        val loaded = (repository.load("custom1") as DspProfileReadResult.Loaded).profile
+        assertTrue(loaded.advancedMs.enabled)
+        assertTrue(loaded.monoBass.enabled)
+        assertEquals(1.0, loaded.advancedMs.lowBandWidth, 0.0)
+        assertEquals(
+            R.string.dsp_ms_mono_bass_bypassed_manual_note,
+            advancedMsMonoBassNoteResId(loaded.advancedMs, loaded.monoBass),
+        )
     }
 
     private fun repository(): DspProfileRepository = DspProfileRepository(temporaryFolder.newFolder("files"))

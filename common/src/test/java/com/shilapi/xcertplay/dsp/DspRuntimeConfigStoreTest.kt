@@ -19,12 +19,12 @@ class DspRuntimeConfigStoreTest {
         val store = DspRuntimeConfigStore(config)
 
         assertTrue(store.studioHotUpdatesEnabled())
-        assertFalse(store.studioLocalWarmEnabled())
+        assertTrue(store.studioLocalWarmEnabled())
         store.setStudioHotUpdatesEnabled(false)
-        store.setStudioLocalWarmEnabled(true)
+        store.setStudioLocalWarmEnabled(false)
 
         assertFalse(store.studioHotUpdatesEnabled())
-        assertTrue(store.studioLocalWarmEnabled())
+        assertFalse(store.studioLocalWarmEnabled())
         assertSame(config, store.snapshot())
     }
 
@@ -227,5 +227,99 @@ class DspRuntimeConfigStoreTest {
         assertEquals(44_100, store.activePlaybackSampleRateHz())
         store.reportPlaybackSampleRate(firstOwner, null)
         assertEquals(null, store.activePlaybackSampleRateHz())
+    }
+
+    @Test
+    fun diagnosticSummaryIsFencedByOwnerAndGenerationAndClearsOnRelease() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.claimRendererApplyStatusOwner(100L)
+        store.reportDiagnosticSummary(100L, 1L, "role=MEDIA, notes=none")
+        assertEquals("role=MEDIA, notes=none", store.diagnosticSummary())
+
+        // Older generation and non-owner reports are ignored.
+        store.reportDiagnosticSummary(100L, 0L, "stale-gen")
+        store.reportDiagnosticSummary(99L, 5L, "stale-owner")
+        assertEquals("role=MEDIA, notes=none", store.diagnosticSummary())
+
+        // Claiming a new owner clears the prior owner's summary.
+        store.claimRendererApplyStatusOwner(101L)
+        assertEquals(null, store.diagnosticSummary())
+        store.reportDiagnosticSummary(100L, 2L, "old-owner-after-transfer")
+        assertEquals(null, store.diagnosticSummary())
+
+        store.reportDiagnosticSummary(101L, 1L, "new-owner-active")
+        assertEquals("new-owner-active", store.diagnosticSummary())
+
+        // Releasing a non-owning renderer leaves the active owner summary intact; releasing the active owner clears it.
+        store.clearDiagnosticSummary(100L)
+        assertEquals("new-owner-active", store.diagnosticSummary())
+        store.clearDiagnosticSummary(101L)
+        assertEquals(null, store.diagnosticSummary())
+    }
+
+    @Test
+    fun concurrentOwnerTransferPreventsStaleDiagnosticSummaryCasOverwrite() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.claimRendererApplyStatusOwner(100L)
+
+        val enteredCasWindow = CountDownLatch(1)
+        val allowStaleCasResume = CountDownLatch(1)
+        store.beforeDiagnosticSummaryCasForTesting = {
+            store.beforeDiagnosticSummaryCasForTesting = null
+            enteredCasWindow.countDown()
+            check(allowStaleCasResume.await(5, TimeUnit.SECONDS))
+        }
+
+        val staleThread = Thread {
+            store.reportDiagnosticSummary(100L, 1L, "stale-old-owner-summary")
+        }.apply { isDaemon = true }
+        staleThread.start()
+
+        assertTrue(enteredCasWindow.await(5, TimeUnit.SECONDS))
+        store.claimRendererApplyStatusOwner(101L)
+        assertEquals(null, store.diagnosticSummary())
+
+        allowStaleCasResume.countDown()
+        staleThread.join(5_000)
+        assertFalse(staleThread.isAlive)
+        assertEquals(null, store.diagnosticSummary())
+
+        store.reportDiagnosticSummary(101L, 1L, "new-owner-summary")
+        assertEquals("new-owner-summary", store.diagnosticSummary())
+    }
+
+    @Test
+    fun sameGenerationActiveDiagnosticSummaryCannotRollBackToPreparedUnderConcurrentCas() {
+        val store = DspRuntimeConfigStore(DspRuntimeConfig.disabled())
+        store.update(DspRuntimeConfig(enabled = true))
+        store.claimRendererApplyStatusOwner(100L)
+
+        val enteredPreparedCas = CountDownLatch(1)
+        val allowPreparedResume = CountDownLatch(1)
+        store.beforeDiagnosticSummaryCasForTesting = {
+            store.beforeDiagnosticSummaryCasForTesting = null
+            enteredPreparedCas.countDown()
+            check(allowPreparedResume.await(5, TimeUnit.SECONDS))
+        }
+
+        val stalePreparedThread = Thread {
+            store.reportDiagnosticSummary(100L, 1L, "gen=1, phase=PREPARED", DspRendererApplyPhase.PREPARED)
+        }.apply { isDaemon = true }
+        stalePreparedThread.start()
+
+        assertTrue(enteredPreparedCas.await(5, TimeUnit.SECONDS))
+        store.reportDiagnosticSummary(100L, 1L, "gen=1, phase=ACTIVE", DspRendererApplyPhase.ACTIVE)
+        assertEquals("gen=1, phase=ACTIVE", store.diagnosticSummary())
+
+        allowPreparedResume.countDown()
+        stalePreparedThread.join(5_000)
+        assertFalse(stalePreparedThread.isAlive)
+        assertEquals("gen=1, phase=ACTIVE", store.diagnosticSummary())
+
+        // Same-generation DEFERRED must also be rejected once ACTIVE is recorded.
+        store.reportDiagnosticSummary(100L, 1L, "gen=1, phase=DEFERRED", DspRendererApplyPhase.DEFERRED)
+        assertEquals("gen=1, phase=ACTIVE", store.diagnosticSummary())
     }
 }

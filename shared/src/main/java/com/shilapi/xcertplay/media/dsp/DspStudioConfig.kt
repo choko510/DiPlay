@@ -1,6 +1,10 @@
 package com.shilapi.xcertplay.media.dsp
 
+import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.log10
+import kotlin.math.pow
+import kotlin.math.sin
 
 data class DspMacroToneConfig(
     val enabled: Boolean = false,
@@ -17,6 +21,32 @@ data class DspMacroToneConfig(
     }
 }
 
+private fun onePoleAlpha(frequencyHz: Double, sampleRate: Int): Double =
+    1.0 - exp(-2.0 * Math.PI * frequencyHz / sampleRate)
+
+private inline fun scanOnePolePeakDb(sampleRate: Int, crossinline gainAtOmega: (omega: Double) -> Double): Double {
+    val maxFrequency = minOf(20_000.0, sampleRate * 0.45)
+    val logMin = kotlin.math.ln(20.0)
+    val logMax = kotlin.math.ln(maxFrequency)
+    var maxMagnitude = 1.0
+    for (point in 0 until 64) {
+        val frequency = exp(logMin + (logMax - logMin) * (point / 63.0))
+        val omega = 2.0 * Math.PI * frequency / sampleRate
+        val mag = gainAtOmega(omega)
+        if (mag > maxMagnitude) maxMagnitude = mag
+    }
+    return 20.0 * log10(maxMagnitude)
+}
+
+private fun onePoleComplex(alpha: Double, omega: Double): Pair<Double, Double> {
+    val pole = 1.0 - alpha
+    val dReal = 1.0 - pole * cos(omega)
+    val dImag = pole * sin(omega)
+    val dMagSq = dReal * dReal + dImag * dImag
+    return (alpha * dReal / dMagSq) to (-alpha * dImag / dMagSq)
+}
+
+/** Strict L1 upper bound for any arbitrary PCM/transient input. */
 internal fun DspMacroToneConfig.conservativeBoostDb(): Double {
     if (!enabled) return 0.0
     fun gain(db: Double) = StrictMath.pow(10.0, db / 20.0)
@@ -24,6 +54,27 @@ internal fun DspMacroToneConfig.conservativeBoostDb(): Double {
         2.0 * kotlin.math.abs(gain(vocalGainDb) - 1.0) +
         2.0 * kotlin.math.abs(gain(airGainDb) - 1.0)
     return 20.0 * log10(amplitudeBound)
+}
+
+/** Steady-state frequency-response peak estimate (for EQ reference/loudness estimation, not transient peak safety). */
+internal fun DspMacroToneConfig.expectedFrequencyResponsePeakDb(sampleRate: Int = 48_000): Double {
+    if (!enabled) return 0.0
+    val bassGain = 10.0.pow(bassGainDb / 20.0) - 1.0
+    val vocalGain = 10.0.pow(vocalGainDb / 20.0) - 1.0
+    val airGain = 10.0.pow(airGainDb / 20.0) - 1.0
+    val bassAlpha = onePoleAlpha(180.0, sampleRate)
+    val vocalLowAlpha = onePoleAlpha(500.0, sampleRate)
+    val vocalHighAlpha = onePoleAlpha(4_000.0, sampleRate)
+    val airAlpha = onePoleAlpha(minOf(8_000.0, sampleRate * 0.4), sampleRate)
+    return scanOnePolePeakDb(sampleRate) { omega ->
+        val (bRe, bIm) = onePoleComplex(bassAlpha, omega)
+        val (vlRe, vlIm) = onePoleComplex(vocalLowAlpha, omega)
+        val (vhRe, vhIm) = onePoleComplex(vocalHighAlpha, omega)
+        val (aRe, aIm) = onePoleComplex(airAlpha, omega)
+        val re = 1.0 + bassGain * bRe + vocalGain * (vhRe - vlRe) + airGain * (1.0 - aRe)
+        val im = bassGain * bIm + vocalGain * (vhIm - vlIm) - airGain * aIm
+        kotlin.math.hypot(re, im)
+    }
 }
 
 data class DspSmartLoudnessRuntimeConfig(
@@ -37,6 +88,7 @@ data class DspSmartLoudnessRuntimeConfig(
     }
 }
 
+/** Strict L1 upper bound for any arbitrary PCM/transient input. */
 internal fun DspSmartLoudnessRuntimeConfig.conservativeBoostDb(): Double {
     if (!enabled) return 0.0
     val lowGain = StrictMath.pow(10.0, lowGainDb / 20.0)
@@ -44,6 +96,22 @@ internal fun DspSmartLoudnessRuntimeConfig.conservativeBoostDb(): Double {
     // The first-order residual `sample - lowpass(sample)` has an L1 impulse gain no greater than 2.
     val amplitudeBound = lowGain + 2.0 * (highGain - 1.0)
     return 20.0 * log10(amplitudeBound)
+}
+
+/** Steady-state frequency-response peak estimate (for EQ reference/loudness estimation, not transient peak safety). */
+internal fun DspSmartLoudnessRuntimeConfig.expectedFrequencyResponsePeakDb(sampleRate: Int = 48_000): Double {
+    if (!enabled) return 0.0
+    val lowGain = 10.0.pow(lowGainDb / 20.0) - 1.0
+    val highGain = 10.0.pow(highGainDb / 20.0) - 1.0
+    val lowAlpha = onePoleAlpha(100.0, sampleRate)
+    val highAlpha = onePoleAlpha(minOf(8_000.0, sampleRate * 0.4), sampleRate)
+    return scanOnePolePeakDb(sampleRate) { omega ->
+        val (lRe, lIm) = onePoleComplex(lowAlpha, omega)
+        val (hRe, hIm) = onePoleComplex(highAlpha, omega)
+        val re = 1.0 + lowGain * lRe + highGain * (1.0 - hRe)
+        val im = lowGain * lIm - highGain * hIm
+        kotlin.math.hypot(re, im)
+    }
 }
 
 data class DspDynamicBassRuntimeConfig(

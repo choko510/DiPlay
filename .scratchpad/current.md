@@ -1,4 +1,10 @@
-# 現在の状況
+# 現在の状況 — オープンPR統合ブランチ（2026-11-20）
+
+## 統合ブランチ `t3/integrate-open-prs`
+
+- base は main `04c8818`。PR #80、#83、#79、#81、#82 をこの順でマージ（すべてDraft/未マージのPR、`main` へは未反映）。
+- 衝突解決：`DspEqDesigner`/`DspRuntimeConfig`/`AndroidMediaSink`/native DSPテスト（#80×#83）、`CarPlayHostActivity`（#83×#81）、`DiPlayActivity`/`CarPlayUsbAttachActivity`（#81×#82）。`DiPlayActivity` は PR #82 の自動接続機械を採用し、PR #81 のフォーカス連携（`DiPlayUiFocus`、`showPage`、`navigateFrom`、保留要求の再開、`launchOrigin` によるUSB自動起動抑制）をその上に統合した。`initialLaunch` は廃止し `firstResume` に一本化。CH341アタッチは `CarPlayUsbAttachDispatcher` 経由に統一し、`onExternalSessionStart()` はディスパッチャの起動成功時に通知する。
+- ローカル検証：この統合ブランチで `:common`/`:shared` unit、native DSPテスト、lint、Debugビルドを実行（結果は下記「APK」節）。
 
 ## PR #81 — CarPlay表示中の設定画面が奪われる問題（2026-11-20）
 
@@ -12,17 +18,26 @@
 - 再レビュー指摘への対応：Androidが直接起動するUSB受信Activityは`transientOverlayResumed`で覆われた画面を復元、`finish()`で戻る経路は`announceReturn`で戻り先を宣言、起動失敗はトークン付き`navigateFrom`で宣言を取り消し、CH341の保留要求は起動成功時のみ完了した。
 - **未検証：** 実機/ADBなし。有線・無線の画面遷移、`ActivityTaskManager`/`xcertplay-usb-auto`ログ、InstrumentationでのTask Stack検証は未実施。
 
+## PR #82 — 自動接続信頼性（2026-11-20）
+
+- 対象：[PR #82](https://github.com/choko510/DiPlay/pull/82) / `fix/auto-connect-reliability`。base `main` `04c8818`、Draft・未マージ。
+- `AutoConnectCoordinator` で「DiPlayを開いたときに接続」の要求・重複排除・権限待機・上限付き再試行・明示的切断の抑制を一元化。`initialLaunch` の一回限り判定を廃止し、Activity再生成/`onNewIntent`/権限復帰で同じ起動キーを再利用する。
+- レビューで指摘されたP1を修正：再試行上限/権限拒否は新しい起動キーでリセット、通知権限・Bluetooth権限ダイアログ中のActivity再生成でもtransport/世代/iPhone選択待ちを保持、自動接続OFF時の既存ホスト再試行を実行時に取消、初回iPhone選択後も自動要求世代を維持、OS設定で権限付与後の再起動でブロックを解除。
+- 追加で、権限ダイアログ待機は20秒で失効させず、`startActivity`成功後は同一起動キーの二重起動を抑止。USB/手動開始は自動セッションの復旧抑制を解除。再試行は元要求のtransportを使い、USB自動起動中は無線再試行しない。
+- 再レビューP1を追加修正：`onNewIntent`は新しいユーザー起動/BOOT/USB通知で終端状態（BLOCKED/EXHAUSTED）のときだけ新しい起動キーを発行し、内部設定遷移や再配送では維持。iPhone選択待ちを`WAITING_FOR_USER`として独立させ、Activity再生成後に選択ダイアログを復元。ホストの作成・セッション成立/終了・起動失敗をCoordinatorへ直接通知し、ホームのポーリング依存を解消。
+- 3回目レビュー対応：選択キャンセル済みキーを記録して同じキーの再評価を拒否し、ランチャーからの新規起動だけ新しいキーで再開。iPhone選択の「別のiPhoneをペアリング」は要求を終了せず、設定から戻ると一覧を再取得して選択画面を復元。USB/手動への所有権移行では自動接続世代を無効化し、ホスト側もUSB Intentで古い世代を破棄。プロセス死亡で残った権限待ち世代は、自動接続設定がONなら新しい要求として復旧。セッション未成立のホスト終了も起動失敗として通知。
+- 4回目レビュー対応：`onResume()`前に届いた古い権限結果を検出し、古い要求を再実行せず`onResume()`で新しい起動キーの要求として復旧。ホストは自動接続世代が現在の`STARTING`要求と一致しない限り起動せず、`onNewIntent`の古い世代も既存ホストを終了させない。セッション未成立のホスト終了判定を`hasSession()`ではなく実際のAirPlayセッション有無で行い、Controllerだけが残る状態も起動失敗として処理。
+- `BOOT_COMPLETED` は起動前に通知を用意し、Activity起動後に取消すフォールバックへ変更。Android/OEMが例外なくActivity起動を拒否してもユーザー操作を残す。
+- 自動開始セッションに限り、自動接続OFF・ユーザー切断・必須権限拒否・試行上限で `CarPlayHostActivity.reconnectAfterLoss()` を抑制。手動/USBセッションの既存復旧は維持。
+- Bluetooth監視・自動ペアリング・自動接続は追加していない。手動iPhone選択と既存RFCOMM経路は不変。
+- ローカル確認：shared unit **756/756 PASS**、common unit **460/460 PASS**、mobile/automotive lint・Debug build・Benchmark build PASS。
+- **未検証：** TS10/K706（Android 10）実機のBOOT起動制限・通知タップ、Android 13+通知権限、Bluetooth/無線権限拒否、Activity再生成、USB+無線競合、実CarPlay接続。モック成功を実機接続成功と扱わない。
+- **CI未実行：** `workflow_dispatch` は `HTTP 422: Actions has been disabled for this repository` で拒否。API上は `enabled=true` / workflow activeだが外部制約。ローカルCI相当はPASS済み。
+
+
 ## PR #45（2026-11-05）
 
-- 対象：[PR #45](https://github.com/choko510/DiPlay/pull/45) / `codex/step4-pr-00-test-baseline`。整理直前HEAD `7198329afeb0c77fe57a7d861e26a2ba7b651d02`、固定比較先main `95ba398f95ee104527812cd2b095977d71c51f98`。PRはopen・未マージ（2026-11-05確認時は `draft=false`）。
-- PR #52のDSP Studioコード統合済み。PR #45の事前修正 `4b2a4a4` によりP1-01（非表示DSPのBack横取り防止）、P1-02（Workspace/旧custom-profile同時保存とジャーナル復旧）、P2-01（Host側退出時のSave/Discard/Continue連携）を実装。
-- 当該修正時のローカル確認：Common unit **374/374 PASS**、API 36.1のP1 Activity instrumentation **2/2 PASS**、AndroidTest Kotlinコンパイル、mobile/automotive Debugビルド・lint PASS。これは**当時のSHA**の結果であり現行HEAD全体の再検証ではない。
-- [Actions #599](https://github.com/choko510/DiPlay/actions/runs/41076939717) は `91681cc9` の変更分類・公開ツリー・Common Draft unit・quick baselineを通過。Shared testはFROM-CACHE、native/ASan/UBSan、lint/build/JNI/R8、API 35 instrumentationはスキップ。[#600](https://github.com/choko510/DiPlay/actions/runs/41078600112)もdocs-only静的チェックで、製品コードの再検証とは別。
-- P2 Compose操作テストはコンパイルするが、API 36.1のEspressoが `InputManager.getInstance()` 不在でテスト実行前に停止（`BLOCKED_ENV`）。API 35での操作検証が必要。
-- SH M20 + iPhone 17 Pro Max（iOS 27.0.1）の映像・音声・再接続・Split 2回はユーザー確認の部分証拠。正式なTS10/K706対象のハードウェア受入れには流用不可。
-- **未達：** TS10/K706 + iPhoneでのNCM/通話/音声/DSP/Surface/Touch、A/V・CPU・熱・長時間soak、正式署名による更新/復旧、修正後独立レビュー。現時点でリリース可と主張しない。
-
-次の作業は [backlog.md](backlog.md)、壊してはいけない仕様は [decisions.md](decisions.md) を参照。
+- 対象：[PR #45](https://github.com/choko510/DiPlay/pull/45) / `codex/step4-pr-00-test-baseline`。PRはopen・未マージ。最新の受入れ状況は [backlog.md](backlog.md) とGit履歴を参照し、本節は履歴の要約として扱う。
 
 ## 車速連動オーディオ（Draft PR、ブランチ `t3/dd1d14c3`）
 
@@ -35,3 +50,5 @@
 - 既知の音響仕様: 予約は最悪ケース（STANDARD 6.8dB）を先に確保するため、有効化時は一度PREAMPが下がる（クロスフェード約20ms）。ブースト開始は350ms後。
 - ローカル検証（当該作業ツリー）: `:shared` + `:common` unit **1196 PASS**、native DSPテスト PASS、`:mobile`/`:automotive` debugビルド PASS、app module `lintDebug` PASS、R8後JNIマッピング検証 PASS、`check_public_tree.py` PASS。ASan/UBSanはローカルMSYS2に `-lasan`/`-lubsan` が無く **BLOCKED_ENV**（CIで確認）。
 - **未検証:** TS10/K706実機でのGPS速度精度・実際の音量変化・通話/ナビ/アシスタントへの非適用・バックグラウンド再生中の挙動・CPU負荷。リリース可と主張しない。
+
+次の作業は [backlog.md](backlog.md)、壊してはいけない仕様は [decisions.md](decisions.md) を参照。

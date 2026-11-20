@@ -56,6 +56,7 @@ class DspSettingsActivity : ComponentActivity() {
             speedHostAttached = false
             DspProfileRuntime.peekInstance()?.speedCompensation?.detachHost()
         }
+        DiPlayUiFocus.stopped(this)
         super.onStop()
     }
 
@@ -65,11 +66,6 @@ class DspSettingsActivity : ComponentActivity() {
         DspProfileRuntime.peekInstance()?.let { runtime ->
             runtime.editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
         }
-    }
-
-    override fun onStop() {
-        DiPlayUiFocus.stopped(this)
-        super.onStop()
     }
 
     override fun onPause() {

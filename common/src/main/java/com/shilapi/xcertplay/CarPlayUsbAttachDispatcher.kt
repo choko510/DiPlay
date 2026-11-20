@@ -110,6 +110,8 @@ internal object CarPlayUsbAttachDispatcher {
             val intent = CarPlayHostActions.createInternalIntent(context, CarPlayHostActions.USB_DEVICE_ATTACHED)
             if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
+            // The wired path owns the next session; it must not inherit auto-session recovery policy.
+            AutoConnectCoordinator.shared.onExternalSessionStart()
             Log.i(TAG, "event=APPLE_USB_ATTACH source=usb_attach result=host_dispatched")
             return true
         } catch (error: RuntimeException) {

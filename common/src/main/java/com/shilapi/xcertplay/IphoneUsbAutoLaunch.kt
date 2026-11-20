@@ -675,6 +675,7 @@ internal object IphoneUsbAutoLaunchDispatcher {
                     )
                     if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
+                    AutoConnectCoordinator.shared.onExternalSessionStart()
                     IphoneUsbAutoLaunchNotification.cancel(context)
                     Log.i(
                         TAG,
@@ -761,6 +762,7 @@ internal object IphoneUsbAutoLaunchDispatcher {
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
             if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
+            AutoConnectCoordinator.shared.onExternalSessionStart()
             return true
         } catch (error: RuntimeException) {
             Log.w(TAG, "event=APPLE_USB_AUTO_ATTACH source=foreground result=host_focus_failed " +

@@ -19,6 +19,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -38,6 +39,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 /** DiAuto's visual language, with a connection flow for an independent CarPlay receiver. */
 class DiPlayActivity : ComponentActivity() {
@@ -50,21 +52,89 @@ class DiPlayActivity : ComponentActivity() {
     private var disconnectButton: Button? = null
     private var lastRunning: Boolean? = null
     private var pendingWireless = false
-    private var initialLaunch = true
     private var launchOrigin = DiPlayLaunchOrigin.APP_START
     private var activityResumed = false
+    private var pendingWirelessAutoGeneration: Long? = null
+    private var phoneDialogShowing = false
+    private var firstResume = true
+    private var autoConnectLaunchKey = ""
+    private var autoConnectPending = true
+    private var autoConnectLaunchSource = AutoConnectSource.APP_LAUNCH
+    private var autoConnectRetry: Runnable? = null
     private var notificationTransport = true
+    private var pendingNotificationAutoRequest = false
+    private var pendingNotificationAutoGeneration: Long? = null
+    private var pendingBluetoothAutoGeneration: Long? = null
+    private var stalePermissionResultRecoverable = false
+    private var notificationPermissionRecoveryIssued = false
+    private var bluetoothPermissionRecoveryIssued = false
     private var exportInProgress = false
     private var exportButton: Button? = null
     private var pendingUsbLaunchFromNotification = false
+    private val autoConnect = AutoConnectCoordinator.shared
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        connect(notificationTransport)
+        onNotificationPermissionResult()
+    }
+    private fun onNotificationPermissionResult() {
+        val autoRequest = pendingNotificationAutoRequest
+        val autoGeneration = pendingNotificationAutoGeneration
+        val recoveryIssued = notificationPermissionRecoveryIssued
+        pendingNotificationAutoRequest = false
+        pendingNotificationAutoGeneration = null
+        notificationPermissionRecoveryIssued = false
+        if (autoRequest) {
+            if (autoGeneration == null || !autoConnect.isRequestActive(autoGeneration)) {
+                if (!recoveryIssued && autoConnect.activeGeneration() == null) {
+                    stalePermissionResultRecoverable = true
+                }
+                Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+                return
+            }
+            autoConnect.onPermissionResult(autoGeneration, granted = true)
+            if (!autoConnect.isRequestActive(autoGeneration)) {
+                if (!recoveryIssued && autoConnect.activeGeneration() == null) {
+                    stalePermissionResultRecoverable = true
+                }
+                Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+                return
+            }
+            connectWithAuto(notificationTransport, autoRequest = true, autoGeneration = autoGeneration)
+            return
+        }
+        connectWithAuto(notificationTransport, autoRequest = false, autoGeneration = null)
+    }
+    private val bluetoothPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        onBluetoothPermissionResult(granted)
+    }
+    private fun onBluetoothPermissionResult(granted: Boolean) {
+        val autoGeneration = pendingBluetoothAutoGeneration
+        val recoveryIssued = bluetoothPermissionRecoveryIssued
+        pendingBluetoothAutoGeneration = null
+        bluetoothPermissionRecoveryIssued = false
+        if (autoGeneration != null && !autoConnect.isRequestActive(autoGeneration)) {
+            if (!recoveryIssued && autoConnect.activeGeneration() == null) {
+                stalePermissionResultRecoverable = true
+                clearPendingPhoneSelection()
+            }
+            Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+            return
+        }
+        if (granted) {
+            autoGeneration?.let { autoConnect.onPermissionResult(it, granted = true) }
+            if (autoGeneration != null && !autoConnect.isRequestActive(autoGeneration)) {
+                if (autoConnect.activeGeneration() == null) stalePermissionResultRecoverable = true
+                clearPendingPhoneSelection()
+                Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+            } else {
+                choosePhone(autoGeneration)
+            }
+        } else {
+            autoGeneration?.let { autoConnect.onPermissionResult(it, granted = false) }
+            permissionHelp(getString(R.string.ui_nearby_devices), getString(R.string.ui_nearby_devices_help))
+        }
     }
     private val tick = object : Runnable {
         override fun run() { refreshStatus(); handler.postDelayed(this, 1000) }
-    }
-    private val bluetoothPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) choosePhone() else permissionHelp(getString(R.string.ui_nearby_devices), getString(R.string.ui_nearby_devices_help))
     }
     private val export = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) exportDiagnostics(uri)
@@ -96,7 +166,34 @@ class DiPlayActivity : ComponentActivity() {
             ?.takeIf { it.containsKey(EXTRA_RETURN_TO_MENU) }
             ?.getBoolean(EXTRA_RETURN_TO_MENU)
             ?: intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false)
-        initialLaunch = savedInstanceState?.getBoolean("initial_launch_pending") ?: true
+        autoConnectLaunchKey = savedInstanceState?.getString(STATE_AUTO_CONNECT_LAUNCH_KEY)
+            ?: UUID.randomUUID().toString()
+        autoConnectLaunchSource = savedInstanceState?.getString(STATE_AUTO_CONNECT_SOURCE)
+            ?.let { saved -> runCatching { AutoConnectSource.valueOf(saved) }.getOrNull() }
+            ?: when {
+                intent.getBooleanExtra(BootAutoStart.EXTRA_AUTO_START_ON_BOOT, false) -> AutoConnectSource.BOOT
+                savedInstanceState != null -> AutoConnectSource.ACTIVITY_RECREATED
+                else -> AutoConnectSource.APP_LAUNCH
+            }
+        autoConnectPending = savedInstanceState?.getBoolean(STATE_AUTO_CONNECT_PENDING)
+            ?: autoConnectEligible()
+        pendingNotificationAutoRequest = savedInstanceState?.getBoolean(STATE_NOTIFICATION_AUTO_REQUEST) ?: false
+        notificationTransport = savedInstanceState?.getBoolean(STATE_NOTIFICATION_TRANSPORT) ?: notificationTransport
+        pendingWireless = savedInstanceState?.getBoolean(STATE_PENDING_WIRELESS) ?: false
+        pendingWirelessAutoGeneration = savedInstanceState
+            ?.takeIf { it.containsKey(STATE_PENDING_WIRELESS_GENERATION) }
+            ?.getLong(STATE_PENDING_WIRELESS_GENERATION)
+        pendingNotificationAutoGeneration = savedInstanceState
+            ?.takeIf { it.containsKey(STATE_NOTIFICATION_AUTO_GENERATION) }
+            ?.getLong(STATE_NOTIFICATION_AUTO_GENERATION)
+        pendingBluetoothAutoGeneration = savedInstanceState
+            ?.takeIf { it.containsKey(STATE_BLUETOOTH_AUTO_GENERATION) }
+            ?.getLong(STATE_BLUETOOTH_AUTO_GENERATION)
+        stalePermissionResultRecoverable = savedInstanceState
+            ?.getBoolean(STATE_STALE_PERMISSION_RESULT_RECOVERABLE) ?: false
+        if (intent.getBooleanExtra(BootAutoStart.EXTRA_AUTO_START_ON_BOOT, false)) {
+            BootLaunchNotification.cancel(this)
+        }
         render()
         handleWirelessRecovery()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -117,12 +214,41 @@ class DiPlayActivity : ComponentActivity() {
         launchOrigin = resolveLaunchOrigin(intent)
         showPage(intent.getStringExtra("page") ?: "home", intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false))
         handleWirelessRecovery()
-        if (pendingUsbLaunchFromNotification) handler.post { handleUsbAutoLaunchRequest() }
+        maybeRenewAutoConnectLaunchKey(intent)
+        autoConnectLaunchSource = if (intent.getBooleanExtra(BootAutoStart.EXTRA_AUTO_START_ON_BOOT, false)) {
+            BootLaunchNotification.cancel(this)
+            AutoConnectSource.BOOT
+        } else {
+            AutoConnectSource.NEW_INTENT
+        }
+        if (pendingUsbLaunchFromNotification) {
+            handler.post {
+                if (!handleUsbAutoLaunchRequest() && autoConnectEligible()) {
+                    evaluateAutoConnect(autoConnectLaunchSource)
+                }
+            }
+        } else if (autoConnectEligible()) {
+            evaluateAutoConnect(autoConnectLaunchSource)
+        } else {
+            autoConnect.noteNotRequested(
+                autoConnectLaunchSource,
+                currentAutoConnectTransport(),
+            )
+        }
     }
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("page", page)
         outState.putBoolean(EXTRA_RETURN_TO_MENU, returnToMenu)
-        outState.putBoolean("initial_launch_pending", initialLaunch)
+        outState.putString(STATE_AUTO_CONNECT_LAUNCH_KEY, autoConnectLaunchKey)
+        outState.putBoolean(STATE_AUTO_CONNECT_PENDING, autoConnectPending)
+        outState.putString(STATE_AUTO_CONNECT_SOURCE, autoConnectLaunchSource.name)
+        outState.putBoolean(STATE_NOTIFICATION_AUTO_REQUEST, pendingNotificationAutoRequest)
+        outState.putBoolean(STATE_NOTIFICATION_TRANSPORT, notificationTransport)
+        outState.putBoolean(STATE_PENDING_WIRELESS, pendingWireless)
+        pendingWirelessAutoGeneration?.let { outState.putLong(STATE_PENDING_WIRELESS_GENERATION, it) }
+        pendingNotificationAutoGeneration?.let { outState.putLong(STATE_NOTIFICATION_AUTO_GENERATION, it) }
+        pendingBluetoothAutoGeneration?.let { outState.putLong(STATE_BLUETOOTH_AUTO_GENERATION, it) }
+        outState.putBoolean(STATE_STALE_PERMISSION_RESULT_RECOVERABLE, stalePermissionResultRecoverable)
         super.onSaveInstanceState(outState)
     }
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); render() }
@@ -131,17 +257,16 @@ class DiPlayActivity : ComponentActivity() {
         activityResumed = true
         DiPlayUiFocus.resumed(this, currentSurface())
         // Back from the car settings: refresh the car hotspot reminder on the home page.
-        if (!initialLaunch && page == "home") render()
-        if (initialLaunch) {
-            initialLaunch = false
-            if (setupError == null && handleUsbAutoLaunchRequest()) return
-            if (setupError == null && DiPlayLaunchIntentPolicy.shouldAutoConnectOnResume(launchOrigin) &&
-                !CarPlayBackgroundSession.hasSession() && DiPlayPreferences.autoConnect(this)) {
-                handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
-            }
-            resumeDeferredHostLaunches()
-            return
+        if (!firstResume && page == "home") render()
+        firstResume = false
+        recoverStalePendingAutoRequest()
+        if (autoConnectPending) {
+            autoConnectPending = false
+            evaluateAutoConnect(autoConnectLaunchSource)
+        } else {
+            resumeAutoConnectRetry()
         }
+        restorePendingPhoneSelection()
         resumeDeferredHostLaunches()
     }
     override fun onStop() {
@@ -151,6 +276,7 @@ class DiPlayActivity : ComponentActivity() {
 
     override fun onPause() {
         handler.removeCallbacks(tick)
+        cancelAutoConnectRetryCallback()
         activityResumed = false
         if (isFinishing) {
             // finish() returns to the menu (or leaves DiPlay) without the parent resuming first.
@@ -162,6 +288,11 @@ class DiPlayActivity : ComponentActivity() {
             DiPlayUiFocus.paused(this)
         }
         super.onPause()
+    }
+    override fun onDestroy() {
+        cancelAutoConnectRetryCallback()
+        if (!isChangingConfigurations) autoConnect.onForegroundGone()
+        super.onDestroy()
     }
 
     private fun render() {
@@ -212,6 +343,7 @@ class DiPlayActivity : ComponentActivity() {
         card.addView(button(getString(R.string.ui_choose_iphone), false) { choosePhone() }, matchButton(16, 56))
         disconnectButton = button(getString(R.string.ui_disconnect), false) {
             disconnectButton?.isEnabled = false
+            autoConnect.onUserDisconnect()
             CarPlayBackgroundSession.stop { runOnUiThread { refreshStatus() } }
         }.apply { visibility = View.GONE }
         card.addView(disconnectButton, matchButton(10, 56))
@@ -272,7 +404,10 @@ class DiPlayActivity : ComponentActivity() {
             )
         }
         section(content, getString(R.string.ui_automatic_connection)) { card ->
-            toggle(card, getString(R.string.ui_connect_on_open), getString(R.string.ui_connect_on_open_description), DiPlayPreferences.autoConnect(this)) { DiPlayPreferences.saveAutoConnect(this, it) }
+            toggle(card, getString(R.string.ui_connect_on_open), getString(R.string.ui_connect_on_open_description), DiPlayPreferences.autoConnect(this)) {
+                DiPlayPreferences.saveAutoConnect(this, it)
+                if (!it) autoConnect.onAutoConnectDisabled()
+            }
             toggle(card, getString(R.string.ui_start_with_car), getString(R.string.ui_start_with_car_description), AirPlayPersistence.loadAutoStartOnBoot(this)) { AirPlayPersistence.saveAutoStartOnBoot(this, it) }
             iphoneUsbAutoLaunchControl(card)
             card.addView(button(getString(R.string.ui_choose_iphone_named, DiPlayPreferences.phoneName(this)), false) { choosePhone() }, matchButton(12, 60))
@@ -503,6 +638,156 @@ class DiPlayActivity : ComponentActivity() {
         CarPlayHostRestartQueue.resume(this)
     }
 
+    private fun autoConnectEligible(): Boolean =
+        page == "home" && !returnToMenu && intent.getStringExtra("page") == null
+
+    private fun currentAutoConnectTransport(): AutoConnectTransport =
+        if (AirPlayPersistence.loadWirelessEnabled(this)) {
+            AutoConnectTransport.WIRELESS
+        } else {
+            AutoConnectTransport.WIRED
+        }
+
+    private fun currentAutoConnectConditions(): AutoConnectConditions = AutoConnectConditions(
+        enabled = DiPlayPreferences.autoConnect(this),
+        setupReady = setupError == null,
+        session = when {
+            CarPlayBackgroundSession.active -> AutoConnectSessionState.ACTIVE
+            CarPlayBackgroundSession.hasSession() -> AutoConnectSessionState.TRANSITIONING
+            else -> AutoConnectSessionState.NONE
+        },
+        usbAutoLaunchActive = setupError == null &&
+            IphoneUsbAutoLaunchSettings.isOperationallyEnabled(this) &&
+            IphoneUsbAutoLaunchSettings.connectedCandidates(this).isNotEmpty(),
+    )
+
+    private fun maybeRenewAutoConnectLaunchKey(intent: Intent) {
+        val launcherLaunch = intent.action == Intent.ACTION_MAIN &&
+            intent.categories?.contains(Intent.CATEGORY_LAUNCHER) == true
+        val explicitLaunch = intent.getBooleanExtra(BootAutoStart.EXTRA_AUTO_START_ON_BOOT, false) ||
+            intent.getBooleanExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE, false) ||
+            launcherLaunch
+        if (!explicitLaunch) return
+        val state = autoConnect.currentState()
+        val cancelled = autoConnect.isCancelled(autoConnectLaunchKey)
+        if (state != AutoConnectState.BLOCKED && state != AutoConnectState.EXHAUSTED && !cancelled) return
+        autoConnectLaunchKey = UUID.randomUUID().toString()
+        Log.i(TAG, "AUTO_CONNECT event=NEW_LAUNCH_KEY previousState=${state.name}")
+    }
+
+    private fun recoverStalePendingAutoRequest() {
+        if (autoConnect.activeGeneration() != null) return
+        if (autoConnect.currentState() != AutoConnectState.IDLE) return
+        val staleBluetooth = pendingBluetoothAutoGeneration?.takeIf {
+            !autoConnect.isRequestActive(it) && !bluetoothPermissionRecoveryIssued
+        }
+        val staleWireless = pendingWirelessAutoGeneration?.takeIf { !autoConnect.isRequestActive(it) }
+        val staleNotification = pendingNotificationAutoGeneration?.takeIf {
+            pendingNotificationAutoRequest && !autoConnect.isRequestActive(it) &&
+                !notificationPermissionRecoveryIssued
+        }
+        val staleResult = stalePermissionResultRecoverable
+        if (staleBluetooth == null && staleWireless == null && staleNotification == null && !staleResult) return
+        stalePermissionResultRecoverable = false
+        if (!DiPlayPreferences.autoConnect(this)) {
+            pendingBluetoothAutoGeneration = null
+            bluetoothPermissionRecoveryIssued = false
+            pendingNotificationAutoRequest = false
+            pendingNotificationAutoGeneration = null
+            notificationPermissionRecoveryIssued = false
+            clearPendingPhoneSelection()
+            return
+        }
+        if (staleBluetooth != null) bluetoothPermissionRecoveryIssued = true
+        if (staleNotification != null) notificationPermissionRecoveryIssued = true
+        clearPendingPhoneSelection()
+        autoConnectLaunchKey = UUID.randomUUID().toString()
+        autoConnectPending = true
+        Log.i(TAG, "AUTO_CONNECT event=STALE_PERMISSION_RECOVERY")
+    }
+
+    private fun restorePendingPhoneSelection() {
+        if (!pendingWireless || phoneDialogShowing) return
+        val generation = pendingWirelessAutoGeneration
+        if (generation != null && !autoConnect.isRequestActive(generation)) {
+            clearPendingPhoneSelection()
+            Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+            return
+        }
+        if (generation != null && autoConnect.currentState() == AutoConnectState.WAITING_FOR_PERMISSION) return
+        choosePhone(generation)
+    }
+
+    private fun clearPendingPhoneSelection() {
+        pendingWireless = false
+        pendingWirelessAutoGeneration = null
+        phoneDialogShowing = false
+    }
+
+    private fun evaluateAutoConnect(source: AutoConnectSource) {        if (!autoConnectEligible()) {
+            autoConnect.noteNotRequested(source, currentAutoConnectTransport())
+            return
+        }
+        if (setupError == null && handleUsbAutoLaunchRequest()) {
+            autoConnect.noteHandledExternally(source)
+            return
+        }
+        val transport = currentAutoConnectTransport()
+        val outcome = autoConnect.request(
+            AutoConnectRequest(autoConnectLaunchKey, source, transport),
+            currentAutoConnectConditions(),
+        )
+        handleAutoConnectOutcome(outcome)
+    }
+
+    private fun resumeAutoConnectRetry() {
+        if (!autoConnectEligible()) {
+            cancelAutoConnectRetryCallback()
+            return
+        }
+        handleAutoConnectOutcome(autoConnect.retryDue(currentAutoConnectConditions()))
+    }
+
+    private fun handleAutoConnectOutcome(outcome: AutoConnectOutcome) {
+        when (outcome) {
+            is AutoConnectOutcome.Start ->
+                connectWithAuto(
+                    outcome.request.transport == AutoConnectTransport.WIRELESS,
+                    autoRequest = true,
+                    autoGeneration = outcome.generation,
+                )
+            is AutoConnectOutcome.RetryScheduled ->
+                scheduleAutoConnectRetry(outcome.delayMillis)
+            is AutoConnectOutcome.Skip -> {
+                if (outcome.reason == AutoConnectSkipReason.RETRY_NOT_DUE && outcome.retryAtMillis != null) {
+                    scheduleAutoConnectRetry(
+                        (outcome.retryAtMillis - android.os.SystemClock.elapsedRealtime()).coerceAtLeast(1L),
+                    )
+                }
+            }
+            is AutoConnectOutcome.Exhausted -> toast(getString(R.string.ui_carplay_launch_failed))
+            is AutoConnectOutcome.Blocked,
+            AutoConnectOutcome.ContinueAfterPermission,
+            AutoConnectOutcome.StaleCallbackIgnored,
+            -> Unit
+        }
+    }
+
+    private fun scheduleAutoConnectRetry(delayMillis: Long) {
+        cancelAutoConnectRetryCallback()
+        val retry = Runnable {
+            autoConnectRetry = null
+            resumeAutoConnectRetry()
+        }
+        autoConnectRetry = retry
+        handler.postDelayed(retry, delayMillis)
+    }
+
+    private fun cancelAutoConnectRetryCallback() {
+        autoConnectRetry?.let(handler::removeCallbacks)
+        autoConnectRetry = null
+    }
+
     private fun carPlayNameControl(parent: LinearLayout) {
         val control = button(
             getString(R.string.ui_carplay_name_value, AirPlayPersistence.loadCarPlayName(this)),
@@ -604,13 +889,13 @@ class DiPlayActivity : ComponentActivity() {
                 com.shilapi.xcertplay.network.CarHotspotStatus.isEnabled(this),
             )
 
-    private fun carHotspotOffDialog() {
+    private fun carHotspotOffDialog(autoRequest: Boolean = false, autoGeneration: Long? = null) {
         AlertDialog.Builder(this).setTitle(getString(R.string.ui_car_hotspot_off_title))
             .setMessage(getString(R.string.ui_car_hotspot_off_message, AirPlayPersistence.loadManualHotspotSsid(this)))
             .setPositiveButton(getString(R.string.ui_open_car_settings)) { _, _ -> openCarWifiSettings() }
             .setNeutralButton(getString(R.string.ui_connect)) { _, _ ->
                 com.shilapi.xcertplay.network.CarHotspotStatusOverride.ignoreOffReport(this)
-                connect(true)
+                connectWithAuto(true, autoRequest, autoGeneration)
             }
             .setNegativeButton(getString(R.string.ui_cancel), null).show()
     }
@@ -751,53 +1036,114 @@ class DiPlayActivity : ComponentActivity() {
         com.shilapi.xcertplay.airplay.CarPlaySize.SMALL -> R.string.ui_carplay_size_small
     })
 
-    private fun connect(wireless: Boolean) {
+    private fun connect(wireless: Boolean) = connectWithAuto(wireless, autoRequest = false, autoGeneration = null)
+
+    private fun connectWithAuto(wireless: Boolean, autoRequest: Boolean, autoGeneration: Long?) {
+        if (autoRequest && autoGeneration != null && !autoConnect.isRequestActive(autoGeneration)) {
+            Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+            return
+        }
+        if (!autoRequest) autoConnect.onExplicitConnect()
         if (setupError != null) { toast(setupError!!); return }
-        if (wireless && carHotspotOff()) { carHotspotOffDialog(); return }
+        if (wireless && carHotspotOff()) { carHotspotOffDialog(autoRequest, autoGeneration); return }
         if (wireless && DiPlayPreferences.phoneAddress(this) == null) {
-            pendingWireless = true; choosePhone(); return
+            pendingWireless = true
+            pendingWirelessAutoGeneration = if (autoRequest) autoGeneration else null
+            choosePhone(autoGeneration)
+            return
         }
         val preferences = getSharedPreferences("diplay", MODE_PRIVATE)
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED && !preferences.getBoolean("notification_asked", false)) {
             preferences.edit().putBoolean("notification_asked", true).apply()
             notificationTransport = wireless
+            pendingNotificationAutoRequest = autoRequest
+            pendingNotificationAutoGeneration = autoGeneration
+            if (autoRequest && autoGeneration != null) autoConnect.postponeForPermission(autoGeneration)
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        if (autoRequest && CarPlayBackgroundSession.hasSession()) {
+            Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=SESSION_TRANSITIONING")
             return
         }
         val open = {
             AirPlayPersistence.saveWirelessEnabled(this, wireless)
-            openProjection()
-            if (returnToMenu) finish()
+            val launched = openProjection(autoGeneration)
+            if (launched && returnToMenu) finish()
         }
         if (CarPlayBackgroundSession.hasSession()) CarPlayBackgroundSession.stop { runOnUiThread { open() } }
         else open()
     }
-    private fun openProjection() {
-        navigateFrom(this, DiPlaySurface.CARPLAY_HOST) {
-            startActivity(
-                CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY)
-                    .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
-            )
+    private fun openProjection(autoGeneration: Long? = null): Boolean {
+        val intent = CarPlayHostActions.createInternalIntent(
+            this,
+            CarPlayHostActions.OPEN_CARPLAY,
+            autoConnectGeneration = autoGeneration,
+        ).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        var launchError: RuntimeException? = null
+        val launched = navigateFrom(
+            this,
+            DiPlaySurface.CARPLAY_HOST,
+            onFailure = { error -> launchError = error },
+        ) { startActivity(intent) }
+        if (!launched) {
+            Log.w(TAG, "AUTO_CONNECT event=HOST_LAUNCH_FAILED error=${launchError?.javaClass?.simpleName}")
+            if (autoGeneration != null) {
+                handleAutoConnectOutcome(
+                    autoConnect.onHostLaunchFailed(
+                        autoGeneration,
+                        AutoConnectFailure.HOST_ACTIVITY_UNAVAILABLE,
+                    ),
+                )
+            } else if (!isFinishing && !isDestroyed) {
+                toast(getString(R.string.ui_carplay_launch_failed))
+            }
+            return false
         }
+        if (autoGeneration != null) autoConnect.onHostLaunchDispatched(autoGeneration)
+        return true
     }
-    private fun choosePhone() {
+    private fun choosePhone(autoGeneration: Long? = null) {
+        if (phoneDialogShowing) return
+        if (autoGeneration != null) {
+            if (!autoConnect.isRequestActive(autoGeneration) || !autoConnect.postponeForUser(autoGeneration)) {
+                clearPendingPhoneSelection()
+                Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+                return
+            }
+        }
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            pendingBluetoothAutoGeneration = autoGeneration
+            autoGeneration?.let { autoConnect.postponeForPermission(it) }
             bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT); return
         }
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter
         if (adapter == null || !adapter.isEnabled) {
+            phoneDialogShowing = true
             AlertDialog.Builder(this).setTitle(getString(R.string.ui_bluetooth_on_title))
                 .setMessage(getString(R.string.ui_bluetooth_on_message))
-                .setPositiveButton(getString(R.string.ui_open_bluetooth)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                .setNegativeButton(getString(R.string.ui_later), null).show(); return
+                .setPositiveButton(getString(R.string.ui_open_bluetooth)) { _, _ ->
+                    phoneDialogShowing = false
+                    openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                }
+                .setNegativeButton(getString(R.string.ui_later)) { _, _ -> cancelPendingPhoneRequest() }
+                .setOnCancelListener { cancelPendingPhoneRequest() }
+                .show(); return
         }
         val devices = runCatching { adapter.bondedDevices.sortedBy { it.name ?: "" } }.getOrDefault(emptyList())
         if (devices.isEmpty()) {
+            phoneDialogShowing = true
             AlertDialog.Builder(this).setTitle(getString(R.string.ui_pair_iphone_title))
                 .setMessage(getString(R.string.ui_pair_iphone_message))
-                .setPositiveButton(getString(R.string.ui_open_bluetooth)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                .setNegativeButton(getString(R.string.ui_got_it), null).show(); return
+                .setPositiveButton(getString(R.string.ui_open_bluetooth)) { _, _ ->
+                    phoneDialogShowing = false
+                    openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                }
+                .setNegativeButton(getString(R.string.ui_got_it)) { _, _ -> cancelPendingPhoneRequest() }
+                .setOnCancelListener { cancelPendingPhoneRequest() }
+                .show(); return
         }
+        phoneDialogShowing = true
         AlertDialog.Builder(this).setTitle(getString(R.string.ui_choose_iphone_title))
             .setItems(devices.map { device ->
                 val name = device.name ?: getString(R.string.ui_paired_device)
@@ -805,11 +1151,29 @@ class DiPlayActivity : ComponentActivity() {
             }.toTypedArray()) { _, index ->
                 val device = devices[index]
                 DiPlayPreferences.savePhone(this, device.address, device.name ?: "iPhone")
-                val start = pendingWireless; pendingWireless = false
+                val generation = pendingWirelessAutoGeneration
+                val start = pendingWireless
+                clearPendingPhoneSelection()
                 render()
-                if (start) connect(true)
-            }.setNeutralButton(getString(R.string.ui_pair_another)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-            .setNegativeButton(getString(R.string.ui_cancel)) { _, _ -> pendingWireless = false }.show()
+                when {
+                    !start -> Unit
+                    generation != null && !autoConnect.onUserSelection(generation) ->
+                        Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+                    else -> connectWithAuto(true, autoRequest = generation != null, autoGeneration = generation)
+                }
+            }.setNeutralButton(getString(R.string.ui_pair_another)) { _, _ ->
+                phoneDialogShowing = false
+                openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+            }
+            .setNegativeButton(getString(R.string.ui_cancel)) { _, _ -> cancelPendingPhoneRequest() }
+            .setOnCancelListener { cancelPendingPhoneRequest() }
+            .show()
+    }
+
+    private fun cancelPendingPhoneRequest() {
+        val generation = pendingWirelessAutoGeneration
+        clearPendingPhoneSelection()
+        generation?.let { autoConnect.onUserSelectionCancelled(it) }
     }
 
     private fun wirelessHelp() {
@@ -882,6 +1246,10 @@ class DiPlayActivity : ComponentActivity() {
             lastRunning = running
         }
         connectButton?.isEnabled = setupError == null
+        autoConnect.observeSession(
+            activeSession = CarPlayBackgroundSession.active,
+            sessionPresent = running,
+        )
     }
     private fun reportFileName() = "DiPlay-${SimpleDateFormat("yyyyMMdd-HHmmss-SSS", Locale.US).format(Date())}.txt"
 
@@ -1007,6 +1375,17 @@ class DiPlayActivity : ComponentActivity() {
     private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
     companion object {
         const val EXTRA_RETURN_TO_MENU = "returnToMenu"
+        private const val TAG = "diplay-auto-connect"
+        private const val STATE_AUTO_CONNECT_LAUNCH_KEY = "auto_connect_launch_key"
+        private const val STATE_AUTO_CONNECT_PENDING = "auto_connect_pending"
+        private const val STATE_AUTO_CONNECT_SOURCE = "auto_connect_source"
+        private const val STATE_NOTIFICATION_AUTO_REQUEST = "notification_auto_request"
+        private const val STATE_NOTIFICATION_TRANSPORT = "notification_transport"
+        private const val STATE_PENDING_WIRELESS = "pending_wireless"
+        private const val STATE_PENDING_WIRELESS_GENERATION = "pending_wireless_generation"
+        private const val STATE_NOTIFICATION_AUTO_GENERATION = "notification_auto_generation"
+        private const val STATE_BLUETOOTH_AUTO_GENERATION = "bluetooth_auto_generation"
+        private const val STATE_STALE_PERMISSION_RESULT_RECOVERABLE = "stale_permission_result_recoverable"
         private val BG = Color.rgb(12, 17, 27)
         private val SURFACE = Color.rgb(21, 30, 44)
         private val BORDER = Color.rgb(42, 56, 75)

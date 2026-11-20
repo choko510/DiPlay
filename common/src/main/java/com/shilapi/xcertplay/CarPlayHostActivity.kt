@@ -174,11 +174,13 @@ internal object CarPlayHostActions {
         val action: String,
         val usbDeviceIdentity: UsbAttachDeviceIdentity? = null,
         val hostLaunchState: CarPlayHostLaunchState? = null,
+        val autoConnectGeneration: Long? = null,
     )
     data class InternalRequest(
         val action: String,
         val usbDeviceIdentity: UsbAttachDeviceIdentity? = null,
         val hostLaunchState: CarPlayHostLaunchState? = null,
+        val autoConnectGeneration: Long? = null,
     )
     private val pendingActions = LinkedHashMap<String, PendingAction>()
 
@@ -187,6 +189,7 @@ internal object CarPlayHostActions {
         action: String,
         usbDeviceIdentity: UsbAttachDeviceIdentity? = null,
         hostLaunchState: CarPlayHostLaunchState? = null,
+        autoConnectGeneration: Long? = null,
     ): Intent {
         require(action == OPEN_CARPLAY || action == ENTER_YOUTUBE_SPLIT || action == ENTER_DSP_SPLIT ||
             action == EXIT_YOUTUBE_SPLIT || action == USB_DEVICE_ATTACHED || action == AUTO_IPHONE_USB_ATTACHED
@@ -197,12 +200,20 @@ internal object CarPlayHostActions {
         require(hostLaunchState == null || action == AUTO_IPHONE_USB_ATTACHED) {
             "Host launch state is only supported for iPhone USB auto-launch"
         }
+        require(autoConnectGeneration == null || action == OPEN_CARPLAY) {
+            "Auto-connect generation is only supported for CarPlay open"
+        }
         val token = UUID.randomUUID().toString()
         synchronized(pendingActions) {
             while (pendingActions.size >= MAX_PENDING_ACTIONS) {
                 pendingActions.remove(pendingActions.keys.first())
             }
-            pendingActions[token] = PendingAction(action, usbDeviceIdentity, hostLaunchState)
+            pendingActions[token] = PendingAction(
+                action,
+                usbDeviceIdentity,
+                hostLaunchState,
+                autoConnectGeneration,
+            )
         }
         return Intent(context, CarPlayHostActivity::class.java)
             .setAction(INTERNAL_HOST_ACTION)
@@ -229,7 +240,12 @@ internal object CarPlayHostActions {
         val token = intent.getStringExtra(EXTRA_INTERNAL_ACTION_TOKEN) ?: return null
         val pending = synchronized(pendingActions) { pendingActions.remove(token) }
         if (pending != null) {
-            return InternalRequest(pending.action, pending.usbDeviceIdentity, pending.hostLaunchState)
+            return InternalRequest(
+                pending.action,
+                pending.usbDeviceIdentity,
+                pending.hostLaunchState,
+                pending.autoConnectGeneration,
+            )
         }
         if (intent.getStringExtra(EXTRA_FALLBACK_ACTION) != AUTO_IPHONE_USB_ATTACHED) return null
         val identity = intent.usbDeviceIdentityExtra() ?: return null
@@ -405,6 +421,7 @@ class CarPlayHostActivity : ComponentActivity() {
                 maybeStartCarPlay()
             } else {
                 setStatus("VPN consent was denied")
+                AutoConnectCoordinator.shared.onHostPermissionDenied()
             }
         }
     private val wirelessPermissions =
@@ -419,6 +436,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     "Wireless startup permissions denied"
                 },
             )
+            if (!wirelessPermissionsReady) AutoConnectCoordinator.shared.onHostPermissionDenied()
             updateHotspotStatusBlock()
             showMissingWirelessPermission()
             maybeStartCarPlay()
@@ -600,6 +618,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var wirelessEnabled = false
     private var autoUsbLaunchIdentity: UsbAttachDeviceIdentity? = null
     private var autoUsbLaunchBlocked = false
+    private var autoConnectGeneration: Long? = null
     private var autoUsbSwitchGeneration = 0L
     private var backgroundTransportHandoffPending = false
     private var backgroundTransportHandoffGeneration = 0L
@@ -664,6 +683,13 @@ class CarPlayHostActivity : ComponentActivity() {
     private val restartAfterReconnectDelay = Runnable {
         val reason = scheduledReconnectReason ?: return@Runnable
         val ticket = scheduledReconnectTicket ?: return@Runnable
+        if (AutoConnectCoordinator.shared.suppressesHostRecovery(DiPlayPreferences.autoConnect(this))) {
+            reconnectAfterLossGate.cancel(ticket)
+            scheduledReconnectReason = null
+            scheduledReconnectTicket = null
+            appendLog("Auto-connect recovery changed; scheduled retry cancelled")
+            return@Runnable
+        }
         scheduledReconnectReason = null
         scheduledReconnectTicket = null
         val hasActiveSession = controller?.currentAirPlaySession()?.isClosed == false
@@ -875,6 +901,23 @@ class CarPlayHostActivity : ComponentActivity() {
         SplitPerformanceTracer.configure(applicationContext)
         val initialRequest = CarPlayHostActions.consumeInternalRequest(intent)
         val initialAction = initialRequest?.action
+        autoConnectGeneration = initialRequest?.autoConnectGeneration
+            ?: savedInstanceState
+                ?.takeIf { it.containsKey(STATE_AUTO_CONNECT_GENERATION) }
+                ?.getLong(STATE_AUTO_CONNECT_GENERATION)
+        if (initialAction == CarPlayHostActions.USB_DEVICE_ATTACHED ||
+            initialAction == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED
+        ) {
+            autoConnectGeneration = null
+        }
+        if (initialAction == CarPlayHostActions.OPEN_CARPLAY) {
+            val generation = autoConnectGeneration
+            if (generation != null && !AutoConnectCoordinator.shared.onHostCreated(generation)) {
+                Log.i(TAG, "event=AUTO_CONNECT_HOST_REJECTED generation=$generation")
+                finish()
+                return
+            }
+        }
         if (initialAction == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED) {
             val identity = initialRequest.usbDeviceIdentity
             if (identity == null || IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
@@ -1025,6 +1068,7 @@ class CarPlayHostActivity : ComponentActivity() {
             outState.putInt(STATE_AUTO_USB_PRODUCT_ID, identity.productId)
         }
         outState.putBoolean(STATE_AUTO_USB_LAUNCH_BLOCKED, autoUsbLaunchBlocked)
+        autoConnectGeneration?.let { outState.putLong(STATE_AUTO_CONNECT_GENERATION, it) }
         DspProfileRuntime.peekInstance()?.let { runtime ->
             outState.putString(
                 DspEditorSavedState.DRAFT_PROFILE,
@@ -1202,6 +1246,20 @@ class CarPlayHostActivity : ComponentActivity() {
         val action = request?.action
         setIntent(CarPlayHostActions.sanitizedIntent(intent))
         if (action == null) return
+        if (action == CarPlayHostActions.USB_DEVICE_ATTACHED ||
+            action == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED
+        ) {
+            autoConnectGeneration = null
+        }
+        if (action == CarPlayHostActions.OPEN_CARPLAY) {
+            request.autoConnectGeneration?.let { generation ->
+                if (!AutoConnectCoordinator.shared.onHostCreated(generation)) {
+                    Log.i(TAG, "event=AUTO_CONNECT_HOST_REJECTED generation=$generation")
+                    return
+                }
+                autoConnectGeneration = generation
+            }
+        }
         if (action == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED) {
             val identity = request.usbDeviceIdentity
             if (identity == null || IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {
@@ -1588,6 +1646,14 @@ class CarPlayHostActivity : ComponentActivity() {
         currentSurface = null
         currentSurfaceTexture = null
         deferredSurfaceTexture = null
+        if (autoConnectGeneration != null && isFinishing &&
+            activeAirPlaySession == null && !shuttingDown.get()
+        ) {
+            AutoConnectCoordinator.shared.onHostStartFailed(
+                requireNotNull(autoConnectGeneration),
+                AutoConnectFailure.INITIALIZATION_FAILED,
+            )
+        }
         sessionLog?.append("Activity destroyed")
         sessionLog?.close()
         sessionLog = null
@@ -4798,6 +4864,7 @@ class CarPlayHostActivity : ComponentActivity() {
                     deviceInfoSession = session
                     connectedDeviceInfo = session.deviceInfo
                     CarPlayBackgroundSession.active = true
+                    autoConnectGeneration?.let { AutoConnectCoordinator.shared.onHostSessionActive(it) }
                     val recoveredRetry = if (CarPlayBackgroundSession.isOwner(this)) {
                         reconnectAfterLossGate.recovered(
                             restartGeneration = controllerGeneration,
@@ -4842,6 +4909,7 @@ class CarPlayHostActivity : ComponentActivity() {
                         connectedDeviceInfo = null
                     }
                     CarPlayBackgroundSession.active = false
+                    autoConnectGeneration?.let { AutoConnectCoordinator.shared.onHostSessionEnded(it) }
                     YoutubeDeviceProfileManager.clearSplitSelection()
                     YoutubeDeviceProfileManager.clearSessionCache(session)
                     if (hostLayoutState.mode == HostLayoutMode.CARPLAY_YOUTUBE_SPLIT) {
@@ -5224,6 +5292,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 youtubeProfile?.let(::attachYoutubeBrowser)
             }
         } catch (error: RuntimeException) {
+            autoConnectGeneration?.let {
+                AutoConnectCoordinator.shared.onHostStartFailed(it, AutoConnectFailure.INITIALIZATION_FAILED)
+            }
             appendLog("Connection could not start: ${error.javaClass.simpleName}")
             shutdown(false, "foreground service could not start")
             setConnectionStage("Could not start CarPlay. Return to DiPlay and check app permissions.")
@@ -5566,6 +5637,10 @@ class CarPlayHostActivity : ComponentActivity() {
     private fun reconnectAfterLoss(reason: String) {
         if (!CarPlayBackgroundSession.isOwner(this)) return
         if (shuttingDown.get() || menuOpen || handshakeResetInProgress) return
+        if (AutoConnectCoordinator.shared.suppressesHostRecovery(DiPlayPreferences.autoConnect(this))) {
+            appendLog("Auto-connect recovery is suppressed; not retrying")
+            return
+        }
         val controllerManaged = controller?.isWiredRecoveryManagedByController() == true
         if (controllerManaged) {
             appendLog("Wired controller owns recovery; host retry skipped")
@@ -6438,6 +6513,7 @@ class CarPlayHostActivity : ComponentActivity() {
         private const val STATE_AUTO_USB_VENDOR_ID = "host.auto_usb_vendor_id"
         private const val STATE_AUTO_USB_PRODUCT_ID = "host.auto_usb_product_id"
         private const val STATE_AUTO_USB_LAUNCH_BLOCKED = "host.auto_usb_launch_blocked"
+        private const val STATE_AUTO_CONNECT_GENERATION = "host.auto_connect_generation"
         private const val PROFILE_IDENTITY_TIMEOUT_MILLIS = 5_000L
         private const val PROFILE_IDENTITY_RETRY_INTERVAL_MILLIS = 250L
         private const val RESTART_HANDOFF_RETRY_MILLIS = 500L

@@ -903,7 +903,12 @@ class CarPlayHostActivity : ComponentActivity() {
             autoConnectGeneration = null
         }
         if (initialAction == CarPlayHostActions.OPEN_CARPLAY) {
-            autoConnectGeneration?.let { AutoConnectCoordinator.shared.onHostCreated(it) }
+            val generation = autoConnectGeneration
+            if (generation != null && !AutoConnectCoordinator.shared.onHostCreated(generation)) {
+                Log.i(TAG, "event=AUTO_CONNECT_HOST_REJECTED generation=$generation")
+                finish()
+                return
+            }
         }
         if (initialAction == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED) {
             val identity = initialRequest.usbDeviceIdentity
@@ -1231,8 +1236,11 @@ class CarPlayHostActivity : ComponentActivity() {
         }
         if (action == CarPlayHostActions.OPEN_CARPLAY) {
             request.autoConnectGeneration?.let { generation ->
+                if (!AutoConnectCoordinator.shared.onHostCreated(generation)) {
+                    Log.i(TAG, "event=AUTO_CONNECT_HOST_REJECTED generation=$generation")
+                    return
+                }
                 autoConnectGeneration = generation
-                AutoConnectCoordinator.shared.onHostCreated(generation)
             }
         }
         if (action == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED) {
@@ -1551,7 +1559,7 @@ class CarPlayHostActivity : ComponentActivity() {
         currentSurfaceTexture = null
         deferredSurfaceTexture = null
         if (autoConnectGeneration != null && isFinishing &&
-            !CarPlayBackgroundSession.hasSession() && !shuttingDown.get()
+            activeAirPlaySession == null && !shuttingDown.get()
         ) {
             AutoConnectCoordinator.shared.onHostStartFailed(
                 requireNotNull(autoConnectGeneration),

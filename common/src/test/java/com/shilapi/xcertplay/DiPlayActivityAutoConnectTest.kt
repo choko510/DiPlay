@@ -557,6 +557,122 @@ class DiPlayActivityAutoConnectTest {
     }
 
     @Test
+    fun ac42_staleBluetoothResultBeforeResumeRecoversARequest() {
+        DiPlayPreferences.saveAutoConnect(app, false)
+        AirPlayPersistence.saveWirelessEnabled(app, true)
+        DiPlayPreferences.savePhone(app, "AA:BB:CC:DD:EE:09", "iPhone")
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        DiPlayPreferences.saveAutoConnect(app, true)
+        val start = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("stale-bluetooth-result", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRELESS),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        setPrivateField(controller.get(), "pendingBluetoothAutoGeneration", start.generation)
+        setPrivateField(controller.get(), "pendingWireless", true)
+        setPrivateField(controller.get(), "pendingWirelessAutoGeneration", start.generation)
+        val state = Bundle()
+        controller.saveInstanceState(state)
+        controller.pause().stop().destroy()
+        AutoConnectCoordinator.shared.resetForTests()
+        shadowOf(app).clearNextStartedActivities()
+
+        val recreated = Robolectric.buildActivity(DiPlayActivity::class.java).create(state)
+        recreated.get().javaClass.getDeclaredMethod(
+            "onBluetoothPermissionResult",
+            Boolean::class.javaPrimitiveType,
+        ).apply {
+            isAccessible = true
+            invoke(recreated.get(), true)
+        }
+        recreated.start().resume()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNotNull("a stale Bluetooth result blocked the recovery request", shadowOf(app).nextStartedActivity)
+        recreated.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac42_staleNotificationResultBeforeResumeRecoversARequest() {
+        DiPlayPreferences.saveAutoConnect(app, false)
+        AirPlayPersistence.saveWirelessEnabled(app, false)
+        app.getSharedPreferences("diplay", Context.MODE_PRIVATE).edit()
+            .putBoolean("notification_asked", true).commit()
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        DiPlayPreferences.saveAutoConnect(app, true)
+        val start = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("stale-notification-result", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRED),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        setPrivateField(controller.get(), "pendingNotificationAutoRequest", true)
+        setPrivateField(controller.get(), "pendingNotificationAutoGeneration", start.generation)
+        val state = Bundle()
+        controller.saveInstanceState(state)
+        controller.pause().stop().destroy()
+        AutoConnectCoordinator.shared.resetForTests()
+        shadowOf(app).clearNextStartedActivities()
+
+        val recreated = Robolectric.buildActivity(DiPlayActivity::class.java).create(state)
+        recreated.get().javaClass.getDeclaredMethod("onNotificationPermissionResult").apply {
+            isAccessible = true
+            invoke(recreated.get())
+        }
+        recreated.start().resume()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNotNull("a stale notification result blocked the recovery request", shadowOf(app).nextStartedActivity)
+        recreated.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac42_stalePermissionResultAfterUserDisconnectDoesNotRecover() {
+        DiPlayPreferences.saveAutoConnect(app, false)
+        AirPlayPersistence.saveWirelessEnabled(app, true)
+        DiPlayPreferences.savePhone(app, "AA:BB:CC:DD:EE:0A", "iPhone")
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        DiPlayPreferences.saveAutoConnect(app, true)
+        val start = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("stale-after-disconnect", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRELESS),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        setPrivateField(controller.get(), "pendingBluetoothAutoGeneration", start.generation)
+        setPrivateField(controller.get(), "pendingWireless", true)
+        setPrivateField(controller.get(), "pendingWirelessAutoGeneration", start.generation)
+        val state = Bundle()
+        controller.saveInstanceState(state)
+        controller.pause().stop().destroy()
+        AutoConnectCoordinator.shared.resetForTests()
+        shadowOf(app).clearNextStartedActivities()
+
+        val recreated = Robolectric.buildActivity(DiPlayActivity::class.java).create(state)
+        AutoConnectCoordinator.shared.onUserDisconnect()
+        recreated.get().javaClass.getDeclaredMethod(
+            "onBluetoothPermissionResult",
+            Boolean::class.javaPrimitiveType,
+        ).apply {
+            isAccessible = true
+            invoke(recreated.get(), true)
+        }
+        recreated.start().resume()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNull(shadowOf(app).nextStartedActivity)
+        assertEquals(AutoConnectState.SUPPRESSED, AutoConnectCoordinator.shared.currentState())
+        recreated.pause().stop().destroy()
+    }
+
+    @Test
     fun ac33_phoneSelectionDialogIsRestoredAfterActivityRecreation() {
         DiPlayPreferences.saveAutoConnect(app, false)
         AirPlayPersistence.saveWirelessEnabled(app, true)

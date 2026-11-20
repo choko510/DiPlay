@@ -259,13 +259,15 @@ internal class AutoConnectCoordinator(
         log("event=SESSION_STOPPED state=${state.label}")
     }
 
+    /** Returns false when the launch intent has been superseded and the host must not start. */
     @Synchronized
-    fun onHostCreated(generation: Long) {
-        if (generation != this.generation || active == null) {
+    fun onHostCreated(generation: Long): Boolean {
+        if (generation != this.generation || active == null || state != AutoConnectState.STARTING) {
             log("decision=STALE_IGNORED event=HOST_CREATED generation=$generation")
-            return
+            return false
         }
         log("event=HOST_CREATED generation=$generation state=${state.label}")
+        return true
     }
 
     @Synchronized

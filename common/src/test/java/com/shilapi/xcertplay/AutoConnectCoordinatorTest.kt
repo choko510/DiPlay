@@ -593,6 +593,15 @@ class AutoConnectCoordinatorTest {
     }
 
     @Test
+    fun hostCreationIsRejectedOutsideTheStartingState() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        assertTrue(coordinator.onHostCreated(start.generation))
+        coordinator.postponeForPermission(start.generation)
+
+        assertFalse(coordinator.onHostCreated(start.generation))
+    }
+
+    @Test
     fun ac37_oldHostAndPermissionCallbacksAreIgnoredAfterReset() {
         val first = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
         coordinator.resetForTests()

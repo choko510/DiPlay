@@ -63,33 +63,65 @@ class DiPlayActivity : ComponentActivity() {
     private var pendingNotificationAutoRequest = false
     private var pendingNotificationAutoGeneration: Long? = null
     private var pendingBluetoothAutoGeneration: Long? = null
+    private var stalePermissionResultRecoverable = false
+    private var notificationPermissionRecoveryIssued = false
+    private var bluetoothPermissionRecoveryIssued = false
     private var exportInProgress = false
     private var exportButton: Button? = null
     private var pendingUsbLaunchFromNotification = false
     private val autoConnect = AutoConnectCoordinator.shared
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        onNotificationPermissionResult()
+    }
+    private fun onNotificationPermissionResult() {
         val autoRequest = pendingNotificationAutoRequest
         val autoGeneration = pendingNotificationAutoGeneration
+        val recoveryIssued = notificationPermissionRecoveryIssued
         pendingNotificationAutoRequest = false
         pendingNotificationAutoGeneration = null
-        if (autoRequest) autoGeneration?.let { autoConnect.onPermissionResult(it, granted = true) }
-        if (autoRequest && autoGeneration != null && !autoConnect.isRequestActive(autoGeneration)) {
-            Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
-            return@registerForActivityResult
+        notificationPermissionRecoveryIssued = false
+        if (autoRequest) {
+            if (autoGeneration == null || !autoConnect.isRequestActive(autoGeneration)) {
+                if (!recoveryIssued && autoConnect.activeGeneration() == null) {
+                    stalePermissionResultRecoverable = true
+                }
+                Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+                return
+            }
+            autoConnect.onPermissionResult(autoGeneration, granted = true)
+            if (!autoConnect.isRequestActive(autoGeneration)) {
+                if (!recoveryIssued && autoConnect.activeGeneration() == null) {
+                    stalePermissionResultRecoverable = true
+                }
+                Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+                return
+            }
+            connectWithAuto(notificationTransport, autoRequest = true, autoGeneration = autoGeneration)
+            return
         }
-        connectWithAuto(notificationTransport, autoRequest, autoGeneration)
-    }
-    private val tick = object : Runnable {
-        override fun run() { refreshStatus(); handler.postDelayed(this, 1000) }
+        connectWithAuto(notificationTransport, autoRequest = false, autoGeneration = null)
     }
     private val bluetoothPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        onBluetoothPermissionResult(granted)
+    }
+    private fun onBluetoothPermissionResult(granted: Boolean) {
         val autoGeneration = pendingBluetoothAutoGeneration
+        val recoveryIssued = bluetoothPermissionRecoveryIssued
         pendingBluetoothAutoGeneration = null
+        bluetoothPermissionRecoveryIssued = false
+        if (autoGeneration != null && !autoConnect.isRequestActive(autoGeneration)) {
+            if (!recoveryIssued && autoConnect.activeGeneration() == null) {
+                stalePermissionResultRecoverable = true
+                clearPendingPhoneSelection()
+            }
+            Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+            return
+        }
         if (granted) {
             autoGeneration?.let { autoConnect.onPermissionResult(it, granted = true) }
             if (autoGeneration != null && !autoConnect.isRequestActive(autoGeneration)) {
-                pendingWireless = false
-                pendingWirelessAutoGeneration = null
+                if (autoConnect.activeGeneration() == null) stalePermissionResultRecoverable = true
+                clearPendingPhoneSelection()
                 Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
             } else {
                 choosePhone(autoGeneration)
@@ -98,6 +130,9 @@ class DiPlayActivity : ComponentActivity() {
             autoGeneration?.let { autoConnect.onPermissionResult(it, granted = false) }
             permissionHelp(getString(R.string.ui_nearby_devices), getString(R.string.ui_nearby_devices_help))
         }
+    }
+    private val tick = object : Runnable {
+        override fun run() { refreshStatus(); handler.postDelayed(this, 1000) }
     }
     private val export = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) exportDiagnostics(uri)
@@ -151,6 +186,8 @@ class DiPlayActivity : ComponentActivity() {
         pendingBluetoothAutoGeneration = savedInstanceState
             ?.takeIf { it.containsKey(STATE_BLUETOOTH_AUTO_GENERATION) }
             ?.getLong(STATE_BLUETOOTH_AUTO_GENERATION)
+        stalePermissionResultRecoverable = savedInstanceState
+            ?.getBoolean(STATE_STALE_PERMISSION_RESULT_RECOVERABLE) ?: false
         if (intent.getBooleanExtra(BootAutoStart.EXTRA_AUTO_START_ON_BOOT, false)) {
             BootLaunchNotification.cancel(this)
         }
@@ -211,6 +248,7 @@ class DiPlayActivity : ComponentActivity() {
         pendingWirelessAutoGeneration?.let { outState.putLong(STATE_PENDING_WIRELESS_GENERATION, it) }
         pendingNotificationAutoGeneration?.let { outState.putLong(STATE_NOTIFICATION_AUTO_GENERATION, it) }
         pendingBluetoothAutoGeneration?.let { outState.putLong(STATE_BLUETOOTH_AUTO_GENERATION, it) }
+        outState.putBoolean(STATE_STALE_PERMISSION_RESULT_RECOVERABLE, stalePermissionResultRecoverable)
         super.onSaveInstanceState(outState)
     }
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); render() }
@@ -575,17 +613,31 @@ class DiPlayActivity : ComponentActivity() {
     }
 
     private fun recoverStalePendingAutoRequest() {
-        val staleBluetooth = pendingBluetoothAutoGeneration?.takeIf { !autoConnect.isRequestActive(it) }
+        if (autoConnect.activeGeneration() != null) return
+        if (autoConnect.currentState() != AutoConnectState.IDLE) return
+        val staleBluetooth = pendingBluetoothAutoGeneration?.takeIf {
+            !autoConnect.isRequestActive(it) && !bluetoothPermissionRecoveryIssued
+        }
         val staleWireless = pendingWirelessAutoGeneration?.takeIf { !autoConnect.isRequestActive(it) }
         val staleNotification = pendingNotificationAutoGeneration?.takeIf {
-            pendingNotificationAutoRequest && !autoConnect.isRequestActive(it)
+            pendingNotificationAutoRequest && !autoConnect.isRequestActive(it) &&
+                !notificationPermissionRecoveryIssued
         }
-        if (staleBluetooth == null && staleWireless == null && staleNotification == null) return
-        pendingBluetoothAutoGeneration = null
-        pendingNotificationAutoRequest = false
-        pendingNotificationAutoGeneration = null
+        val staleResult = stalePermissionResultRecoverable
+        if (staleBluetooth == null && staleWireless == null && staleNotification == null && !staleResult) return
+        stalePermissionResultRecoverable = false
+        if (!DiPlayPreferences.autoConnect(this)) {
+            pendingBluetoothAutoGeneration = null
+            bluetoothPermissionRecoveryIssued = false
+            pendingNotificationAutoRequest = false
+            pendingNotificationAutoGeneration = null
+            notificationPermissionRecoveryIssued = false
+            clearPendingPhoneSelection()
+            return
+        }
+        if (staleBluetooth != null) bluetoothPermissionRecoveryIssued = true
+        if (staleNotification != null) notificationPermissionRecoveryIssued = true
         clearPendingPhoneSelection()
-        if (!DiPlayPreferences.autoConnect(this)) return
         autoConnectLaunchKey = UUID.randomUUID().toString()
         autoConnectPending = true
         Log.i(TAG, "AUTO_CONNECT event=STALE_PERMISSION_RECOVERY")
@@ -1266,6 +1318,7 @@ class DiPlayActivity : ComponentActivity() {
         private const val STATE_PENDING_WIRELESS_GENERATION = "pending_wireless_generation"
         private const val STATE_NOTIFICATION_AUTO_GENERATION = "notification_auto_generation"
         private const val STATE_BLUETOOTH_AUTO_GENERATION = "bluetooth_auto_generation"
+        private const val STATE_STALE_PERMISSION_RESULT_RECOVERABLE = "stale_permission_result_recoverable"
         private val BG = Color.rgb(12, 17, 27)
         private val SURFACE = Color.rgb(21, 30, 44)
         private val BORDER = Color.rgb(42, 56, 75)

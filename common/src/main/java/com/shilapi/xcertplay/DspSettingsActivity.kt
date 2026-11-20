@@ -29,9 +29,15 @@ class DspSettingsActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        DiPlayUiFocus.resumed(this, DiPlaySurface.DSP_SETTINGS)
         DspProfileRuntime.peekInstance()?.let { runtime ->
             runtime.editorSession.refreshFromRuntime(runtime.selectedProfile(), runtime.isDspEnabled())
         }
+    }
+
+    override fun onPause() {
+        DiPlayUiFocus.paused(this)
+        super.onPause()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {

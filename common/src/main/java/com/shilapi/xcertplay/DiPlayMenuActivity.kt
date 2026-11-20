@@ -63,6 +63,7 @@ class DiPlayMenuActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        DiPlayUiFocus.resumed(this, DiPlaySurface.MENU)
         if (resources.configuration.locales[0].language != AppLanguage.get(this)) {
             recreate()
             return
@@ -73,11 +74,13 @@ class DiPlayMenuActivity : ComponentActivity() {
 
     override fun onPause() {
         handler.removeCallbacks(statusRefresh)
+        DiPlayUiFocus.paused(this)
         super.onPause()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(statusRefresh)
+        DiPlayUiFocus.paused(this)
         super.onDestroy()
     }
 
@@ -171,7 +174,8 @@ class DiPlayMenuActivity : ComponentActivity() {
                 startActivity(
                     Intent(this, DiPlayActivity::class.java)
                         .putExtra("page", "settings")
-                        .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true),
+                        .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true)
+                        .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 )
             },
             actionLayoutParams(wide, 4, ACTION_SPACING_DP),

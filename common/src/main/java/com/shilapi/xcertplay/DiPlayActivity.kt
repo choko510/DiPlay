@@ -51,6 +51,7 @@ class DiPlayActivity : ComponentActivity() {
     private var lastRunning: Boolean? = null
     private var pendingWireless = false
     private var initialLaunch = true
+    private var launchOrigin = DiPlayLaunchOrigin.APP_START
     private var notificationTransport = true
     private var exportInProgress = false
     private var exportButton: Button? = null
@@ -88,6 +89,7 @@ class DiPlayActivity : ComponentActivity() {
         }
         pendingUsbLaunchFromNotification =
             intent.getBooleanExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE, false)
+        launchOrigin = resolveLaunchOrigin(intent)
         page = savedInstanceState?.getString("page") ?: intent.getStringExtra("page") ?: "home"
         returnToMenu = savedInstanceState
             ?.takeIf { it.containsKey(EXTRA_RETURN_TO_MENU) }
@@ -114,8 +116,13 @@ class DiPlayActivity : ComponentActivity() {
         super.onNewIntent(intent); setIntent(intent)
         pendingUsbLaunchFromNotification =
             intent.getBooleanExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE, false)
-        returnToMenu = intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false)
-        page = intent.getStringExtra("page") ?: "home"; render()
+        launchOrigin = resolveLaunchOrigin(intent)
+        val nextReturnToMenu = intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false)
+        val nextPage = intent.getStringExtra("page") ?: "home"
+        val destinationChanged = nextPage != page || nextReturnToMenu != returnToMenu
+        returnToMenu = nextReturnToMenu
+        page = nextPage
+        if (destinationChanged) render() else refreshStatus()
         handleWirelessRecovery()
         if (pendingUsbLaunchFromNotification) handler.post { handleUsbAutoLaunchRequest() }
     }
@@ -128,18 +135,23 @@ class DiPlayActivity : ComponentActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); render() }
     override fun onResume() {
         super.onResume(); handler.removeCallbacks(tick); handler.post(tick)
+        DiPlayUiFocus.resumed(this, currentSurface())
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!initialLaunch && page == "home") render()
         if (initialLaunch) {
             initialLaunch = false
             if (setupError == null && handleUsbAutoLaunchRequest()) return
-            if (setupError == null && !CarPlayBackgroundSession.hasSession() &&
-                DiPlayPreferences.autoConnect(this) && intent.getStringExtra("page") == null) {
+            if (setupError == null && DiPlayLaunchIntentPolicy.shouldAutoConnectOnResume(launchOrigin) &&
+                !CarPlayBackgroundSession.hasSession() && DiPlayPreferences.autoConnect(this)) {
                 handler.post { connect(AirPlayPersistence.loadWirelessEnabled(this)) }
             }
         }
     }
-    override fun onPause() { handler.removeCallbacks(tick); super.onPause() }
+    override fun onPause() {
+        handler.removeCallbacks(tick)
+        DiPlayUiFocus.paused(this)
+        super.onPause()
+    }
 
     private fun render() {
         status = null; connectButton = null; disconnectButton = null; lastRunning = null
@@ -414,8 +426,16 @@ class DiPlayActivity : ComponentActivity() {
                 toast(getString(R.string.ui_iphone_usb_autolaunch_disabled))
                 return true
             }
-        } else if (!IphoneUsbAutoLaunchSettings.isOperationallyEnabled(this)) {
-            return false
+        } else {
+            if (!IphoneUsbAutoLaunchSettings.isOperationallyEnabled(this)) return false
+            // Opening DiPlay settings or the menu is not a request to bring CarPlay back.
+            if (!DiPlayLaunchIntentPolicy.shouldAutoLaunchUsbOnResume(launchOrigin)) {
+                android.util.Log.i(
+                    "xcertplay-usb-auto",
+                    "event=APPLE_USB_AUTO_ATTACH source=foreground result=suppressed_for_user_navigation",
+                )
+                return false
+            }
         }
         if (setupError != null) return explicitlyRequested
         val candidates = IphoneUsbAutoLaunchSettings.connectedCandidates(this)
@@ -434,6 +454,16 @@ class DiPlayActivity : ComponentActivity() {
         )
         return true
     }
+
+    private fun resolveLaunchOrigin(intent: Intent?): DiPlayLaunchOrigin = DiPlayLaunchIntentPolicy.origin(
+        page = intent?.getStringExtra("page"),
+        returnToMenu = intent?.getBooleanExtra(EXTRA_RETURN_TO_MENU, false) == true,
+        openConnectedIphone = intent
+            ?.getBooleanExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE, false) == true,
+    )
+
+    private fun currentSurface(): DiPlaySurface =
+        if (page == "home") DiPlaySurface.HOME else DiPlaySurface.SETTINGS
 
     private fun carPlayNameControl(parent: LinearLayout) {
         val control = button(

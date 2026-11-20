@@ -508,6 +508,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var pendingSplitMode: HostLayoutMode? = null
     private var localPaneLayoutPending = false
     private var activityVisible = false
+    private val hostUiRequestGate = HostUiRequestGate()
     private var profileResolutionStartedElapsed = 0L
     private var profileResolutionTimedOut = false
     private var splitCarPlayReadyForYoutube = false
@@ -1388,6 +1389,9 @@ class CarPlayHostActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         activityVisible = true
+        DiPlayUiFocus.resumed(this, DiPlaySurface.CARPLAY_HOST)
+        // A new deliberate OEM tap after returning here must open the menu again.
+        hostUiRequestGate.reset()
         if (!AppLanguage.isApplied(this)) {
             // Recreate only the UI. onDestroy leaves the background controller alive and the
             // replacement activity adopts it in onCreate via adoptBackgroundSession().
@@ -1420,10 +1424,13 @@ class CarPlayHostActivity : ComponentActivity() {
                 youtubeProfile != null &&
                 activeAirPlaySession != null,
         )
+        // A USB request that was held while settings owned the display is safe to replay now.
+        IphoneUsbAutoLaunchDispatcher.resumeDeferred(this)
     }
 
     override fun onPause() {
         activityVisible = false
+        DiPlayUiFocus.paused(this)
         youtubeBrowser?.setActive(false)
         super.onPause()
     }
@@ -1471,6 +1478,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        DiPlayUiFocus.paused(this)
         dspHostExitActivityGeneration += 1
         dspHostExitRequests.clear()
         SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
@@ -4817,6 +4825,17 @@ class CarPlayHostActivity : ComponentActivity() {
                         isFinishing ||
                         isDestroyed
                     ) {
+                        return@runOnUiThread
+                    }
+                    val allowed = shouldOpenHostUi(
+                        hostVisible = activityVisible,
+                        menuOpen = menuOpen,
+                        surface = DiPlayUiFocus.current(),
+                        sessionCurrent = activeAirPlaySession === session,
+                        sessionClosed = session.isClosed,
+                    ) && hostUiRequestGate.accept(session, SystemClock.elapsedRealtime())
+                    if (!allowed) {
+                        appendLog("CarPlay host UI request ignored while another DiPlay screen owns the display")
                         return@runOnUiThread
                     }
                     controller?.sendTouch(emptyList())

@@ -63,6 +63,7 @@ class DiPlayMenuActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        DiPlayUiFocus.resumed(this, DiPlaySurface.MENU)
         if (resources.configuration.locales[0].language != AppLanguage.get(this)) {
             recreate()
             return
@@ -71,13 +72,20 @@ class DiPlayMenuActivity : ComponentActivity() {
         handler.post(statusRefresh)
     }
 
+    override fun onStop() {
+        DiPlayUiFocus.stopped(this)
+        super.onStop()
+    }
+
     override fun onPause() {
         handler.removeCallbacks(statusRefresh)
+        DiPlayUiFocus.paused(this)
         super.onPause()
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(statusRefresh)
+        DiPlayUiFocus.paused(this)
         super.onDestroy()
     }
 
@@ -168,11 +176,15 @@ class DiPlayMenuActivity : ComponentActivity() {
         actions.addView(
             actionButton(getString(R.string.menu_settings), primary = false) {
                 Log.i(TAG, "DiPlay Menu action=settings")
-                startActivity(
-                    Intent(this, DiPlayActivity::class.java)
-                        .putExtra("page", "settings")
-                        .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true),
-                )
+                val started = navigateFrom(this, DiPlaySurface.SETTINGS) {
+                    startActivity(
+                        Intent(this, DiPlayActivity::class.java)
+                            .putExtra("page", "settings")
+                            .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true)
+                            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                    )
+                }
+                if (!started) Toast.makeText(this, R.string.menu_settings_failed, Toast.LENGTH_SHORT).show()
             },
             actionLayoutParams(wide, 4, ACTION_SPACING_DP),
         )
@@ -215,54 +227,61 @@ class DiPlayMenuActivity : ComponentActivity() {
         statusIndicator?.background = circle(indicatorColor)
     }
 
+    private fun logLaunchFailure(target: String): (RuntimeException) -> Unit = { error ->
+        Log.w(TAG, "$target could not be opened error=${error.javaClass.simpleName}")
+    }
+
     private fun returnToCarPlay() {
         Log.i(TAG, "DiPlay Menu action=return_carplay")
-        try {
+        val started = navigateFrom(this, DiPlaySurface.CARPLAY_HOST, logLaunchFailure("CarPlay host")) {
             startActivity(
                 CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.EXIT_YOUTUBE_SPLIT)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             )
-            finish()
-        } catch (error: RuntimeException) {
-            Log.w(TAG, "CarPlay host could not be opened error=${error.javaClass.simpleName}")
-            Toast.makeText(this, R.string.menu_return_failed, Toast.LENGTH_SHORT).show()
         }
+        if (!started) {
+            Toast.makeText(this, R.string.menu_return_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+        finish()
     }
 
     private fun openCarPlayYoutube() {
         Log.i(TAG, "DiPlay Menu action=carplay_youtube")
-        try {
+        val started = navigateFrom(this, DiPlaySurface.CARPLAY_HOST, logLaunchFailure("CarPlay + YouTube host")) {
             startActivity(
                 CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.ENTER_YOUTUBE_SPLIT)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             )
-            finish()
-        } catch (error: RuntimeException) {
-            Log.w(TAG, "CarPlay + YouTube host could not be opened error=${error.javaClass.simpleName}")
-            Toast.makeText(this, R.string.menu_youtube_split_failed, Toast.LENGTH_SHORT).show()
         }
+        if (!started) {
+            Toast.makeText(this, R.string.menu_youtube_split_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+        finish()
     }
 
     private fun openCarPlayDsp() {
         Log.i(TAG, "DiPlay Menu action=carplay_dsp")
-        try {
+        val started = navigateFrom(this, DiPlaySurface.CARPLAY_HOST, logLaunchFailure("CarPlay + DSP host")) {
             startActivity(
                 CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.ENTER_DSP_SPLIT)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             )
-            finish()
-        } catch (error: RuntimeException) {
-            Log.w(TAG, "CarPlay + DSP host could not be opened error=${error.javaClass.simpleName}")
-            Toast.makeText(this, R.string.menu_dsp_split_failed, Toast.LENGTH_SHORT).show()
         }
+        if (!started) {
+            Toast.makeText(this, R.string.menu_dsp_split_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+        finish()
     }
 
     private fun openVehicleHome() {
         Log.i(TAG, "DiPlay Menu action=vehicle_home")
-        try {
+        val started = navigateFrom(this, DiPlaySurface.NONE, logLaunchFailure("Vehicle home screen")) {
             startActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME))
-        } catch (error: RuntimeException) {
-            Log.w(TAG, "Vehicle home screen could not be opened error=${error.javaClass.simpleName}")
+        }
+        if (!started) {
             Toast.makeText(this, R.string.menu_vehicle_home_unavailable, Toast.LENGTH_SHORT).show()
         }
     }

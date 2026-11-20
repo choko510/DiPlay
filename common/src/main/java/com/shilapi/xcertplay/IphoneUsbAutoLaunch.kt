@@ -193,6 +193,13 @@ internal class IphoneUsbAutoLaunchCoordinator(
             lastLaunchAtMillis = Long.MIN_VALUE
         }
     }
+
+    @Synchronized
+    fun resetForTesting() {
+        lastIdentity = null
+        lastLaunchAtMillis = Long.MIN_VALUE
+        generation = 0L
+    }
 }
 
 internal object IphoneUsbAutoLaunchSettings {
@@ -316,6 +323,22 @@ internal enum class IphoneUsbAutoLaunchSource(val label: String) {
 internal fun shouldBringWiredHostToFront(source: IphoneUsbAutoLaunchSource): Boolean =
     source != IphoneUsbAutoLaunchSource.ATTACH
 
+/**
+ * Only an explicit request (notification tap or the settings button) may take the screen from a
+ * DiPlay settings or menu surface. Automatic foreground/attach requests stay quiet instead.
+ */
+internal fun shouldBringWiredHostToFront(
+    source: IphoneUsbAutoLaunchSource,
+    surface: DiPlaySurface,
+): Boolean = shouldBringWiredHostToFront(source) &&
+    (source == IphoneUsbAutoLaunchSource.SETTINGS || !surface.isUserNavigationTarget)
+
+/** A non-explicit USB request waits while the user is working in a DiPlay settings or menu screen. */
+internal fun shouldDeferAutomaticHostLaunch(
+    source: IphoneUsbAutoLaunchSource,
+    surface: DiPlaySurface,
+): Boolean = source != IphoneUsbAutoLaunchSource.SETTINGS && surface.isUserNavigationTarget
+
 internal fun shouldBypassUsbAttachDebounce(
     source: IphoneUsbAutoLaunchSource,
     deferredReplay: Boolean,
@@ -333,10 +356,21 @@ internal class IphoneUsbAutoLaunchRequestQueue {
     private var latestHandoff: DeferredIphoneUsbAutoLaunch? = null
     private var handoffGeneration = 0L
 
+    /**
+     * Keeps one request per device and source so a burst of attach events cannot queue duplicates,
+     * but a later request may still bring new information: if it knows the split layout the held
+     * one does not, that state is adopted instead of dropped.
+     */
     @Synchronized
     fun defer(request: DeferredIphoneUsbAutoLaunch) {
-        if (latestDeferred?.let { it.identity == request.identity && it.source == request.source } == true) return
-        latestDeferred = request
+        val current = latestDeferred
+        latestDeferred = if (current != null && current.identity == request.identity &&
+            current.source == request.source
+        ) {
+            current.copy(hostLaunchState = request.hostLaunchState ?: current.hostLaunchState)
+        } else {
+            request
+        }
     }
 
     @Synchronized
@@ -391,6 +425,13 @@ internal class IphoneUsbAutoLaunchRequestQueue {
         if (pending != null) latestDeferred = pending
         return pending
     }
+
+    @Synchronized
+    fun clearForTesting() {
+        latestDeferred = null
+        handoffActive = false
+        latestHandoff = null
+    }
 }
 
 internal object IphoneUsbAutoLaunchDispatcher {
@@ -431,13 +472,21 @@ internal object IphoneUsbAutoLaunchDispatcher {
 
     fun failLaunch(identity: UsbAttachDeviceIdentity) = coordinator.cancelCurrent(identity)
 
-    fun deferTransition(identity: UsbAttachDeviceIdentity, source: IphoneUsbAutoLaunchSource) {
-        requests.defer(DeferredIphoneUsbAutoLaunch(identity, source))
+    fun deferTransition(
+        identity: UsbAttachDeviceIdentity,
+        source: IphoneUsbAutoLaunchSource,
+        hostLaunchState: CarPlayHostLaunchState? = null,
+    ) {
+        requests.defer(DeferredIphoneUsbAutoLaunch(identity, source, hostLaunchState))
     }
 
     @Synchronized
     fun resumeDeferred(context: Context) {
         if (requests.isHandoffActive()) return
+        if (DiPlayUiFocus.isUserNavigationTarget()) {
+            Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=deferred result=held_for_user_navigation")
+            return
+        }
         val pending = requests.peekDeferred() ?: return
         if (deferredRetryRequest !== pending) resetDeferredRetry(pending)
         dispatchDeferred(context.applicationContext, pending)
@@ -464,7 +513,21 @@ internal object IphoneUsbAutoLaunchDispatcher {
     private enum class DispatchOutcome { ACCEPTED, RETRY, REJECTED }
 
     private fun dispatchDeferred(context: Context, pending: DeferredIphoneUsbAutoLaunch) {
-        val outcome = dispatchDetailed(context, pending.identity, pending.source, deferredReplay = true)
+        if (shouldDeferAutomaticHostLaunch(pending.source, DiPlayUiFocus.current())) {
+            Log.i(
+                TAG,
+                "event=APPLE_USB_AUTO_ATTACH source=${pending.source.label} " +
+                    "result=held_for_user_navigation",
+            )
+            return
+        }
+        val outcome = dispatchDetailed(
+            context,
+            pending.identity,
+            pending.source,
+            deferredReplay = true,
+            hostLaunchState = pending.hostLaunchState,
+        )
         if (outcome == DispatchOutcome.RETRY) {
             val latest = requests.peekDeferred() ?: pending
             scheduleDeferredRetry(context, latest)
@@ -486,6 +549,7 @@ internal object IphoneUsbAutoLaunchDispatcher {
         identity: UsbAttachDeviceIdentity,
         source: IphoneUsbAutoLaunchSource,
         deferredReplay: Boolean,
+        hostLaunchState: CarPlayHostLaunchState? = null,
     ): DispatchOutcome {
         val enabled = try {
             IphoneUsbAutoLaunchSettings.isOperationallyEnabled(context)
@@ -543,8 +607,8 @@ internal object IphoneUsbAutoLaunchDispatcher {
         ) {
             IphoneUsbAutoLaunchDecision.KeepCurrentWiredSession -> {
                 Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=keep_wired")
-                if (shouldBringWiredHostToFront(source)) {
-                    if (bringExistingWiredHostToFront(context)) DispatchOutcome.ACCEPTED else DispatchOutcome.RETRY
+                if (shouldBringWiredHostToFront(source, DiPlayUiFocus.current())) {
+                    if (bringExistingWiredHostToFront(context, source)) DispatchOutcome.ACCEPTED else DispatchOutcome.RETRY
                 } else DispatchOutcome.ACCEPTED
             }
             IphoneUsbAutoLaunchDecision.DeferToCurrentSession -> {
@@ -557,6 +621,15 @@ internal object IphoneUsbAutoLaunchDispatcher {
                 DispatchOutcome.ACCEPTED
             }
             is IphoneUsbAutoLaunchDecision.Launch -> {
+                if (shouldDeferAutomaticHostLaunch(source, DiPlayUiFocus.current())) {
+                    deferTransition(identity, source)
+                    Log.i(
+                        TAG,
+                        "event=APPLE_USB_AUTO_ATTACH source=${source.label} " +
+                            "result=held_for_user_navigation generation=${decision.generation}",
+                    )
+                    return DispatchOutcome.RETRY
+                }
                 val stillEnabled = runCatching { IphoneUsbAutoLaunchSettings.isOperationallyEnabled(context) }
                     .getOrElse {
                         coordinator.cancelDispatch(identity, decision.generation)
@@ -583,10 +656,22 @@ internal object IphoneUsbAutoLaunchDispatcher {
                     return DispatchOutcome.REJECTED
                 }
                 try {
+                    // The user may have opened settings while the USB inventory was re-read.
+                    if (shouldDeferAutomaticHostLaunch(source, DiPlayUiFocus.current())) {
+                        coordinator.cancelDispatch(identity, decision.generation)
+                        deferTransition(identity, source)
+                        Log.i(
+                            TAG,
+                            "event=APPLE_USB_AUTO_ATTACH source=${source.label} " +
+                                "result=held_before_launch generation=${decision.generation}",
+                        )
+                        return DispatchOutcome.RETRY
+                    }
                     val intent = CarPlayHostActions.createInternalIntent(
                         context,
                         CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
                         identity,
+                        hostLaunchState,
                     )
                     if (context !is Activity) intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
@@ -614,6 +699,14 @@ internal object IphoneUsbAutoLaunchDispatcher {
 
     @Synchronized
     private fun scheduleDeferredRetry(context: Context, pending: DeferredIphoneUsbAutoLaunch) {
+        if (shouldDeferAutomaticHostLaunch(pending.source, DiPlayUiFocus.current())) {
+            Log.i(
+                TAG,
+                "event=APPLE_USB_AUTO_ATTACH source=${pending.source.label} " +
+                    "result=held_for_user_navigation; request retained",
+            )
+            return
+        }
         if (deferredRetryRequest !== pending) resetDeferredRetry(pending)
         if (deferredRetry != null) return
         if (deferredRetryAttempts >= MAX_DEFERRED_RETRIES) {
@@ -648,7 +741,21 @@ internal object IphoneUsbAutoLaunchDispatcher {
         deferredRetryAttempts = 0
     }
 
-    private fun bringExistingWiredHostToFront(context: Context): Boolean {
+    @Synchronized
+    internal fun resetForTesting() {
+        requests.clearForTesting()
+        coordinator.resetForTesting()
+        clearDeferredRetry()
+    }
+
+    private fun bringExistingWiredHostToFront(
+        context: Context,
+        source: IphoneUsbAutoLaunchSource,
+    ): Boolean {
+        if (!shouldBringWiredHostToFront(source, DiPlayUiFocus.current())) {
+            Log.i(TAG, "event=APPLE_USB_AUTO_ATTACH source=${source.label} result=front_held_for_user_navigation")
+            return true
+        }
         try {
             val intent = CarPlayHostActions.createInternalIntent(context, CarPlayHostActions.OPEN_CARPLAY)
                 .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
@@ -681,6 +788,8 @@ internal object IphoneUsbAutoLaunchDispatcher {
 class IphoneUsbAutoAttachActivity : Activity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android started this transparent receiver; keep the screen the user was on protected.
+        DiPlayUiFocus.transientOverlayResumed(this)
         val manager = getSystemService(Context.USB_SERVICE) as? UsbManager
         val eventDevice = intent.usbDeviceExtra()
         val inventory = manager?.let(IphoneUsbAutoLaunchSettings::readAttachedDevices)
@@ -716,6 +825,12 @@ class IphoneUsbAutoAttachActivity : Activity() {
             )
         }
         finish()
+    }
+
+    override fun onDestroy() {
+        // The receiver never owns the screen; release the temporary protection it added.
+        DiPlayUiFocus.transientOverlayFinished(this)
+        super.onDestroy()
     }
 
     private companion object {

@@ -12,6 +12,7 @@
     <string name="menu_transport_wireless">ワイヤレス</string>
     <string name="menu_vehicle_home_unavailable">車のホーム画面を開けませんでした。</string>
     <string name="menu_return_failed">CarPlay画面を開けませんでした。</string>
+    <string name="menu_settings_failed">DiPlay設定を開けませんでした。</string>
     <string name="menu_youtube_split_failed">CarPlay + YouTubeを開けませんでした。</string>
     <string name="menu_dsp_split_failed">CarPlay + DSPを開けませんでした。</string>
     <string name="youtube_waiting_for_iphone_profile">iPhoneを識別しています…</string>

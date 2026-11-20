@@ -514,6 +514,7 @@ class CarPlayHostActivity : ComponentActivity() {
     private var pendingSplitMode: HostLayoutMode? = null
     private var localPaneLayoutPending = false
     private var activityVisible = false
+    private val hostUiRequestGate = HostUiRequestGate()
     private var profileResolutionStartedElapsed = 0L
     private var profileResolutionTimedOut = false
     private var splitCarPlayReadyForYoutube = false
@@ -1290,8 +1291,9 @@ class CarPlayHostActivity : ComponentActivity() {
                     enqueueShutdownCompletion { result ->
                         if (result != CarPlayHostShutdownResult.CLOSED) return@enqueueShutdownCompletion
                         AirPlayPersistence.saveWirelessEnabled(this, false)
-                        startActivity(
-                            CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
+                        restartHostAfterShutdown(
+                            CarPlayHostActions.OPEN_CARPLAY,
+                            recovery = CarPlayHostRecovery.WIRED_USB,
                         )
                         finish()
                     }
@@ -1299,8 +1301,9 @@ class CarPlayHostActivity : ComponentActivity() {
                     if (!wiredUsbResumeAfterShutdownRequested.compareAndSet(false, true)) return
                     enqueueShutdownCompletion { result ->
                         if (result != CarPlayHostShutdownResult.CLOSED) return@enqueueShutdownCompletion
-                        startActivity(
-                            CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
+                        restartHostAfterShutdown(
+                            CarPlayHostActions.OPEN_CARPLAY,
+                            recovery = CarPlayHostRecovery.WIRED_USB,
                         )
                         finish()
                     }
@@ -1321,8 +1324,9 @@ class CarPlayHostActivity : ComponentActivity() {
                 shutdown(false, "switching to USB") { result ->
                     if (result != CarPlayHostShutdownResult.CLOSED) return@shutdown
                     AirPlayPersistence.saveWirelessEnabled(this, false)
-                    startActivity(
-                        CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY),
+                    restartHostAfterShutdown(
+                        CarPlayHostActions.OPEN_CARPLAY,
+                        recovery = CarPlayHostRecovery.WIRED_USB,
                     )
                 }
                 finish()
@@ -1364,46 +1368,85 @@ class CarPlayHostActivity : ComponentActivity() {
             if (IphoneUsbAutoLaunchSettings.currentCandidate(this, latestIdentity) == null) {
                 IphoneUsbAutoLaunchDispatcher.failLaunch(latestIdentity)
                 AirPlayPersistence.saveWirelessEnabled(this, true)
-                try {
-                    startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY))
-                } catch (error: RuntimeException) {
-                    Log.w(
-                        TAG,
-                        "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=restore_failed " +
-                            "error=${error.javaClass.simpleName}",
-                    )
-                }
+                restartHostAfterShutdown(
+                    CarPlayHostActions.OPEN_CARPLAY,
+                    recovery = CarPlayHostRecovery.RESTORE_TRANSPORT,
+                )
                 return@shutdown
             }
             autoUsbLaunchIdentity = latestIdentity
             autoUsbLaunchBlocked = false
             AirPlayPersistence.saveWirelessEnabled(this, false)
-            try {
-                startActivity(
-                    CarPlayHostActions.createInternalIntent(
-                        this,
-                        CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
-                        latestIdentity,
-                        latestRequest.hostLaunchState ?: hostLaunchState,
-                    ),
-                )
-            } catch (error: RuntimeException) {
-                Log.w(
-                    TAG,
-                    "event=APPLE_USB_AUTO_ATTACH source=wireless_switch result=launch_failed " +
-                        "error=${error.javaClass.simpleName}",
-                )
-                IphoneUsbAutoLaunchDispatcher.failLaunch(latestIdentity)
-                IphoneUsbAutoLaunchNotification.show(this)
-            }
+            restartHostAfterShutdown(
+                CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED,
+                latestIdentity,
+                latestRequest.hostLaunchState ?: hostLaunchState,
+            )
         }
         expectedOwnerEpoch = CarPlayBackgroundSession.ownerEpoch()
         finish()
     }
 
+    /**
+     * Restarts the host after a transport handover finished asynchronously. The handover itself is
+     * already past the point of return, but taking the display is a separate decision: a request
+     * that arrives while DiPlay settings or the menu is open is kept for later instead.
+     */
+    internal fun restartHostAfterShutdown(
+        action: String,
+        identity: UsbAttachDeviceIdentity? = null,
+        hostLaunchState: CarPlayHostLaunchState? = null,
+        recovery: CarPlayHostRecovery = CarPlayHostRecovery.WIRED_USB,
+    ) {
+        if (DiPlayUiFocus.isUserNavigationTarget()) {
+            val kept = when {
+                recovery == CarPlayHostRecovery.RESTORE_TRANSPORT -> {
+                    // The connection has to go back to the transport it came from; an attached
+                    // CH341 adapter must not turn this into a wired start.
+                    CarPlayHostRestartQueue.hold()
+                    true
+                }
+                identity != null -> {
+                    IphoneUsbAutoLaunchDispatcher.deferTransition(
+                        identity,
+                        IphoneUsbAutoLaunchSource.ATTACH,
+                        hostLaunchState,
+                    )
+                    true
+                }
+                // A CH341 resume has no iPhone identity; hold the verified adapter instead so the
+                // wired host comes back on its own once the user leaves DiPlay settings.
+                else -> CarPlayUsbAttachDispatcher.holdVerifiedCh341(this)
+            }
+            if (!kept) IphoneUsbAutoLaunchNotification.show(this)
+            Log.i(
+                TAG,
+                "event=APPLE_USB_AUTO_ATTACH source=handover result=held_for_user_navigation " +
+                    "kept=$kept action=$action recovery=$recovery",
+            )
+            return
+        }
+        try {
+            startActivity(
+                CarPlayHostActions.createInternalIntent(this, action, identity, hostLaunchState),
+            )
+        } catch (error: RuntimeException) {
+            Log.w(
+                TAG,
+                "event=APPLE_USB_AUTO_ATTACH source=handover result=launch_failed " +
+                    "error=${error.javaClass.simpleName}",
+            )
+            identity?.let(IphoneUsbAutoLaunchDispatcher::failLaunch)
+            IphoneUsbAutoLaunchNotification.show(this)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         activityVisible = true
+        DiPlayUiFocus.resumed(this, DiPlaySurface.CARPLAY_HOST)
+        // A new deliberate OEM tap after returning here must open the menu again.
+        hostUiRequestGate.reset()
         if (!AppLanguage.isApplied(this)) {
             // Recreate only the UI. onDestroy leaves the background controller alive and the
             // replacement activity adopts it in onCreate via adoptBackgroundSession().
@@ -1436,10 +1479,21 @@ class CarPlayHostActivity : ComponentActivity() {
                 youtubeProfile != null &&
                 activeAirPlaySession != null,
         )
+        // A USB request that was held while settings owned the display is safe to replay now.
+        IphoneUsbAutoLaunchDispatcher.resumeDeferred(this)
+        CarPlayUsbAttachDispatcher.resume(this)
+        CarPlayHostRestartQueue.resume(this)
     }
 
     override fun onPause() {
         activityVisible = false
+        if (isFinishing) {
+            // The host is handed over to a fresh instance or leaves DiPlay; both keep CarPlay
+            // as the display target, so no automatic launch needs to be held.
+            DiPlayUiFocus.announceReturn(this, DiPlaySurface.CARPLAY_HOST)
+        } else {
+            DiPlayUiFocus.paused(this)
+        }
         youtubeBrowser?.setActive(false)
         super.onPause()
     }
@@ -1471,6 +1525,7 @@ class CarPlayHostActivity : ComponentActivity() {
         // The controller, USB/iAP2 link, and VPN attachment intentionally outlive the UI, and
         // CarPlay audio keeps rendering while only the UI is stopped: the speed layer therefore
         // stays attached until onDestroy rather than cutting off mid-song.
+        DiPlayUiFocus.stopped(this)
         super.onStop()
     }
 
@@ -1503,6 +1558,7 @@ class CarPlayHostActivity : ComponentActivity() {
             speedAdaptiveHostAttached = false
             DspProfileRuntime.peekInstance()?.speedCompensation?.detachHost()
         }
+        DiPlayUiFocus.paused(this)
         dspHostExitActivityGeneration += 1
         dspHostExitRequests.clear()
         SplitPerformanceTracer.endAsync("diplay.split.total", splitTraceCookie)
@@ -4852,12 +4908,26 @@ class CarPlayHostActivity : ComponentActivity() {
                     ) {
                         return@runOnUiThread
                     }
+                    val allowed = shouldOpenHostUi(
+                        hostVisible = activityVisible,
+                        menuOpen = menuOpen,
+                        surface = DiPlayUiFocus.current(),
+                        sessionCurrent = activeAirPlaySession === session,
+                        sessionClosed = session.isClosed,
+                    ) && hostUiRequestGate.accept(session, SystemClock.elapsedRealtime())
+                    if (!allowed) {
+                        appendLog("CarPlay host UI request ignored while another DiPlay screen owns the display")
+                        return@runOnUiThread
+                    }
                     controller?.sendTouch(emptyList())
                     appendLog("CarPlay requested host UI; opening DiPlay Menu")
-                    startActivity(
-                        Intent(this@CarPlayHostActivity, DiPlayMenuActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
-                    )
+                    val opened = navigateFrom(this@CarPlayHostActivity, DiPlaySurface.MENU) {
+                        startActivity(
+                            Intent(this@CarPlayHostActivity, DiPlayMenuActivity::class.java)
+                                .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT),
+                        )
+                    }
+                    if (!opened) appendLog("DiPlay Menu could not be opened")
                 }
             }
 
@@ -5633,8 +5703,14 @@ class CarPlayHostActivity : ComponentActivity() {
 
     private fun showDiPlayHome(page: String = "home") {
         controller?.sendTouch(emptyList())
-        startActivity(Intent(this, DiPlayActivity::class.java)
-            .putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        val started = navigateFrom(
+            this,
+            if (page == "home") DiPlaySurface.HOME else DiPlaySurface.SETTINGS,
+        ) {
+            startActivity(Intent(this, DiPlayActivity::class.java)
+                .putExtra("page", page).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+        }
+        if (!started) appendLog("DiPlay screen could not be opened page=$page")
     }
 
     private fun openSettingsMenu() = showDiPlayHome("settings")
@@ -5676,6 +5752,7 @@ class CarPlayHostActivity : ComponentActivity() {
     }
 
     private fun exitApplication() {
+        DiPlayUiFocus.navigatingTo(this, DiPlaySurface.NONE)
         if (shuttingDown.get()) {
             shutdown(terminateProcess = true, reason = "settings exit application")
             return

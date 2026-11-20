@@ -537,6 +537,35 @@ class AutoConnectCoordinatorTest {
     }
 
     @Test
+    fun ac38_cancelledSelectionRejectsTheSameKeyButANewLaunchCanRetry() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        coordinator.postponeForUser(start.generation)
+        coordinator.onUserSelectionCancelled(start.generation)
+
+        assertEquals(
+            AutoConnectSkipReason.USER_CANCELLED,
+            (coordinator.request(request(), conditions()) as AutoConnectOutcome.Skip).reason,
+        )
+        assertTrue(coordinator.isCancelled("launch-key"))
+        assertTrue(coordinator.request(request(key = "new-launch"), conditions()) is AutoConnectOutcome.Start)
+        assertFalse(coordinator.isCancelled("new-launch"))
+    }
+
+    @Test
+    fun ac41_externalHandoverInvalidatesTheOldAutoConnectGeneration() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        coordinator.onHostLaunchDispatched(start.generation)
+
+        coordinator.onExternalSessionStart()
+        coordinator.onHostSessionActive(start.generation)
+        coordinator.onHostSessionEnded(start.generation)
+        coordinator.onHostStartFailed(start.generation, AutoConnectFailure.INITIALIZATION_FAILED)
+
+        assertEquals(AutoConnectState.IDLE, coordinator.currentState())
+        assertFalse(coordinator.isRequestActive(start.generation))
+    }
+
+    @Test
     fun hostStartFailureBlocksTheLaunchAndANewLaunchCanRetry() {
         val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
         coordinator.onHostLaunchDispatched(start.generation)

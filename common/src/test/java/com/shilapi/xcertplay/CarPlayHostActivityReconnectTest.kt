@@ -825,6 +825,40 @@ class CarPlayHostActivityReconnectTest {
     }
 
     @Test
+    fun ac43_hostExitWithoutASessionReleasesTheInFlightAutoRequest() {
+        CarPlayBackgroundSession.clear()
+        val bootstrapReady = field(DiPlayBootstrap, "ready")
+        val wasBootstrapReady = bootstrapReady.getBoolean(DiPlayBootstrap)
+        bootstrapReady.setBoolean(DiPlayBootstrap, true)
+        AutoConnectCoordinator.shared.resetForTests()
+        val lifecycle = Robolectric.buildActivity(CarPlayHostActivity::class.java).create()
+        val activity = lifecycle.get()
+
+        try {
+            val start = AutoConnectCoordinator.shared.request(
+                AutoConnectRequest("host-exit", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRED),
+                AutoConnectConditions(
+                    enabled = true,
+                    setupReady = true,
+                    session = AutoConnectSessionState.NONE,
+                ),
+            ) as AutoConnectOutcome.Start
+            AutoConnectCoordinator.shared.onHostLaunchDispatched(start.generation)
+            field(activity, "autoConnectGeneration").set(activity, start.generation)
+
+            activity.finish()
+            lifecycle.destroy()
+
+            assertEquals(AutoConnectState.BLOCKED, AutoConnectCoordinator.shared.currentState())
+            assertFalse(AutoConnectCoordinator.shared.isRequestActive(start.generation))
+        } finally {
+            AutoConnectCoordinator.shared.resetForTests()
+            CarPlayBackgroundSession.clear()
+            bootstrapReady.setBoolean(DiPlayBootstrap, wasBootstrapReady)
+        }
+    }
+
+    @Test
     fun turningAutoConnectOffCancelsAnAlreadyScheduledReconnect() {
         val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
         val ownerField = field(CarPlayBackgroundSession, "owner")

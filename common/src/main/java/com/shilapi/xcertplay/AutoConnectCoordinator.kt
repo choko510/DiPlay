@@ -50,6 +50,7 @@ internal enum class AutoConnectSkipReason {
     RETRY_NOT_DUE,
     RETRY_EXHAUSTED,
     PERMISSION_DENIED,
+    USER_CANCELLED,
     USB_AUTO_LAUNCH_ACTIVE,
     NOT_APPLICABLE,
 }
@@ -142,6 +143,7 @@ internal class AutoConnectCoordinator(
     private var autoStarted = false
     private var lastStartedKey: String? = null
     private var terminalKey: String? = null
+    private var cancelledKey: String? = null
     private var hostLaunchDispatched = false
 
     @Synchronized
@@ -158,6 +160,7 @@ internal class AutoConnectCoordinator(
         userDisconnected = false
         blockedReason = null
         terminalKey = null
+        cancelledKey = null
         active = null
         attempts = 0
         retryAtMillis = 0L
@@ -174,6 +177,7 @@ internal class AutoConnectCoordinator(
         userDisconnected = true
         blockedReason = null
         terminalKey = null
+        cancelledKey = null
         active = null
         attempts = 0
         retryAtMillis = 0L
@@ -187,6 +191,7 @@ internal class AutoConnectCoordinator(
     fun onAutoConnectDisabled() {
         blockedReason = null
         terminalKey = null
+        cancelledKey = null
         active = null
         attempts = 0
         retryAtMillis = 0L
@@ -198,11 +203,13 @@ internal class AutoConnectCoordinator(
     /** A manual/USB path owns the next session; it must not inherit auto-session recovery policy. */
     @Synchronized
     fun onExternalSessionStart() {
+        generation++
         autoStarted = false
         active = null
         attempts = 0
         retryAtMillis = 0L
         terminalKey = null
+        cancelledKey = null
         hostLaunchDispatched = false
         state = if (userDisconnected) AutoConnectState.SUPPRESSED else AutoConnectState.IDLE
         log("event=EXTERNAL_SESSION_START state=${state.label}")
@@ -230,6 +237,7 @@ internal class AutoConnectCoordinator(
         retryAtMillis = 0L
         manualConnectAtMillis = null
         blockedReason = null
+        cancelledKey = null
         hostLaunchDispatched = false
         if (!userDisconnected) state = AutoConnectState.ACTIVE
         log("event=SESSION_ACTIVE state=${state.label}")
@@ -329,6 +337,7 @@ internal class AutoConnectCoordinator(
     @Synchronized
     fun onUserSelectionCancelled(generation: Long) {
         if (generation != this.generation || active == null) return
+        cancelledKey = active?.request?.key
         autoStarted = false
         active = null
         attempts = 0
@@ -405,6 +414,10 @@ internal class AutoConnectCoordinator(
             return skip(request, AutoConnectSkipReason.SETUP_FAILED)
         }
         resetTerminalForNewLaunch(request)
+        cancelledKey?.let { cancelled ->
+            if (cancelled == request.key) return skip(request, AutoConnectSkipReason.USER_CANCELLED)
+            cancelledKey = null
+        }
         blockedReason?.let { return skip(request, it) }
         if (userDisconnected) return skip(request, AutoConnectSkipReason.USER_DISCONNECTED)
         manualConnectAtMillis?.let { manualAt ->
@@ -638,6 +651,7 @@ internal class AutoConnectCoordinator(
         userDisconnected = false
         blockedReason = null
         terminalKey = null
+        cancelledKey = null
         lastStartedKey = null
         manualConnectAtMillis = null
         observedActive = false
@@ -683,6 +697,9 @@ internal class AutoConnectCoordinator(
         hostLaunchDispatched = false
         state = AutoConnectState.IDLE
     }
+
+    @Synchronized
+    fun isCancelled(key: String): Boolean = cancelledKey == key
 
     /** True while a specific request generation is still allowed to continue after a user dialog. */
     @Synchronized

@@ -219,6 +219,7 @@ class DiPlayActivity : ComponentActivity() {
         // Back from the car settings: refresh the car hotspot reminder on the home page.
         if (!firstResume && page == "home") render()
         firstResume = false
+        recoverStalePendingAutoRequest()
         if (autoConnectPending) {
             autoConnectPending = false
             evaluateAutoConnect(autoConnectLaunchSource)
@@ -560,14 +561,34 @@ class DiPlayActivity : ComponentActivity() {
     )
 
     private fun maybeRenewAutoConnectLaunchKey(intent: Intent) {
+        val launcherLaunch = intent.action == Intent.ACTION_MAIN &&
+            intent.categories?.contains(Intent.CATEGORY_LAUNCHER) == true
         val explicitLaunch = intent.getBooleanExtra(BootAutoStart.EXTRA_AUTO_START_ON_BOOT, false) ||
             intent.getBooleanExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE, false) ||
-            (intent.getStringExtra("page") == null && !intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false))
+            launcherLaunch
         if (!explicitLaunch) return
         val state = autoConnect.currentState()
-        if (state != AutoConnectState.BLOCKED && state != AutoConnectState.EXHAUSTED) return
+        val cancelled = autoConnect.isCancelled(autoConnectLaunchKey)
+        if (state != AutoConnectState.BLOCKED && state != AutoConnectState.EXHAUSTED && !cancelled) return
         autoConnectLaunchKey = UUID.randomUUID().toString()
         Log.i(TAG, "AUTO_CONNECT event=NEW_LAUNCH_KEY previousState=${state.name}")
+    }
+
+    private fun recoverStalePendingAutoRequest() {
+        val staleBluetooth = pendingBluetoothAutoGeneration?.takeIf { !autoConnect.isRequestActive(it) }
+        val staleWireless = pendingWirelessAutoGeneration?.takeIf { !autoConnect.isRequestActive(it) }
+        val staleNotification = pendingNotificationAutoGeneration?.takeIf {
+            pendingNotificationAutoRequest && !autoConnect.isRequestActive(it)
+        }
+        if (staleBluetooth == null && staleWireless == null && staleNotification == null) return
+        pendingBluetoothAutoGeneration = null
+        pendingNotificationAutoRequest = false
+        pendingNotificationAutoGeneration = null
+        clearPendingPhoneSelection()
+        if (!DiPlayPreferences.autoConnect(this)) return
+        autoConnectLaunchKey = UUID.randomUUID().toString()
+        autoConnectPending = true
+        Log.i(TAG, "AUTO_CONNECT event=STALE_PERMISSION_RECOVERY")
     }
 
     private fun restorePendingPhoneSelection() {
@@ -1022,9 +1043,7 @@ class DiPlayActivity : ComponentActivity() {
                     else -> connectWithAuto(true, autoRequest = generation != null, autoGeneration = generation)
                 }
             }.setNeutralButton(getString(R.string.ui_pair_another)) { _, _ ->
-                val generation = pendingWirelessAutoGeneration
-                clearPendingPhoneSelection()
-                generation?.let { autoConnect.onUserSelectionCancelled(it) }
+                phoneDialogShowing = false
                 openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
             }
             .setNegativeButton(getString(R.string.ui_cancel)) { _, _ -> cancelPendingPhoneRequest() }

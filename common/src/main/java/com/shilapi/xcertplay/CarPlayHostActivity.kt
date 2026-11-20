@@ -897,6 +897,11 @@ class CarPlayHostActivity : ComponentActivity() {
             ?: savedInstanceState
                 ?.takeIf { it.containsKey(STATE_AUTO_CONNECT_GENERATION) }
                 ?.getLong(STATE_AUTO_CONNECT_GENERATION)
+        if (initialAction == CarPlayHostActions.USB_DEVICE_ATTACHED ||
+            initialAction == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED
+        ) {
+            autoConnectGeneration = null
+        }
         if (initialAction == CarPlayHostActions.OPEN_CARPLAY) {
             autoConnectGeneration?.let { AutoConnectCoordinator.shared.onHostCreated(it) }
         }
@@ -1219,6 +1224,11 @@ class CarPlayHostActivity : ComponentActivity() {
         val action = request?.action
         setIntent(CarPlayHostActions.sanitizedIntent(intent))
         if (action == null) return
+        if (action == CarPlayHostActions.USB_DEVICE_ATTACHED ||
+            action == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED
+        ) {
+            autoConnectGeneration = null
+        }
         if (action == CarPlayHostActions.OPEN_CARPLAY) {
             request.autoConnectGeneration?.let { generation ->
                 autoConnectGeneration = generation

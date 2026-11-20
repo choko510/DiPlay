@@ -113,13 +113,61 @@ class LockdownRecordPersistenceTest {
 
     @Test
     fun anInterruptedMigrationRepeatsWithoutLosingTheRecord() {
-        // State after a crash between saving the per-iPhone record and removing the flat keys.
+        // State after a crash between saving the per-iPhone record and removing the flat keys:
+        // both copies hold the same record.
         writeLegacy(record("a"))
         assertEquals("HOST-a", load("a")?.hostId)
-        writeLegacy(record("a", hostId = "LEGACY-COPY"))
+        writeLegacy(record("a", hostId = "HOST-a"))
         assertEquals("HOST-a", load("a")?.hostId)
         assertTrue(LEGACY_KEYS.none(prefs::contains))
         assertEquals(1, ids().size)
+    }
+
+    @Test
+    fun aDifferingPerIphoneCopyKeepsTheLegacyRecordUntilAConnectionConfirmsIt() {
+        writeLegacy(record("a"))
+        // The stored copy is A's, but carries a HostID the older build never saved.
+        writeStored(record("a", hostId = "WRONG-HOST"))
+
+        assertEquals("WRONG-HOST", load("a")?.hostId)
+        // Repeated reads never overwrite the stored copy with the legacy one, and the legacy copy
+        // stays readable as the last record the older build saved.
+        assertEquals("WRONG-HOST", load("a")?.hostId)
+        assertTrue(LEGACY_KEYS.all(prefs::contains))
+        assertEquals("HOST-a", prefs.getString("lockdown_host_id", null))
+
+        // A connection that worked with the stored record makes the legacy copy obsolete.
+        AirPlayPersistence.markLockdownRecordUsed(context, deviceKey("a"))
+        assertEquals("WRONG-HOST", load("a")?.hostId)
+        assertTrue(LEGACY_KEYS.none(prefs::contains))
+    }
+
+    @Test
+    fun aDifferingStoredKeyMaterialKeepsTheLegacyRecord() {
+        writeLegacy(record("a"))
+        writeStored(record("a", hostPrivateKey = "truncated"))
+
+        assertEquals("truncated", String(load("a")!!.hostPrivateKeyPem))
+        assertEquals(
+            "host-private-a".toByteArray().toHex(),
+            prefs.getString("lockdown_host_private", null),
+        )
+        assertTrue(LEGACY_KEYS.all(prefs::contains))
+    }
+
+    @Test
+    fun aWrongTypeInTheIdListIsIgnoredInsteadOfThrowing() {
+        save(record("a"))
+        prefs.edit().putInt("lockdown_record_ids", 7).commit()
+
+        assertNull(load("a"))
+        assertNull(AirPlayPersistence.loadNewestLockdownRecord(context))
+        assertNull(AirPlayPersistence.loadNewestLockdownRecord(context))
+
+        // Recovery: pairing the iPhone again rebuilds the list.
+        save(record("a"))
+        assertEquals(listOf(id("a")), ids())
+        assertEquals("HOST-a", load("a")?.hostId)
     }
 
     @Test
@@ -359,17 +407,38 @@ class LockdownRecordPersistenceTest {
     private fun deviceKey(phone: String) =
         "-----BEGIN RSA PUBLIC KEY-----\n$phone\n-----END RSA PUBLIC KEY-----\n".toByteArray()
 
-    private fun record(phone: String, hostId: String = "HOST-$phone") = LockdownPairRecord.restore(
+    private fun record(
+        phone: String,
+        hostId: String = "HOST-$phone",
+        hostPrivateKey: String = "host-private-$phone",
+    ) = LockdownPairRecord.restore(
         hostId = hostId,
         systemBuid = "BUID-$phone",
         wifiMacAddress = "aa:bb:cc:dd:ee:ff",
         devicePublicKeyPem = deviceKey(phone),
         deviceCertificatePem = "device-cert-$phone".toByteArray(),
-        hostPrivateKeyPem = "host-private-$phone".toByteArray(),
+        hostPrivateKeyPem = hostPrivateKey.toByteArray(),
         hostCertificatePem = "host-cert-$phone".toByteArray(),
         rootPrivateKeyPem = "root-private-$phone".toByteArray(),
         rootCertificatePem = "root-cert-$phone".toByteArray(),
     )
+
+    /** Writes [record] in the per-iPhone layout, as a newer build would. */
+    private fun writeStored(record: LockdownPairRecord) {
+        val recordId = sha256Hex(record.devicePublicKeyPem)
+        prefs.edit()
+            .putString("lockdown.$recordId.host_id", record.hostId)
+            .putString("lockdown.$recordId.system_buid", record.systemBuid)
+            .putString("lockdown.$recordId.wifi_mac", record.wifiMacAddress)
+            .putString("lockdown.$recordId.device_public", record.devicePublicKeyPem.toHex())
+            .putString("lockdown.$recordId.device_cert", record.deviceCertificatePem.toHex())
+            .putString("lockdown.$recordId.host_private", record.hostPrivateKeyPem.toHex())
+            .putString("lockdown.$recordId.host_cert", record.hostCertificatePem.toHex())
+            .putString("lockdown.$recordId.root_private", record.rootPrivateKeyPem.toHex())
+            .putString("lockdown.$recordId.root_cert", record.rootCertificatePem.toHex())
+            .putString("lockdown_record_ids", recordId)
+            .commit()
+    }
 
     /** The nine flat keys releases up to 0.2.22 wrote for their single record. */
     private fun writeLegacy(record: LockdownPairRecord) {

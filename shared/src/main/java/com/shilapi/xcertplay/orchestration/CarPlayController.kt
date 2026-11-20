@@ -456,7 +456,9 @@ class CarPlayController(
         synchronized(this) {
             if (closed) return
             traceConnection(ConnectionTraceStage.CANCELLED)
-            closed = true
+            // Setting closed under the teardown lock keeps it ordered with the record writes that
+            // check both flags, and no path takes these two locks in the opposite order.
+            synchronized(wiredTeardownLock) { closed = true }
         }
         wiredPathDiagnosticsByAttempt.keys.toList().forEach(::finishWiredPathDiagnostics)
         wiredDataPathGeneration.invalidate()
@@ -2230,7 +2232,9 @@ class CarPlayController(
                 // iPhone's, and a failed lookup here must not cost that driver their trust.
                 if (recordChoice.discardableOnRejection) {
                     debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing and pairing again")
-                    clearPairRecord(savedPairRecord.devicePublicKeyPem)
+                    whileCurrentWiredAttempt(startupAttempt) {
+                        clearPairRecord(savedPairRecord.devicePublicKeyPem)
+                    }
                 } else {
                     debugLog(
                         "fallback Lockdown pair record rejected by Lockdown error=$rejection; " +
@@ -2242,8 +2246,9 @@ class CarPlayController(
                 carKitClient.open(pairRecord, config.label)
             }
             // Persisting waits for a CarKit connection, so a record that never connected cannot
-            // take the place of another iPhone's and evict it. Recency follows the same signal.
-            if (isCurrentWiredAttempt(startupAttempt)) {
+            // take the place of another iPhone's and evict it. Recency follows the same signal, and
+            // the check and the writes share one lock so a teardown cannot start in between.
+            whileCurrentWiredAttempt(startupAttempt) {
                 pairedNewRecord?.let(savePairRecord)
                 markPairRecordUsed(pairRecord.devicePublicKeyPem)
             }
@@ -2635,11 +2640,13 @@ class CarPlayController(
     }
 
     private fun requestWiredReconnect() {
-        if (!wiredReconnectRequested.compareAndSet(false, true)) return
-        wiredRetryScheduleGeneration.incrementAndGet()
-        wiredDataPathGeneration.invalidate()
-        wiredRecoveryPending.set(false)
+        // The request flag is set under the teardown lock so a record write that is checking the
+        // attempt cannot interleave with the reconnect that invalidates it.
         synchronized(wiredTeardownLock) {
+            if (!wiredReconnectRequested.compareAndSet(false, true)) return
+            wiredRetryScheduleGeneration.incrementAndGet()
+            wiredDataPathGeneration.invalidate()
+            wiredRecoveryPending.set(false)
             wiredStartupWatchdog.cancel()
             activeWiredStartupAttempt.get().takeIf { it != 0 }?.let {
                 wiredStartupTimeoutAttempt.compareAndSet(it, 0)
@@ -2723,6 +2730,20 @@ class CarPlayController(
             val message = cause.message?.lowercase(Locale.US).orEmpty()
             "usbmux" in message || ("usb" in message && "request" in message)
         }
+
+    /**
+     * Runs [block] only while [startupAttempt] is still current, holding [wiredTeardownLock] across
+     * the check and the store write so a teardown or a reconnect request cannot start in between.
+     *
+     * The lock order is always connection state first, then the record store, and nothing in
+     * [AirPlayPersistence] calls back into this controller, so the order cannot deadlock. A store
+     * write is a bounded SharedPreferences edit; a teardown that needs this lock waits for it.
+     */
+    private fun whileCurrentWiredAttempt(startupAttempt: Int, block: () -> Unit) {
+        synchronized(wiredTeardownLock) {
+            if (isActiveWiredAttemptLocked(startupAttempt)) block()
+        }
+    }
 
     /**
      * Pairs once, using the same cancellation signal as the record lookup, so a superseded attempt

@@ -631,8 +631,13 @@ object AirPlayPersistence {
             val ids = lockdownRecordIds(prefs)
             if (id !in ids || readLockdownRecordById(prefs, id) == null) return
             val reordered = listOf(id) + (ids - id)
-            if (reordered == ids) return
-            writeLockdownRecordIds(prefs, reordered)
+            if (reordered != ids) writeLockdownRecordIds(prefs, reordered)
+            // A connection proved this iPhone's stored record works, so a legacy copy that the
+            // migration kept aside for the same iPhone is no longer needed.
+            val legacy = readLegacyLockdownRecord(prefs)
+            if (legacy != null && lockdownRecordId(legacy.devicePublicKeyPem) == id) {
+                removeLegacyLockdownRecord(prefs)
+            }
         }
     }
 
@@ -650,30 +655,69 @@ object AirPlayPersistence {
      * Moves the single record of older builds under its iPhone's id and converts the store to the
      * per-iPhone layout.
      *
-     * The per-iPhone copy must be readable and carry the legacy record's own fingerprint before the
-     * flat keys go, and every write here is a [SharedPreferences.Editor.commit]. An interrupted,
-     * repeated, or concurrent move therefore repeats itself, a damaged per-iPhone copy is rewritten
-     * from the legacy record instead of being trusted, and a failed write keeps the flat keys for
-     * the next start. Only a legacy record that cannot be restored at all is dropped.
+     * The flat keys are only removed once the per-iPhone copy is known to be at least as good as
+     * what the older build saved: it must restore, carry the legacy record's own fingerprint, and
+     * either be byte-for-byte the same record or be confirmed by a later connection. A copy that
+     * restores but disagrees is kept as the active record while the flat keys stay as the last copy
+     * of the older build, so a wrong HostID or damaged key cannot silently destroy a working record.
+     * Every write here is a [SharedPreferences.Editor.commit], and a failed write keeps the flat keys
+     * for the next start. Only a legacy record that cannot be restored at all is dropped.
      */
     private fun lockdownPrefs(context: Context): SharedPreferences {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (LOCKDOWN_RECORD_FIELDS.none { prefs.contains("lockdown_$it") }) return prefs
-        val legacy = readLockdownRecord(prefs) { field -> "lockdown_$field" }
-        if (legacy != null) {
-            val id = lockdownRecordId(legacy.devicePublicKeyPem)
-            val migrated = if (readLockdownRecordById(prefs, id) != null) {
-                writeLockdownRecordIds(prefs, listOf(id) + (lockdownRecordIds(prefs) - id), commit = true)
-            } else {
-                saveLockdownRecord(prefs, legacy, commit = true) && readLockdownRecordById(prefs, id) != null
-            }
-            if (!migrated) return prefs
+        if (!hasLegacyLockdownRecord(prefs)) return prefs
+        val legacy = readLegacyLockdownRecord(prefs)
+        if (legacy == null) {
+            removeLegacyLockdownRecord(prefs)
+            return prefs
         }
+        val id = lockdownRecordId(legacy.devicePublicKeyPem)
+        val stored = readLockdownRecordById(prefs, id)
+        when {
+            stored == null -> {
+                if (!saveLockdownRecord(prefs, legacy, commit = true)) return prefs
+                if (readLockdownRecordById(prefs, id) == null) return prefs
+                removeLegacyLockdownRecord(prefs)
+            }
+            stored.sameRecordAs(legacy) -> {
+                if (!writeLockdownRecordIds(prefs, listOf(id) + (lockdownRecordIds(prefs) - id), commit = true)) {
+                    return prefs
+                }
+                removeLegacyLockdownRecord(prefs)
+            }
+            else -> {
+                // Both restore but disagree. Keep the stored copy for this iPhone and keep the flat
+                // keys until a connection proves the stored copy, which markLockdownRecordUsed does.
+                if (id !in lockdownRecordIds(prefs)) {
+                    writeLockdownRecordIds(prefs, listOf(id) + lockdownRecordIds(prefs))
+                }
+            }
+        }
+        return prefs
+    }
+
+    private fun hasLegacyLockdownRecord(prefs: SharedPreferences): Boolean =
+        LOCKDOWN_RECORD_FIELDS.any { prefs.contains("lockdown_$it") }
+
+    private fun readLegacyLockdownRecord(prefs: SharedPreferences): LockdownPairRecord? =
+        readLockdownRecord(prefs) { field -> "lockdown_$field" }
+
+    private fun removeLegacyLockdownRecord(prefs: SharedPreferences) {
         val editor = prefs.edit()
         LOCKDOWN_RECORD_FIELDS.forEach { editor.remove("lockdown_$it") }
         editor.commit()
-        return prefs
     }
+
+    private fun LockdownPairRecord.sameRecordAs(other: LockdownPairRecord): Boolean =
+        hostId == other.hostId &&
+            systemBuid == other.systemBuid &&
+            wifiMacAddress == other.wifiMacAddress &&
+            devicePublicKeyPem.contentEquals(other.devicePublicKeyPem) &&
+            deviceCertificatePem.contentEquals(other.deviceCertificatePem) &&
+            hostPrivateKeyPem.contentEquals(other.hostPrivateKeyPem) &&
+            hostCertificatePem.contentEquals(other.hostCertificatePem) &&
+            rootPrivateKeyPem.contentEquals(other.rootPrivateKeyPem) &&
+            rootCertificatePem.contentEquals(other.rootCertificatePem)
 
     /** Returns false only when a requested [commit] failed, which leaves the store as it was. */
     private fun saveLockdownRecord(
@@ -746,12 +790,17 @@ object AirPlayPersistence {
 
     /** Most recently used first; unknown or duplicated ids in the stored string are ignored. */
     private fun lockdownRecordIds(prefs: SharedPreferences): List<String> =
-        prefs.getString(KEY_LOCKDOWN_RECORD_IDS, null)
-            ?.split(',')
-            ?.filter { LOCKDOWN_RECORD_ID_PATTERN.matches(it) }
-            ?.distinct()
-            ?.take(MAX_LOCKDOWN_RECORDS)
-            ?: emptyList()
+        try {
+            prefs.getString(KEY_LOCKDOWN_RECORD_IDS, null)
+                ?.split(',')
+                ?.filter { LOCKDOWN_RECORD_ID_PATTERN.matches(it) }
+                ?.distinct()
+                ?.take(MAX_LOCKDOWN_RECORDS)
+                ?: emptyList()
+        } catch (_: Exception) {
+            // A value stored under an unexpected type is treated as no list at all.
+            emptyList()
+        }
 
     /** Returns false only when a requested [commit] failed. */
     private fun writeLockdownRecordIds(

@@ -1219,6 +1219,12 @@ class CarPlayHostActivity : ComponentActivity() {
         val action = request?.action
         setIntent(CarPlayHostActions.sanitizedIntent(intent))
         if (action == null) return
+        if (action == CarPlayHostActions.OPEN_CARPLAY) {
+            request.autoConnectGeneration?.let { generation ->
+                autoConnectGeneration = generation
+                AutoConnectCoordinator.shared.onHostCreated(generation)
+            }
+        }
         if (action == CarPlayHostActions.AUTO_IPHONE_USB_ATTACHED) {
             val identity = request.usbDeviceIdentity
             if (identity == null || IphoneUsbAutoLaunchSettings.currentCandidate(this, identity) == null) {

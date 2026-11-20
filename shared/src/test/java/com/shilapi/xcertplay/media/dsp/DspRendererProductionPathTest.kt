@@ -3157,6 +3157,68 @@ class DspRendererProductionPathTest {
         }
     }
 
+    @Test
+    fun speedReserveChangeAppliesThePreampAttenuationWithinTheCrossfade() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val graphFormat = DspAudioFormat(48_000, 1)
+        val written = CopyOnWriteArrayList<ByteArray>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initial,
+            provider = provider,
+            writeAdapter = { bytes, offset, length, _ ->
+                written.add(bytes.copyOfRange(offset, offset + length))
+                length
+            },
+            pipelinePreparer = { audioFormat, config ->
+                // Model the native graph: the pipeline applies the prepared preamp of its own
+                // config, which is what makes the reserve audible.
+                pipeline(audioFormat, latencyFrames = 0, gain = preampLinear(config, graphFormat))
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2_400) { 700 }), sample = 1_000)
+            val baselineLevel = readLastSample(written.last())
+            assertTrue("the baseline graph must pass audio", baselineLevel > 100)
+
+            val reserved = initial.withSpeedCompensation(
+                DspSpeedCompensationConfig(enabled = true, volumeGainDb = 0.0, reservedBoostDb = 6.8),
+            )
+            provider.update(reserved)
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            awaitActivePipelineSwap(renderer, provider, generation = 1L)
+
+            // Measure a block written after the swap completed, not a partially faded one.
+            written.clear()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2_400) { 700 }), sample = 20_000)
+            val attenuatedLevel = readLastSample(written.last())
+            val measuredDb = 20.0 * kotlin.math.log10(attenuatedLevel.toDouble() / baselineLevel)
+            val expectedDb = reserved.prepare(graphFormat).appliedPreampDb - initial.prepare(graphFormat).appliedPreampDb
+            assertTrue(
+                "the reserve must attenuate the audible PCM level (measured $measuredDb dB, expected $expectedDb dB)",
+                measuredDb < -6.0,
+            )
+            assertEquals(
+                "the audible attenuation should match the prepared preamp",
+                expectedDb,
+                measuredDb,
+                1.0,
+            )
+            // The attenuation is a one-shot step: later blocks must stay at the attenuated level.
+            written.clear()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2_400) { 700 }), sample = 40_000)
+            assertEquals(attenuatedLevel.toDouble(), readLastSample(written.last()).toDouble(), 2.0)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    private fun preampLinear(config: DspRuntimeConfig, format: DspAudioFormat): Float =
+        10.0.pow(config.prepare(format).appliedPreampDb / 20.0).toFloat()
+
     /** A pipeline swap reports ACTIVE only after the crossfade has been written out. */
     private fun awaitActivePipelineSwap(
         renderer: AudioRenderer,

@@ -1,0 +1,167 @@
+package com.shilapi.xcertplay.orchestration
+
+import com.shilapi.xcertplay.transport.IphoneUsbException
+import com.shilapi.xcertplay.transport.LockdownPairingException
+import com.shilapi.xcertplay.transport.LockdownPairRecord
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+
+/**
+ * The record choice in front of wired pairing: the per-iPhone record when the iPhone reports its
+ * DevicePublicKey, the newest saved record when that read fails, and nothing at all when either the
+ * read or the attempt was cancelled. The USB read itself needs a device.
+ */
+class WiredLockdownRecordLookupTest {
+    private val deviceRecord = record("a")
+    private val newestRecord = record("b")
+
+    @Test
+    fun aReportedDeviceKeySelectsThatIphonesRecord() {
+        var requested: ByteArray? = null
+        val chosen = WiredLockdownRecordLookup.choose(
+            readDevicePublicKey = { deviceKey("a") },
+            isCancelled = { false },
+            loadForDevice = { key ->
+                requested = key
+                deviceRecord
+            },
+            loadNewest = { error("the newest record must not be used when the key was read") },
+        )
+        assertEquals(deviceRecord, chosen)
+        assertEquals(String(deviceKey("a")), String(requested!!))
+    }
+
+    @Test
+    fun anIphoneWithoutARecordFallsThroughToNewPairing() {
+        val chosen = WiredLockdownRecordLookup.choose(
+            readDevicePublicKey = { deviceKey("c") },
+            isCancelled = { false },
+            loadForDevice = { null },
+            loadNewest = { newestRecord },
+        )
+        assertNull(chosen)
+    }
+
+    @Test
+    fun aTransportFailureUsesTheNewestSavedRecord() {
+        val failures = mutableListOf<Exception>()
+        val chosen = WiredLockdownRecordLookup.choose(
+            readDevicePublicKey = { throw IphoneUsbException.TimedOut("lockdown read timed out") },
+            isCancelled = { false },
+            loadForDevice = { error("the per-iPhone record must not be used without a key") },
+            loadNewest = { newestRecord },
+            onLookupFailure = { failures += it },
+        )
+        assertEquals(newestRecord, chosen)
+        assertEquals(1, failures.size)
+        assertTrue(failures.single() is IphoneUsbException.TimedOut)
+    }
+
+    @Test
+    fun aPairingTimeoutAlsoFallsBack() {
+        val chosen = WiredLockdownRecordLookup.choose(
+            readDevicePublicKey = { throw LockdownPairingException.TimedOut },
+            isCancelled = { false },
+            loadForDevice = { error("the per-iPhone record must not be used without a key") },
+            loadNewest = { newestRecord },
+        )
+        assertEquals(newestRecord, chosen)
+    }
+
+    @Test
+    fun anInvalidResponseFallsBack() {
+        val chosen = WiredLockdownRecordLookup.choose(
+            readDevicePublicKey = { throw LockdownPairingException.InvalidResponse("DevicePublicKey was not data") },
+            isCancelled = { false },
+            loadForDevice = { error("the per-iPhone record must not be used without a key") },
+            loadNewest = { newestRecord },
+        )
+        assertEquals(newestRecord, chosen)
+    }
+
+    @Test
+    fun aFallbackWithoutAnySavedRecordStillPairsNew() {
+        val chosen = WiredLockdownRecordLookup.choose(
+            readDevicePublicKey = { throw IOException("USBMUX TCP connection failed") },
+            isCancelled = { false },
+            loadForDevice = { error("the per-iPhone record must not be used without a key") },
+            loadNewest = { null },
+        )
+        assertNull(chosen)
+    }
+
+    @Test
+    fun aCancelledReadIsNotSwallowed() {
+        val newestLoaded = AtomicBoolean(false)
+        try {
+            WiredLockdownRecordLookup.choose(
+                readDevicePublicKey = { throw LockdownPairingException.Cancelled },
+                isCancelled = { false },
+                loadForDevice = { error("a cancelled attempt must not pick a record") },
+                loadNewest = {
+                    newestLoaded.set(true)
+                    newestRecord
+                },
+            )
+            fail("a cancelled read must not fall back")
+        } catch (expected: LockdownPairingException.Cancelled) {
+            assertTrue(true)
+        }
+        assertTrue(!newestLoaded.get())
+    }
+
+    @Test
+    fun aReadFailureAfterTheAttemptWasSupersededDoesNotFallBack() {
+        val cancelled = AtomicBoolean(true)
+        try {
+            WiredLockdownRecordLookup.choose(
+                readDevicePublicKey = { throw IphoneUsbException.DeviceUnavailable("USB was disconnected") },
+                isCancelled = { cancelled.get() },
+                loadForDevice = { error("a superseded attempt must not pick a record") },
+                loadNewest = { error("a superseded attempt must not fall back") },
+            )
+            fail("a superseded attempt must not fall back")
+        } catch (expected: IphoneUsbException.DeviceUnavailable) {
+            assertTrue(true)
+        }
+    }
+
+    @Test
+    fun aSuccessfulReadAfterTheAttemptWasSupersededDoesNotPickARecord() {
+        val attempt = intArrayOf(1)
+        try {
+            WiredLockdownRecordLookup.choose(
+                readDevicePublicKey = {
+                    attempt[0] = 2
+                    deviceKey("a")
+                },
+                isCancelled = { attempt[0] != 1 },
+                loadForDevice = { error("a superseded attempt must not read a record") },
+                loadNewest = { error("a superseded attempt must not fall back") },
+            )
+            fail("a superseded attempt must not pick a record")
+        } catch (expected: LockdownPairingException.Cancelled) {
+            assertTrue(true)
+        }
+    }
+
+    private fun deviceKey(phone: String) =
+        "-----BEGIN RSA PUBLIC KEY-----\n$phone\n-----END RSA PUBLIC KEY-----\n".toByteArray()
+
+    private fun record(phone: String) = LockdownPairRecord.restore(
+        hostId = "HOST-$phone",
+        systemBuid = "BUID-$phone",
+        wifiMacAddress = "aa:bb:cc:dd:ee:ff",
+        devicePublicKeyPem = deviceKey(phone),
+        deviceCertificatePem = "device-cert-$phone".toByteArray(),
+        hostPrivateKeyPem = "host-private-$phone".toByteArray(),
+        hostCertificatePem = "host-cert-$phone".toByteArray(),
+        rootPrivateKeyPem = "root-private-$phone".toByteArray(),
+        rootCertificatePem = "root-cert-$phone".toByteArray(),
+    )
+}

@@ -150,9 +150,13 @@ class CarPlayController(
     listener: AirPlaySessionListener,
     private val media: AirPlayMediaHandler,
     reportStatus: (CarPlayStatus) -> Unit,
-    private val loadPairRecord: () -> LockdownPairRecord? = { null },
+    private val loadPairRecord: (devicePublicKeyPem: ByteArray) -> LockdownPairRecord? = { null },
+    /** The most recently used record, for an iPhone whose DevicePublicKey could not be read. */
+    private val loadNewestPairRecord: () -> LockdownPairRecord? = { null },
     private val savePairRecord: (LockdownPairRecord) -> Unit = {},
-    private val clearPairRecord: () -> Unit = {},
+    /** Confirms that a stored record actually worked, so recency never follows a failed attempt. */
+    private val markPairRecordUsed: (devicePublicKeyPem: ByteArray) -> Unit = {},
+    private val clearPairRecord: (devicePublicKeyPem: ByteArray) -> Unit = {},
     private val locationProvider: Iap2LocationProvider? = null,
     private val connectionTraceEnabled: Boolean = false,
     private val onConnectionTrace: (ConnectionTraceEvent) -> Unit = {},
@@ -2127,7 +2131,24 @@ class CarPlayController(
             debugLog("wired USBMUX host opened")
             onStatus(CarPlayStatus.Pairing)
             val pairingClient = LockdownPairingClient(openedMux)
-            val savedPairRecord = loadPairRecord()
+            val savedPairRecord = WiredLockdownRecordLookup.choose(
+                readDevicePublicKey = {
+                    pairingClient.devicePublicKey(
+                        label = config.label,
+                        timeoutMillis = DEVICE_PUBLIC_KEY_TIMEOUT_MILLIS,
+                        isCancelled = { !isCurrentWiredAttempt(startupAttempt) },
+                    )
+                },
+                isCancelled = { !isCurrentWiredAttempt(startupAttempt) },
+                loadForDevice = loadPairRecord,
+                loadNewest = loadNewestPairRecord,
+                onLookupFailure = { error ->
+                    debugLog(
+                        "wired DevicePublicKey lookup failed: ${error.javaClass.simpleName}; " +
+                            "using the newest saved Lockdown pair record",
+                    )
+                },
+            )
             var pairRecord = savedPairRecord ?: pairNewRecord(pairingClient)
             traceConnection(ConnectionTraceStage.PAIRING_READY)
             debugLog(
@@ -2200,9 +2221,13 @@ class CarPlayController(
                 val rejection = rejectedLockdownPairRecordError(error)
                 if (savedPairRecord == null || rejection == null) throw error
                 debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing and pairing again")
-                clearPairRecord()
+                clearPairRecord(savedPairRecord.devicePublicKeyPem)
                 pairRecord = pairNewRecord(pairingClient)
                 carKitClient.open(pairRecord, config.label)
+            }
+            // Only a CarKit connection that really opened counts as recent use of a saved record.
+            if (isCurrentWiredAttempt(startupAttempt)) {
+                markPairRecordUsed(pairRecord.devicePublicKeyPem)
             }
             debugLog("wired com.apple.carkit.service stream opened")
             traceConnection(ConnectionTraceStage.CARKIT_SERVICE_OPENED)
@@ -3563,6 +3588,7 @@ class CarPlayController(
         private const val IAP2_IPHONE_UUID = "00000000-deca-fade-deca-deafdecacafe"
         private const val HOTSPOT_START_TIMEOUT_MILLIS = 60_000L
         private const val WIFI_P2P_START_TIMEOUT_MILLIS = 20_000L
+        private const val DEVICE_PUBLIC_KEY_TIMEOUT_MILLIS = 10_000L
         private const val PAIR_TIMEOUT_MILLIS = 5 * 60_000L
         private const val VPN_CONNECT_TIMEOUT_MILLIS = 10_000L
         private const val CONTROL_LOOP_TIMEOUT_MILLIS = 5 * 60_000L

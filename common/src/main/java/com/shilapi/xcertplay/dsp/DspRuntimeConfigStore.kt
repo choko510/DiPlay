@@ -15,8 +15,9 @@ import java.util.concurrent.atomic.AtomicReference
 internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntimeConfig.disabled()) : DspConfigProvider {
     private val current = AtomicReference(DspConfigSnapshot(0L, initialConfig))
     private val studioHotUpdatesAllowed = AtomicBoolean(true)
-    private val studioLocalWarmAllowed = AtomicBoolean(false)
+    private val studioLocalWarmAllowed = AtomicBoolean(true)
     private val rendererApplyState = AtomicReference(RendererApplyState(null, null))
+    @Volatile internal var beforeDiagnosticSummaryCasForTesting: (() -> Unit)? = null
     private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
     private val playbackSampleRates = ConcurrentHashMap<Any, PlaybackSampleRate>()
     private val nextPlaybackSampleRateRevision = AtomicLong()
@@ -51,6 +52,48 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
 
     override fun rendererApplyStatus(): DspRendererApplyStatus? = rendererApplyState.get().status
 
+    override fun diagnosticSummary(): String? = rendererApplyState.get().diagnosticSummary
+
+    override fun reportDiagnosticSummary(
+        ownerToken: Long,
+        generation: Long,
+        summary: String?,
+        phase: DspRendererApplyPhase,
+    ) {
+        while (true) {
+            val previous = rendererApplyState.get()
+            if (previous.ownerToken != ownerToken) return
+            if (generation < previous.diagnosticSummaryGeneration) return
+            val previousPhase = previous.diagnosticSummaryPhase
+            if (generation == previous.diagnosticSummaryGeneration &&
+                previousPhase != null &&
+                !canAdvanceDiagnosticPhase(previousPhase, phase)
+            ) {
+                return
+            }
+            beforeDiagnosticSummaryCasForTesting?.invoke()
+            val updated = previous.copy(
+                diagnosticSummaryGeneration = generation,
+                diagnosticSummaryPhase = phase,
+                diagnosticSummary = summary,
+            )
+            if (rendererApplyState.compareAndSet(previous, updated)) return
+        }
+    }
+
+    override fun clearDiagnosticSummary(ownerToken: Long) {
+        while (true) {
+            val previous = rendererApplyState.get()
+            if (previous.ownerToken != ownerToken) return
+            val updated = previous.copy(
+                diagnosticSummaryGeneration = Long.MIN_VALUE,
+                diagnosticSummaryPhase = null,
+                diagnosticSummary = null,
+            )
+            if (rendererApplyState.compareAndSet(previous, updated)) return
+        }
+    }
+
     override fun claimRendererApplyStatusOwner(ownerToken: Long) {
         require(ownerToken > 0L)
         while (true) {
@@ -68,7 +111,14 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
                 activeGeneration = activeGeneration,
                 rendererOwnerToken = ownerToken,
             )
-            if (rendererApplyState.compareAndSet(previousState, RendererApplyState(ownerToken, requested))) return
+            val claimed = RendererApplyState(
+                ownerToken = ownerToken,
+                status = requested,
+                diagnosticSummaryGeneration = snapshot.generation,
+                diagnosticSummaryPhase = null,
+                diagnosticSummary = null,
+            )
+            if (rendererApplyState.compareAndSet(previousState, claimed)) return
         }
     }
 
@@ -90,11 +140,33 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
         DspRendererApplyPhase.PREPARING -> next == DspRendererApplyPhase.PREPARED ||
             next == DspRendererApplyPhase.DEFERRED || next == DspRendererApplyPhase.ACTIVE ||
             next == DspRendererApplyPhase.FAILED
-        DspRendererApplyPhase.PREPARED -> next == DspRendererApplyPhase.DEFERRED ||
-            next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
-        DspRendererApplyPhase.DEFERRED -> next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
+        DspRendererApplyPhase.PREPARED -> next == DspRendererApplyPhase.PREPARING ||
+            next == DspRendererApplyPhase.DEFERRED || next == DspRendererApplyPhase.ACTIVE ||
+            next == DspRendererApplyPhase.FAILED
+        DspRendererApplyPhase.DEFERRED -> next == DspRendererApplyPhase.PREPARING ||
+            next == DspRendererApplyPhase.PREPARED || next == DspRendererApplyPhase.ACTIVE ||
+            next == DspRendererApplyPhase.FAILED
         DspRendererApplyPhase.ACTIVE -> next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
         DspRendererApplyPhase.FAILED -> next == DspRendererApplyPhase.ACTIVE
+    }
+
+    private fun canAdvanceDiagnosticPhase(
+        previous: DspRendererApplyPhase,
+        next: DspRendererApplyPhase,
+    ): Boolean = when (previous) {
+        DspRendererApplyPhase.REQUESTED -> true
+        DspRendererApplyPhase.PREPARING -> next == DspRendererApplyPhase.PREPARING ||
+            next == DspRendererApplyPhase.PREPARED || next == DspRendererApplyPhase.DEFERRED ||
+            next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
+        DspRendererApplyPhase.PREPARED -> next == DspRendererApplyPhase.PREPARING ||
+            next == DspRendererApplyPhase.PREPARED || next == DspRendererApplyPhase.DEFERRED ||
+            next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
+        DspRendererApplyPhase.DEFERRED -> next == DspRendererApplyPhase.PREPARING ||
+            next == DspRendererApplyPhase.PREPARED || next == DspRendererApplyPhase.DEFERRED ||
+            next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
+        DspRendererApplyPhase.ACTIVE -> next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
+        DspRendererApplyPhase.FAILED -> next == DspRendererApplyPhase.FAILED ||
+            next == DspRendererApplyPhase.PREPARING || next == DspRendererApplyPhase.ACTIVE
     }
 
     override fun addListener(listener: (DspConfigSnapshot) -> Unit): Closeable {
@@ -130,6 +202,9 @@ internal class DspRuntimeConfigStore(initialConfig: DspRuntimeConfig = DspRuntim
     private data class RendererApplyState(
         val ownerToken: Long?,
         val status: DspRendererApplyStatus?,
+        val diagnosticSummaryGeneration: Long = Long.MIN_VALUE,
+        val diagnosticSummaryPhase: DspRendererApplyPhase? = null,
+        val diagnosticSummary: String? = null,
     )
 
     private companion object {

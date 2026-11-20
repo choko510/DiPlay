@@ -1,6 +1,8 @@
 package com.shilapi.xcertplay.dsp
 
 import androidx.compose.ui.geometry.Offset
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionConfig
+import com.shilapi.xcertplay.media.dsp.DspCabinCorrectionNotch
 import com.shilapi.xcertplay.media.dsp.DspEqBand
 import com.shilapi.xcertplay.media.dsp.DspEqType
 import com.shilapi.xcertplay.media.dsp.DspMacroToneConfig
@@ -163,8 +165,25 @@ class DspEditorPanesTest {
 
         session.draftProfile = updatedEqBandProfile(session.draftProfile, 0, changedBand)
 
-        assertEquals(changedBand, session.draftProfile.eqBands.first())
+        assertEquals(changedBand.copy(enabled = true), session.draftProfile.eqBands.first())
         assertEquals(applied, session.appliedProfile)
         assertTrue(session.hasUnappliedChanges)
+    }
+
+    @Test
+    fun autoEnableOnGainChangeRespectsMaxFifteenActiveBandsIncludingCabin() {
+        val base = DspProfilePresets.find("flat")!!
+        val eq = List(15) { i -> DspEqBand(DspEqType.PEAK, 100.0 + i * 100.0, gainDb = 0.0, enabled = i < 14) }
+        val profileAtLimit = base.copy(
+            eqBands = eq,
+            cabinCorrection = DspCabinCorrectionConfig(
+                enabled = true,
+                notches = listOf(DspCabinCorrectionNotch(enabled = true, frequencyHz = 80.0, gainDb = -3.0)),
+            ),
+        )
+        // Band 14 (15th PEQ) cannot auto-enable when 14 PEQ + 1 Cabin already reach 15 active bands.
+        val updated = updatedEqBandProfile(profileAtLimit, 14, eq[14].copy(gainDb = 4.0))
+        assertEquals(4.0, updated.eqBands[14].gainDb, 0.0)
+        assertTrue(!updated.eqBands[14].enabled)
     }
 }

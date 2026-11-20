@@ -59,7 +59,8 @@ data class DspHarmonicConfig(
             } else {
                 1.0
             }
-            return 20.0 * log10(levelMatchGain + additiveAmount)
+            val harmonicWeight = if (levelMatchEnabled) 0.5 else 0.75
+            return maxOf(0.0, 20.0 * log10(levelMatchGain + harmonicWeight * additiveAmount))
         }
 
     fun validateForSampleRate(sampleRate: Int) {

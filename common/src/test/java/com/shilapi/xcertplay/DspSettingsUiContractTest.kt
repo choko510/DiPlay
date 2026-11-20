@@ -1,8 +1,12 @@
 package com.shilapi.xcertplay
 
+import com.shilapi.xcertplay.host.R
+import com.shilapi.xcertplay.media.dsp.DspAdvancedMsConfig
 import com.shilapi.xcertplay.media.dsp.DspEqType
+import com.shilapi.xcertplay.media.dsp.DspMonoBassConfig
 import com.shilapi.xcertplay.dsp.DspSoundMacroSettings
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class DspSettingsUiContractTest {
@@ -78,5 +82,36 @@ class DspSettingsUiContractTest {
         val width = updateDspMacro(initial, DspMacroControl.SOUNDSTAGE_WIDTH, -1)
         assertEquals(0, width.soundstageWidth)
         assertEquals(initial.bassImpact, width.bassImpact)
+    }
+
+    @Test
+    fun advancedMsMonoBassNoteDistinguishesIntegratedFromManualAdjustment() {
+        assertNull(
+            advancedMsMonoBassNoteResId(
+                DspAdvancedMsConfig(enabled = false, lowBandWidth = 1.0),
+                DspMonoBassConfig(enabled = true, cutoffHz = 120),
+            ),
+        )
+        assertEquals(
+            R.string.dsp_ms_mono_bass_bypassed_manual_note,
+            advancedMsMonoBassNoteResId(
+                DspAdvancedMsConfig(enabled = true, lowBandWidth = 1.0),
+                DspMonoBassConfig(enabled = true, cutoffHz = 120),
+            ),
+        )
+        assertEquals(
+            R.string.dsp_ms_mono_bass_integrated_note,
+            advancedMsMonoBassNoteResId(
+                DspAdvancedMsConfig(enabled = true, lowBandWidth = 0.0),
+                DspMonoBassConfig(enabled = true, cutoffHz = 120),
+            ),
+        )
+        assertEquals(
+            R.string.dsp_ms_mono_bass_integrated_note,
+            advancedMsMonoBassNoteResId(
+                DspAdvancedMsConfig(enabled = true, lowBandWidth = 1.2),
+                DspMonoBassConfig(enabled = false, cutoffHz = 120),
+            ),
+        )
     }
 }

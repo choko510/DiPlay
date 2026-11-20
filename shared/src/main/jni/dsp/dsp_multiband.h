@@ -31,6 +31,7 @@ typedef struct {
     dsp_biquad mid_high_pass[DSP_MULTIBAND_FILTER_STAGES];
     dsp_biquad mid_low_pass[DSP_MULTIBAND_FILTER_STAGES];
     dsp_biquad high_pass[DSP_MULTIBAND_FILTER_STAGES];
+    dsp_biquad low_phase_allpass;
     dsp_dynamics compressors[DSP_MULTIBAND_COUNT];
 } dsp_multiband;
 

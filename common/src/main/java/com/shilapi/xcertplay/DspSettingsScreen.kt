@@ -935,6 +935,7 @@ internal fun DspSettingsScreen(
                             studioSession.edit { selected }
                             syncStudioDraftToScreen(studioSession.preview)
                             selectedModulePresetId = preset.id
+                            runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
                         }
                     },
                     onFactoryReset = {
@@ -951,6 +952,7 @@ internal fun DspSettingsScreen(
                             studioSession.edit { reset }
                             syncStudioDraftToScreen(studioSession.preview)
                             selectedModulePresetId = preset.id
+                            runtime.previewStudioWorkspaceAsync(studioSession.preview, dspEnabled) {}
                         }
                     },
                     onCompareA = {
@@ -1194,6 +1196,7 @@ internal fun DspSettingsScreen(
                         onSelect = { selected ->
                             profile = selected
                             profileMenuExpanded = false
+                            finishStudioProfileSliderEdit()
                         },
                     )
                     Text(
@@ -1247,6 +1250,13 @@ internal fun DspSettingsScreen(
                             profile = profile.copy(monoBass = profile.monoBass.copy(cutoffHz = value.substringBefore(' ').toInt()))
                         },
                     )
+                } else {
+                    advancedMsMonoBassNoteResId(profile.advancedMs, profile.monoBass)?.let { noteRes ->
+                        Text(
+                            stringResource(noteRes),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
 
@@ -1420,6 +1430,14 @@ internal fun DspSettingsScreen(
                             profile = profile.copy(advancedMs = next)
                         },
                     )
+                    if (ms.enabled && profile.monoBass.enabled) {
+                        advancedMsMonoBassNoteResId(ms, profile.monoBass)?.let { noteRes ->
+                            Text(
+                                stringResource(noteRes),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
                     DspValueSlider(stringResource(R.string.dsp_ms_crossover), ms.crossoverHz, 60.0..1_000.0, "Hz") {
                         profile = profile.copy(advancedMs = ms.copy(crossoverHz = it))
                     }
@@ -1580,6 +1598,7 @@ internal fun DspSettingsScreen(
                                 enabled = cabin.enabled && next.any(DspCabinCorrectionNotch::enabled),
                                 notches = next,
                             ))
+                            finishStudioProfileSliderEdit()
                         }) {
                             Text(stringResource(R.string.dsp_cabin_remove_notch))
                         }
@@ -1589,6 +1608,7 @@ internal fun DspSettingsScreen(
                             profile = profile.copy(
                                 cabinCorrection = cabin.copy(notches = cabin.notches + DspCabinCorrectionNotch()),
                             )
+                            finishStudioProfileSliderEdit()
                         }) {
                             Text(stringResource(R.string.dsp_cabin_add_manual_notch))
                         }
@@ -1875,6 +1895,12 @@ internal fun DspSettingsScreen(
                     Text(rendererApplyStatusText(rendererApplyStatus))
                     Text(stringResource(R.string.dsp_renderer_apply_status_note))
                     rendererApplyWarningText(rendererApplyStatus)?.let { warning -> Text(warning) }
+                    runtime.configProvider.diagnosticSummary()?.takeIf(String::isNotBlank)?.let { summary ->
+                        Text(
+                            stringResource(R.string.dsp_renderer_diagnostic_summary, summary),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
 
@@ -2125,12 +2151,20 @@ private fun DspSwitchRow(
     description: String? = null,
     enabled: Boolean = true,
 ) {
+    val editFinished = LocalDspStudioEditFinished.current
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(modifier = Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleSmall)
             description?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        Switch(
+            checked = checked,
+            onCheckedChange = {
+                onCheckedChange(it)
+                editFinished()
+            },
+            enabled = enabled,
+        )
     }
 }
 
@@ -2153,6 +2187,7 @@ private fun ChoiceField(
     onSelect: (String) -> Unit,
 ) {
     val expanded = remember { mutableStateOf(false) }
+    val editFinished = LocalDspStudioEditFinished.current
     Column {
         Text(title)
         BoxWithDropdown(
@@ -2162,7 +2197,11 @@ private fun ChoiceField(
             items = choices,
             itemLabel = { it },
             enabled = enabled,
-            onSelect = { onSelect(it); expanded.value = false },
+            onSelect = {
+                onSelect(it)
+                expanded.value = false
+                editFinished()
+            },
         )
     }
 }
@@ -2224,3 +2263,12 @@ private fun showProfileSaveResult(context: Context, result: DspProfileSaveResult
 private const val CUSTOM_PROFILE_1 = "custom1"
 private const val CUSTOM_PROFILE_2 = "custom2"
 private const val STUDIO_RESTORE_ACK_TIMEOUT_MS = 10_000L
+
+internal fun advancedMsMonoBassNoteResId(
+    advancedMs: DspAdvancedMsConfig,
+    monoBass: DspMonoBassConfig,
+): Int? = when {
+    !advancedMs.enabled -> null
+    monoBass.enabled && advancedMs.lowBandWidth > 0.0 -> R.string.dsp_ms_mono_bass_bypassed_manual_note
+    else -> R.string.dsp_ms_mono_bass_integrated_note
+}

@@ -11,7 +11,7 @@
     <string name="dsp_preset_edits_session_only">Edits to built-in presets apply for this session only. Save them as Custom 1 or Custom 2 to keep them after restart.</string>
     <string name="dsp_selected_profile">Selected profile: %1$s</string>
     <string name="dsp_applied_profile">Configured profile: %1$s</string>
-    <string name="dsp_settings_description">Some settings apply during playback. Rebuilding a stateful Convolver, Compressor, Multiband, or Dynamic EQ graph is deferred until the next audio stream.</string>
+    <string name="dsp_settings_description">Most settings apply live or with a short crossfade during playback. Latency changes, Convolver, and Seat delay apply on the next audio track.</string>
     <string name="dsp_enabled">Enable DSP</string>
     <string name="dsp_enabled_description">Off by default. When disabled, playback uses the existing PCM path.</string>
     <string name="dsp_profile">Profile</string>
@@ -123,6 +123,9 @@
     <string name="dsp_renderer_apply_status_note">This shows the last adopted graph generation; it does not mean every configured module is active or that a renderer is currently playing.</string>
     <string name="dsp_renderer_apply_convolver_ir_unavailable">Convolver is inactive for this output because its impulse response could not be loaded.</string>
     <string name="dsp_renderer_apply_convolver_rate_mismatch">Convolver is inactive for this output because its impulse response sample rate does not match.</string>
+    <string name="dsp_renderer_diagnostic_summary">Runtime details: %1$s</string>
+    <string name="dsp_ms_mono_bass_integrated_note">When Advanced Mid/Side is enabled, legacy Stereo width and Mono bass are bypassed and handled by the low-band width slider below.</string>
+    <string name="dsp_ms_mono_bass_bypassed_manual_note">Mono bass is bypassed while Advanced Mid/Side is active. Manually lower Low-band width to 0.00 below if you want mono bass.</string>
     <string name="dsp_done">Done</string>
     <string name="dsp_preset_flat">Flat</string>
     <string name="dsp_preset_daily">Daily</string>

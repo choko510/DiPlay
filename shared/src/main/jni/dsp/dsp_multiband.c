@@ -44,6 +44,28 @@ static int design_butterworth_coefficients(
     return 1;
 }
 
+static int design_allpass_coefficients(
+    int sample_rate,
+    double frequency_hz,
+    double coefficients[DSP_BIQUAD_COEFFICIENT_COUNT]) {
+    if (sample_rate < 8000 || sample_rate > 192000 || !isfinite(frequency_hz) ||
+        frequency_hz < 20.0 || frequency_hz >= (double)sample_rate * 0.45) {
+        return 0;
+    }
+    const double omega = 2.0 * 3.14159265358979323846 * frequency_hz / (double)sample_rate;
+    const double cosine = cos(omega);
+    const double alpha = sin(omega) / (2.0 * 0.70710678118654752440);
+    const double a0 = 1.0 + alpha;
+    if (!isfinite(cosine) || !isfinite(alpha) || !isfinite(a0) || a0 <= 0.0) return 0;
+
+    coefficients[0] = (1.0 - alpha) / a0;
+    coefficients[1] = -2.0 * cosine / a0;
+    coefficients[2] = 1.0;
+    coefficients[3] = -2.0 * cosine / a0;
+    coefficients[4] = (1.0 - alpha) / a0;
+    return 1;
+}
+
 static int prepare_filter_pair(
     dsp_biquad filters[DSP_MULTIBAND_FILTER_STAGES],
     int sample_rate,
@@ -68,12 +90,15 @@ int dsp_multiband_prepare(dsp_multiband *multiband, int sample_rate, const dsp_m
         if (!compressor_config_is_valid(&config->bands[index])) return 0;
     }
     if (!config->enabled) return 1;
+    double low_allpass_coefficients[DSP_BIQUAD_COEFFICIENT_COUNT];
     if (config->low_mid_crossover_hz >= (double)sample_rate * 0.45 ||
         config->mid_high_crossover_hz >= (double)sample_rate * 0.45 ||
         !prepare_filter_pair(multiband->low_pass, sample_rate, config->low_mid_crossover_hz, 0) ||
         !prepare_filter_pair(multiband->mid_high_pass, sample_rate, config->low_mid_crossover_hz, 1) ||
         !prepare_filter_pair(multiband->mid_low_pass, sample_rate, config->mid_high_crossover_hz, 0) ||
-        !prepare_filter_pair(multiband->high_pass, sample_rate, config->mid_high_crossover_hz, 1)) {
+        !prepare_filter_pair(multiband->high_pass, sample_rate, config->mid_high_crossover_hz, 1) ||
+        !design_allpass_coefficients(sample_rate, config->mid_high_crossover_hz, low_allpass_coefficients) ||
+        !dsp_biquad_prepare(&multiband->low_phase_allpass, low_allpass_coefficients)) {
         return 0;
     }
     for (size_t index = 0; index < DSP_MULTIBAND_COUNT; index++) {
@@ -103,6 +128,7 @@ void dsp_multiband_reset(dsp_multiband *multiband) {
         dsp_biquad_reset(&multiband->mid_low_pass[stage]);
         dsp_biquad_reset(&multiband->high_pass[stage]);
     }
+    dsp_biquad_reset(&multiband->low_phase_allpass);
     for (size_t band = 0; band < DSP_MULTIBAND_COUNT; band++) {
         dsp_dynamics_reset(&multiband->compressors[band]);
     }
@@ -123,22 +149,24 @@ void dsp_multiband_process_frame(dsp_multiband *multiband, float *left, float *r
         !multiband->config.enabled) {
         return;
     }
+    const float left_mid_high = process_filter_pair(multiband->mid_high_pass, *left, 0);
     float band_left[DSP_MULTIBAND_COUNT] = {
-        process_filter_pair(multiband->low_pass, *left, 0),
-        process_filter_pair(
-            multiband->mid_low_pass,
-            process_filter_pair(multiband->mid_high_pass, *left, 0),
+        dsp_biquad_process_sample(
+            &multiband->low_phase_allpass,
+            process_filter_pair(multiband->low_pass, *left, 0),
             0),
-        process_filter_pair(multiband->high_pass, *left, 0),
+        process_filter_pair(multiband->mid_low_pass, left_mid_high, 0),
+        process_filter_pair(multiband->high_pass, left_mid_high, 0),
     };
     float band_right[DSP_MULTIBAND_COUNT] = {0.0f, 0.0f, 0.0f};
     if (channels == 2) {
-        band_right[0] = process_filter_pair(multiband->low_pass, *right, 1);
-        band_right[1] = process_filter_pair(
-            multiband->mid_low_pass,
-            process_filter_pair(multiband->mid_high_pass, *right, 1),
+        const float right_mid_high = process_filter_pair(multiband->mid_high_pass, *right, 1);
+        band_right[0] = dsp_biquad_process_sample(
+            &multiband->low_phase_allpass,
+            process_filter_pair(multiband->low_pass, *right, 1),
             1);
-        band_right[2] = process_filter_pair(multiband->high_pass, *right, 1);
+        band_right[1] = process_filter_pair(multiband->mid_low_pass, right_mid_high, 1);
+        band_right[2] = process_filter_pair(multiband->high_pass, right_mid_high, 1);
     }
     float output_left = 0.0f;
     float output_right = 0.0f;
@@ -160,4 +188,5 @@ void dsp_multiband_flush_denormals(dsp_multiband *multiband) {
         dsp_biquad_flush_denormals(&multiband->mid_low_pass[stage]);
         dsp_biquad_flush_denormals(&multiband->high_pass[stage]);
     }
+    dsp_biquad_flush_denormals(&multiband->low_phase_allpass);
 }

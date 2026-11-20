@@ -2831,6 +2831,597 @@ class DspRendererProductionPathTest {
         }
     }
 
+    @Test
+    fun deferredConvolverPrePreparesOnControlThreadDuringTrack1AndAdoptsImmediatelyOnTrack2() {
+        val ir = DspImpulseResponse("pre_prepared_convolver", 48_000, 1, floatArrayOf(1.0f))
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val writes = CopyOnWriteArrayList<ByteArray>()
+        val convolverPreparerThreads = CopyOnWriteArrayList<String>()
+        val callerThreadName = Thread.currentThread().name
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            writeAdapter = { bytes, offset, length, _ ->
+                writes += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                if (config.convolver.enabled) {
+                    convolverPreparerThreads += Thread.currentThread().name
+                    pipeline(audioFormat, latencyFrames = 128, gain = 1.5f)
+                } else {
+                    pipeline(audioFormat, latencyFrames = 0, gain = 1.0f)
+                }
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            assertEquals(DspRendererApplyPhase.ACTIVE, provider.rendererApplyStatus()?.phase)
+
+            // Convolver candidate is pre-prepared on the control thread while Track 1 keeps playing.
+            provider.update(convolverConfig(ir))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+            assertEquals(listOf("dsp-live-control"), convolverPreparerThreads.toList())
+            assertFalse(convolverPreparerThreads.contains(callerThreadName))
+
+            // Track 2 immediately adopts the pre-prepared Convolver on its first PCM block without re-preparing.
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation = 1L)
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertEquals(128, renderer.trackLatencyForTesting)
+            assertTrue(renderer.effectiveConvolverEnabledForTesting)
+            assertTrue(readLastSample(writes.last()) in 1_495..1_505)
+            assertEquals(listOf("dsp-live-control"), convolverPreparerThreads.toList())
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun convolverPreparationInFlightWhenTrack2FirstPcmArrivesDefersSafelyAndAppliesWithoutRePreparing() {
+        val ir = DspImpulseResponse("slow_convolver", 48_000, 1, floatArrayOf(1.0f))
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val writes = CopyOnWriteArrayList<ByteArray>()
+        val convolverPreparerThreads = CopyOnWriteArrayList<String>()
+        val convolverPrepEntered = CountDownLatch(1)
+        val allowConvolverPrep = CountDownLatch(1)
+        val callerThreadName = Thread.currentThread().name
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialConfig,
+            provider = provider,
+            writeAdapter = { bytes, offset, length, _ ->
+                writes += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                if (config.convolver.enabled) {
+                    convolverPreparerThreads += Thread.currentThread().name
+                    convolverPrepEntered.countDown()
+                    check(allowConvolverPrep.await(5, TimeUnit.SECONDS))
+                    pipeline(audioFormat, latencyFrames = 128, gain = 1.5f)
+                } else {
+                    pipeline(audioFormat, latencyFrames = 0, gain = 1.0f)
+                }
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            assertEquals(DspRendererApplyPhase.ACTIVE, provider.rendererApplyStatus()?.phase)
+
+            provider.update(convolverConfig(ir))
+            assertTrue(convolverPrepEntered.await(5, TimeUnit.SECONDS))
+
+            // Track 2 starts and receives its first PCM while Convolver preparation is still in flight on dsp-live-control.
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+            assertEquals(0L, renderer.dspGenerationForTesting)
+            assertTrue(readLastSample(writes.last()) in 995..1_005)
+            assertFalse(convolverPreparerThreads.contains(callerThreadName))
+            assertEquals(listOf("dsp-live-control"), convolverPreparerThreads.toList())
+
+            // Slow preparation finishes AFTER Track 2 committed: stays DEFERRED on Track 2 with pending diagnostics tracked.
+            allowConvolverPrep.countDown()
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+            assertTrue(provider.diagnosticSummary()?.contains("pending(gen=1, phase=DEFERRED") == true)
+
+            // Next track adopts the already-finished Convolver immediately without running pipelinePreparer a second time.
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 30L,
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation = 1L)
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertTrue(renderer.effectiveConvolverEnabledForTesting)
+            assertTrue(readLastSample(writes.last()) in 1_495..1_505)
+            assertEquals(listOf("dsp-live-control"), convolverPreparerThreads.toList())
+        } finally {
+            allowConvolverPrep.countDown()
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun diagnosticSummarySeparatesActiveConfigFromDeferredCandidateUntilActivated() {
+        val ir = DspImpulseResponse("diag_convolver", 44_100, 2, floatArrayOf(1.0f, 1.0f))
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2, sampleRate = 44_100),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                pipeline(audioFormat, latencyFrames = if (config.convolver.enabled) 128 else 0, gain = 1.0f)
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            assertEquals("role=MEDIA, audioType=media, rate=44100Hz", provider.diagnosticSummary())
+
+            val deferredConfig = convolverConfig(ir).let { base ->
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    convolver = base.convolver,
+                    peqBands = listOf(DspEqBand(DspEqType.PEAK, 20_000.0, gainDb = 3.0)),
+                )
+            }
+            provider.update(deferredConfig)
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+
+            val whileDeferredSummary = requireNotNull(provider.diagnosticSummary())
+            assertTrue(whileDeferredSummary.startsWith("role=MEDIA, audioType=media, rate=44100Hz, pending(gen=1, phase=DEFERRED"))
+            assertTrue(whileDeferredSummary.contains("peq_bands_disabled_for_sample_rate"))
+
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation = 1L)
+
+            assertEquals(
+                "role=MEDIA, audioType=media, rate=44100Hz, notes=peq_bands_disabled_for_sample_rate",
+                provider.diagnosticSummary(),
+            )
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun diagnosticSummaryUpdateDuringPcmProcessingDoesNotInvokeConfigPrepare() {
+        val ir = DspImpulseResponse("diag_perf_convolver", 44_100, 2, floatArrayOf(1.0f, 1.0f))
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val prepareCallerThreads = CopyOnWriteArrayList<String>()
+        onDspRuntimeConfigPrepareForTesting = { prepareCallerThreads += Thread.currentThread().name }
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2, sampleRate = 44_100),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                pipeline(audioFormat, latencyFrames = if (config.convolver.enabled) 128 else 0, gain = 1.0f)
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            prepareCallerThreads.clear()
+
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            assertTrue("initial PCM write must not invoke DspRuntimeConfig.prepare()", prepareCallerThreads.isEmpty())
+
+            provider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    convolver = convolverConfig(ir).convolver,
+                    peqBands = listOf(DspEqBand(DspEqType.PEAK, 20_000.0, gainDb = 3.0)),
+                ),
+            )
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+            assertTrue(prepareCallerThreads.all { it == "dsp-live-control" })
+
+            prepareCallerThreads.clear()
+            // PCM writes (both DEFERRED retention and Track 2 ACTIVE adoption) must use cached notes with 0 prepare() calls.
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 2, sample = 1_000),
+                offset = 0,
+                length = 64 * 2 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 30L,
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation = 1L)
+            assertTrue(
+                "audio PCM path must never call DspRuntimeConfig.prepare(): saw $prepareCallerThreads",
+                prepareCallerThreads.isEmpty(),
+            )
+            assertEquals(
+                "role=MEDIA, audioType=media, rate=44100Hz, notes=peq_bands_disabled_for_sample_rate",
+                provider.diagnosticSummary(),
+            )
+        } finally {
+            onDspRuntimeConfigPrepareForTesting = null
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun failedPreparationAfterDeferredCandidateUpdatesDiagnosticSummaryToFailedWhileRetainingActive() {
+        val ir = DspImpulseResponse("fail_after_defer", 44_100, 1, floatArrayOf(1.0f))
+        val initialConfig = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initialConfig)
+        val prepared = LinkedBlockingQueue<Unit>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1, sampleRate = 44_100),
+            initialConfig = initialConfig,
+            provider = provider,
+            onPrepared = { prepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                if (config.gainDb > 0.0) {
+                    throw IllegalStateException("simulated convolver preparation failure")
+                }
+                pipeline(audioFormat, latencyFrames = if (config.convolver.enabled) 128 else 0, gain = 1.0f)
+            },
+        )
+
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            assertEquals("role=MEDIA, audioType=media, rate=44100Hz", provider.diagnosticSummary())
+
+            // Generation 1 succeeds and becomes DEFERRED on committed Track 1.
+            provider.update(convolverConfig(ir, gainDb = 0.0))
+            assertTrue(prepared.poll(5, TimeUnit.SECONDS) != null)
+            awaitApplyStatus(provider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+            assertTrue(provider.diagnosticSummary()?.contains("pending(gen=1, phase=DEFERRED)") == true)
+
+            // Generation 2 fails during preparation: FAILED status and diagnostic summary must replace stale DEFERRED.
+            provider.update(convolverConfig(ir, gainDb = 2.0))
+            awaitApplyStatus(provider, DspRendererApplyPhase.FAILED, generation = 2L)
+            assertEquals(0L, renderer.dspGenerationForTesting)
+            assertEquals(
+                "role=MEDIA, audioType=media, rate=44100Hz, pending(gen=2, phase=FAILED)",
+                provider.diagnosticSummary(),
+            )
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun turningConvolverOffWhileCompressorIsActiveStillEnforcesStatefulContinuity() {
+        val ir = DspImpulseResponse("room_ir", 48_000, 1, floatArrayOf(1.0f))
+        val compressor = DspCompressorConfig(enabled = true, thresholdDb = -20.0, ratio = 4.0)
+        val initialBothActive = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            convolver = DspConvolverConfig(enabled = true, impulseResponseId = ir.id, impulseResponse = ir),
+            compressor = compressor,
+        )
+
+        // Turning Convolver OFF *and* disabling Compressor together must keep continuity enforcement -> DEFERRED on Track 1.
+        val compoundProvider = MutableConfigProvider(initialBothActive, localWarmEnabled = true)
+        val compoundPrepared = LinkedBlockingQueue<Unit>()
+        val compoundRenderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialBothActive,
+            provider = compoundProvider,
+            onPrepared = { compoundPrepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                pipeline(audioFormat, latencyFrames = 0, gain = if (config.compressor.enabled) 1.0f else 0.8f)
+            },
+        )
+        try {
+            compoundRenderer.prepareLpcmPipelineForTesting()
+            compoundRenderer.beginTrackGenerationForTesting()
+            compoundRenderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+
+            compoundProvider.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = false,
+                    convolver = DspConvolverConfig(enabled = false),
+                    compressor = compressor.copy(enabled = false),
+                ),
+            )
+            assertTrue(compoundPrepared.poll(5, TimeUnit.SECONDS) != null)
+            compoundRenderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 15L,
+            )
+            awaitApplyStatus(compoundProvider, DspRendererApplyPhase.DEFERRED, generation = 1L)
+            assertEquals(0L, compoundRenderer.dspGenerationForTesting)
+
+            compoundRenderer.beginTrackGenerationForTesting()
+            compoundRenderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+            awaitApplyStatus(compoundProvider, DspRendererApplyPhase.ACTIVE, generation = 1L)
+            assertEquals(1L, compoundRenderer.dspGenerationForTesting)
+        } finally {
+            compoundRenderer.releaseForTesting()
+        }
+
+        // Turning Convolver OFF alone (when no other stateful stage is active) may warm-crossfade on Track 1.
+        val singleConvolverOnly = initialBothActive.withConvolver(DspConvolverConfig(enabled = true, impulseResponseId = ir.id, impulseResponse = ir))
+        val singleInitial = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            convolver = singleConvolverOnly.convolver,
+            compressor = DspCompressorConfig(enabled = false),
+        )
+        val singleProvider = MutableConfigProvider(singleInitial, localWarmEnabled = true)
+        val singlePrepared = LinkedBlockingQueue<Unit>()
+        val singleRenderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = singleInitial,
+            provider = singleProvider,
+            onPrepared = { singlePrepared.offer(Unit) },
+            pipelinePreparer = { audioFormat, _ ->
+                pipeline(audioFormat, latencyFrames = 0, gain = 1.0f)
+            },
+        )
+        try {
+            singleRenderer.prepareLpcmPipelineForTesting()
+            singleRenderer.beginTrackGenerationForTesting()
+            singleRenderer.processDecodedPcmForTesting(
+                pcm16(frames = 64, channels = 1, sample = 1_000),
+                offset = 0,
+                length = 64 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+
+            singleProvider.update(singleInitial.withConvolver(DspConvolverConfig(enabled = false)))
+            assertTrue(singlePrepared.poll(5, TimeUnit.SECONDS) != null)
+            repeat(8) { index ->
+                singleRenderer.processDecodedPcmForTesting(
+                    pcm16(frames = 256, channels = 1, sample = 1_000),
+                    offset = 0,
+                    length = 256 * Short.SIZE_BYTES,
+                    decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                    sourceSample = 15L + index,
+                )
+            }
+            awaitApplyStatus(singleProvider, DspRendererApplyPhase.ACTIVE, generation = 1L)
+            assertEquals(1L, singleRenderer.dspGenerationForTesting)
+            assertFalse(singleRenderer.effectiveConvolverEnabledForTesting)
+        } finally {
+            singleRenderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun peqAndBassChangesWithAutoHeadroomAndConvolverCombinations() {
+        // Case A: AutoHeadroom ON + Convolver OFF -> PEQ/Bass boost lowers preamp and WARM-crossfades live.
+        val initialNoConvolver = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = true)
+        val providerA = MutableConfigProvider(initialNoConvolver, localWarmEnabled = true)
+        val preparedA = LinkedBlockingQueue<Unit>()
+        val writesA = CopyOnWriteArrayList<ByteArray>()
+        val rendererA = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialNoConvolver,
+            provider = providerA,
+            writeAdapter = { bytes, offset, length, _ ->
+                writesA += bytes.copyOfRange(offset, offset + length)
+                length
+            },
+            onPrepared = { preparedA.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                val gain = 10.0.pow(config.prepare(audioFormat).appliedPreampDb / 20.0).toFloat()
+                DspPcmPipeline(
+                    format = audioFormat,
+                    processor = HotProcessor(audioFormat, latencyFrames = 0, gain = gain),
+                    forceInitialLatencySilence = false,
+                )
+            },
+        )
+        try {
+            rendererA.prepareLpcmPipelineForTesting()
+            rendererA.beginTrackGenerationForTesting()
+            rendererA.processDecodedPcmForTesting(
+                pcm16(frames = 128, channels = 1, sample = 2_000),
+                offset = 0,
+                length = 128 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            val initialSample = readLastSample(writesA.last())
+
+            providerA.update(
+                DspRuntimeConfig(
+                    enabled = true,
+                    autoHeadroomEnabled = true,
+                    bass = DspBassConfig(enabled = true, gainDb = 6.0, frequencyHz = 80.0),
+                    peqBands = listOf(
+                        DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 4.0, q = 1.0, enabled = true),
+                    ),
+                ),
+            )
+            assertTrue(preparedA.poll(5, TimeUnit.SECONDS) != null)
+
+            // Advance past the warm crossfade window to verify the updated headroom gain takes effect.
+            repeat(8) { index ->
+                rendererA.processDecodedPcmForTesting(
+                    pcm16(frames = 256, channels = 1, sample = 2_000),
+                    offset = 0,
+                    length = 256 * Short.SIZE_BYTES,
+                    decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                    sourceSample = 100L + index,
+                )
+            }
+            awaitApplyStatus(providerA, DspRendererApplyPhase.ACTIVE, generation = 1L)
+            assertEquals(1L, rendererA.dspGenerationForTesting)
+            assertTrue(readLastSample(writesA.last()) < initialSample)
+        } finally {
+            rendererA.releaseForTesting()
+        }
+
+        // Case B: Convolver ON + AutoHeadroom OFF -> PEQ cut with unchanged preamp applies via LOCAL_WARM without deferring.
+        val ir = DspImpulseResponse("unity_ir", 48_000, 1, floatArrayOf(1.0f))
+        val initialWithConvolver = DspRuntimeConfig(
+            enabled = true,
+            autoHeadroomEnabled = false,
+            convolver = DspConvolverConfig(enabled = true, impulseResponseId = ir.id, impulseResponse = ir),
+            peqBands = listOf(
+                DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 6.0, q = 1.0, enabled = true),
+                DspEqBand(DspEqType.PEAK, 250.0, gainDb = 0.0, q = 1.0, enabled = true),
+            ),
+        )
+        val providerB = MutableConfigProvider(initialWithConvolver, localWarmEnabled = true)
+        val preparedB = LinkedBlockingQueue<Unit>()
+        val processorBRef = AtomicReference<HotProcessor?>()
+        val rendererB = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initialWithConvolver,
+            provider = providerB,
+            onPrepared = { preparedB.offer(Unit) },
+            pipelinePreparer = { audioFormat, config ->
+                val gain = 10.0.pow(config.prepare(audioFormat).appliedPreampDb / 20.0).toFloat()
+                HotProcessor(audioFormat, latencyFrames = 64, gain = gain)
+                    .also(processorBRef::set)
+                    .let { DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false) }
+            },
+        )
+        try {
+            rendererB.prepareLpcmPipelineForTesting()
+            rendererB.beginTrackGenerationForTesting()
+            rendererB.processDecodedPcmForTesting(
+                pcm16(frames = 128, channels = 1, sample = 2_000),
+                offset = 0,
+                length = 128 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 10L,
+            )
+            val preampBefore = initialWithConvolver.prepare(DspAudioFormat(48_000, 1)).appliedPreampDb
+            val cutConfig = DspRuntimeConfig(
+                enabled = true,
+                autoHeadroomEnabled = false,
+                convolver = DspConvolverConfig(enabled = true, impulseResponseId = ir.id, impulseResponse = ir),
+                peqBands = listOf(
+                    DspEqBand(DspEqType.PEAK, 1_000.0, gainDb = 6.0, q = 1.0, enabled = true),
+                    DspEqBand(DspEqType.PEAK, 250.0, gainDb = -3.0, q = 1.0, enabled = true),
+                ),
+            )
+            assertEquals(preampBefore, cutConfig.prepare(DspAudioFormat(48_000, 1)).appliedPreampDb, 1e-6)
+
+            providerB.update(cutConfig)
+            assertTrue(preparedB.poll(5, TimeUnit.SECONDS) != null)
+            rendererB.processDecodedPcmForTesting(
+                pcm16(frames = 128, channels = 1, sample = 2_000),
+                offset = 0,
+                length = 128 * Short.SIZE_BYTES,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 20L,
+            )
+            awaitApplyStatus(providerB, DspRendererApplyPhase.ACTIVE, generation = 1L)
+            assertEquals(listOf(1L), processorBRef.get()?.localPeqWarmEnqueuedGenerations?.toList())
+            assertEquals(1L, rendererB.dspGenerationForTesting)
+            assertTrue(rendererB.effectiveConvolverEnabledForTesting)
+        } finally {
+            rendererB.releaseForTesting()
+        }
+    }
+
     private fun renderer(
         format: AudioFormat,
         initialConfig: DspRuntimeConfig,
@@ -3061,6 +3652,7 @@ class DspRendererProductionPathTest {
     private class HotProcessor(
         override val format: DspAudioFormat,
         override val latencyFrames: Int = 0,
+        private val gain: Float = 1.0f,
     ) : DspProcessor {
         private val result = DspProcessResult()
         val failProcessing = AtomicBoolean()
@@ -3086,7 +3678,7 @@ class DspRendererProductionPathTest {
             }
             val start = input.position()
             repeat(frames * format.channels) { sample ->
-                output.putFloat(input.getFloat(start + sample * Float.SIZE_BYTES))
+                output.putFloat(input.getFloat(start + sample * Float.SIZE_BYTES) * gain)
             }
             input.position(start + frames * format.channels * Float.SIZE_BYTES)
             if (!suppressAcknowledgement) acknowledgedGenerationToken = queuedGenerationToken
@@ -3207,6 +3799,11 @@ class DspRendererProductionPathTest {
         private val current = AtomicReference(DspConfigSnapshot(0L, initial))
         private val applyStatus = AtomicReference<DspRendererApplyStatus?>(null)
         private val applyStatusOwner = AtomicReference<Long?>(null)
+        private val diagnosticSummaryLock = Any()
+        private var diagnosticSummaryOwnerToken: Long? = null
+        private var diagnosticSummaryGen = Long.MIN_VALUE
+        private var diagnosticSummaryPhase: DspRendererApplyPhase? = null
+        @Volatile private var diagnosticSummaryValue: String? = null
         private val listeners = CopyOnWriteArrayList<(DspConfigSnapshot) -> Unit>()
         private val hotUpdatesEnabled = AtomicBoolean(true)
         private val localWarmUpdatesEnabled = AtomicBoolean(localWarmEnabled)
@@ -3221,8 +3818,50 @@ class DspRendererProductionPathTest {
 
         override fun rendererApplyStatus(): DspRendererApplyStatus? = applyStatus.get()
 
+        override fun diagnosticSummary(): String? = diagnosticSummaryValue
+
+        override fun reportDiagnosticSummary(
+            ownerToken: Long,
+            generation: Long,
+            summary: String?,
+            phase: DspRendererApplyPhase,
+        ) {
+            synchronized(diagnosticSummaryLock) {
+                if (applyStatusOwner.get() != ownerToken) return
+                if (diagnosticSummaryOwnerToken == ownerToken && generation < diagnosticSummaryGen) return
+                if (diagnosticSummaryOwnerToken == ownerToken &&
+                    generation == diagnosticSummaryGen &&
+                    diagnosticSummaryPhase == DspRendererApplyPhase.ACTIVE &&
+                    phase != DspRendererApplyPhase.ACTIVE &&
+                    phase != DspRendererApplyPhase.FAILED
+                ) {
+                    return
+                }
+                diagnosticSummaryOwnerToken = ownerToken
+                diagnosticSummaryGen = generation
+                diagnosticSummaryPhase = phase
+                diagnosticSummaryValue = summary
+            }
+        }
+
+        override fun clearDiagnosticSummary(ownerToken: Long) {
+            synchronized(diagnosticSummaryLock) {
+                if (applyStatusOwner.get() != ownerToken && diagnosticSummaryOwnerToken != ownerToken) return
+                diagnosticSummaryOwnerToken = null
+                diagnosticSummaryGen = Long.MIN_VALUE
+                diagnosticSummaryPhase = null
+                diagnosticSummaryValue = null
+            }
+        }
+
         override fun claimRendererApplyStatusOwner(ownerToken: Long) {
-            applyStatusOwner.set(ownerToken)
+            synchronized(diagnosticSummaryLock) {
+                applyStatusOwner.set(ownerToken)
+                diagnosticSummaryOwnerToken = ownerToken
+                diagnosticSummaryGen = Long.MIN_VALUE
+                diagnosticSummaryPhase = null
+                diagnosticSummaryValue = null
+            }
         }
 
         override fun reportRendererApplyStatus(status: DspRendererApplyStatus) {
@@ -3270,9 +3909,12 @@ class DspRendererProductionPathTest {
             DspRendererApplyPhase.PREPARING -> next == DspRendererApplyPhase.PREPARED ||
                 next == DspRendererApplyPhase.DEFERRED || next == DspRendererApplyPhase.ACTIVE ||
                 next == DspRendererApplyPhase.FAILED
-            DspRendererApplyPhase.PREPARED -> next == DspRendererApplyPhase.DEFERRED ||
-                next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
-            DspRendererApplyPhase.DEFERRED -> next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
+            DspRendererApplyPhase.PREPARED -> next == DspRendererApplyPhase.PREPARING ||
+                next == DspRendererApplyPhase.DEFERRED || next == DspRendererApplyPhase.ACTIVE ||
+                next == DspRendererApplyPhase.FAILED
+            DspRendererApplyPhase.DEFERRED -> next == DspRendererApplyPhase.PREPARING ||
+                next == DspRendererApplyPhase.PREPARED || next == DspRendererApplyPhase.ACTIVE ||
+                next == DspRendererApplyPhase.FAILED
             DspRendererApplyPhase.ACTIVE -> next == DspRendererApplyPhase.ACTIVE || next == DspRendererApplyPhase.FAILED
             DspRendererApplyPhase.FAILED -> next == DspRendererApplyPhase.ACTIVE
         }

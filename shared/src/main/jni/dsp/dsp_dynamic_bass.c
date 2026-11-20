@@ -81,10 +81,11 @@ static double target_gain(const dsp_dynamic_bass *bass) {
         bass->envelope < bass->silence_gate_linear || bass->envelope >= bass->high_threshold_linear) {
         return 1.0;
     }
+    const double level_dbfs = 20.0 * log10(fmax(bass->envelope, 1e-12));
     double amount = 1.0;
-    if (bass->envelope > bass->low_threshold_linear) {
-        amount = (bass->high_threshold_linear - bass->envelope) /
-            (bass->high_threshold_linear - bass->low_threshold_linear);
+    if (level_dbfs > bass->low_threshold_dbfs) {
+        amount = (bass->high_threshold_dbfs - level_dbfs) /
+            (bass->high_threshold_dbfs - bass->low_threshold_dbfs);
     }
     amount = fmax(0.0, fmin(1.0, amount));
     return 1.0 + amount * (bass->max_gain - 1.0);
@@ -114,7 +115,7 @@ void dsp_dynamic_bass_process_frame_with_detector(
     const double envelope_coefficient = level > bass->envelope ? bass->attack_alpha : bass->release_alpha;
     bass->envelope = envelope_coefficient * bass->envelope + (1.0 - envelope_coefficient) * level;
     const double desired_gain = target_gain(bass);
-    const double gain_coefficient = desired_gain > bass->current_gain ? bass->attack_alpha : bass->release_alpha;
+    const double gain_coefficient = desired_gain < bass->current_gain ? bass->attack_alpha : bass->release_alpha;
     bass->current_gain = gain_coefficient * bass->current_gain +
         (1.0 - gain_coefficient) * desired_gain;
 

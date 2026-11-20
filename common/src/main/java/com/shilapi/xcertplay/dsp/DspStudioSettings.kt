@@ -143,7 +143,7 @@ internal data class DspStudioFeatureFlags(
     val smartLoudnessEnabled: Boolean = true,
     val dynamicBassEnabled: Boolean = true,
     val nativeHotUpdatesEnabled: Boolean = true,
-    val localWarmEnabled: Boolean = false,
+    val localWarmEnabled: Boolean = true,
     val irWarmBudgetEnabled: Boolean = false,
 ) {
     fun disableEnhancedDsp(): DspStudioFeatureFlags = copy(
@@ -205,7 +205,7 @@ internal data class DspStudioFeatureFlags(
                 smartLoudnessEnabled = read(KEY_SMART_LOUDNESS, true),
                 dynamicBassEnabled = read(KEY_DYNAMIC_BASS, true),
                 nativeHotUpdatesEnabled = read(KEY_NATIVE_HOT_UPDATES, true),
-                localWarmEnabled = read(KEY_LOCAL_WARM, false),
+                localWarmEnabled = read(KEY_LOCAL_WARM, true),
                 irWarmBudgetEnabled = read(KEY_IR_WARM_BUDGET, false),
             )
         }

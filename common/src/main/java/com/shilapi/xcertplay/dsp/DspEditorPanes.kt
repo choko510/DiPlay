@@ -243,7 +243,19 @@ private fun updateBand(
 }
 
 internal fun updatedEqBandProfile(profile: DspAudioProfile, index: Int, band: DspEqBand): DspAudioProfile {
-    val next = profile.eqBands.toMutableList().also { it[index] = band }
+    val previous = profile.eqBands[index]
+    val cabinBands = profile.cabinCorrection.approvedEqBands()
+    val resolvedBand = if (!previous.enabled && band.gainDb != previous.gainDb && kotlin.math.abs(band.gainDb) > 1e-6) {
+        val candidateList = profile.eqBands.toMutableList().also { it[index] = band.copy(enabled = true) }
+        if (activeEqBandCount(candidateList, cabinBands) <= DspAudioProfile.MAX_EQ_BANDS) {
+            band.copy(enabled = true)
+        } else {
+            band
+        }
+    } else {
+        band
+    }
+    val next = profile.eqBands.toMutableList().also { it[index] = resolvedBand }
     return profile.copy(eqBands = next)
 }
 

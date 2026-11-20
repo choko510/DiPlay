@@ -4,6 +4,7 @@ import com.shilapi.xcertplay.transport.LockdownPairRecord
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 /**
@@ -79,6 +80,26 @@ class WiredLockdownConfirmationTest {
         )
         assertTrue(confirmed)
         assertEquals(listOf("used"), events)
+    }
+
+    @Test
+    fun aRetainedRecordAndANewPairTogetherAreRejected() {
+        // Both cannot be the record CarKit accepted. Silently preferring one would store a copy that
+        // Lockdown may have already rejected, so the mistake is reported instead.
+        val events = mutableListOf<String>()
+        try {
+            WiredLockdownConfirmation.confirm(
+                acceptedRecord = newRecord,
+                recordToPromote = retained,
+                pairedNewRecord = newRecord,
+                promote = { events += "promote"; true },
+                save = { events += "save" },
+                markUsed = { events += "used" },
+            )
+            fail("promoting a rejected copy while a new record is pending must not be accepted")
+        } catch (expected: IllegalArgumentException) {
+            assertTrue(events.isEmpty())
+        }
     }
 
     private fun deviceKey(phone: String) =

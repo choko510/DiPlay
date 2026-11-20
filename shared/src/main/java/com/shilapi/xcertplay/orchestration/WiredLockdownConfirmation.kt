@@ -8,6 +8,9 @@ import com.shilapi.xcertplay.transport.LockdownPairRecord
  * A retained record is stored only when promotion reports success: a promotion that cannot be
  * confirmed leaves the record aside, and the recency update that would otherwise follow is skipped
  * rather than applied to a copy the store does not hold.
+ *
+ * A retained record and a newly paired record are mutually exclusive. Only one of them can be the
+ * record CarKit accepted, so a caller holding both has lost track of which connection succeeded.
  */
 internal object WiredLockdownConfirmation {
     /**
@@ -23,6 +26,9 @@ internal object WiredLockdownConfirmation {
         markUsed: (devicePublicKeyPem: ByteArray) -> Unit,
         onPromotionFailed: () -> Unit = {},
     ): Boolean {
+        require(recordToPromote == null || pairedNewRecord == null) {
+            "a retained record and a newly paired record cannot both be pending"
+        }
         if (recordToPromote != null) {
             if (!promote(recordToPromote)) {
                 onPromotionFailed()

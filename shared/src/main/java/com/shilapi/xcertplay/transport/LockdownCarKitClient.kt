@@ -143,24 +143,31 @@ class LockdownCarKitClient(
     }
 }
 
+/**
+ * The Lockdown verdict carried by [error], or null when it says nothing about the pair record.
+ *
+ * Only Lockdown can reject a record, so the verdict is read from the error Lockdown reported for
+ * one request. Transport failures never qualify, even when a diagnostic message happens to contain
+ * one of these names: treating a timeout as a rejection would clear a working record.
+ */
 internal fun rejectedLockdownPairRecordError(error: Throwable): String? {
-    val remoteError = generateSequence(error) { it.cause }
-        .filterIsInstance<IphoneUsbException.LockdownRemoteError>()
-        .firstOrNull()
-    if (remoteError != null) {
-        return when {
-            remoteError.code.equals("InvalidPairRecord", ignoreCase = true) -> "InvalidPairRecord"
-            remoteError.code.equals("InvalidHostID", ignoreCase = true) -> "InvalidHostID"
-            else -> null
-        }
+    val causes = generateSequence(error) { it.cause }.toList()
+    causes.filterIsInstance<IphoneUsbException.LockdownRemoteError>().firstOrNull()?.let { remoteError ->
+        return pairRecordRejectionCode(remoteError.code)
     }
 
-    return generateSequence(error) { it.cause }.firstNotNullOfOrNull { cause ->
-        val message = cause.message.orEmpty()
-        when {
-            message.contains("InvalidPairRecord", ignoreCase = true) -> "InvalidPairRecord"
-            message.contains("InvalidHostID", ignoreCase = true) -> "InvalidHostID"
-            else -> null
-        }
+    // Legacy carrier: a Lockdown verdict that lost its type is still "<request> failed: <code>".
+    return causes.filterIsInstance<IphoneUsbException.Protocol>().firstNotNullOfOrNull { protocol ->
+        legacyRejectionPattern.matchEntire(protocol.message.orEmpty())
+            ?.groupValues?.get(1)
+            ?.let(::pairRecordRejectionCode)
     }
+}
+
+private val legacyRejectionPattern = Regex("""^Lockdown \S+ failed:\s*(\S+)\s*$""", RegexOption.IGNORE_CASE)
+
+private fun pairRecordRejectionCode(code: String): String? = when {
+    code.equals("InvalidPairRecord", ignoreCase = true) -> "InvalidPairRecord"
+    code.equals("InvalidHostID", ignoreCase = true) -> "InvalidHostID"
+    else -> null
 }

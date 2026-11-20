@@ -2158,11 +2158,10 @@ class CarPlayController(
                 },
             )
             val savedPairRecord = recordChoice.record
-            var pairedNewRecord: LockdownPairRecord? = null
-            // A record taken from the retained copy has to be stored once CarKit accepts it.
-            var recordToPromote: LockdownPairRecord? = savedPairRecord.takeIf { recordChoice.promotableOnAcceptance }
+            // Decides, per transition, which record a successful connection has to store.
+            val persistence = WiredLockdownPersistence().apply { usingChosenRecord(recordChoice) }
             var pairRecord = savedPairRecord
-                ?: pairNewRecord(pairingClient, startupAttempt).also { pairedNewRecord = it }
+                ?: pairNewRecord(pairingClient, startupAttempt).also { persistence.usingPairedRecord(it) }
             traceConnection(ConnectionTraceStage.PAIRING_READY)
             debugLog(
                 if (savedPairRecord != null) {
@@ -2250,7 +2249,7 @@ class CarPlayController(
                         },
                     )
                     pairRecord = pairNewRecord(pairingClient, startupAttempt)
-                    pairedNewRecord = pairRecord
+                        .also { persistence.usingPairedRecord(it) }
                     carKitClient.open(pairRecord, config.label)
                 } else {
                     debugLog("saved Lockdown pair record rejected by Lockdown error=$rejection; clearing it")
@@ -2274,11 +2273,11 @@ class CarPlayController(
                     )
                     if (recovered != null) {
                         pairRecord = recovered.first
-                        recordToPromote = recovered.first
+                        persistence.usingRetainedRecord(recovered.first)
                         recovered.second
                     } else {
                         pairRecord = pairNewRecord(pairingClient, startupAttempt)
-                        pairedNewRecord = pairRecord
+                            .also { persistence.usingPairedRecord(it) }
                         carKitClient.open(pairRecord, config.label)
                     }
                 }
@@ -2287,10 +2286,8 @@ class CarPlayController(
             // take the place of another iPhone's and evict it. Recency follows the same signal, and
             // the check and the writes share one lock so a teardown cannot start in between.
             whileCurrentWiredAttempt(startupAttempt) {
-                WiredLockdownConfirmation.confirm(
+                persistence.confirm(
                     acceptedRecord = pairRecord,
-                    recordToPromote = recordToPromote,
-                    pairedNewRecord = pairedNewRecord,
                     promote = promotePairRecord,
                     save = savePairRecord,
                     markUsed = markPairRecordUsed,

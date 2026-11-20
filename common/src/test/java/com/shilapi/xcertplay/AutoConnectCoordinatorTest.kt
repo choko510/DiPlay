@@ -510,6 +510,77 @@ class AutoConnectCoordinatorTest {
     }
 
     @Test
+    fun userSelectionWaitDoesNotExpireOrDuplicateAcrossNewIntents() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        assertTrue(coordinator.postponeForUser(start.generation))
+        now += 60_000L
+
+        val sameKey = coordinator.request(request(), conditions())
+        val newKey = coordinator.request(request(key = "new-intent"), conditions())
+
+        assertEquals(AutoConnectSkipReason.WAITING_FOR_USER, (sameKey as AutoConnectOutcome.Skip).reason)
+        assertEquals(AutoConnectSkipReason.WAITING_FOR_USER, (newKey as AutoConnectOutcome.Skip).reason)
+        assertEquals(1, events.count { it.contains("decision=START") })
+        assertTrue(coordinator.onUserSelection(start.generation))
+        assertEquals(AutoConnectState.STARTING, coordinator.currentState())
+    }
+
+    @Test
+    fun userSelectionWaitIsAbandonedWhenTheForegroundIsGone() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        assertTrue(coordinator.postponeForUser(start.generation))
+
+        coordinator.onForegroundGone()
+
+        assertEquals(AutoConnectState.IDLE, coordinator.currentState())
+        assertEquals(null, coordinator.activeGeneration())
+    }
+
+    @Test
+    fun hostStartFailureBlocksTheLaunchAndANewLaunchCanRetry() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        coordinator.onHostLaunchDispatched(start.generation)
+        coordinator.onHostStartFailed(start.generation, AutoConnectFailure.INITIALIZATION_FAILED)
+
+        assertEquals(AutoConnectState.BLOCKED, coordinator.currentState())
+        assertEquals(
+            AutoConnectSkipReason.SETUP_FAILED,
+            (coordinator.request(request(), conditions()) as AutoConnectOutcome.Skip).reason,
+        )
+        assertTrue(coordinator.request(request(key = "next-launch"), conditions()) is AutoConnectOutcome.Start)
+    }
+
+    @Test
+    fun hostSessionCallbacksDriveTheCoordinatorWithoutHomePolling() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        coordinator.onHostCreated(start.generation)
+        assertEquals(AutoConnectState.STARTING, coordinator.currentState())
+
+        coordinator.onHostSessionActive(start.generation)
+        assertEquals(AutoConnectState.ACTIVE, coordinator.currentState())
+
+        coordinator.onHostSessionEnded(start.generation)
+        assertEquals(AutoConnectState.IDLE, coordinator.currentState())
+    }
+
+    @Test
+    fun ac37_oldHostAndPermissionCallbacksAreIgnoredAfterReset() {
+        val first = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        coordinator.resetForTests()
+        val second = coordinator.request(request(key = "new-launch"), conditions()) as AutoConnectOutcome.Start
+
+        assertSame(
+            AutoConnectOutcome.StaleCallbackIgnored,
+            coordinator.onPermissionResult(first.generation, granted = true),
+        )
+        coordinator.onHostSessionActive(first.generation)
+        coordinator.onHostStartFailed(first.generation, AutoConnectFailure.INITIALIZATION_FAILED)
+
+        assertEquals(AutoConnectState.STARTING, coordinator.currentState())
+        assertEquals(second.generation, coordinator.activeGeneration())
+    }
+
+    @Test
     fun requestActivityEndsWhenTheSessionStarts() {
         val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
         assertTrue(coordinator.isRequestActive(start.generation))

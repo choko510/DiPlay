@@ -50,6 +50,21 @@ class CarPlayHostActionsTest {
     }
 
     @Test
+    fun internalOpenCarriesTheAutoConnectGeneration() {
+        val application = RuntimeEnvironment.getApplication()
+        val intent = CarPlayHostActions.createInternalIntent(
+            application,
+            CarPlayHostActions.OPEN_CARPLAY,
+            autoConnectGeneration = 42L,
+        )
+
+        val request = CarPlayHostActions.consumeInternalRequest(intent)
+
+        assertEquals(CarPlayHostActions.OPEN_CARPLAY, request?.action)
+        assertEquals(42L, request?.autoConnectGeneration)
+    }
+
+    @Test
     fun theSameNotificationPendingIntentCanOpenCarPlayTwice() {
         val application = RuntimeEnvironment.getApplication()
         val pendingIntent = PendingIntent.getActivity(

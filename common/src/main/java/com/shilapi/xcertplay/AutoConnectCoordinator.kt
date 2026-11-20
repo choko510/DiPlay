@@ -28,6 +28,7 @@ internal enum class AutoConnectState {
     IDLE,
     STARTING,
     WAITING_FOR_PERMISSION,
+    WAITING_FOR_USER,
     RETRY_SCHEDULED,
     BLOCKED,
     ACTIVE,
@@ -44,6 +45,7 @@ internal enum class AutoConnectSkipReason {
     SESSION_TRANSITIONING,
     REQUEST_IN_FLIGHT,
     WAITING_FOR_PERMISSION,
+    WAITING_FOR_USER,
     RETRY_SCHEDULED,
     RETRY_NOT_DUE,
     RETRY_EXHAUSTED,
@@ -250,6 +252,54 @@ internal class AutoConnectCoordinator(
     }
 
     @Synchronized
+    fun onHostCreated(generation: Long) {
+        if (generation != this.generation || active == null) {
+            log("decision=STALE_IGNORED event=HOST_CREATED generation=$generation")
+            return
+        }
+        log("event=HOST_CREATED generation=$generation state=${state.label}")
+    }
+
+    @Synchronized
+    fun onHostSessionActive(generation: Long) {
+        if (generation != this.generation) {
+            log("decision=STALE_IGNORED event=HOST_SESSION_ACTIVE generation=$generation")
+            return
+        }
+        log("event=HOST_SESSION_ACTIVE generation=$generation")
+        onSessionActive()
+    }
+
+    @Synchronized
+    fun onHostSessionEnded(generation: Long) {
+        if (generation != this.generation) {
+            log("decision=STALE_IGNORED event=HOST_SESSION_ENDED generation=$generation")
+            return
+        }
+        observedActive = false
+        observedHadActiveSession = false
+        active = null
+        attempts = 0
+        retryAtMillis = 0L
+        manualConnectAtMillis = null
+        hostLaunchDispatched = false
+        if (!userDisconnected) {
+            state = if (blockedReason == null) AutoConnectState.IDLE else AutoConnectState.BLOCKED
+        }
+        log("event=HOST_SESSION_ENDED generation=$generation state=${state.label}")
+    }
+
+    @Synchronized
+    fun onHostStartFailed(generation: Long, failure: AutoConnectFailure) {
+        if (generation != this.generation) {
+            log("decision=STALE_IGNORED event=HOST_START_FAILED generation=$generation")
+            return
+        }
+        log("event=HOST_START_FAILED generation=$generation error=${failure.label}")
+        onHostLaunchFailed(generation, failure)
+    }
+
+    @Synchronized
     fun observeSession(activeSession: Boolean, sessionPresent: Boolean) {
         val wasActive = observedActive
         observedActive = activeSession
@@ -257,6 +307,35 @@ internal class AutoConnectCoordinator(
             activeSession && !wasActive -> onSessionActive()
             !sessionPresent && observedHadActiveSession -> onSessionStopped()
         }
+    }
+
+    @Synchronized
+    fun postponeForUser(generation: Long): Boolean {
+        if (generation != this.generation || active == null) return false
+        state = AutoConnectState.WAITING_FOR_USER
+        log("event=WAITING_FOR_USER generation=$generation")
+        return true
+    }
+
+    @Synchronized
+    fun onUserSelection(generation: Long): Boolean {
+        if (generation != this.generation || active == null) return false
+        active = active?.copy(startedAtMillis = clock())
+        state = AutoConnectState.STARTING
+        log("decision=CONTINUE reason=USER_SELECTED generation=$generation")
+        return true
+    }
+
+    @Synchronized
+    fun onUserSelectionCancelled(generation: Long) {
+        if (generation != this.generation || active == null) return
+        autoStarted = false
+        active = null
+        attempts = 0
+        retryAtMillis = 0L
+        hostLaunchDispatched = false
+        state = if (userDisconnected) AutoConnectState.SUPPRESSED else AutoConnectState.IDLE
+        log("decision=SKIP reason=USER_CANCELLED generation=$generation")
     }
 
     /**
@@ -267,7 +346,8 @@ internal class AutoConnectCoordinator(
     fun onForegroundGone() {
         if (state != AutoConnectState.RETRY_SCHEDULED &&
             state != AutoConnectState.EXHAUSTED &&
-            state != AutoConnectState.BLOCKED
+            state != AutoConnectState.BLOCKED &&
+            state != AutoConnectState.WAITING_FOR_USER
         ) return
         active = null
         attempts = 0
@@ -276,7 +356,7 @@ internal class AutoConnectCoordinator(
         terminalKey = null
         hostLaunchDispatched = false
         state = if (userDisconnected) AutoConnectState.SUPPRESSED else AutoConnectState.IDLE
-        log("event=RETRY_ABANDONED decision=SKIP reason=FOREGROUND_GONE")
+        log("event=REQUEST_ABANDONED decision=SKIP reason=FOREGROUND_GONE")
     }
 
     @Synchronized
@@ -355,6 +435,8 @@ internal class AutoConnectCoordinator(
                         return skip(request, AutoConnectSkipReason.RETRY_SCHEDULED, retryAtMillis)
                     AutoConnectState.WAITING_FOR_PERMISSION ->
                         return skip(request, AutoConnectSkipReason.WAITING_FOR_PERMISSION)
+                    AutoConnectState.WAITING_FOR_USER ->
+                        return skip(request, AutoConnectSkipReason.WAITING_FOR_USER)
                     AutoConnectState.STARTING if hostLaunchDispatched ->
                         return skip(request, AutoConnectSkipReason.REQUEST_IN_FLIGHT)
                     else -> {
@@ -369,6 +451,12 @@ internal class AutoConnectCoordinator(
             } else {
                 if (state == AutoConnectState.RETRY_SCHEDULED) {
                     return skip(request, AutoConnectSkipReason.RETRY_SCHEDULED, retryAtMillis)
+                }
+                if (state == AutoConnectState.WAITING_FOR_PERMISSION) {
+                    return skip(request, AutoConnectSkipReason.WAITING_FOR_PERMISSION)
+                }
+                if (state == AutoConnectState.WAITING_FOR_USER) {
+                    return skip(request, AutoConnectSkipReason.WAITING_FOR_USER)
                 }
                 if (nowMillis - current.startedAtMillis < staleRequestMillis) {
                     return skip(request, AutoConnectSkipReason.REQUEST_IN_FLIGHT)
@@ -547,7 +635,6 @@ internal class AutoConnectCoordinator(
         active = null
         attempts = 0
         retryAtMillis = 0L
-        generation = 0L
         userDisconnected = false
         blockedReason = null
         terminalKey = null
@@ -601,7 +688,8 @@ internal class AutoConnectCoordinator(
     @Synchronized
     fun isRequestActive(generation: Long): Boolean =
         generation == this.generation && active != null &&
-            (state == AutoConnectState.STARTING || state == AutoConnectState.WAITING_FOR_PERMISSION)
+            (state == AutoConnectState.STARTING || state == AutoConnectState.WAITING_FOR_PERMISSION ||
+                state == AutoConnectState.WAITING_FOR_USER)
 
     @Synchronized
     fun onHostLaunchDispatched(generation: Long) {

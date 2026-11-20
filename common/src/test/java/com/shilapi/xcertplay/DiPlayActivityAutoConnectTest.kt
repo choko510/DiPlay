@@ -14,6 +14,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -283,6 +284,152 @@ class DiPlayActivityAutoConnectTest {
         assertNotNull("phone selection dropped the pending auto-connect request", started)
         assertEquals(CarPlayHostActivity::class.java.name, started.component?.className)
         assertEquals("AA:BB:CC:DD:EE:01", DiPlayPreferences.phoneAddress(app))
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac31_newIntentAfterExhaustionStartsAFreshRequest() {
+        DiPlayPreferences.saveAutoConnect(app, true)
+        AirPlayPersistence.saveWirelessEnabled(app, false)
+        val settings = Intent(app, DiPlayActivity::class.java)
+            .putExtra("page", "settings")
+            .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true)
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java, settings).setup()
+        exhaustCoordinator()
+        assertEquals(AutoConnectState.EXHAUSTED, AutoConnectCoordinator.shared.currentState())
+        shadowOf(app).clearNextStartedActivities()
+
+        controller.newIntent(Intent(app, DiPlayActivity::class.java))
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNotNull("a new Intent did not renew the exhausted launch key", shadowOf(app).nextStartedActivity)
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac31_internalSettingsIntentDoesNotRenewTheLaunchKey() {
+        DiPlayPreferences.saveAutoConnect(app, true)
+        AirPlayPersistence.saveWirelessEnabled(app, false)
+        val settings = Intent(app, DiPlayActivity::class.java)
+            .putExtra("page", "settings")
+            .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true)
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java, settings).setup()
+        exhaustCoordinator()
+        shadowOf(app).clearNextStartedActivities()
+
+        controller.newIntent(
+            Intent(app, DiPlayActivity::class.java)
+                .putExtra("page", "settings")
+                .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true),
+        )
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNull(shadowOf(app).nextStartedActivity)
+        assertEquals(AutoConnectState.EXHAUSTED, AutoConnectCoordinator.shared.currentState())
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac32_newIntentAfterPermissionBlockRetries() {
+        DiPlayPreferences.saveAutoConnect(app, true)
+        AirPlayPersistence.saveWirelessEnabled(app, false)
+        val settings = Intent(app, DiPlayActivity::class.java)
+            .putExtra("page", "settings")
+            .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true)
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java, settings).setup()
+        val start = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("blocked-launch", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRED),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        AutoConnectCoordinator.shared.postponeForPermission(start.generation)
+        AutoConnectCoordinator.shared.onPermissionResult(start.generation, granted = false)
+        assertEquals(AutoConnectState.BLOCKED, AutoConnectCoordinator.shared.currentState())
+        shadowOf(app).clearNextStartedActivities()
+
+        controller.newIntent(Intent(app, DiPlayActivity::class.java))
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNotNull("a new Intent stayed blocked by the previous permission denial", shadowOf(app).nextStartedActivity)
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac34_newIntentWhilePhoneDialogIsOpenDoesNotOpenAnotherDialog() {
+        DiPlayPreferences.saveAutoConnect(app, true)
+        AirPlayPersistence.saveWirelessEnabled(app, true)
+        val adapter = app.getSystemService(BluetoothManager::class.java).adapter
+        Shadows.shadowOf(adapter).setEnabled(true)
+        val device = adapter.getRemoteDevice("AA:BB:CC:DD:EE:03")
+        Shadows.shadowOf(device).setName("iPhone")
+        Shadows.shadowOf(adapter).setBondedDevices(setOf(device))
+        val settings = Intent(app, DiPlayActivity::class.java)
+            .putExtra("page", "settings")
+            .putExtra(DiPlayActivity.EXTRA_RETURN_TO_MENU, true)
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java, settings).setup()
+        val start = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("wireless-dialog", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRELESS),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        setPrivateField(controller.get(), "pendingWireless", true)
+        setPrivateField(controller.get(), "pendingWirelessAutoGeneration", start.generation)
+        controller.get().javaClass.getDeclaredMethod("choosePhone", Long::class.javaObjectType).apply {
+            isAccessible = true
+            invoke(controller.get(), start.generation)
+        }
+        val firstDialog = ShadowAlertDialog.getLatestAlertDialog()
+
+        controller.newIntent(Intent(app, DiPlayActivity::class.java))
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertSame(firstDialog, ShadowAlertDialog.getLatestAlertDialog())
+        assertEquals(AutoConnectState.WAITING_FOR_USER, AutoConnectCoordinator.shared.currentState())
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac33_phoneSelectionDialogIsRestoredAfterActivityRecreation() {
+        DiPlayPreferences.saveAutoConnect(app, false)
+        AirPlayPersistence.saveWirelessEnabled(app, true)
+        val adapter = app.getSystemService(BluetoothManager::class.java).adapter
+        Shadows.shadowOf(adapter).setEnabled(true)
+        val device = adapter.getRemoteDevice("AA:BB:CC:DD:EE:02")
+        Shadows.shadowOf(device).setName("iPhone")
+        Shadows.shadowOf(adapter).setBondedDevices(setOf(device))
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val start = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("wireless-recreate", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRELESS),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        setPrivateField(controller.get(), "pendingWireless", true)
+        setPrivateField(controller.get(), "pendingWirelessAutoGeneration", start.generation)
+        controller.get().javaClass.getDeclaredMethod("choosePhone", Long::class.javaObjectType).apply {
+            isAccessible = true
+            invoke(controller.get(), start.generation)
+        }
+        val firstDialog = ShadowAlertDialog.getLatestAlertDialog()
+        assertEquals(AutoConnectState.WAITING_FOR_USER, AutoConnectCoordinator.shared.currentState())
+
+        controller.recreate()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val restoredDialog = ShadowAlertDialog.getLatestAlertDialog()
+        assertNotSame("the phone selection dialog was not restored", firstDialog, restoredDialog)
+        Shadows.shadowOf(restoredDialog).clickOnItem(0)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNotNull("the restored phone dialog did not continue the connection", shadowOf(app).nextStartedActivity)
         controller.pause().stop().destroy()
     }
 

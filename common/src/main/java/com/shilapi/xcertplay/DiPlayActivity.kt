@@ -53,6 +53,7 @@ class DiPlayActivity : ComponentActivity() {
     private var lastRunning: Boolean? = null
     private var pendingWireless = false
     private var pendingWirelessAutoGeneration: Long? = null
+    private var phoneDialogShowing = false
     private var firstResume = true
     private var autoConnectLaunchKey = ""
     private var autoConnectPending = true
@@ -176,6 +177,7 @@ class DiPlayActivity : ComponentActivity() {
         returnToMenu = intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false)
         page = intent.getStringExtra("page") ?: "home"; render()
         handleWirelessRecovery()
+        maybeRenewAutoConnectLaunchKey(intent)
         autoConnectLaunchSource = if (intent.getBooleanExtra(BootAutoStart.EXTRA_AUTO_START_ON_BOOT, false)) {
             BootLaunchNotification.cancel(this)
             AutoConnectSource.BOOT
@@ -223,6 +225,7 @@ class DiPlayActivity : ComponentActivity() {
         } else {
             resumeAutoConnectRetry()
         }
+        restorePendingPhoneSelection()
     }
     override fun onPause() {
         handler.removeCallbacks(tick)
@@ -556,8 +559,36 @@ class DiPlayActivity : ComponentActivity() {
             IphoneUsbAutoLaunchSettings.connectedCandidates(this).isNotEmpty(),
     )
 
-    private fun evaluateAutoConnect(source: AutoConnectSource) {
-        if (!autoConnectEligible()) {
+    private fun maybeRenewAutoConnectLaunchKey(intent: Intent) {
+        val explicitLaunch = intent.getBooleanExtra(BootAutoStart.EXTRA_AUTO_START_ON_BOOT, false) ||
+            intent.getBooleanExtra(IphoneUsbAutoLaunchNotification.EXTRA_OPEN_CONNECTED_IPHONE, false) ||
+            (intent.getStringExtra("page") == null && !intent.getBooleanExtra(EXTRA_RETURN_TO_MENU, false))
+        if (!explicitLaunch) return
+        val state = autoConnect.currentState()
+        if (state != AutoConnectState.BLOCKED && state != AutoConnectState.EXHAUSTED) return
+        autoConnectLaunchKey = UUID.randomUUID().toString()
+        Log.i(TAG, "AUTO_CONNECT event=NEW_LAUNCH_KEY previousState=${state.name}")
+    }
+
+    private fun restorePendingPhoneSelection() {
+        if (!pendingWireless || phoneDialogShowing) return
+        val generation = pendingWirelessAutoGeneration
+        if (generation != null && !autoConnect.isRequestActive(generation)) {
+            clearPendingPhoneSelection()
+            Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+            return
+        }
+        if (generation != null && autoConnect.currentState() == AutoConnectState.WAITING_FOR_PERMISSION) return
+        choosePhone(generation)
+    }
+
+    private fun clearPendingPhoneSelection() {
+        pendingWireless = false
+        pendingWirelessAutoGeneration = null
+        phoneDialogShowing = false
+    }
+
+    private fun evaluateAutoConnect(source: AutoConnectSource) {        if (!autoConnectEligible()) {
             autoConnect.noteNotRequested(source, currentAutoConnectTransport())
             return
         }
@@ -908,8 +939,11 @@ class DiPlayActivity : ComponentActivity() {
         else open()
     }
     private fun openProjection(autoGeneration: Long? = null): Boolean {
-        val intent = CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.OPEN_CARPLAY)
-            .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+        val intent = CarPlayHostActions.createInternalIntent(
+            this,
+            CarPlayHostActions.OPEN_CARPLAY,
+            autoConnectGeneration = autoGeneration,
+        ).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
         return try {
             startActivity(intent)
             if (autoGeneration != null) autoConnect.onHostLaunchDispatched(autoGeneration)
@@ -930,6 +964,14 @@ class DiPlayActivity : ComponentActivity() {
         }
     }
     private fun choosePhone(autoGeneration: Long? = null) {
+        if (phoneDialogShowing) return
+        if (autoGeneration != null) {
+            if (!autoConnect.isRequestActive(autoGeneration) || !autoConnect.postponeForUser(autoGeneration)) {
+                clearPendingPhoneSelection()
+                Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
+                return
+            }
+        }
         if (Build.VERSION.SDK_INT >= 31 && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
             pendingBluetoothAutoGeneration = autoGeneration
             autoGeneration?.let { autoConnect.postponeForPermission(it) }
@@ -937,18 +979,31 @@ class DiPlayActivity : ComponentActivity() {
         }
         val adapter = getSystemService(BluetoothManager::class.java)?.adapter
         if (adapter == null || !adapter.isEnabled) {
+            phoneDialogShowing = true
             AlertDialog.Builder(this).setTitle(getString(R.string.ui_bluetooth_on_title))
                 .setMessage(getString(R.string.ui_bluetooth_on_message))
-                .setPositiveButton(getString(R.string.ui_open_bluetooth)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                .setNegativeButton(getString(R.string.ui_later), null).show(); return
+                .setPositiveButton(getString(R.string.ui_open_bluetooth)) { _, _ ->
+                    phoneDialogShowing = false
+                    openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                }
+                .setNegativeButton(getString(R.string.ui_later)) { _, _ -> cancelPendingPhoneRequest() }
+                .setOnCancelListener { cancelPendingPhoneRequest() }
+                .show(); return
         }
         val devices = runCatching { adapter.bondedDevices.sortedBy { it.name ?: "" } }.getOrDefault(emptyList())
         if (devices.isEmpty()) {
+            phoneDialogShowing = true
             AlertDialog.Builder(this).setTitle(getString(R.string.ui_pair_iphone_title))
                 .setMessage(getString(R.string.ui_pair_iphone_message))
-                .setPositiveButton(getString(R.string.ui_open_bluetooth)) { _, _ -> openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
-                .setNegativeButton(getString(R.string.ui_got_it), null).show(); return
+                .setPositiveButton(getString(R.string.ui_open_bluetooth)) { _, _ ->
+                    phoneDialogShowing = false
+                    openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                }
+                .setNegativeButton(getString(R.string.ui_got_it)) { _, _ -> cancelPendingPhoneRequest() }
+                .setOnCancelListener { cancelPendingPhoneRequest() }
+                .show(); return
         }
+        phoneDialogShowing = true
         AlertDialog.Builder(this).setTitle(getString(R.string.ui_choose_iphone_title))
             .setItems(devices.map { device ->
                 val name = device.name ?: getString(R.string.ui_paired_device)
@@ -958,24 +1013,29 @@ class DiPlayActivity : ComponentActivity() {
                 DiPlayPreferences.savePhone(this, device.address, device.name ?: "iPhone")
                 val generation = pendingWirelessAutoGeneration
                 val start = pendingWireless
-                pendingWireless = false
-                pendingWirelessAutoGeneration = null
+                clearPendingPhoneSelection()
                 render()
                 when {
                     !start -> Unit
-                    generation != null && !autoConnect.isRequestActive(generation) ->
+                    generation != null && !autoConnect.onUserSelection(generation) ->
                         Log.i(TAG, "AUTO_CONNECT decision=SKIP reason=REQUEST_SUPERSEDED")
                     else -> connectWithAuto(true, autoRequest = generation != null, autoGeneration = generation)
                 }
             }.setNeutralButton(getString(R.string.ui_pair_another)) { _, _ ->
-                pendingWireless = false
-                pendingWirelessAutoGeneration = null
+                val generation = pendingWirelessAutoGeneration
+                clearPendingPhoneSelection()
+                generation?.let { autoConnect.onUserSelectionCancelled(it) }
                 openSystem(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
             }
-            .setNegativeButton(getString(R.string.ui_cancel)) { _, _ ->
-                pendingWireless = false
-                pendingWirelessAutoGeneration = null
-            }.show()
+            .setNegativeButton(getString(R.string.ui_cancel)) { _, _ -> cancelPendingPhoneRequest() }
+            .setOnCancelListener { cancelPendingPhoneRequest() }
+            .show()
+    }
+
+    private fun cancelPendingPhoneRequest() {
+        val generation = pendingWirelessAutoGeneration
+        clearPendingPhoneSelection()
+        generation?.let { autoConnect.onUserSelectionCancelled(it) }
     }
 
     private fun wirelessHelp() {

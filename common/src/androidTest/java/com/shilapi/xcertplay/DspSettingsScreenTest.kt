@@ -352,7 +352,7 @@ class DspSettingsScreenTest {
                             }
                             composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
                         }
-                        DspStudioTab.SPATIAL, DspStudioTab.DYNAMICS ->
+                        DspStudioTab.SPATIAL, DspStudioTab.DYNAMICS, DspStudioTab.SPEED ->
                             composeRule.onNodeWithTag("dsp-tab-scroll-pane").performTouchInput { swipeUp() }
                         DspStudioTab.ADVANCED -> {
                             composeRule.onNode(isToggleable()).performClick()

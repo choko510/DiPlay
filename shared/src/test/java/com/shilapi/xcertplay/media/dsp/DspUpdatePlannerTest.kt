@@ -342,6 +342,39 @@ class DspUpdatePlannerTest {
     }
 
     @Test
+    fun speedCompensationChangesAreHotAndNeverRewriteTheSavedProfile() {
+        val current = DspRuntimeConfig(enabled = true)
+        val driving = DspRuntimeConfig(
+            enabled = true,
+            speedCompensation = DspSpeedCompensationConfig(
+                enabled = true,
+                volumeGainDb = 1.5,
+                lowGainDb = 0.9,
+                midGainDb = 0.2,
+                highGainDb = 0.5,
+                reservedBoostDb = 8.0,
+            ),
+        )
+        assertEquals(setOf(DspRuntimeField.SPEED_COMPENSATION), DspUpdatePlanner.diff(current, driving))
+        assertEquals(
+            DspUpdatePlan.HOT,
+            DspUpdatePlanner.classify(current, driving, true, true, 0, 0, true),
+        )
+        assertTrue(current.canApplyStudioHotUpdateTo(driving))
+        assertTrue(DspUpdatePlanner.diff(current, DspRuntimeConfig(enabled = true)).isEmpty())
+
+        // Non-MEDIA streams and a disabled native HOT kill switch defer instead of rebuilding.
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, driving, true, true, 0, 0, true, mediaRole = false),
+        )
+        assertEquals(
+            DspUpdatePlan.DEFERRED,
+            DspUpdatePlanner.classify(current, driving, true, true, 0, 0, true, studioHotUpdatesEnabled = false),
+        )
+    }
+
+    @Test
     fun masterSwitchAndOtherNonHotFieldsAreNeverClassifiedAsHot() {
         val current = DspRuntimeConfig(enabled = true)
         val disabled = DspRuntimeConfig(enabled = false)
@@ -357,6 +390,35 @@ class DspUpdatePlannerTest {
                 "preamp HOT requires Auto Headroom and at least 6 dB of reserve",
             ),
             DspUpdatePlanner.decide(current, preampEdit, true, true, 0, 0, false),
+        )
+    }
+
+    @Test
+    fun speedCompensationStaysHotOnlyWhileTheAutoHeadroomPreampDoesNotMove() {
+        val idle = DspRuntimeConfig(
+            enabled = true,
+            speedCompensation = DspSpeedCompensationConfig(enabled = true, reservedBoostDb = 8.0),
+        )
+        val driving = idle.withSpeedCompensation(
+            idle.speedCompensation.copy(volumeGainDb = 2.0, lowGainDb = 1.0),
+        )
+        val released = idle.withSpeedCompensation(DspSpeedCompensationConfig.NEUTRAL)
+
+        // Reserving or releasing headroom must rebuild the pipeline so the native preamp follows.
+        assertFalse(DspUpdatePlanner.speedCompensationKeepsPreampStable(DspRuntimeConfig(enabled = true), idle, FORMAT))
+        assertFalse(DspUpdatePlanner.speedCompensationKeepsPreampStable(idle, released, FORMAT))
+        // Same reserve, only the applied gains move: the preamp is untouched, so HOT is safe.
+        assertTrue(DspUpdatePlanner.speedCompensationKeepsPreampStable(idle, driving, FORMAT))
+        assertEquals(idle.prepare(FORMAT).appliedPreampDb, driving.prepare(FORMAT).appliedPreampDb, 1.0e-9)
+        assertTrue(idle.prepare(FORMAT).appliedPreampDb < DspRuntimeConfig(enabled = true).prepare(FORMAT).appliedPreampDb)
+        // Without Auto Headroom nothing is reserved, so the preamp never moves either way.
+        val noHeadroom = DspRuntimeConfig(enabled = true, autoHeadroomEnabled = false)
+        assertTrue(
+            DspUpdatePlanner.speedCompensationKeepsPreampStable(
+                noHeadroom,
+                noHeadroom.withSpeedCompensation(idle.speedCompensation),
+                FORMAT,
+            ),
         )
     }
 
@@ -378,4 +440,31 @@ class DspUpdatePlannerTest {
         )
     }
 
+    @Test
+    fun headroomReserveChangesStayNonHotWhileStatefulStagesAreEnabled() {
+        val base = DspRuntimeConfig(
+            enabled = true,
+            compressor = DspCompressorConfig(enabled = true),
+            safetyLimiter = DspSafetyLimiterConfig(enabled = true),
+            multiband = DspMultibandConfig(enabled = true),
+            dynamicEq = DspDynamicEqConfig(enabled = true),
+        )
+        val boosted = base.withSpeedCompensation(
+            DspSpeedCompensationConfig(enabled = true, volumeGainDb = 2.0, reservedBoostDb = 6.8),
+        )
+
+        // A pipeline swap is required, so the renderer starts from a fresh, consistent history
+        // instead of applying the boost on top of the stateful stages of the old pipeline.
+        assertFalse(DspUpdatePlanner.speedCompensationKeepsPreampStable(base, boosted, FORMAT))
+        val steady = boosted.withSpeedCompensation(boosted.speedCompensation.copy(volumeGainDb = 3.0))
+        assertTrue(DspUpdatePlanner.speedCompensationKeepsPreampStable(boosted, steady, FORMAT))
+        assertEquals(
+            setOf(DspRuntimeField.SPEED_COMPENSATION),
+            DspUpdatePlanner.diff(boosted, steady),
+        )
+    }
+
+    private companion object {
+        val FORMAT = DspAudioFormat(sampleRate = 48_000, channels = 2)
+    }
 }

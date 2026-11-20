@@ -13,6 +13,7 @@
 #include "dsp_macro.h"
 #include "dsp_smart_loudness.h"
 #include "dsp_dynamic_bass.h"
+#include "dsp_speed_comp.h"
 
 #include <stddef.h>
 #include <stdatomic.h>
@@ -30,6 +31,7 @@
 #define DSP_ENGINE_HOT_FIELD_STUDIO 1u
 #define DSP_ENGINE_HOT_FIELD_DYNAMICS 2u
 #define DSP_ENGINE_HOT_FIELD_DYNAMIC_EQ 4u
+#define DSP_ENGINE_HOT_FIELD_SPEED_COMP 8u
 
 typedef struct {
     _Atomic unsigned long long sequence;
@@ -67,6 +69,7 @@ typedef struct {
     dsp_macro macro;
     dsp_smart_loudness smart_loudness;
     dsp_dynamic_bass dynamic_bass;
+    dsp_speed_comp speed_comp;
     double pending_studio_gain_db;
     float pending_studio_gain_linear;
     int studio_gain_refund_pending;
@@ -122,6 +125,8 @@ int dsp_graph_apply_hot(
     const dsp_dynamics_hot_params *dynamics_params,
     const dsp_dynamic_eq_hot_update *dynamic_eq_update);
 int dsp_graph_hot_transition_pending(const dsp_graph *graph);
+int dsp_graph_set_speed_comp_config(dsp_graph *graph, const dsp_speed_comp_config *config);
+int dsp_graph_apply_speed_comp_hot(dsp_graph *graph, const dsp_speed_comp_config *config);
 int dsp_graph_apply_preamp_hot(dsp_graph *graph, double gain_db, double gain_linear);
 int dsp_graph_prepare_local_peq(
     const dsp_graph *graph,

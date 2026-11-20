@@ -2995,6 +2995,247 @@ class DspRendererProductionPathTest {
 
     private fun readLastSample(bytes: ByteArray): Int = readSample(bytes, bytes.size - Short.SIZE_BYTES)
 
+    @Test
+    fun speedReserveChangeRebuildsThePipelineBeforeAnyBoostIsApplied() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val preparedPipelines = AtomicInteger()
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = initial,
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                preparedPipelines.incrementAndGet()
+                HotProcessor(audioFormat).also(processorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 2, sample = 300),
+                offset = 0,
+                length = 256,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+            val unattenuatedPreampDb = initial.prepare(DspAudioFormat(48_000, 2)).appliedPreampDb
+
+            val reserved = initial.withSpeedCompensation(
+                DspSpeedCompensationConfig(
+                    enabled = true,
+                    volumeGainDb = 2.0,
+                    lowGainDb = 1.0,
+                    reservedBoostDb = 6.8,
+                ),
+            )
+            provider.update(reserved)
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            awaitActivePipelineSwap(renderer, provider, generation = 1L)
+
+            // Claiming headroom must not go through the HOT path: the new preamp has to be part of
+            // the pipeline that carries the boost.
+            assertEquals(0, processorRef.get()?.hotUpdateEnqueueAttempts)
+            assertEquals(2, preparedPipelines.get())
+            val attenuatedPreampDb = reserved.prepare(DspAudioFormat(48_000, 2)).appliedPreampDb
+            assertTrue(
+                "reserving headroom should attenuate the preamp (was $unattenuatedPreampDb, now $attenuatedPreampDb)",
+                unattenuatedPreampDb - attenuatedPreampDb >= 6.0,
+            )
+            assertEquals(1L, renderer.dspGenerationForTesting)
+            assertFalse(renderer.hasPendingHotApplyForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun speedGainChangesWithAStableReserveStayHot() {
+        val initial = DspRuntimeConfig(enabled = true).withSpeedCompensation(
+            DspSpeedCompensationConfig(enabled = true, volumeGainDb = 1.0, reservedBoostDb = 6.8),
+        )
+        val provider = MutableConfigProvider(initial)
+        val preparedPipelines = AtomicInteger()
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 2),
+            initialConfig = initial,
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                preparedPipelines.incrementAndGet()
+                HotProcessor(audioFormat).also(processorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 2, sample = 300),
+                offset = 0,
+                length = 256,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+            val activePipeline = renderer.dspPipeline
+
+            provider.update(
+                initial.withSpeedCompensation(initial.speedCompensation.copy(volumeGainDb = 2.5)),
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 2, sample = 350),
+                offset = 0,
+                length = 256,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 164L,
+            )
+            awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation = 1L)
+
+            assertEquals(1, processorRef.get()?.hotUpdateEnqueueAttempts)
+            assertEquals("a stable reserve must not rebuild the pipeline", 1, preparedPipelines.get())
+            assertTrue(activePipeline === renderer.dspPipeline)
+            assertEquals(1L, renderer.dspGenerationForTesting)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun releasingTheReserveRebuildsThePipelineSoThePreampReturns() {
+        val reserved = DspRuntimeConfig(enabled = true).withSpeedCompensation(
+            DspSpeedCompensationConfig(enabled = true, reservedBoostDb = 6.8),
+        )
+        val provider = MutableConfigProvider(reserved)
+        val preparedPipelines = AtomicInteger()
+        val processorRef = AtomicReference<HotProcessor?>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1, sampleRate = 44_100),
+            initialConfig = reserved,
+            provider = provider,
+            pipelinePreparer = { audioFormat, _ ->
+                preparedPipelines.incrementAndGet()
+                HotProcessor(audioFormat).also(processorRef::set).let {
+                    DspPcmPipeline(audioFormat, it, forceInitialLatencySilence = false)
+                }
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.processDecodedPcmForTesting(
+                source = pcm16(frames = 64, channels = 1, sample = 300),
+                offset = 0,
+                length = 128,
+                decoderEncoding = AndroidAudioFormat.ENCODING_PCM_16BIT,
+                sourceSample = 100L,
+            )
+
+            provider.update(reserved.withSpeedCompensation(DspSpeedCompensationConfig.NEUTRAL))
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            awaitActivePipelineSwap(renderer, provider, generation = 1L)
+
+            assertEquals(0, processorRef.get()?.hotUpdateEnqueueAttempts)
+            assertEquals(2, preparedPipelines.get())
+            val format = DspAudioFormat(44_100, 1)
+            val releasedPreampDb = reserved.withSpeedCompensation(DspSpeedCompensationConfig.NEUTRAL)
+                .prepare(format).appliedPreampDb
+            val baselinePreampDb = DspRuntimeConfig(enabled = true).prepare(format).appliedPreampDb
+            assertEquals(
+                "releasing the reserve should refund the preamp",
+                baselinePreampDb,
+                releasedPreampDb,
+                1.0e-9,
+            )
+            assertTrue(reserved.prepare(format).appliedPreampDb < baselinePreampDb - 6.0)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    @Test
+    fun speedReserveChangeAppliesThePreampAttenuationWithinTheCrossfade() {
+        val initial = DspRuntimeConfig(enabled = true)
+        val provider = MutableConfigProvider(initial)
+        val graphFormat = DspAudioFormat(48_000, 1)
+        val written = CopyOnWriteArrayList<ByteArray>()
+        val renderer = renderer(
+            format = audioFormat(AudioCodecKind.LPCM, channels = 1),
+            initialConfig = initial,
+            provider = provider,
+            writeAdapter = { bytes, offset, length, _ ->
+                written.add(bytes.copyOfRange(offset, offset + length))
+                length
+            },
+            pipelinePreparer = { audioFormat, config ->
+                // Model the native graph: the pipeline applies the prepared preamp of its own
+                // config, which is what makes the reserve audible.
+                pipeline(audioFormat, latencyFrames = 0, gain = preampLinear(config, graphFormat))
+            },
+        )
+        try {
+            renderer.prepareLpcmPipelineForTesting()
+            renderer.beginTrackGenerationForTesting()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2_400) { 700 }), sample = 1_000)
+            val baselineLevel = readLastSample(written.last())
+            assertTrue("the baseline graph must pass audio", baselineLevel > 100)
+
+            val reserved = initial.withSpeedCompensation(
+                DspSpeedCompensationConfig(enabled = true, volumeGainDb = 0.0, reservedBoostDb = 6.8),
+            )
+            provider.update(reserved)
+            awaitApplyStatus(provider, DspRendererApplyPhase.PREPARED, generation = 1L)
+            awaitActivePipelineSwap(renderer, provider, generation = 1L)
+
+            // Measure a block written after the swap completed, not a partially faded one.
+            written.clear()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2_400) { 700 }), sample = 20_000)
+            val attenuatedLevel = readLastSample(written.last())
+            val measuredDb = 20.0 * kotlin.math.log10(attenuatedLevel.toDouble() / baselineLevel)
+            val expectedDb = reserved.prepare(graphFormat).appliedPreampDb - initial.prepare(graphFormat).appliedPreampDb
+            assertTrue(
+                "the reserve must attenuate the audible PCM level (measured $measuredDb dB, expected $expectedDb dB)",
+                measuredDb < -6.0,
+            )
+            assertEquals(
+                "the audible attenuation should match the prepared preamp",
+                expectedDb,
+                measuredDb,
+                1.0,
+            )
+            // The attenuation is a one-shot step: later blocks must stay at the attenuated level.
+            written.clear()
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(2_400) { 700 }), sample = 40_000)
+            assertEquals(attenuatedLevel.toDouble(), readLastSample(written.last()).toDouble(), 2.0)
+        } finally {
+            renderer.releaseForTesting()
+        }
+    }
+
+    private fun preampLinear(config: DspRuntimeConfig, format: DspAudioFormat): Float =
+        10.0.pow(config.prepare(format).appliedPreampDb / 20.0).toFloat()
+
+    /** A pipeline swap reports ACTIVE only after the crossfade has been written out. */
+    private fun awaitActivePipelineSwap(
+        renderer: AudioRenderer,
+        provider: MutableConfigProvider,
+        generation: Long,
+    ) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        var sample = 1_000L
+        while (System.nanoTime() < deadline) {
+            val status = provider.rendererApplyStatus()
+            if (status?.generation == generation && status.phase == DspRendererApplyPhase.ACTIVE) return
+            renderer.handleRtpForTesting(lpcmRtp(IntArray(64) { 300 }), sample = sample.toInt())
+            sample += 64
+        }
+        awaitApplyStatus(provider, DspRendererApplyPhase.ACTIVE, generation)
+    }
+
     private fun awaitApplyStatus(
         provider: MutableConfigProvider,
         phase: DspRendererApplyPhase,

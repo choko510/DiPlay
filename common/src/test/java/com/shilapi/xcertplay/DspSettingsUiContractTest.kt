@@ -7,13 +7,14 @@ import org.junit.Test
 
 class DspSettingsUiContractTest {
     @Test
-    fun studioNavigationExposesTheFiveProductTabsInOrder() {
+    fun studioNavigationExposesTheProductTabsInOrder() {
         assertEquals(
             listOf(
                 DspStudioTab.STUDIO,
                 DspStudioTab.EQ,
                 DspStudioTab.SPATIAL,
                 DspStudioTab.DYNAMICS,
+                DspStudioTab.SPEED,
                 DspStudioTab.ADVANCED,
             ),
             dspStudioTabs(),

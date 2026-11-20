@@ -84,6 +84,8 @@ import com.shilapi.xcertplay.dsp.DspStudioRestoreRequest
 import com.shilapi.xcertplay.dsp.DspStudioRestoreAcknowledgement
 import com.shilapi.xcertplay.dsp.evaluateStudioRestoreAcknowledgement
 import com.shilapi.xcertplay.dsp.DspSmartLoudnessPane
+import com.shilapi.xcertplay.dsp.DspSpeedCompensationPane
+import com.shilapi.xcertplay.dsp.DspSpeedCompensationPaneState
 import com.shilapi.xcertplay.dsp.DspDynamicBassSettingsPane
 import com.shilapi.xcertplay.dsp.DspEqEditorPane
 import com.shilapi.xcertplay.dsp.DspModulePresetPane
@@ -146,6 +148,7 @@ internal enum class DspStudioTab(val labelRes: Int) {
     EQ(R.string.dsp_studio_tab_eq),
     SPATIAL(R.string.dsp_studio_tab_spatial),
     DYNAMICS(R.string.dsp_studio_tab_dynamics),
+    SPEED(R.string.dsp_studio_tab_speed),
     ADVANCED(R.string.dsp_studio_tab_advanced),
 }
 
@@ -240,6 +243,7 @@ internal fun DspSettingsScreen(
     hostExitRequest: DspHostExitRequest? = null,
     onHostExitResolved: (DspHostExitRequest, DspHostExitResolution) -> Unit = { _, _ -> },
     onBack: () -> Unit,
+    onRequestLocationPermission: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val closeSettingsDescription = stringResource(R.string.dsp_close_settings)
@@ -292,6 +296,7 @@ internal fun DspSettingsScreen(
     val eqScrollState = rememberScrollState()
     val spatialScrollState = rememberScrollState()
     val dynamicsScrollState = rememberScrollState()
+    val speedScrollState = rememberScrollState()
     val advancedScrollState = rememberScrollState()
     val tabSaveableStateHolder = rememberSaveableStateHolder()
     val activeTabScrollState = when (compactSection) {
@@ -299,6 +304,7 @@ internal fun DspSettingsScreen(
         DspStudioTab.EQ -> eqScrollState
         DspStudioTab.SPATIAL -> spatialScrollState
         DspStudioTab.DYNAMICS -> dynamicsScrollState
+        DspStudioTab.SPEED -> speedScrollState
         DspStudioTab.ADVANCED -> advancedScrollState
     }
     var macroSettings by remember(studioSession) { mutableStateOf(studioSession.preview.macros) }
@@ -354,6 +360,8 @@ internal fun DspSettingsScreen(
     var bandTypeDialog by remember { mutableStateOf<Int?>(null) }
     var impulseResponseIds by remember(runtime) { mutableStateOf(runtime.availableImpulseResponseIds()) }
     var rendererApplyStatus by remember(runtime) { mutableStateOf(runtime.configProvider.rendererApplyStatus()) }
+    var speedSettings by remember(runtime) { mutableStateOf(runtime.speedCompensation.settings()) }
+    var speedStatus by remember(runtime) { mutableStateOf(runtime.speedCompensation.status()) }
     SideEffect {
         if (!studioOperationPending) {
             val candidate = studioSession.preview.copy(
@@ -387,11 +395,14 @@ internal fun DspSettingsScreen(
         }
     }
     LaunchedEffect(runtime, isVisible) {
+        // The manual test speed is a diagnostic of this screen; never let it outlive the view.
+        if (!isVisible) runtime.speedCompensation.setTestSpeed(null)
         if (isVisible) {
             while (true) {
                 rendererApplyStatus = runtime.configProvider.rendererApplyStatus()
                 volumeReading = runtime.studioVolumeReading()
                 playbackSampleRateHz = runtime.activePlaybackSampleRateHz()
+                speedStatus = runtime.speedCompensation.status()
                 delay(RENDERER_APPLY_STATUS_POLL_INTERVAL_MS)
             }
         }
@@ -787,6 +798,10 @@ internal fun DspSettingsScreen(
     val showEq = compactSection == DspStudioTab.EQ
     val showSpatial = compactSection == DspStudioTab.SPATIAL
     val showDynamics = compactSection == DspStudioTab.DYNAMICS
+    val showSpeed = compactSection == DspStudioTab.SPEED
+    DisposableEffect(runtime) {
+        onDispose { runtime.speedCompensation.setTestSpeed(null) }
+    }
     val showAdvanced = compactSection == DspStudioTab.ADVANCED && advanced
     val compactHeightCap = LocalConfiguration.current.screenHeightDp.coerceAtLeast(1).dp
     val compactBodyConstraint = if (compact) {
@@ -1149,6 +1164,34 @@ internal fun DspSettingsScreen(
                     )
                 } else {
                     Text(stringResource(R.string.dsp_dynamic_bass_disabled), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            if (showSpeed) {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    DspSpeedCompensationPane(
+                        settings = speedSettings,
+                        state = DspSpeedCompensationPaneState(
+                            status = speedStatus,
+                            rendererStatus = rendererApplyStatus,
+                            dspMasterEnabled = dspEnabled,
+                            autoHeadroomEnabled = profile.autoHeadroomEnabled,
+                        ),
+                        enabled = !operationPending,
+                        onSettingsChange = { updated ->
+                            speedSettings = updated
+                            runtime.speedCompensation.previewSettings(updated)
+                        },
+                        onSettingsChangeFinished = {
+                            runtime.speedCompensation.updateSettings(speedSettings)
+                        },
+                        onReset = {
+                            runtime.speedCompensation.resetSettings()
+                            speedSettings = runtime.speedCompensation.settings()
+                        },
+                        onTestSpeedChange = { speed -> runtime.speedCompensation.setTestSpeed(speed) },
+                        onRequestLocationPermission = onRequestLocationPermission,
+                    )
                 }
             }
 

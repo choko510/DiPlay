@@ -243,6 +243,7 @@ internal data class DspPreparedConfig(
     val macroTone: DoubleArray,
     val smartLoudness: DoubleArray,
     val dynamicBass: DoubleArray,
+    val speedCompensation: DoubleArray,
     val headroom: DspHeadroomResult,
 )
 
@@ -264,6 +265,7 @@ internal data class DspPreparedHotUpdate(
     val dynamicEqValues: DoubleArray = DoubleArray(DYNAMIC_EQ_VALUES_COUNT),
     val dynamicsCoefficients: DoubleArray = DoubleArray(DYNAMICS_COEFFICIENTS_COUNT),
     val dynamicEqCoefficients: DoubleArray = DoubleArray(DYNAMIC_EQ_COEFFICIENTS_COUNT),
+    val speedCompensationValues: DoubleArray = DoubleArray(DspSpeedCompensationConfig.NATIVE_VALUE_COUNT),
     val appliedPreampLinear: Double = 10.0.pow(appliedPreampDb / 20.0),
 ) {
     val gainPairIsConsistent: Boolean = run {
@@ -278,6 +280,7 @@ internal data class DspPreparedHotUpdate(
         const val HOT_FIELD_STUDIO = 1
         const val HOT_FIELD_DYNAMICS = 2
         const val HOT_FIELD_DYNAMIC_EQ = 4
+        const val HOT_FIELD_SPEED_COMP = 8
         const val DYNAMICS_VALUES_COUNT = 10
         const val DYNAMIC_EQ_VALUES_COUNT = 51
         const val DYNAMICS_COEFFICIENTS_COUNT = 5
@@ -392,6 +395,7 @@ internal fun DspRuntimeConfig.prepareHotUpdate(
         dynamicEqValues = prepared.dynamicEq,
         dynamicsCoefficients = prepared.dynamicsHotCoefficients(format.sampleRate),
         dynamicEqCoefficients = prepared.dynamicEqHotCoefficients(format.sampleRate),
+        speedCompensationValues = prepared.speedCompensation,
         appliedPreampLinear = 10.0.pow(prepared.appliedPreampDb / 20.0),
     )
 }
@@ -476,7 +480,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             } else {
                 0.0
             },
-            dynamicBoostDb = studioToneBoostDb + (if (rateSafeDynamicEq.enabled) {
+            dynamicBoostDb = studioToneBoostDb + speedCompensation.reservedBoostDb + (if (rateSafeDynamicEq.enabled) {
                 rateSafeDynamicEq.bands.filter { it.enabled && it.mode == DspDynamicEqMode.BOOST }
                     .sumOf(DspDynamicEqBandConfig::maxBoostDb)
             } else {
@@ -593,6 +597,7 @@ internal fun DspRuntimeConfig.prepare(format: DspAudioFormat): DspPreparedConfig
             dynamicBass.attackMs,
             dynamicBass.releaseMs,
         ),
+        speedCompensation = speedCompensation.nativeValues(),
         headroom = headroom,
     )
 }

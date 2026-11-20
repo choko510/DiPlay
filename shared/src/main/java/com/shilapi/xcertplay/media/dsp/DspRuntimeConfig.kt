@@ -24,6 +24,7 @@ class DspRuntimeConfig(
     val macroTone: DspMacroToneConfig = DspMacroToneConfig(),
     val smartLoudness: DspSmartLoudnessRuntimeConfig = DspSmartLoudnessRuntimeConfig(),
     val dynamicBass: DspDynamicBassRuntimeConfig = DspDynamicBassRuntimeConfig(),
+    val speedCompensation: DspSpeedCompensationConfig = DspSpeedCompensationConfig(),
 ) {
     val peqBands: List<DspEqBand> = Collections.unmodifiableList(ArrayList(peqBands))
 
@@ -32,6 +33,30 @@ class DspRuntimeConfig(
 
     val preampDb: Double
         get() = gainDb
+
+    fun withSpeedCompensation(speedCompensation: DspSpeedCompensationConfig): DspRuntimeConfig = DspRuntimeConfig(
+        enabled = enabled,
+        gainDb = gainDb,
+        peqBands = peqBands,
+        autoHeadroomEnabled = autoHeadroomEnabled,
+        autoHeadroomMarginDb = autoHeadroomMarginDb,
+        bass = bass,
+        compressor = compressor,
+        safetyLimiter = safetyLimiter,
+        seatAlignment = seatAlignment,
+        stereoWidth = stereoWidth,
+        monoBass = monoBass,
+        convolver = convolver,
+        multiband = multiband,
+        dynamicEq = dynamicEq,
+        advancedMs = advancedMs,
+        cabinCorrection = cabinCorrection,
+        harmonic = harmonic,
+        macroTone = macroTone,
+        smartLoudness = smartLoudness,
+        dynamicBass = dynamicBass,
+        speedCompensation = speedCompensation,
+    )
 
     internal fun withConvolver(convolver: DspConvolverConfig): DspRuntimeConfig = DspRuntimeConfig(
         enabled = enabled,
@@ -54,6 +79,7 @@ class DspRuntimeConfig(
         macroTone = macroTone,
         smartLoudness = smartLoudness,
         dynamicBass = dynamicBass,
+        speedCompensation = speedCompensation,
     )
 
     internal fun canApplyStudioHotUpdateTo(other: DspRuntimeConfig): Boolean {
@@ -61,7 +87,8 @@ class DspRuntimeConfig(
         return enabled && other.enabled && changed.isNotEmpty() && changed.all {
             it == DspRuntimeField.MACRO_TONE || it == DspRuntimeField.SMART_LOUDNESS ||
                 it == DspRuntimeField.DYNAMIC_BASS || it == DspRuntimeField.COMPRESSOR ||
-                it == DspRuntimeField.LIMITER || it == DspRuntimeField.DYNAMIC_EQ
+                it == DspRuntimeField.LIMITER || it == DspRuntimeField.DYNAMIC_EQ ||
+                it == DspRuntimeField.SPEED_COMPENSATION
         } && DspUpdatePlanner.canHotDynamics(this, other) && DspUpdatePlanner.canHotDynamicEq(this, other)
     }
 
@@ -124,6 +151,7 @@ internal fun DspRuntimeConfig.failureFallbackPreampDb(format: DspAudioFormat): D
     val stereoWidthDb = if (advancedMs.enabled) 0.0 else 20.0 * log10(maxOf(1.0, combinedWidth))
     val studioToneBoostDb = macroTone.conservativeBoostDb() + smartLoudness.conservativeBoostDb()
     val dynamicBassBoostDb = if (dynamicBass.enabled) dynamicBass.maxBoostDb * dynamicBass.strength else 0.0
+    val speedCompensationBoostDb = speedCompensation.reservedBoostDb
     val advancedMsBoostDb = advancedMs.worstCaseBoostDb
     val harmonicBoostDb = harmonic.worstCaseBoostDb.coerceAtLeast(0.0)
     val convolverBoostDb = convolver.impulseResponse
@@ -133,7 +161,7 @@ internal fun DspRuntimeConfig.failureFallbackPreampDb(format: DspAudioFormat): D
     val worstCasePeakDb = gainDb + eqBoostDb + bassBoostDb + compressorMakeupDb +
         multibandMakeupDb + dynamicBoostDb + seatTrimDb + stereoWidthDb +
         studioToneBoostDb + dynamicBassBoostDb + advancedMsBoostDb + harmonicBoostDb +
-        convolverBoostDb + autoHeadroomMarginDb
+        convolverBoostDb + speedCompensationBoostDb + autoHeadroomMarginDb
     val reductionDb = worstCasePeakDb.coerceAtLeast(0.0)
     return (gainDb - reductionDb).coerceIn(-700.0, 0.0)
 }

@@ -14,6 +14,11 @@
 
 ## P1 — 計測してから判断
 
+- [ ] 車速連動オーディオ（Draft PR）をTS10/K706実機で受入れ: GPSのみでの速度取得（トンネル・停車・低速でのヒステリシス）、音量/EQ変化の聴感（ポップ・段差なし）、通話/ナビ/アシスタントに適用されないこと、CPU負荷、バックグラウンド再生中にヘッドルームが解放されること。
+- [ ] 車速連動のバックグラウンド測位: `DiPlaySessionService` の Foreground Service type に `location` を追加し、Android 8+/14+ の制限下でActivity停止中も測位更新が継続することを実機確認（現状は購読オブジェクトが残るだけでOSが配信を止め得る）。
+- [ ] 車速連動のGPS購読を既存 `AndroidCarPlayLocationProvider` と共有するか判断（現在は機能別に別購読。同時有効時は購読2本）。
+- [ ] 車速カーブの速度ポイント編集UI、および要求世代と適用世代を区別した表示は未実装。
+
 - [ ] 音声192-packet drop-newest方針の変更は同一端末A/Bで遅延・欠落・再接続を比較してから。
 - [ ] 動画の `receivedToCodecSurfaceReleaseMs` と**実表示遅延**を分け、MAIN/ALT、復旧、CPU/GC/FD/soakを記録。Surface recoveryは証拠が揃うまでdefault-off。ログ処理の最適化も実測後。
 - [ ] NCM `AUTO` / `NO_STATUS_POLLING` のfirst-frame・`SCREEN_STREAM_OPENED`・timeoutを同端末で比較。

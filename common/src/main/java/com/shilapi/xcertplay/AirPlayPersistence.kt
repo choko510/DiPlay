@@ -1,6 +1,7 @@
 package com.shilapi.xcertplay
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Build
 import androidx.core.content.edit
 import com.shilapi.xcertplay.airplay.AirPlayDisplaySettings
@@ -18,6 +19,7 @@ import com.shilapi.xcertplay.orchestration.MfiTarget
 import com.shilapi.xcertplay.orchestration.WirelessHotspotMode
 import com.shilapi.xcertplay.transport.LockdownPairRecord
 import java.io.File
+import java.security.MessageDigest
 
 /** SharedPreferences persistence for the accessory identity and paired controllers. */
 object AirPlayPersistence {
@@ -26,15 +28,31 @@ object AirPlayPersistence {
     private const val KEY_IDENT_PUBLIC = "identity_public"
     private const val KEY_PAIRING_ID = "pairing_id"
     private const val KEY_PAIRING_IDS = "pairing_ids"
-    private const val KEY_LOCKDOWN_HOST_ID = "lockdown_host_id"
-    private const val KEY_LOCKDOWN_SYSTEM_BUID = "lockdown_system_buid"
-    private const val KEY_LOCKDOWN_WIFI_MAC = "lockdown_wifi_mac"
-    private const val KEY_LOCKDOWN_DEVICE_PUBLIC = "lockdown_device_public"
-    private const val KEY_LOCKDOWN_DEVICE_CERT = "lockdown_device_cert"
-    private const val KEY_LOCKDOWN_HOST_PRIVATE = "lockdown_host_private"
-    private const val KEY_LOCKDOWN_HOST_CERT = "lockdown_host_cert"
-    private const val KEY_LOCKDOWN_ROOT_PRIVATE = "lockdown_root_private"
-    private const val KEY_LOCKDOWN_ROOT_CERT = "lockdown_root_cert"
+    private const val KEY_LOCKDOWN_RECORD_IDS = "lockdown_record_ids"
+    private const val MAX_LOCKDOWN_RECORDS = 8
+
+    /**
+     * The record an older build saved, kept aside when it disagrees with the per-iPhone copy. It is
+     * never offered as the active record: only [promoteLegacyLockdownRecord] turns it into one.
+     */
+    private const val RETAINED_PREFIX = "lockdown_retained."
+
+    /** Serializes the read-modify-write of the id list with the records it names. */
+    private val lockdownStoreLock = Any()
+    private val LOCKDOWN_RECORD_ID_PATTERN = Regex("^[0-9a-f]{64}$")
+
+    /** Stored per iPhone as `lockdown.<id>.<field>`; older builds kept one record as `lockdown_<field>`. */
+    private val LOCKDOWN_RECORD_FIELDS = listOf(
+        "host_id",
+        "system_buid",
+        "wifi_mac",
+        "device_public",
+        "device_cert",
+        "host_private",
+        "host_cert",
+        "root_private",
+        "root_cert",
+    )
     private const val KEY_DISPLAY_SCALE_TENTHS = "display_scale_tenths"
     private const val KEY_UI_SCALE_PERCENT = "ui_scale_percent"
     private const val KEY_HEVC_ENABLED = "hevc_enabled"
@@ -580,61 +598,307 @@ object AirPlayPersistence {
             .apply()
     }
 
-    fun loadLockdownRecord(context: Context): LockdownPairRecord? {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val hostId = prefs.getString(KEY_LOCKDOWN_HOST_ID, null) ?: return null
-        val systemBuid = prefs.getString(KEY_LOCKDOWN_SYSTEM_BUID, null) ?: return null
-        val wifiMac = prefs.getString(KEY_LOCKDOWN_WIFI_MAC, null) ?: return null
-        val devicePublic = prefs.getString(KEY_LOCKDOWN_DEVICE_PUBLIC, null) ?: return null
-        val deviceCert = prefs.getString(KEY_LOCKDOWN_DEVICE_CERT, null) ?: return null
-        val hostPrivate = prefs.getString(KEY_LOCKDOWN_HOST_PRIVATE, null) ?: return null
-        val hostCert = prefs.getString(KEY_LOCKDOWN_HOST_CERT, null) ?: return null
-        val rootPrivate = prefs.getString(KEY_LOCKDOWN_ROOT_PRIVATE, null) ?: return null
-        val rootCert = prefs.getString(KEY_LOCKDOWN_ROOT_CERT, null) ?: return null
-        return try {
-            LockdownPairRecord.restore(
-                hostId = hostId,
-                systemBuid = systemBuid,
-                wifiMacAddress = wifiMac,
-                devicePublicKeyPem = devicePublic.decodeHex(),
-                deviceCertificatePem = deviceCert.decodeHex(),
-                hostPrivateKeyPem = hostPrivate.decodeHex(),
-                hostCertificatePem = hostCert.decodeHex(),
-                rootPrivateKeyPem = rootPrivate.decodeHex(),
-                rootCertificatePem = rootCert.decodeHex(),
-            )
-        } catch (_: Exception) {
-            null
+    /**
+     * Wired Lockdown pair records, one per iPhone under a fingerprint of its DevicePublicKey, so that
+     * two drivers' iPhones never replace each other's trust.
+     *
+     * [KEY_LOCKDOWN_RECORD_IDS] lists the ids most recently used first, and at most
+     * [MAX_LOCKDOWN_RECORDS] records are kept. Callers save a new record and call
+     * [markLockdownRecordUsed] only once a CarKit connection opened, so a failed attempt neither
+     * evicts another iPhone's record nor counts as recent use.
+     */
+    fun loadLockdownRecord(context: Context, devicePublicKeyPem: ByteArray): LockdownPairRecord? =
+        synchronized(lockdownStoreLock) {
+            val prefs = lockdownPrefs(context)
+            val id = lockdownRecordId(devicePublicKeyPem)
+            if (id !in lockdownRecordIds(prefs)) return@synchronized null
+            readLockdownRecordById(prefs, id)
+        }
+
+    /** The most recently used record: what releases up to 0.2.22 offered every iPhone. */
+    fun loadNewestLockdownRecord(context: Context): LockdownPairRecord? =
+        synchronized(lockdownStoreLock) {
+            val prefs = lockdownPrefs(context)
+            lockdownRecordIds(prefs).firstNotNullOfOrNull { id -> readLockdownRecordById(prefs, id) }
+        }
+
+    fun saveLockdownRecord(context: Context, record: LockdownPairRecord) {
+        synchronized(lockdownStoreLock) { saveLockdownRecord(lockdownPrefs(context), record) }
+    }
+
+    /**
+     * The record the older build saved, when it belongs to [devicePublicKeyPem]'s iPhone.
+     *
+     * The migration keeps that copy when it disagrees with the stored one, so a rejected stored
+     * copy does not have to cost the owner another Trust prompt: the caller may open it and, if it
+     * works, [promoteLegacyLockdownRecord] it. It is offered only for the iPhone it belongs to.
+     */
+    fun loadLegacyLockdownRecord(context: Context, devicePublicKeyPem: ByteArray): LockdownPairRecord? =
+        synchronized(lockdownStoreLock) {
+            val prefs = lockdownPrefs(context)
+            val id = lockdownRecordId(devicePublicKeyPem)
+            val retained = readRetainedLockdownRecord(prefs) ?: return@synchronized null
+            retained.takeIf { lockdownRecordId(it.devicePublicKeyPem) == id }
+        }
+
+    /**
+     * Stores [record] as this iPhone's per-iPhone copy and drops the retained copy in one edit, after
+     * a CarKit connection proved the retained record works. One [SharedPreferences.Editor.commit]
+     * replaces the whole store file, so a crash leaves either the old state (retained copy, no
+     * stored copy) or the new one (stored copy, no retained copy). Returns true when the stored copy
+     * is readable afterwards; false leaves the retained copy for the next attempt.
+     */
+    fun promoteLegacyLockdownRecord(context: Context, record: LockdownPairRecord): Boolean =
+        synchronized(lockdownStoreLock) {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val id = lockdownRecordId(record.devicePublicKeyPem)
+            val ids = listOf(id) + lockdownRecordIds(prefs)
+                .filter { it != id && readLockdownRecordById(prefs, it) != null }
+            val kept = ids.take(MAX_LOCKDOWN_RECORDS)
+            val editor = prefs.edit()
+            ids.drop(MAX_LOCKDOWN_RECORDS).forEach { removeLockdownRecord(editor, it) }
+            putLockdownRecord(editor, "lockdown.$id.", record)
+            removeRetainedLockdownRecord(editor)
+            editor.putString(KEY_LOCKDOWN_RECORD_IDS, kept.joinToString(","))
+            if (!editor.commit()) return@synchronized false
+            readLockdownRecordById(prefs, id)?.sameRecordAs(record) == true
+        }
+
+    /**
+     * Moves a stored record to the front of the list without touching its keys or certificates.
+     * A record that is not stored, or no longer usable, is left alone. Callers use this only for a
+     * connection that opened, so recency never follows a rejected or failed record.
+     */
+    fun markLockdownRecordUsed(context: Context, devicePublicKeyPem: ByteArray) {
+        synchronized(lockdownStoreLock) {
+            val prefs = lockdownPrefs(context)
+            val id = lockdownRecordId(devicePublicKeyPem)
+            val ids = lockdownRecordIds(prefs)
+            if (id !in ids || readLockdownRecordById(prefs, id) == null) return
+            val reordered = listOf(id) + (ids - id)
+            if (reordered != ids) writeLockdownRecordIds(prefs, reordered)
+            // A connection proved this iPhone's stored record works, so a copy that the migration
+            // kept aside for the same iPhone is no longer needed. apply(), not commit(): this runs
+            // while the wired attempt lock is held.
+            val retained = readRetainedLockdownRecord(prefs)
+            if (retained != null && lockdownRecordId(retained.devicePublicKeyPem) == id) {
+                removeRetainedLockdownRecord(prefs.edit(), commit = false)
+            }
         }
     }
 
-    fun saveLockdownRecord(context: Context, record: LockdownPairRecord) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_LOCKDOWN_HOST_ID, record.hostId)
-            .putString(KEY_LOCKDOWN_SYSTEM_BUID, record.systemBuid)
-            .putString(KEY_LOCKDOWN_WIFI_MAC, record.wifiMacAddress)
-            .putString(KEY_LOCKDOWN_DEVICE_PUBLIC, record.devicePublicKeyPem.toHex())
-            .putString(KEY_LOCKDOWN_DEVICE_CERT, record.deviceCertificatePem.toHex())
-            .putString(KEY_LOCKDOWN_HOST_PRIVATE, record.hostPrivateKeyPem.toHex())
-            .putString(KEY_LOCKDOWN_HOST_CERT, record.hostCertificatePem.toHex())
-            .putString(KEY_LOCKDOWN_ROOT_PRIVATE, record.rootPrivateKeyPem.toHex())
-            .putString(KEY_LOCKDOWN_ROOT_CERT, record.rootCertificatePem.toHex())
-            .apply()
+    fun clearLockdownRecord(context: Context, devicePublicKeyPem: ByteArray) {
+        synchronized(lockdownStoreLock) {
+            val prefs = lockdownPrefs(context)
+            val id = lockdownRecordId(devicePublicKeyPem)
+            val editor = prefs.edit()
+            removeLockdownRecord(editor, id)
+            editor.putString(KEY_LOCKDOWN_RECORD_IDS, (lockdownRecordIds(prefs) - id).joinToString(",")).apply()
+        }
     }
 
-    fun clearLockdownRecord(context: Context) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .remove(KEY_LOCKDOWN_HOST_ID)
-            .remove(KEY_LOCKDOWN_SYSTEM_BUID)
-            .remove(KEY_LOCKDOWN_WIFI_MAC)
-            .remove(KEY_LOCKDOWN_DEVICE_PUBLIC)
-            .remove(KEY_LOCKDOWN_DEVICE_CERT)
-            .remove(KEY_LOCKDOWN_HOST_PRIVATE)
-            .remove(KEY_LOCKDOWN_HOST_CERT)
-            .remove(KEY_LOCKDOWN_ROOT_PRIVATE)
-            .remove(KEY_LOCKDOWN_ROOT_CERT)
-            .apply()
+    /**
+     * Moves the single record of older builds under its iPhone's id and converts the store to the
+     * per-iPhone layout.
+     *
+     * The flat keys are only removed once the per-iPhone copy is known to be at least as good as
+     * what the older build saved: it must restore, carry the legacy record's own fingerprint, and
+     * either be byte-for-byte the same record or be written from the legacy record. A copy that
+     * restores but disagrees keeps the older record in [RETAINED_PREFIX] instead of discarding it,
+     * so a wrong HostID or damaged key cannot destroy a working record; a later connection either
+     * promotes it or retires it. Every write here is a [SharedPreferences.Editor.commit], and a
+     * failed write keeps the flat keys for the next start. Only a legacy record that cannot be
+     * restored at all is dropped.
+     */
+    private fun lockdownPrefs(context: Context): SharedPreferences {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!hasLegacyLockdownRecord(prefs)) return prefs
+        val legacy = readLegacyLockdownRecord(prefs)
+        if (legacy == null) {
+            removeLegacyLockdownRecord(prefs)
+            return prefs
+        }
+        val id = lockdownRecordId(legacy.devicePublicKeyPem)
+        val stored = readLockdownRecordById(prefs, id)
+        when {
+            stored == null -> {
+                if (!saveLockdownRecord(prefs, legacy, commit = true)) return prefs
+                if (readLockdownRecordById(prefs, id) == null) return prefs
+                removeLegacyLockdownRecord(prefs)
+            }
+            stored.sameRecordAs(legacy) -> {
+                if (!writeLockdownRecordIds(prefs, listOf(id) + (lockdownRecordIds(prefs) - id), commit = true)) {
+                    return prefs
+                }
+                removeLegacyLockdownRecord(prefs)
+            }
+            else -> retainLegacyLockdownRecord(prefs, legacy, id)
+        }
+        return prefs
     }
+
+    /**
+     * Keeps the older build's record aside when it disagrees with the per-iPhone copy. The copy is
+     * moved to [RETAINED_PREFIX] in the same edit that registers the id and drops the flat keys, so
+     * the migration runs once and can never put a retired record back into service by itself.
+     */
+    private fun retainLegacyLockdownRecord(
+        prefs: SharedPreferences,
+        legacy: LockdownPairRecord,
+        id: String,
+    ) {
+        val ids = (listOf(id) + lockdownRecordIds(prefs)).distinct().take(MAX_LOCKDOWN_RECORDS)
+        val editor = prefs.edit()
+        putLockdownRecord(editor, RETAINED_PREFIX, legacy)
+        LOCKDOWN_RECORD_FIELDS.forEach { editor.remove("lockdown_$it") }
+        editor.putString(KEY_LOCKDOWN_RECORD_IDS, ids.joinToString(","))
+        editor.commit()
+    }
+
+    private fun hasLegacyLockdownRecord(prefs: SharedPreferences): Boolean =
+        LOCKDOWN_RECORD_FIELDS.any { prefs.contains("lockdown_$it") }
+
+    private fun readLegacyLockdownRecord(prefs: SharedPreferences): LockdownPairRecord? =
+        readLockdownRecord(prefs) { field -> "lockdown_$field" }
+
+    private fun readRetainedLockdownRecord(prefs: SharedPreferences): LockdownPairRecord? =
+        readLockdownRecord(prefs) { field -> "$RETAINED_PREFIX$field" }
+
+    private fun removeLegacyLockdownRecord(prefs: SharedPreferences, commit: Boolean = true) {
+        val editor = prefs.edit()
+        LOCKDOWN_RECORD_FIELDS.forEach { editor.remove("lockdown_$it") }
+        if (commit) {
+            editor.commit()
+        } else {
+            editor.apply()
+        }
+    }
+
+    private fun removeRetainedLockdownRecord(editor: SharedPreferences.Editor, commit: Boolean = true) {
+        LOCKDOWN_RECORD_FIELDS.forEach { editor.remove("$RETAINED_PREFIX$it") }
+        if (commit) {
+            editor.commit()
+        } else {
+            editor.apply()
+        }
+    }
+
+    private fun LockdownPairRecord.sameRecordAs(other: LockdownPairRecord): Boolean =
+        hostId == other.hostId &&
+            systemBuid == other.systemBuid &&
+            wifiMacAddress == other.wifiMacAddress &&
+            devicePublicKeyPem.contentEquals(other.devicePublicKeyPem) &&
+            deviceCertificatePem.contentEquals(other.deviceCertificatePem) &&
+            hostPrivateKeyPem.contentEquals(other.hostPrivateKeyPem) &&
+            hostCertificatePem.contentEquals(other.hostCertificatePem) &&
+            rootPrivateKeyPem.contentEquals(other.rootPrivateKeyPem) &&
+            rootCertificatePem.contentEquals(other.rootCertificatePem)
+
+    /** Returns false only when a requested [commit] failed, which leaves the store as it was. */
+    private fun saveLockdownRecord(
+        prefs: SharedPreferences,
+        record: LockdownPairRecord,
+        commit: Boolean = false,
+    ): Boolean {
+        val id = lockdownRecordId(record.devicePublicKeyPem)
+        val ids = listOf(id) + lockdownRecordIds(prefs)
+            .filter { it != id && readLockdownRecordById(prefs, it) != null }
+        val kept = ids.take(MAX_LOCKDOWN_RECORDS)
+        val editor = prefs.edit()
+        ids.drop(MAX_LOCKDOWN_RECORDS).forEach { removeLockdownRecord(editor, it) }
+        putLockdownRecord(editor, "lockdown.$id.", record)
+        editor.putString(KEY_LOCKDOWN_RECORD_IDS, kept.joinToString(","))
+        return if (commit) {
+            editor.commit()
+        } else {
+            editor.apply()
+            true
+        }
+    }
+
+    /**
+     * The record stored under [id], and only if it still belongs to that id: a copy whose
+     * `device_public` no longer hashes to [id] is treated as absent rather than used.
+     */
+    private fun readLockdownRecordById(prefs: SharedPreferences, id: String): LockdownPairRecord? {
+        if (!LOCKDOWN_RECORD_ID_PATTERN.matches(id)) return null
+        val record = readLockdownRecord(prefs) { field -> "lockdown.$id.$field" } ?: return null
+        return record.takeIf { lockdownRecordId(it.devicePublicKeyPem) == id }
+    }
+
+    private fun readLockdownRecord(prefs: SharedPreferences, key: (String) -> String): LockdownPairRecord? =
+        try {
+            val values = LOCKDOWN_RECORD_FIELDS.associateWith { field ->
+                prefs.getString(key(field), null) ?: return null
+            }
+            LockdownPairRecord.restore(
+                hostId = values.getValue("host_id"),
+                systemBuid = values.getValue("system_buid"),
+                wifiMacAddress = values.getValue("wifi_mac"),
+                devicePublicKeyPem = values.getValue("device_public").decodeHex(),
+                deviceCertificatePem = values.getValue("device_cert").decodeHex(),
+                hostPrivateKeyPem = values.getValue("host_private").decodeHex(),
+                hostCertificatePem = values.getValue("host_cert").decodeHex(),
+                rootPrivateKeyPem = values.getValue("root_private").decodeHex(),
+                rootCertificatePem = values.getValue("root_cert").decodeHex(),
+            )
+        } catch (_: Exception) {
+            // Includes a value stored under an unexpected type, which SharedPreferences reports as a
+            // ClassCastException from getString().
+            null
+        }
+
+    private fun putLockdownRecord(editor: SharedPreferences.Editor, keyPrefix: String, record: LockdownPairRecord) {
+        fun key(field: String) = "$keyPrefix$field"
+        editor
+            .putString(key("host_id"), record.hostId)
+            .putString(key("system_buid"), record.systemBuid)
+            .putString(key("wifi_mac"), record.wifiMacAddress)
+            .putString(key("device_public"), record.devicePublicKeyPem.toHex())
+            .putString(key("device_cert"), record.deviceCertificatePem.toHex())
+            .putString(key("host_private"), record.hostPrivateKeyPem.toHex())
+            .putString(key("host_cert"), record.hostCertificatePem.toHex())
+            .putString(key("root_private"), record.rootPrivateKeyPem.toHex())
+            .putString(key("root_cert"), record.rootCertificatePem.toHex())
+    }
+
+    private fun removeLockdownRecord(editor: SharedPreferences.Editor, id: String) {
+        if (!LOCKDOWN_RECORD_ID_PATTERN.matches(id)) return
+        LOCKDOWN_RECORD_FIELDS.forEach { editor.remove("lockdown.$id.$it") }
+    }
+
+    /** Most recently used first; unknown or duplicated ids in the stored string are ignored. */
+    private fun lockdownRecordIds(prefs: SharedPreferences): List<String> =
+        try {
+            prefs.getString(KEY_LOCKDOWN_RECORD_IDS, null)
+                ?.split(',')
+                ?.filter { LOCKDOWN_RECORD_ID_PATTERN.matches(it) }
+                ?.distinct()
+                ?.take(MAX_LOCKDOWN_RECORDS)
+                ?: emptyList()
+        } catch (_: Exception) {
+            // A value stored under an unexpected type is treated as no list at all.
+            emptyList()
+        }
+
+    /** Returns false only when a requested [commit] failed. */
+    private fun writeLockdownRecordIds(
+        prefs: SharedPreferences,
+        ids: List<String>,
+        commit: Boolean = false,
+    ): Boolean {
+        val editor = prefs.edit()
+            .putString(KEY_LOCKDOWN_RECORD_IDS, ids.take(MAX_LOCKDOWN_RECORDS).joinToString(","))
+        return if (commit) {
+            editor.commit()
+        } else {
+            editor.apply()
+            true
+        }
+    }
+
+    private fun lockdownRecordId(devicePublicKeyPem: ByteArray): String =
+        MessageDigest.getInstance("SHA-256").digest(devicePublicKeyPem).toHex()
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
 

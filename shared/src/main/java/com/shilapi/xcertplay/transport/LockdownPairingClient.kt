@@ -124,9 +124,14 @@ class LockdownPairingClient(
         label: String,
         deadline: Deadline,
         isCancelled: () -> Boolean,
-    ): ByteArray =
-        (getValue(channel, label, "DevicePublicKey", deadline, isCancelled) as? LockdownPlistValue.Data)?.bytes
+    ): ByteArray {
+        val value = getValue(channel, label, "DevicePublicKey", deadline, isCancelled)
+            as? LockdownPlistValue.Data
             ?: throw LockdownPairingException.InvalidResponse("DevicePublicKey was not data")
+        // An empty key cannot identify an iPhone, so it is reported as a bad response rather than hashed.
+        if (value.bytes.isEmpty()) throw LockdownPairingException.InvalidResponse("DevicePublicKey was empty")
+        return value.bytes
+    }
 
     private fun generatePairRecord(
         channel: LockdownPlistChannel,

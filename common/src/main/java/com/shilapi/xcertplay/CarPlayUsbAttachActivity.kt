@@ -47,6 +47,7 @@ class CarPlayUsbAttachActivity : Activity() {
             )
         ) {
             startActivity(CarPlayHostActions.createInternalIntent(this, CarPlayHostActions.USB_DEVICE_ATTACHED))
+            AutoConnectCoordinator.shared.onExternalSessionStart()
         }
         finish()
     }

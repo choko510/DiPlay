@@ -658,6 +658,13 @@ class CarPlayHostActivity : ComponentActivity() {
     private val restartAfterReconnectDelay = Runnable {
         val reason = scheduledReconnectReason ?: return@Runnable
         val ticket = scheduledReconnectTicket ?: return@Runnable
+        if (AutoConnectCoordinator.shared.suppressesHostRecovery(DiPlayPreferences.autoConnect(this))) {
+            reconnectAfterLossGate.cancel(ticket)
+            scheduledReconnectReason = null
+            scheduledReconnectTicket = null
+            appendLog("Auto-connect recovery changed; scheduled retry cancelled")
+            return@Runnable
+        }
         scheduledReconnectReason = null
         scheduledReconnectTicket = null
         val hasActiveSession = controller?.currentAirPlaySession()?.isClosed == false

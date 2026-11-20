@@ -136,7 +136,11 @@ internal class AutoConnectCoordinator(
     private var blockedReason: AutoConnectSkipReason? = null
     private var manualConnectAtMillis: Long? = null
     private var observedActive = false
+    private var observedHadActiveSession = false
     private var autoStarted = false
+    private var lastStartedKey: String? = null
+    private var terminalKey: String? = null
+    private var hostLaunchDispatched = false
 
     @Synchronized
     fun currentState(): AutoConnectState = state
@@ -151,10 +155,12 @@ internal class AutoConnectCoordinator(
         autoStarted = false
         userDisconnected = false
         blockedReason = null
+        terminalKey = null
         active = null
         attempts = 0
         retryAtMillis = 0L
         manualConnectAtMillis = now
+        hostLaunchDispatched = false
         state = AutoConnectState.IDLE
         log("event=EXPLICIT_CONNECT state=IDLE")
     }
@@ -165,21 +171,50 @@ internal class AutoConnectCoordinator(
         autoStarted = false
         userDisconnected = true
         blockedReason = null
+        terminalKey = null
         active = null
         attempts = 0
         retryAtMillis = 0L
         manualConnectAtMillis = null
+        hostLaunchDispatched = false
         state = AutoConnectState.SUPPRESSED
         log("event=USER_DISCONNECTED decision=SKIP reason=USER_DISCONNECTED")
+    }
+
+    @Synchronized
+    fun onAutoConnectDisabled() {
+        blockedReason = null
+        terminalKey = null
+        active = null
+        attempts = 0
+        retryAtMillis = 0L
+        hostLaunchDispatched = false
+        state = if (userDisconnected) AutoConnectState.SUPPRESSED else AutoConnectState.IDLE
+        log("event=AUTO_CONNECT_DISABLED state=${state.label}")
+    }
+
+    /** A manual/USB path owns the next session; it must not inherit auto-session recovery policy. */
+    @Synchronized
+    fun onExternalSessionStart() {
+        autoStarted = false
+        active = null
+        attempts = 0
+        retryAtMillis = 0L
+        terminalKey = null
+        hostLaunchDispatched = false
+        state = if (userDisconnected) AutoConnectState.SUPPRESSED else AutoConnectState.IDLE
+        log("event=EXTERNAL_SESSION_START state=${state.label}")
     }
 
     @Synchronized
     fun onHostPermissionDenied() {
         if (!autoStarted) return
         blockedReason = AutoConnectSkipReason.PERMISSION_DENIED
+        terminalKey = active?.request?.key ?: lastStartedKey
         active = null
         attempts = 0
         retryAtMillis = 0L
+        hostLaunchDispatched = false
         state = AutoConnectState.BLOCKED
         log("event=HOST_PERMISSION_DENIED decision=BLOCKED reason=PERMISSION_DENIED")
     }
@@ -187,11 +222,13 @@ internal class AutoConnectCoordinator(
     @Synchronized
     fun onSessionActive() {
         observedActive = true
+        observedHadActiveSession = true
         active = null
         attempts = 0
         retryAtMillis = 0L
         manualConnectAtMillis = null
         blockedReason = null
+        hostLaunchDispatched = false
         if (!userDisconnected) state = AutoConnectState.ACTIVE
         log("event=SESSION_ACTIVE state=${state.label}")
     }
@@ -199,11 +236,13 @@ internal class AutoConnectCoordinator(
     @Synchronized
     fun onSessionStopped() {
         observedActive = false
+        observedHadActiveSession = false
         autoStarted = false
         active = null
         attempts = 0
         retryAtMillis = 0L
         manualConnectAtMillis = null
+        hostLaunchDispatched = false
         if (!userDisconnected) {
             state = if (blockedReason == null) AutoConnectState.IDLE else AutoConnectState.BLOCKED
         }
@@ -216,7 +255,7 @@ internal class AutoConnectCoordinator(
         observedActive = activeSession
         when {
             activeSession && !wasActive -> onSessionActive()
-            !activeSession && wasActive && !sessionPresent -> onSessionStopped()
+            !sessionPresent && observedHadActiveSession -> onSessionStopped()
         }
     }
 
@@ -226,10 +265,16 @@ internal class AutoConnectCoordinator(
      */
     @Synchronized
     fun onForegroundGone() {
-        if (state != AutoConnectState.RETRY_SCHEDULED) return
+        if (state != AutoConnectState.RETRY_SCHEDULED &&
+            state != AutoConnectState.EXHAUSTED &&
+            state != AutoConnectState.BLOCKED
+        ) return
         active = null
         attempts = 0
         retryAtMillis = 0L
+        blockedReason = null
+        terminalKey = null
+        hostLaunchDispatched = false
         state = if (userDisconnected) AutoConnectState.SUPPRESSED else AutoConnectState.IDLE
         log("event=RETRY_ABANDONED decision=SKIP reason=FOREGROUND_GONE")
     }
@@ -249,6 +294,8 @@ internal class AutoConnectCoordinator(
         active = null
         attempts = 0
         retryAtMillis = 0L
+        terminalKey = null
+        hostLaunchDispatched = false
         state = if (userDisconnected) AutoConnectState.SUPPRESSED else AutoConnectState.IDLE
         log("decision=SKIP reason=USB_AUTO_LAUNCH_ACTIVE source=${source.label}")
     }
@@ -267,14 +314,17 @@ internal class AutoConnectCoordinator(
 
         if (!conditions.enabled) {
             abandonCurrent()
+            terminalKey = null
             return skip(request, AutoConnectSkipReason.DISABLED)
         }
         if (!conditions.setupReady) {
             abandonCurrent()
             blockedReason = AutoConnectSkipReason.SETUP_FAILED
+            terminalKey = request.key
             state = AutoConnectState.BLOCKED
             return skip(request, AutoConnectSkipReason.SETUP_FAILED)
         }
+        resetTerminalForNewLaunch(request)
         blockedReason?.let { return skip(request, it) }
         if (userDisconnected) return skip(request, AutoConnectSkipReason.USER_DISCONNECTED)
         manualConnectAtMillis?.let { manualAt ->
@@ -303,9 +353,10 @@ internal class AutoConnectCoordinator(
                 when (state) {
                     AutoConnectState.RETRY_SCHEDULED ->
                         return skip(request, AutoConnectSkipReason.RETRY_SCHEDULED, retryAtMillis)
-                    AutoConnectState.WAITING_FOR_PERMISSION if
-                        nowMillis - current.startedAtMillis < staleRequestMillis ->
+                    AutoConnectState.WAITING_FOR_PERMISSION ->
                         return skip(request, AutoConnectSkipReason.WAITING_FOR_PERMISSION)
+                    AutoConnectState.STARTING if hostLaunchDispatched ->
+                        return skip(request, AutoConnectSkipReason.REQUEST_IN_FLIGHT)
                     else -> {
                         if (nowMillis - current.startedAtMillis < staleRequestMillis) {
                             return skip(request, AutoConnectSkipReason.REQUEST_IN_FLIGHT)
@@ -329,6 +380,7 @@ internal class AutoConnectCoordinator(
         }
 
         if (attempts >= maxAttempts) {
+            terminalKey = request.key
             state = AutoConnectState.EXHAUSTED
             return skip(request, AutoConnectSkipReason.RETRY_EXHAUSTED)
         }
@@ -351,7 +403,9 @@ internal class AutoConnectCoordinator(
         }
         if (!granted) {
             blockedReason = AutoConnectSkipReason.PERMISSION_DENIED
+            terminalKey = active?.request?.key ?: lastStartedKey
             active = null
+            hostLaunchDispatched = false
             state = AutoConnectState.BLOCKED
             log("decision=SKIP reason=PERMISSION_DENIED generation=$generation")
             return AutoConnectOutcome.Blocked(AutoConnectSkipReason.PERMISSION_DENIED)
@@ -379,12 +433,16 @@ internal class AutoConnectCoordinator(
         }
         if (failure != AutoConnectFailure.HOST_ACTIVITY_UNAVAILABLE) {
             blockedReason = reason
+            terminalKey = active?.request?.key ?: lastStartedKey
             active = null
+            hostLaunchDispatched = false
             state = AutoConnectState.BLOCKED
             log("decision=BLOCKED reason=${reason.label} generation=$generation error=${failure.label}")
             return AutoConnectOutcome.Blocked(reason)
         }
+        hostLaunchDispatched = false
         if (attempts >= maxAttempts) {
+            terminalKey = active?.request?.key ?: lastStartedKey
             active = null
             state = AutoConnectState.EXHAUSTED
             log("decision=RETRY_EXHAUSTED generation=$generation attempts=$attempts/$maxAttempts")
@@ -434,6 +492,13 @@ internal class AutoConnectCoordinator(
             abandonCurrent()
             return skip(request, AutoConnectSkipReason.USER_DISCONNECTED)
         }
+        if (conditions.usbAutoLaunchActive) {
+            active = null
+            attempts = 0
+            retryAtMillis = 0L
+            state = AutoConnectState.IDLE
+            return skip(request, AutoConnectSkipReason.USB_AUTO_LAUNCH_ACTIVE)
+        }
         when (conditions.session) {
             AutoConnectSessionState.ACTIVE -> {
                 abandonCurrent()
@@ -449,6 +514,7 @@ internal class AutoConnectCoordinator(
             return AutoConnectOutcome.Skip(AutoConnectSkipReason.RETRY_NOT_DUE, retryAtMillis)
         }
         if (attempts >= maxAttempts) {
+            terminalKey = request.key
             active = null
             state = AutoConnectState.EXHAUSTED
             log("decision=RETRY_EXHAUSTED generation=$generation attempts=$attempts/$maxAttempts")
@@ -484,8 +550,12 @@ internal class AutoConnectCoordinator(
         generation = 0L
         userDisconnected = false
         blockedReason = null
+        terminalKey = null
+        lastStartedKey = null
         manualConnectAtMillis = null
         observedActive = false
+        observedHadActiveSession = false
+        hostLaunchDispatched = false
         autoStarted = false
     }
 
@@ -494,6 +564,9 @@ internal class AutoConnectCoordinator(
         autoStarted = true
         attempts++
         retryAtMillis = 0L
+        terminalKey = null
+        lastStartedKey = request.key
+        hostLaunchDispatched = false
         state = AutoConnectState.STARTING
         active = ActiveRequest(request, nowMillis)
         log(
@@ -507,7 +580,34 @@ internal class AutoConnectCoordinator(
         active = null
         attempts = 0
         retryAtMillis = 0L
+        hostLaunchDispatched = false
         state = if (userDisconnected) AutoConnectState.SUPPRESSED else AutoConnectState.IDLE
+    }
+
+    private fun resetTerminalForNewLaunch(request: AutoConnectRequest) {
+        if (terminalKey == null || terminalKey == request.key) return
+        if (state != AutoConnectState.BLOCKED && state != AutoConnectState.EXHAUSTED) return
+        log("event=NEW_LAUNCH_RESET previousState=${state.label}")
+        active = null
+        attempts = 0
+        retryAtMillis = 0L
+        blockedReason = null
+        terminalKey = null
+        hostLaunchDispatched = false
+        state = AutoConnectState.IDLE
+    }
+
+    /** True while a specific request generation is still allowed to continue after a user dialog. */
+    @Synchronized
+    fun isRequestActive(generation: Long): Boolean =
+        generation == this.generation && active != null &&
+            (state == AutoConnectState.STARTING || state == AutoConnectState.WAITING_FOR_PERMISSION)
+
+    @Synchronized
+    fun onHostLaunchDispatched(generation: Long) {
+        if (generation != this.generation || active == null) return
+        hostLaunchDispatched = true
+        log("event=HOST_LAUNCH_DISPATCHED generation=$generation")
     }
 
     private fun skip(

@@ -1,8 +1,10 @@
 package com.shilapi.xcertplay
 
 import android.app.Application
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
@@ -21,8 +23,10 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowAlertDialog
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [29])
@@ -186,6 +190,170 @@ class DiPlayActivityAutoConnectTest {
         assertNull("auto-connect ignored the explicit disconnect", shadowOf(app).nextStartedActivity)
         second.pause().stop().destroy()
     }
+
+    @Test
+    fun ac26_aNewAppLaunchGetsANewRetryBudgetAfterExhaustion() {
+        DiPlayPreferences.saveAutoConnect(app, true)
+        AirPlayPersistence.saveWirelessEnabled(app, false)
+        exhaustCoordinator()
+        assertEquals(AutoConnectState.EXHAUSTED, AutoConnectCoordinator.shared.currentState())
+        shadowOf(app).clearNextStartedActivities()
+
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val started = shadowOf(app).nextStartedActivity
+        assertNotNull("a new launch stayed blocked by the previous retry budget", started)
+        assertEquals(CarPlayHostActivity::class.java.name, started.component?.className)
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac27_aNewAppLaunchRetriesAfterPermissionWasGrantedInSettings() {
+        DiPlayPreferences.saveAutoConnect(app, true)
+        AirPlayPersistence.saveWirelessEnabled(app, false)
+        val start = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("previous-launch", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRED),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        AutoConnectCoordinator.shared.postponeForPermission(start.generation)
+        AutoConnectCoordinator.shared.onPermissionResult(start.generation, granted = false)
+        assertEquals(AutoConnectState.BLOCKED, AutoConnectCoordinator.shared.currentState())
+        shadowOf(app).clearNextStartedActivities()
+
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNotNull("a previous permission denial permanently blocked auto-connect", shadowOf(app).nextStartedActivity)
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac28_pendingDialogStateSurvivesActivityRecreation() {
+        DiPlayPreferences.saveAutoConnect(app, false)
+        AirPlayPersistence.saveWirelessEnabled(app, true)
+        val first = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        setPrivateField(first.get(), "notificationTransport", false)
+        setPrivateField(first.get(), "pendingWireless", true)
+        setPrivateField(first.get(), "pendingWirelessAutoGeneration", 77L)
+        val state = Bundle()
+        first.saveInstanceState(state)
+        first.pause().stop().destroy()
+
+        val recreated = Robolectric.buildActivity(DiPlayActivity::class.java).create(state).get()
+
+        assertEquals(false, privateField(recreated, "notificationTransport"))
+        assertEquals(true, privateField(recreated, "pendingWireless"))
+        assertEquals(77L, privateField(recreated, "pendingWirelessAutoGeneration"))
+    }
+
+    @Test
+    fun ac29_phoneSelectionContinuesAnAutoRequestAndStartsTheHost() {
+        DiPlayPreferences.saveAutoConnect(app, false)
+        AirPlayPersistence.saveWirelessEnabled(app, true)
+        val adapter = app.getSystemService(BluetoothManager::class.java).adapter
+        Shadows.shadowOf(adapter).setEnabled(true)
+        val device = adapter.getRemoteDevice("AA:BB:CC:DD:EE:01")
+        Shadows.shadowOf(device).setName("iPhone")
+        Shadows.shadowOf(adapter).setBondedDevices(setOf(device))
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val start = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("wireless-launch", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRELESS),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        setPrivateField(controller.get(), "pendingWireless", true)
+        setPrivateField(controller.get(), "pendingWirelessAutoGeneration", start.generation)
+
+        controller.get().javaClass.getDeclaredMethod("choosePhone", Long::class.javaObjectType).apply {
+            isAccessible = true
+            invoke(controller.get(), start.generation)
+        }
+        Shadows.shadowOf(ShadowAlertDialog.getLatestAlertDialog()).clickOnItem(0)
+        shadowOf(Looper.getMainLooper()).idle()
+
+        val started = shadowOf(app).nextStartedActivity
+        assertNotNull("phone selection dropped the pending auto-connect request", started)
+        assertEquals(CarPlayHostActivity::class.java.name, started.component?.className)
+        assertEquals("AA:BB:CC:DD:EE:01", DiPlayPreferences.phoneAddress(app))
+        controller.pause().stop().destroy()
+    }
+
+    @Test
+    fun ac30_staleAutoRequestCannotStartAfterAutoConnectOff() {
+        DiPlayPreferences.saveAutoConnect(app, false)
+        AirPlayPersistence.saveWirelessEnabled(app, false)
+        val controller = Robolectric.buildActivity(DiPlayActivity::class.java).setup()
+        val start = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("wired-launch", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRED),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        AutoConnectCoordinator.shared.onAutoConnectDisabled()
+
+        controller.get().javaClass.getDeclaredMethod(
+            "connectWithAuto",
+            Boolean::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType,
+            Long::class.javaObjectType,
+        ).apply {
+            isAccessible = true
+            invoke(controller.get(), false, true, start.generation)
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertNull("a stale permission callback started the host", shadowOf(app).nextStartedActivity)
+        controller.pause().stop().destroy()
+    }
+
+    private fun exhaustCoordinator() {
+        var outcome = AutoConnectCoordinator.shared.request(
+            AutoConnectRequest("old-launch", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRED),
+            AutoConnectConditions(
+                enabled = true,
+                setupReady = true,
+                session = AutoConnectSessionState.NONE,
+            ),
+        ) as AutoConnectOutcome.Start
+        repeat(3) {
+            val next = AutoConnectCoordinator.shared.onHostLaunchFailed(
+                outcome.generation,
+                AutoConnectFailure.HOST_ACTIVITY_UNAVAILABLE,
+            )
+            if (it < 2) {
+                outcome = AutoConnectCoordinator.shared.retryDue(
+                    AutoConnectConditions(
+                        enabled = true,
+                        setupReady = true,
+                        session = AutoConnectSessionState.NONE,
+                    ),
+                    nowMillis = Long.MAX_VALUE,
+                ) as AutoConnectOutcome.Start
+            } else {
+                assertTrue(next is AutoConnectOutcome.Exhausted)
+            }
+        }
+    }
+
+    private fun setPrivateField(target: Any, name: String, value: Any?) {
+        target.javaClass.getDeclaredField(name).apply {
+            isAccessible = true
+            set(target, value)
+        }
+    }
+
+    private fun privateField(target: Any, name: String): Any? =
+        target.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(target)
 
     private fun setFakeSession(): (() -> Unit) -> Unit {
         val field = CarPlayBackgroundSession::class.java.getDeclaredField("stopAction").apply {

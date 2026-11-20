@@ -824,6 +824,54 @@ class CarPlayHostActivityReconnectTest {
         }
     }
 
+    @Test
+    fun turningAutoConnectOffCancelsAnAlreadyScheduledReconnect() {
+        val activity = Robolectric.buildActivity(CarPlayHostActivity::class.java).get()
+        val ownerField = field(CarPlayBackgroundSession, "owner")
+        val previousOwner = ownerField.get(CarPlayBackgroundSession)
+        val previousActive = CarPlayBackgroundSession.active
+        val previousAutoConnect = DiPlayPreferences.autoConnect(activity)
+        val handler = field(activity, "mainHandler").get(activity) as Handler
+        val reconnectRunnable = field(activity, "restartAfterReconnectDelay").get(activity) as Runnable
+        AutoConnectCoordinator.shared.resetForTests()
+
+        try {
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, activity)
+            DiPlayPreferences.saveAutoConnect(activity, true)
+            AutoConnectCoordinator.shared.request(
+                AutoConnectRequest("auto-launch", AutoConnectSource.APP_LAUNCH, AutoConnectTransport.WIRED),
+                AutoConnectConditions(
+                    enabled = true,
+                    setupReady = true,
+                    session = AutoConnectSessionState.NONE,
+                ),
+            )
+            activity.javaClass.getDeclaredMethod("reconnectAfterLoss", String::class.java).apply {
+                isAccessible = true
+                invoke(activity, "test connection loss")
+            }
+            assertNotNull(field(activity, "scheduledReconnectTicket").get(activity))
+
+            DiPlayPreferences.saveAutoConnect(activity, false)
+            AutoConnectCoordinator.shared.onAutoConnectDisabled()
+            reconnectRunnable.run()
+
+            assertNull(field(activity, "scheduledReconnectTicket").get(activity))
+            assertNull(field(activity, "scheduledReconnectReason").get(activity))
+            assertFalse(CarPlayBackgroundSession.hasPendingRestart())
+        } finally {
+            handler.removeCallbacks(reconnectRunnable)
+            field(activity, "scheduledReconnectTicket").set(activity, null)
+            field(activity, "scheduledReconnectReason").set(activity, null)
+            DiPlayPreferences.saveAutoConnect(activity, previousAutoConnect)
+            AutoConnectCoordinator.shared.resetForTests()
+            CarPlayBackgroundSession.clear()
+            ownerField.set(CarPlayBackgroundSession, previousOwner)
+            CarPlayBackgroundSession.active = previousActive
+        }
+    }
+
     private fun createSession(): AirPlaySession {
         val server = ServerSocket(0)
         val socket = try {

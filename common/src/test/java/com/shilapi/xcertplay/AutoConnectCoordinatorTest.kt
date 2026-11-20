@@ -395,6 +395,148 @@ class AutoConnectCoordinatorTest {
         assertFalse(log.contains("pair", ignoreCase = true))
     }
 
+    @Test
+    fun newLaunchKeyResetsAnExhaustedRetryBudget() {
+        exhaustRetries()
+        assertEquals(AutoConnectState.EXHAUSTED, coordinator.currentState())
+        assertEquals(
+            AutoConnectSkipReason.RETRY_EXHAUSTED,
+            (coordinator.request(request(), conditions()) as AutoConnectOutcome.Skip).reason,
+        )
+
+        now += 1_000L
+        assertTrue(coordinator.request(request(key = "next-launch"), conditions()) is AutoConnectOutcome.Start)
+    }
+
+    @Test
+    fun newLaunchKeyResetsAPermissionBlockAfterTheUserGrantsItInSettings() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        coordinator.postponeForPermission(start.generation)
+        coordinator.onPermissionResult(start.generation, granted = false)
+
+        assertEquals(
+            AutoConnectSkipReason.PERMISSION_DENIED,
+            (coordinator.request(request(), conditions()) as AutoConnectOutcome.Skip).reason,
+        )
+        now += 1_000L
+        assertTrue(coordinator.request(request(key = "after-settings"), conditions()) is AutoConnectOutcome.Start)
+    }
+
+    @Test
+    fun autoConnectOffKeepsSuppressingRecoveryForAnAutoInitiatedSession() {
+        coordinator.request(request(), conditions())
+        coordinator.onAutoConnectDisabled()
+
+        assertTrue(coordinator.suppressesHostRecovery(autoConnectEnabled = false))
+    }
+
+    @Test
+    fun externalUsbSessionClearsAutoRecoverySuppression() {
+        coordinator.request(request(), conditions())
+        assertTrue(coordinator.suppressesHostRecovery(autoConnectEnabled = false))
+
+        coordinator.onExternalSessionStart()
+
+        assertFalse(coordinator.suppressesHostRecovery(autoConnectEnabled = false))
+    }
+
+    @Test
+    fun sessionTeardownIsObservedEvenWhenActiveGoesFalseBeforePresence() {
+        coordinator.request(request(), conditions())
+        coordinator.onSessionActive()
+
+        coordinator.observeSession(activeSession = false, sessionPresent = true)
+        assertEquals(AutoConnectState.ACTIVE, coordinator.currentState())
+        coordinator.observeSession(activeSession = false, sessionPresent = false)
+
+        assertEquals(AutoConnectState.IDLE, coordinator.currentState())
+    }
+
+    @Test
+    fun retryDueYieldsToUsbAutoLaunch() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        assertTrue(
+            coordinator.onHostLaunchFailed(start.generation, AutoConnectFailure.HOST_ACTIVITY_UNAVAILABLE) is
+                AutoConnectOutcome.RetryScheduled,
+        )
+        now += 3_000L
+
+        val skipped = coordinator.retryDue(conditions(usbAutoLaunchActive = true))
+
+        assertEquals(AutoConnectSkipReason.USB_AUTO_LAUNCH_ACTIVE, (skipped as AutoConnectOutcome.Skip).reason)
+        assertEquals(AutoConnectState.IDLE, coordinator.currentState())
+    }
+
+    @Test
+    fun retryDueKeepsTheTransportSavedWithTheOriginalRequest() {
+        val start = coordinator.request(request(transport = AutoConnectTransport.WIRED), conditions()) as
+            AutoConnectOutcome.Start
+        assertTrue(
+            coordinator.onHostLaunchFailed(start.generation, AutoConnectFailure.HOST_ACTIVITY_UNAVAILABLE) is
+                AutoConnectOutcome.RetryScheduled,
+        )
+        now += 3_000L
+
+        val retry = coordinator.retryDue(conditions()) as AutoConnectOutcome.Start
+
+        assertEquals(AutoConnectTransport.WIRED, retry.request.transport)
+    }
+
+    @Test
+    fun permissionDialogDoesNotExpireIntoASecondRequest() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        coordinator.postponeForPermission(start.generation)
+        now += 60_000L
+
+        val duplicate = coordinator.request(request(), conditions())
+
+        assertEquals(
+            AutoConnectSkipReason.WAITING_FOR_PERMISSION,
+            (duplicate as AutoConnectOutcome.Skip).reason,
+        )
+        assertEquals(1, events.count { it.contains("decision=START") })
+    }
+
+    @Test
+    fun dispatchedHostLaunchIsNotDuplicatedAfterTheStaleWindow() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        coordinator.onHostLaunchDispatched(start.generation)
+        now += 60_000L
+
+        val duplicate = coordinator.request(request(), conditions())
+
+        assertEquals(AutoConnectSkipReason.REQUEST_IN_FLIGHT, (duplicate as AutoConnectOutcome.Skip).reason)
+        assertEquals(1, events.count { it.contains("decision=START") })
+    }
+
+    @Test
+    fun requestActivityEndsWhenTheSessionStarts() {
+        val start = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        assertTrue(coordinator.isRequestActive(start.generation))
+        assertFalse(coordinator.isRequestActive(start.generation + 1))
+
+        coordinator.onSessionActive()
+
+        assertFalse(coordinator.isRequestActive(start.generation))
+    }
+
+    private fun exhaustRetries() {
+        var outcome = coordinator.request(request(), conditions()) as AutoConnectOutcome.Start
+        repeat(3) {
+            val next = coordinator.onHostLaunchFailed(
+                outcome.generation,
+                AutoConnectFailure.HOST_ACTIVITY_UNAVAILABLE,
+                now,
+            )
+            if (it < 2) {
+                now += 3_000L
+                outcome = coordinator.retryDue(conditions()) as AutoConnectOutcome.Start
+            } else {
+                assertTrue(next is AutoConnectOutcome.Exhausted)
+            }
+        }
+    }
+
     private fun request(
         key: String = "launch-key",
         source: AutoConnectSource = AutoConnectSource.APP_LAUNCH,
